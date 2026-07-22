@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react';
 import pkg from './package.json';
 
 // The app version, injected at build time from package.json so the UI can paint
-// it on the first frame instead of waiting on the async Tauri `getVersion()`
-// call (which caused a version "splash" in Settings). package.json is bumped in
-// lockstep with tauri.conf.json / Cargo.toml for every release.
+// it on the first frame instead of waiting on the async native `app_version`
+// call (which caused a version "splash" in Settings). desktop/package.json is
+// the source of truth; CI stamps it into desktop/electron/package.json for the
+// packaged build.
 
 // The generated shared design tokens live outside this package
 // (../design-tokens/build), so allow Vite to serve one level up.

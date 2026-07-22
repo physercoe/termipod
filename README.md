@@ -169,7 +169,7 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 
 ### Desktop workbench (macOS · Windows · Linux)
 
-The same control plane at full size. The desktop client is a **React + TypeScript** frontend wrapped by an **Electron** shell (`desktop/`, ADR-055) — it succeeds the original Tauri shell, and both wrap the identical frontend. Connect it to your hub, or use the built-in SSH terminal standalone.
+The same control plane at full size. The desktop client is a **React + TypeScript** frontend wrapped by an **Electron** shell (`desktop/`, ADR-055) — it succeeds the original Tauri shell, retired at the M3.4 cutover. Connect it to your hub, or use the built-in SSH terminal standalone.
 
 - **Mission-control shell** — three-region layout with the fleet Navigator (hosts ▸ agents tree, live status dots), a persistent status bar, and a ⌘K command palette
 - **Transcript workbench** — live agent transcripts over SSE (tail backfill + seq cursor) with a composer, a digest tab, and run insights
@@ -180,7 +180,7 @@ The same control plane at full size. The desktop client is a **React + TypeScrip
 - **Local PTY & agent CLIs** — spawn local terminals and run agent CLIs on the desktop itself
 - **Vault & sync** — WASM vault crypto; folder sync over WebDAV, S3, and Zotero-layout backends
 - **Yours to theme** — light / dark / system themes and English / 中文 i18n throughout
-- **Self-updating installers** — macOS `.dmg`, Windows `.msi`/`.exe`, Linux `.AppImage`/`.deb` with a built-in updater; one-time migration imports your Tauri-install state and secrets
+- **Self-updating installers** — macOS `.dmg`, Windows `.exe`, Linux `.AppImage`/`.deb` with a built-in updater; a one-time migration imports state and secrets from a previous Tauri install
 
 ### Mobile app (Android · iOS · iPadOS)
 
@@ -311,7 +311,7 @@ Against mobile **SSH clients** (TermiPod also covers this layer — breakglass, 
 
 **iOS / iPadOS:** Build from source with Xcode (see below). TestFlight is on the roadmap.
 
-**Desktop (macOS / Windows / Linux):** Download the latest desktop installer from [**Releases**](https://github.com/physercoe/termipod/releases) (look for `desktop-v*` / `electron-v*` assets: `.dmg`, `.msi`/`.exe`, `.AppImage`/`.deb`). Unsigned builds: on macOS, right-click → Open the first time.
+**Desktop (macOS / Windows / Linux):** Download the latest desktop installer from [**Releases**](https://github.com/physercoe/termipod/releases) (look for `electron-v*` assets: `.dmg`, `.exe`, `.AppImage`/`.deb`). Unsigned builds: on macOS, right-click → Open the first time; on Windows, *More info → Run anyway* past SmartScreen.
 
 ### Build from source
 
@@ -384,15 +384,15 @@ run of Candidate A (nanoGPT-Shakespeare optimizer × size sweep) is
 the MVP milestone — gated on two consecutive walkthrough-clean
 device tests.
 
-**Desktop lane (`desktop-v*` / `electron-v*`, own changelog):** the workbench
-feature set (WS2–WS8: shell, navigator, transcripts, approvals, projects,
-admin, SSH terminal, packaging) is shipped on the Tauri shell, and its
-**Electron successor** has completed M1 (scaffold + hub bridging), M2 (native
-ports: PTY, SSH/SFTP + keys, folder sync, vault WASM) and M3.1–3.3
-(electron-builder packaging, electron-updater, first-boot migration from the
-Tauri install). Final cutover (M3.4) is maintainer-gated on signing certs and
-the first promoted release; the Tauri lane retires after one overlap release.
-Record: [docs/changelog-desktop.md](docs/changelog-desktop.md), plan:
+**Desktop lane (`electron-v*`, own changelog):** the workbench feature set
+(WS2–WS8: shell, navigator, transcripts, approvals, projects, admin, SSH
+terminal, packaging) now ships on **Electron** (ADR-055) — M1 (scaffold + hub
+bridging), M2 (native ports: PTY, SSH/SFTP + keys, folder sync, vault WASM),
+M3.1–3.3 (electron-builder packaging, electron-updater, first-boot migration
+from a Tauri install), and M3.4 — the Tauri lane and its `desktop-v*` releases
+are retired. Auto-update stays manual-install until the signing certs land and
+the first release is promoted onto the rolling feed. Record:
+[docs/changelog-desktop.md](docs/changelog-desktop.md), plan:
 [docs/plans/desktop-electron-migration.md](docs/plans/desktop-electron-migration.md).
 
 **Still open (post-demo):**

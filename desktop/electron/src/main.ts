@@ -31,7 +31,8 @@ import { initEvents } from './events';
 const DIST =
   process.env.TERMIPOD_DIST ??
   (app.isPackaged ? path.join(process.resourcesPath, 'dist') : path.join(__dirname, '..', '..', 'dist'));
-// The app icon (copy of src-tauri/icons/icon.png — keep in sync). Under
+// The app icon (assets/icon.png — the canonical source is assets/icon.{png,icns,ico},
+// also wired into electron-builder.yml for the packaged bundle icons). Under
 // `electron .` the dock/taskbar shows the Electron binary's default icon, not
 // ours: the BrowserWindow `icon` covers Windows/Linux, and on macOS the dock
 // icon must be set at runtime via app.dock.setIcon (the window option is

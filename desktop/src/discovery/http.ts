@@ -1,15 +1,8 @@
-import { invoke } from '../bridge';
-import { shellKind } from '../platform';
-import { proxyForConnection } from '../state/proxy';
-
-/// Shared HTTP for the discovery sources. Routed through the Rust core's
-/// `hub_request` (reqwest) under Tauri so it's CORS-free in the sandboxed webview
-/// (the same transport the hub SDK uses); the browser and Electron builds
-/// `fetch` directly — these APIs are CORS-permissive (the browser build always
-/// used fetch), and the Electron main has no `hub_request` handler by design
-/// (ADR-055 plan §3/§7). Retries HTTP 429 with backoff — Semantic Scholar's
-/// keyless pool 429s constantly, and a couple retries usually land. Only 429 is
-/// retried; other statuses fail fast.
+/// Shared HTTP for the discovery sources. The browser and Electron builds
+/// `fetch` directly — these APIs are CORS-permissive (ADR-055 plan §3/§7).
+/// Retries HTTP 429 with backoff — Semantic Scholar's keyless pool 429s
+/// constantly, and a couple retries usually land. Only 429 is retried; other
+/// statuses fail fast.
 
 interface Raw {
   status: number;
@@ -37,11 +30,6 @@ function delay(ms: number): Promise<void> {
 }
 
 async function requestOnce(url: string, headers: Record<string, string>): Promise<Raw> {
-  if (shellKind() === 'tauri') {
-    return invoke<Raw>('hub_request', {
-      req: { method: 'GET', url, headers, body: null, proxy: proxyForConnection('discovery') ?? null },
-    });
-  }
   const res = await fetch(url, { headers });
   return { status: res.status, body: await res.text() };
 }

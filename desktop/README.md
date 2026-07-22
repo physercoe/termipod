@@ -3,23 +3,26 @@
 The unified web-tech client shell — WS2 of
 [`../docs/plans/desktop-control-plane.md`](../docs/plans/desktop-control-plane.md)
 ([ADR-051](../docs/decisions/051-desktop-client-stack.md)). A **React +
-TypeScript** frontend that today ships in a **Tauri v2** shell (and also runs
-as a plain-browser build); its **Electron** successor lives in
-[`electron/`](electron/README.md) (ADR-055 — M1/M2 and the packaging,
-updater, and migration slices of M3 are done; final cutover is
-maintainer-gated).
+TypeScript** frontend that ships in an **Electron** shell
+([`electron/`](electron/README.md), [ADR-055](../docs/decisions/055-desktop-electron-shell.md))
+and also runs as a plain-browser build. The original Tauri v2 shell was retired
+at the M3.4 cutover; the frontend is shell-agnostic (every native call funnels
+through `src/bridge/`).
 
 ## Layout
 
 ```
 desktop/
   src/               React + TS frontend (browser-target, fully buildable here)
+    bridge/          runtime shell bridge — invoke/listen/updater (Electron | browser)
     hub/             typed hub SDK — transport, sse, client facade (mirrors hub_client.dart)
     state/           zustand session store
-    surfaces/        work surfaces (WS2: AuditConsole)
+    surfaces/        work surfaces
     ui/              AppShell (3-region mission control), ConnectPanel, CommandPalette
     styles/          app.css (+ generated tokens.css from design-tokens/, WS1)
-  src-tauri/         Tauri v2 Rust core (shell + hub_request proxy); compiled in CI
+  electron/          Electron shell — main/preload, native IPC ports, packaging (see electron/README.md)
+  vault-core/        Rust vault crypto (native tests)
+  vault-wasm/        vault-core compiled to WASM for the Electron shell
 ```
 
 ## Develop
@@ -32,30 +35,30 @@ npm run build      # sync tokens + typecheck + production build
 npm run typecheck  # tsc --noEmit
 ```
 
-The desktop (Tauri) shell needs a Rust toolchain + the platform webview
-libraries; it is compiled in CI (`.github/workflows/desktop.yml`) since this
-repo's dev host has no Rust. To run/bundle it locally where cargo is available:
-`npm run tauri dev` / `npm run tauri build`.
+The frontend builds fully here. The Electron shell (native binary, packaging)
+is built in CI (`.github/workflows/desktop.yml` gates it; there is no local
+Electron/Rust toolchain on this dev host). To run the shell locally where the
+Electron binary is available, see [`electron/README.md`](electron/README.md).
 
 ## Installers
 
-Bundled installers (Linux `.deb`/`.rpm`/`.AppImage`, macOS universal `.dmg`,
-Windows `.msi`/`.exe`) are produced by `.github/workflows/desktop-release.yml`:
+Bundled installers (Linux `.AppImage`/`.deb`, macOS `.dmg`, Windows `.exe`) are
+produced by `.github/workflows/desktop-electron-release.yml`:
 
-- **On demand:** GitHub → Actions → *Desktop Release* → *Run workflow*. The
-  installers appear as run artifacts.
-- **Tagged:** push a `desktop-v*` tag to also attach them to a draft GitHub
-  release.
+- **On demand:** GitHub → Actions → *Desktop Electron Release* → *Run workflow*.
+  The installers appear as run artifacts.
+- **Tagged:** push an `electron-v<version>` tag to build all OSes and create the
+  matching prerelease with installers + `latest*.yml`.
+- **Go live:** *Run workflow* with `promote=<version>` copies that release's
+  assets onto the rolling `electron-latest` generic feed (the auto-update
+  source). Promotion is the go-live switch; it is gated on signing.
 
-Builds are unsigned (fine for internal testing).
-
-## Status (WS2–WS4)
+## Status (WS2–WS8)
 
 Done:
 - **WS2** — app shell (3-region layout), typed hub SDK + fetch transport,
   fetch-based SSE reader (auth-header capable — no `EventSource` limitation), the
-  audit console, ⌘K command-palette shell, shared-token theming (WS1), and the
-  minimal Tauri Rust core (`hub_request` proxy).
+  audit console, ⌘K command-palette shell, shared-token theming (WS1).
 - **WS3** — fleet Navigator (hosts ▸ agents tree + status dots), persistent
   status bar, single-agent lifecycle (pause/resume/stop/terminate/archive).
 - **WS4** — agent transcript over the SSE stream (`tail` backfill + `seq` cursor)
@@ -73,63 +76,54 @@ Done:
   host-token rotation), destructive actions gated by a two-click confirm and
   freshly-minted tokens shown once for copy.
 - **Terminal** — breakglass **SSH terminal** ([ADR-052](../docs/decisions/052-breakglass-ssh-and-key-vault.md),
-  personal direct-SSH path): xterm.js in the webview + a `russh` PTY transport
-  in the Tauri Rust core (`src-tauri/src/ssh.rs`). Password or private-key auth;
-  keys held in memory for the session only, never sent to the hub. Desktop-only
-  (the browser build shows a "desktop app only" notice). The managed-host
-  hub-brokered PTY (D-2 Path 1 / D-6) and the zero-knowledge key vault (D-4)
-  remain future workstreams.
-- **WS8 packaging** — installers via `desktop-release.yml` (see below).
+  personal direct-SSH path): xterm.js in the renderer + a `russh` PTY transport
+  in the Electron main process (`electron/src/ipc/ssh.ts`). Password or
+  private-key auth; keys held in memory for the session only, never sent to the
+  hub. Desktop-only (the browser build shows a "desktop app only" notice).
+- **WS8 packaging** — Electron installers via `desktop-electron-release.yml`
+  (see above), with `electron-updater` auto-update and a first-boot migration
+  that imports state + secrets from a previous Tauri install.
 - **Shell** — Settings overlay (titlebar + ⌘K): **light / dark / system themes**
   (semantic CSS vars over the shared light+dark tokens, persisted) and **English /
   中文** i18n (`src/i18n/`, persisted, English fallback) across all UI strings.
 
-Next: Rust keychain + SSE proxy; multi-select bulk ops; split-pane transcripts;
-managed-host hub-brokered PTY (ADR-052 D-6) + the zero-knowledge key vault
-(D-4); host-key pinning for the personal SSH path.
-
 ## Updating
 
-The app self-updates via the Tauri updater plugin: **Settings → Software update →
-Check for updates** queries the signed `latest.json` on the latest GitHub release,
-then downloads, installs, and relaunches. Updates are **code-signed** — the public
-key is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); CI signs each
-bundle with the matching private key.
+The app self-updates via **electron-updater**: **Settings → Software update →
+Check for updates** polls the rolling `electron-latest` generic feed
+(`releases/download/electron-latest/latest*.yml`), then downloads, installs, and
+relaunches. macOS uses the `.zip` (Squirrel.Mac) alongside the `.dmg`; Windows
+uses the NSIS `Setup.exe` + `latest.yml`.
 
-**One-time signing setup** (required before the next release tag, else bundling
-fails on signing):
+**Signing.** Auto-update is gated on code-signing: macOS Squirrel rejects
+unsigned updates and Windows SmartScreen flags unsigned installers, so until the
+certs land the current build is **manual-install** (download the installer from
+the GitHub release page). CI signs when the secrets are present:
 
 ```bash
-# Set the two repo secrets from the generated keypair (values piped from files):
-gh secret set TAURI_SIGNING_PRIVATE_KEY          --repo <owner>/<repo> < private.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo <owner>/<repo> < password.txt
+# macOS Developer ID cert (base64 .p12) + password; notarization via APPLE_* :
+gh secret set CSC_LINK              --repo <owner>/<repo> < cert.p12.base64
+gh secret set CSC_KEY_PASSWORD      --repo <owner>/<repo> < cert-password.txt
+# Windows Authenticode cert (base64 .pfx) + password:
+gh secret set WIN_CSC_LINK          --repo <owner>/<repo> < win-cert.pfx.base64
+gh secret set WIN_CSC_KEY_PASSWORD  --repo <owner>/<repo> < win-cert-password.txt
 ```
 
-Releases are now **published** (not draft) so `releases/latest/download/latest.json`
-resolves. Rotating the key = regenerate (`npm run tauri signer generate`), replace
-the `pubkey` in `tauri.conf.json`, and reset both secrets.
-
-**Behind a corporate proxy.** The updater fetches from GitHub via reqwest, which
-honours proxy *environment variables* but not the Windows *system-proxy registry*
-— so on an intranet the check fails with `error sending request for url …`. The
-`system_proxy` Rust command resolves a proxy (env vars, then the Windows
-`Internet Settings` registry) and the frontend passes it to `check({ proxy })`,
-which the plugin applies to both the check and the download. **Settings → Software
-update → Proxy settings** shows what was detected and lets you override it (needed
-for PAC/auto-config scripts, which can't be read). Because the *updater itself* is
-what this fixes, the first build carrying it must be installed manually once
-(download the installer from the GitHub release page in a browser, which uses the
-system proxy); in-app updates work from then on.
+**Behind a corporate proxy.** The updater and the sync/download transports honour
+a system proxy: the Electron main resolves it (`system_proxy` — env vars, then
+`session.resolveProxy`, which reads the Windows registry / PAC), and the frontend
+passes it to `checkUpdate({ proxy })` and the sync backends (undici `ProxyAgent`).
+**Settings → Software update → Proxy settings** shows what was detected and lets
+you override it. The first build carrying an update fix must be installed manually
+once; in-app updates work from then on (once signing is live).
 
 ## Notes
 
-- **Hub calls route through the Rust core under Tauri.** The webview origin is
-  `tauri://localhost`, so a direct `fetch` to the hub is cross-origin and the hub
-  sends no CORS headers ("Failed to fetch"). `HubTransport` therefore proxies REST
-  through `hub_request`, and `streamSse` proxies the live SSE streams through
-  `hub_sse_open`/`hub_sse_close` (the core pipes bytes back as `hub-sse` events).
-  The plain-browser build still uses `fetch` directly. This also keeps the bearer
-  token out of the webview (keychain storage is a later WS8 item).
+- **Hub calls fetch directly under Electron.** The Electron main injects the
+  bearer token via `session.webRequest` and applies any system proxy, so
+  `HubTransport` and `streamSse` `fetch` the hub directly from the renderer (no
+  Rust proxy). The plain-browser build also uses `fetch`. (Native command calls
+  route through the preload bridge `window.__ELECTRON_BRIDGE__`; see `src/bridge/`.)
 - **The shell renders without a connection.** The connect form is a dismissable
   overlay; the SSH terminal and Settings work offline, and hub-backed surfaces
   show empty states until you connect.

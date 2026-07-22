@@ -243,7 +243,7 @@ Hub 本体作为一个独立的 Go 守护进程随 `hub/` 目录提供，可用 
 
 **iOS / iPadOS：** 请用 Xcode 从源码构建（见下文）。TestFlight 分发尚在规划中。
 
-**桌面（macOS / Windows / Linux）：** 从 [**Releases**](https://github.com/physercoe/termipod/releases) 下载最新的桌面安装包（找 `desktop-v*` / `electron-v*` 资源：`.dmg`、`.msi`/`.exe`、`.AppImage`/`.deb`）。未签名构建：macOS 首次打开请右键 → 打开。
+**桌面（macOS / Windows / Linux）：** 从 [**Releases**](https://github.com/physercoe/termipod/releases) 下载最新的桌面安装包（找 `electron-v*` 资源：`.dmg`、`.exe`、`.AppImage`/`.deb`）。未签名构建：macOS 首次打开请右键 → 打开；Windows 请在 SmartScreen 上选择“更多信息 → 仍要运行”。
 
 ### 从源码构建
 
@@ -314,13 +314,13 @@ Demo 路径已借助免 GPU 的彩排工具（`seed-demo` + `mock-trainer`）
 sweep）的硬件运行是 MVP 里程碑——其触发条件是连续两次设备演练
 均无阻断性缺陷。
 
-**桌面线（`desktop-v*` / `electron-v*`，独立 changelog）：** 工作台功能集
+**桌面线（`electron-v*`，独立 changelog）：** 工作台功能集
 （WS2–WS8：外壳、Navigator、transcript、审批、Projects、管理、SSH 终端、
-打包）已在 Tauri 外壳上发布；其 **Electron 继任者**已完成 M1（脚手架 +
-Hub 桥接）、M2（原生能力移植：PTY、SSH/SFTP 与密钥、目录同步、vault
-WASM）以及 M3.1–3.3（electron-builder 打包、electron-updater、自 Tauri
-安装的首次启动迁移）。最终切换（M3.4）需维护者签名证书与首个正式发布，
-Tauri 线将在一个重叠发布期后退役。记录见
+打包）现已运行在 **Electron** 外壳上（ADR-055）——M1（脚手架 + Hub 桥接）、
+M2（原生能力移植：PTY、SSH/SFTP 与密钥、目录同步、vault WASM）、M3.1–3.3
+（electron-builder 打包、electron-updater、自 Tauri 安装的首次启动迁移）以及
+M3.4——Tauri 线及其 `desktop-v*` 发布已退役。自动更新在签名证书就绪并首个
+版本晋级到滚动源之前，仍需手动安装。记录见
 [docs/changelog-desktop.md](docs/changelog-desktop.md)，计划见
 [docs/plans/desktop-electron-migration.md](docs/plans/desktop-electron-migration.md)。
 

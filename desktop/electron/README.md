@@ -1,14 +1,14 @@
 # TermiPod Electron shell (ADR-055 M1)
 
-The Electron shell that will replace the Tauri shell (see
-[`docs/plans/desktop-electron-migration.md`](../../docs/plans/desktop-electron-migration.md)).
-It wraps the **same** Vite build the Tauri shell ships (`../dist`); the frontend
-talks to it through the runtime-agnostic `../src/bridge/`. Injecting
+The Electron shell — the sole desktop shell since the M3.4 cutover retired Tauri
+(see [`docs/plans/desktop-electron-migration.md`](../../docs/plans/desktop-electron-migration.md)).
+It wraps the **same** Vite build produced under `../dist`; the frontend talks to
+it through the runtime-agnostic `../src/bridge/`. Injecting
 `window.__ELECTRON_BRIDGE__` from the preload is what flips that bridge from its
 browser degrade path onto the Electron path — no frontend call site changes.
 
 This is a **self-contained package** (its own `package.json` / `node_modules`)
-so the Tauri release build's `npm ci` in `desktop/` never installs Electron.
+so the frontend build's `npm ci` in `desktop/` never installs Electron.
 
 ## Layout
 
@@ -18,7 +18,7 @@ src/preload.ts     sandboxed bridge → window.__ELECTRON_BRIDGE__ {invoke, list
 src/appscheme.ts   app:// privileged scheme serving ../dist (secure origin + CSP)
 src/events.ts      main→renderer event fan-out + subscribe-gate bookkeeping
 src/ipc/dispatch.ts  command handler map = the allowlist (successor of capabilities/default.json)
-assets/icon.png    app icon for the dev dock/window (copy of src-tauri/icons/icon.png)
+assets/icon.{png,icns,ico}  app icon — png for the dev dock/window, icns/ico wired into electron-builder.yml for the packaged bundles
 src/ipc/platform.ts  platform_os / os_build_number / open_external / reveal_path / …
 src/ipc/migration.ts migration_read (own userData, falling back to the Tauri
                    app-data dir for the one-time cross-install handoff, #353) /
@@ -242,11 +242,11 @@ release's assets onto the rolling `electron-latest` release — the fixed
 Auto-update N→N+1 verifies as: install version N, promote N+1, check for
 updates in Settings. Rollback = promote the previous version again.
 
-**4. Retire the Tauri lane** after one overlap release: stop cutting
-`desktop-v*` tags; `desktop-release.yml` can be removed once no supported Tauri
-build remains. Tauri users migrate by downloading an installer from the
-releases page (the automated `handoff.json` prompt was dropped — see M3.4
-above).
+**4. Retire the Tauri lane — DONE (2026-07-22).** `desktop/src-tauri/`, the
+`desktop-release.yml` / `desktop-v*` lane, the `tauri` CI job, and the
+`@tauri-apps/*` frontend deps are removed; `../src/bridge/` is Electron +
+browser only. Tauri users migrate by downloading an installer from the releases
+page (the automated `handoff.json` prompt was dropped — see M3.4 above).
 
 > **Native addons need an Electron-ABI rebuild for the *dev* shell.**
 > `@napi-rs/keyring` is Node-API (ABI-stable, works as-is), but `node-pty` builds

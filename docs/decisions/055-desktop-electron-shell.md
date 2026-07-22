@@ -1,7 +1,9 @@
 # 055. Desktop shell — Electron, superseding the Tauri OS-webview
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-21) — supersedes [ADR-051](051-desktop-client-stack.md)
+> **Status:** Accepted (2026-07-22) — supersedes [ADR-051](051-desktop-client-stack.md).
+> The Tauri shell and its `desktop-v*` release lane were retired at the M3.4
+> cutover; the Electron shell is the sole desktop shell.
 > **D-1 only** (the shell). ADR-051's D-2–D-5 (React + TypeScript, TanStack
 > Query + SSE manager, the DTCG token pipeline, REST+SSE-never-MCP) are
 > **unchanged** and remain in force. Planned in

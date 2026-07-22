@@ -434,10 +434,6 @@ const en: Dict = {
   'update.downloading': 'Downloading…',
   'update.restarting': 'Installing — the app will restart…',
   'update.error': 'Update failed:',
-  'update.handoffAvailable': 'A new version of TermiPod is available:',
-  'update.handoffNote':
-    'This release ships as a new installer. Download it to upgrade — your data and settings carry over.',
-  'update.download': 'Download',
   'update.proxy.networkHint':
     'Can’t reach the update server. If you’re on a network that needs a proxy, set one in Settings → Network.',
   'vault.title': 'Vault (sync)',
@@ -1769,9 +1765,6 @@ const zh: Dict = {
   'update.downloading': '下载中…',
   'update.restarting': '安装中 — 应用即将重启…',
   'update.error': '更新失败：',
-  'update.handoffAvailable': 'TermiPod 有新版本可用：',
-  'update.handoffNote': '此版本以全新安装包发布。下载即可升级 — 你的数据和设置会自动保留。',
-  'update.download': '下载',
   'update.proxy.networkHint': '无法连接更新服务器。若你的网络需要代理，请在“设置 → 网络”中设置。',
   'vault.title': '保险库（同步）',
   'vault.blurb': '零知识保险库可在多设备间同步已保存的连接和 SSH 密钥 — 在本地加密封装；Hub 仅保存密文。实验性功能。',

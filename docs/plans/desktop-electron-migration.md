@@ -1,14 +1,17 @@
 # Desktop Electron migration — M0–M4
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-21) — executes
+> **Status:** In progress (M0–M3.4 done; M4 underway, 2026-07-22) — executes
 > [ADR-055](../decisions/055-desktop-electron-shell.md) (Electron shell,
-> superseding ADR-051 D-1). Grounded in a full inventory of the Tauri
-> coupling at desktop v0.3.85: 84 Rust commands / 5,388 lines across 18
-> modules; 71 commands invoked from the frontend at ~85 string-literal call
-> sites; 10 event channels; 1 custom URI scheme; 3 plugins.
+> superseding ADR-051 D-1). The M3.4 cutover is complete: the Tauri shell,
+> `src-tauri/`, the `desktop-v*` release lane, and the `@tauri-apps` frontend
+> dependencies are removed; the frontend bridge is Electron + browser only.
+> Grounded in a full inventory of the Tauri coupling at desktop v0.3.85: 84
+> Rust commands / 5,388 lines across 18 modules; 71 commands invoked from the
+> frontend at ~85 string-literal call sites; 10 event channels; 1 custom URI
+> scheme; 3 plugins.
 > **Audience:** contributors · principal
-> **Last verified vs code:** desktop v0.3.85 (`71e0e328`)
+> **Last verified vs code:** desktop CalVer `2026.722.252` (Tauri retirement)
 
 **TL;DR.** A strangler migration in five phases. **M0** (inside the current
 Tauri app) hides the runtime behind a `src/bridge/` adapter and starts
@@ -136,13 +139,19 @@ vectors.
 - **Migration on first boot:** import `state-v1.json`; keychain entries
   either read in place (napi keyring spike succeeded) or migrated once;
   draw.io war re-downloaded or copied from the old app-data dir.
-- **Handoff:** a final Tauri release (M0's updater hook) offers the Electron
-  installer as the update; Tauri lane in CI is retired after one overlap
-  release.
+- **Handoff:** ~~a final Tauri release offers the Electron installer as the
+  update~~ — **dropped** (see "Handoff prompt dropped" below); the Tauri lane
+  was migrated by manual download instead.
+- **Tauri retirement (M3.4, done 2026-07-22):** `desktop/src-tauri/`, the
+  `desktop-release.yml` / `desktop-v*` lane, the `tauri` CI job, and the
+  `@tauri-apps/*` frontend dependencies are removed; `src/bridge/` is Electron +
+  browser only; `handoff.ts` is deleted. Packaged-bundle icons moved to
+  `electron/assets/`. The Electron shell is the sole desktop shell.
 
 **Acceptance:** clean-install and upgrade-install both land with hub session,
 vault, library, documents, and draw.io intact; auto-update round-trips
-(N → N+1) on all three OSes; old Tauri build updates into the Electron build.
+(N → N+1) on all three OSes; state + secrets from a previous Tauri install are
+imported on first boot.
 
 **Cutover decisions (2026-07-21, at M3 review):**
 
@@ -161,7 +170,8 @@ vault, library, documents, and draw.io intact; auto-update round-trips
 - **Handoff prompt dropped:** `handoff.json`'s URL (shipped in Tauri builds
   since M0.3) is baked to `releases/latest`, which mobile owns, so the prompt
   can never fire; the Tauri install base is small enough to migrate by manual
-  download from the releases page. `checkHandoff()` stays dormant.
+  download from the releases page. (`handoff.ts` was deleted at the M3.4
+  cutover.)
 
 ## 6. M4 — Chromium dividend (workaround paydown)
 
@@ -179,19 +189,20 @@ Now-deletable per-engine debt, each with a verification:
 | Native context menu (WebView2 default gone; only custom menus worked) | pop a native Cut/Copy/Paste/Select-All for editable fields + selections | **DONE** — `ipc/menu.ts` (role-based) + a renderer bubble-phase `contextmenu` fallback (`nativeContextMenu.ts`) gated on `!e.defaultPrevented` so in-app custom menus win, no double menus; Electron-only, inert under Tauri |
 | Sync proxy not applied (webdav/folder/s3/zotero/drawio accepted `proxy` but ignored it) | route every request through a proxy-aware fetch | **DONE** — `ipc/net.ts` `proxyFetch` (undici `ProxyAgent` when set, direct global `fetch` otherwise; lazy-loaded, socks→direct); `proxy` threaded through all four transports. Additive (direct path unchanged); pairs with the Chromium `session.resolveProxy` detection fix |
 
-**M4 execution status (2026-07-21).** M4 runs *after* the M3 cutover in the
-plan order, but the Windows-WebGL win (row 1) is a pure additive,
-`shellKind()==='electron'`-gated change with a robust fallback ladder (WebGL →
-canvas → DOM), so it lands now without touching the still-shipping Tauri build.
-The remaining rows split into three buckets, none of which is safe to land
-before the two M4 preconditions hold — **(a) the Tauri lane has retired** (M3
-§5 handoff), and **(b) Chromium behaviour is verified on a real device build**
-(this repo's CI has no interactive Electron run yet):
+**M4 execution status (updated 2026-07-22).** M4 runs *after* the M3 cutover in
+the plan order. Precondition **(a) the Tauri lane has retired** is now **met**
+(M3.4, done 2026-07-22) — so the guard-deletions are no longer blocked by a
+still-shipping WebView2 build; they remain gated only on **(b) Chromium
+behaviour verified on a real device build** (this repo's CI has no interactive
+Electron run yet). The Windows-WebGL win (row 1) already landed as a pure
+additive, `shellKind()==='electron'`-gated change with a robust fallback ladder
+(WebGL → canvas → DOM):
 
 - **Guard-deletions** (PDF blob-iframe, `setPointerCapture`, clipboard
-  try/catch, WebView2 dialog shims): the guards they'd remove are load-bearing
-  for the Tauri/WebView2 shell that *still ships*. Deleting them now would
-  regress the live product and cannot be verified headless. Gated on (a)+(b).
+  try/catch, WebView2 dialog shims): with the Tauri/WebView2 shell retired,
+  these guards no longer protect a live product — but deleting them still needs
+  device verification that the Chromium behaviour they compensated for is
+  actually clean. Gated on (b).
 - **base64→bytes IPC** (SSH/SFTP/blob/PCM): the renderer call path is shared
   across shells, so byte transfer needs the bridge to negotiate per-shell
   encoding (§7 row 4) — a family-by-family refactor, not a flag flip. PTY is

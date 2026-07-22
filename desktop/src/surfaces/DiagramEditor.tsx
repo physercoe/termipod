@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { isShell, shellKind } from '../platform';
+import { isShell } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { proxyForConnection } from '../state/proxy';
 
@@ -18,14 +18,11 @@ interface DrawioStatus {
   version: string;
 }
 
-// The `http://scheme.localhost/` form is how Tauri v2 maps a custom scheme on
-// Windows (WebView2); every other engine — including Electron on Windows —
-// resolves the scheme URL itself, so the mapping must key on the shell, not
-// the OS.
+// Electron resolves the custom `drawio://` scheme itself on every OS (the
+// main process registers it as a privileged scheme), so the iframe loads the
+// offline draw.io webapp directly from it.
 function drawioBase(): string {
-  return shellKind() === 'tauri' && /Windows/i.test(navigator.userAgent)
-    ? 'http://drawio.localhost/'
-    : 'drawio://localhost/';
+  return 'drawio://localhost/';
 }
 
 export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {

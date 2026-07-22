@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { appVersion, checkUpdate, relaunchApp, isShell, type Update } from '../bridge';
 import { useT } from '../i18n';
-import { openExternal } from '../platform';
-import { checkHandoff, type Handoff } from '../state/handoff';
 import { proxyForConnection } from '../state/proxy';
 
 function msg(err: unknown): string {
@@ -19,13 +17,12 @@ type State =
   | { s: 'checking' }
   | { s: 'uptodate' }
   | { s: 'available'; update: Update }
-  | { s: 'handoff'; handoff: Handoff }
   | { s: 'downloading'; pct: number | null }
   | { s: 'installing' }
   | { s: 'error'; msg: string; network: boolean };
 
-/// Settings → Software update (ADR-052 sibling; WS8). Uses the Tauri updater
-/// plugin to check the signed latest.json on the GitHub release, then
+/// Settings → Software update (ADR-052 sibling; WS8). Uses the Electron
+/// updater (electron-updater) to check the signed release feed, then
 /// download + install + relaunch. Desktop-only; the browser build renders
 /// nothing (no native core). The proxy is the shared Network-tab config
 /// (`proxyForConnection('update')`) — no longer configured inline here.
@@ -49,13 +46,6 @@ export function UpdateSection(): JSX.Element | null {
     setSt({ s: 'checking' });
     const proxy = proxyForConnection('update');
     try {
-      // Handoff wins: at the M3 cutover the successor is the Electron build, not
-      // a normal Tauri update, so offer it as a download before the update check.
-      const handoff = await checkHandoff();
-      if (handoff !== null) {
-        setSt({ s: 'handoff', handoff });
-        return;
-      }
       const update = await checkUpdate(proxy ? { proxy } : undefined);
       setSt(update === null ? { s: 'uptodate' } : { s: 'available', update });
     } catch (e) {
@@ -104,19 +94,6 @@ export function UpdateSection(): JSX.Element | null {
             <span className="spacer" />
             <button className="primary" onClick={() => void install(st.update)}>
               {t('update.install')}
-            </button>
-          </div>
-        </div>
-      ) : st.s === 'handoff' ? (
-        <div className="update-avail">
-          <div>
-            {t('update.handoffAvailable')} <strong>{st.handoff.version}</strong>
-          </div>
-          <pre className="mono update-notes">{st.handoff.notes || t('update.handoffNote')}</pre>
-          <div className="setting-row">
-            <span className="spacer" />
-            <button className="primary" onClick={() => openExternal(st.handoff.url)}>
-              {t('update.download')}
             </button>
           </div>
         </div>

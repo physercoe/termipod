@@ -1,7 +1,7 @@
 # electron-builder config (ADR-055 M3.1) — packages the Electron shell into
 # installers for the three desktop OSes. There is no local Electron/native
 # toolchain here, so CI (.github/workflows/desktop-electron-release.yml) is the
-# packaging gate, mirroring how desktop-release.yml gates the Tauri bundles.
+# packaging gate.
 #
 # Inputs assembled by the workflow before this runs:
 #   - out/*.cjs         the esbuild'd main + preload (npm run build)
@@ -68,7 +68,7 @@ publish:
 
 mac:
   category: public.app-category.developer-tools
-  icon: ../src-tauri/icons/icon.icns
+  icon: assets/icon.icns
   # Deterministic, space-free names so the updater feed URLs are predictable
   # (M3.4). Single-arch per OS; macOS is arm64-only BY DECISION (2026-07-21):
   # the Intel-Mac population is zero, so plan §5's universal dmg was dropped
@@ -85,7 +85,7 @@ mac:
   gatekeeperAssess: false
 
 win:
-  icon: ../src-tauri/icons/icon.ico
+  icon: assets/icon.ico
   artifactName: ${productName}-Setup-${version}.${ext}
   target:
     - nsis
@@ -96,7 +96,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 
 linux:
-  icon: ../src-tauri/icons/icon.png
+  icon: assets/icon.png
   category: Development
   maintainer: TermiPod contributors <noreply@users.noreply.github.com>
   artifactName: ${productName}-${version}.${ext}

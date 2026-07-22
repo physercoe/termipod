@@ -11,15 +11,15 @@ release. One section per version, newest first. Format follows
 Deprecated / Removed. Entries link back to the release commit for forensic
 detail.
 
-The desktop app (ADR-050/052/055 — React + TypeScript control plane, Tauri
-core migrating to Electron) has its **own version scheme**, independent of the
-mobile/hub lane recorded in [`changelog.md`](changelog.md) (`v1.0.x`). Release
-lanes:
+The desktop app (ADR-050/052/055 — React + TypeScript control plane on an
+Electron shell) has its **own version scheme**, independent of the mobile/hub
+lane recorded in [`changelog.md`](changelog.md) (`v1.0.x`). Release lane:
 
-- **Tauri desktop** — `desktop-v*` tags (the shipping shell; retiring after the
-  Electron cutover).
-- **Electron desktop** — `electron-v*` prerelease tags (ADR-055 migration; the
-  future shell). The `electron-latest` feed is the go-live switch.
+- **Electron desktop** — `electron-v*` prerelease tags (ADR-055). The
+  `electron-latest` feed is the go-live switch.
+
+The former **Tauri desktop** lane (`desktop-v*` tags) was retired at the M3.4
+cutover (2026-07-22); its releases remain in this record below.
 
 **Version scheme.** From `2026.722.211` onward the desktop uses date-based
 **CalVer `YYYY.MMDD.HHMM`** (UTC build time — e.g. `2026.722.211` = 2026-07-22
@@ -38,6 +38,28 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## Unreleased · Electron
+
+**Tauri lane retired (ADR-055 M3.4).**
+
+### Removed
+- **The Tauri shell is gone.** Deleted `desktop/src-tauri/` (the 5.4k-line Rust
+  core), the `desktop-release.yml` / `desktop-v*` release lane, and the `tauri`
+  CI job. Removed the `@tauri-apps/api`, `@tauri-apps/plugin-process`,
+  `@tauri-apps/plugin-updater`, and `@tauri-apps/cli` frontend dependencies.
+- **Tauri→Electron updater handoff** (`state/handoff.ts` + the Settings handoff
+  prompt) removed — the small Tauri install base migrates by manual download.
+
+### Changed
+- **Frontend bridge is Electron + browser only.** `src/bridge/` no longer
+  imports the Tauri SDK; `ShellKind` narrows to `electron | browser` and the IPC
+  / event / updater types are defined locally to match the Electron preload.
+  Removed the now-dead Tauri branches from the hub transport, SSE reader,
+  discovery HTTP, and the draw.io scheme mapping (all take the direct-`fetch` /
+  Electron path).
+- **Packaged-bundle icons** moved from `src-tauri/icons/` to `electron/assets/`
+  (`icon.icns` / `icon.ico` / `icon.png`), rewired in `electron-builder.yml`.
 
 ## 2026.722.252 — 2026-07-22 · Electron
 

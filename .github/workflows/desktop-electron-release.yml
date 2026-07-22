@@ -2,17 +2,16 @@ name: Desktop Electron Release
 
 # ADR-055 M3.1/M3.4 packaging + release gate. Builds the Electron shell into
 # installers for the three desktop OSes. There is no local Electron/native
-# toolchain, so — like desktop-release.yml does for Tauri — CI is the packaging
-# gate.
+# toolchain, so CI is the packaging gate.
 #
-# Release/tag scheme (M3.4 — this repo hosts THREE release lanes and GitHub's
-# `releases/latest` belongs to the mobile lane, whose in-app checker reads it):
+# Release/tag scheme (M3.4 — this repo hosts TWO release lanes and GitHub's
+# `releases/latest` belongs to the mobile lane, whose in-app checker reads it.
+# The former Tauri lane — `desktop-v*` tags — was retired at the M3.4 cutover):
 #   - mobile:  `v*` tags, published releases — own `releases/latest`.
-#   - Tauri:   `desktop-v*` tags (retiring after cutover).
 #   - Electron: `electron-v*` tags. The release is created ON the pushed tag
 #     (never a new tag — a new `v*` tag would fire the mobile workflows) and is
 #     marked PRERELEASE so it can never capture `releases/latest` from the
-#     mobile checker (or the Tauri updater during the overlap).
+#     mobile checker.
 # The auto-update feed is therefore NOT the GitHub provider (it resolves via
 # `releases/latest`): packaged apps poll the `generic` feed at
 # `releases/download/electron-latest/` — a rolling prerelease that the

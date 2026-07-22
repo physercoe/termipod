@@ -293,6 +293,13 @@ auto-update; phone↔desktop deep-link handoff; host-key pinning; the managed-ho
 hub-brokered PTY relay + relay-auth (ADR-052 D-6) and the **zero-knowledge key
 vault** (D-4) as separate hub/crypto workstreams.
 
+> **Superseded (shell):** the Tauri packaging described above was the state at
+> 2026-07-05. The desktop shell later moved to **Electron** ([ADR-055](../decisions/055-desktop-electron-shell.md));
+> as of the M3.4 cutover (2026-07-22) the Tauri shell, `desktop-release.yml`, and
+> the `desktop-v*` lane are retired — packaging is now
+> `.github/workflows/desktop-electron-release.yml`. The feature record stands;
+> only the shell/lane changed.
+
 **Sequencing:** WS0 → WS1 → WS2 → (WS3 ‖ WS4) → WS5 → WS6 → WS7 → WS8. WS1 before
 any UI (parity risk); WS2 is the spine everything hangs on; WS3/WS4 are the
 observe core and can parallelize; WS5 is the decide moat.

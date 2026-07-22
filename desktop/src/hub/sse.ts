@@ -1,20 +1,7 @@
-import { invoke, listen, type UnlistenFn } from '../bridge';
-import { shellKind } from '../platform';
-import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 
 export interface SseHandle {
   close(): void;
-}
-
-/// Decode a base64 chunk (from the Rust `hub-sse` event) to bytes. The core
-/// base64-encodes each chunk so it doesn't cross IPC as a multi-KB JSON number
-/// array (see `SseChunk.b64` in lib.rs).
-function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-  return out;
 }
 
 export interface SseOptions {
@@ -37,18 +24,16 @@ export interface SseOptions {
 /// Parses `data:` frames, ignores `: ping` keepalives, advances the `since`
 /// cursor off each event's `seq`, and reconnects with backoff.
 ///
-/// Browser build: `fetch` streaming. Tauri build: the Rust core streams the
-/// bytes (`hub_sse_open` → `hub-sse` events) because the webview `fetch` is a
-/// cross-origin/no-CORS call the hub rejects — the frontend still owns frame
-/// parsing, the cursor, and reconnect.
+/// Both the Electron and browser builds read the stream directly in the renderer
+/// with headers (under Electron the bearer + any system proxy are applied by the
+/// main process; ADR-055 plan §7 row 1).
 export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHandle {
   const controller = new AbortController();
   let closed = false;
   let since = opts.since;
-  let tauriCleanup: (() => void) | null = null;
 
   const cursorField = opts.cursorField ?? 'seq';
-  // Recreated per connection (see readVia*): a stream cut mid-codepoint would
+  // Recreated per connection (see readViaFetch): a stream cut mid-codepoint would
   // otherwise leave partial state that mangles the first character of the next.
   let decoder = new TextDecoder();
   let buf = '';
@@ -107,57 +92,13 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
     }
   }
 
-  async function readViaTauri(): Promise<void> {
-    buf = '';
-    decoder = new TextDecoder();
-    const id = await invoke<string>('hub_sse_open', {
-      req: { url: buildUrl(), token: cfg.token, proxy: proxyForConnection('hub') ?? null },
-    });
-    if (closed) {
-      void invoke('hub_sse_close', { id });
-      return;
-    }
-    await new Promise<void>((resolve, reject) => {
-      let unData: UnlistenFn | null = null;
-      let unEnd: UnlistenFn | null = null;
-      const cleanup = (): void => {
-        unData?.();
-        unEnd?.();
-        tauriCleanup = null;
-      };
-      tauriCleanup = () => {
-        cleanup();
-        void invoke('hub_sse_close', { id });
-        resolve();
-      };
-      void listen<{ id: string; b64: string }>('hub-sse', (e) => {
-        if (e.payload.id === id && !closed) feed(b64ToBytes(e.payload.b64));
-      }).then((u) => {
-        unData = u;
-        if (closed) u();
-      });
-      void listen<{ id: string; error?: string | null }>('hub-sse-end', (e) => {
-        if (e.payload.id !== id) return;
-        cleanup();
-        if (e.payload.error) reject(new Error(e.payload.error));
-        else resolve();
-      }).then((u) => {
-        unEnd = u;
-      });
-    });
-  }
-
   async function run(): Promise<void> {
     const BASE = 1000;
     let backoff = BASE;
     while (!closed) {
       let errored = false;
       try {
-        // Only the Tauri shell needs the Rust `hub_sse_*` proxy (EventSource
-        // can't set an auth header). Electron and the browser read the stream
-        // directly in the renderer with headers (ADR-055 plan §7 row 1).
-        if (shellKind() === 'tauri') await readViaTauri();
-        else await readViaFetch();
+        await readViaFetch();
       } catch (err) {
         if (closed) break;
         errored = true;
@@ -180,7 +121,6 @@ export function streamSse(cfg: HubConfig, path: string, opts: SseOptions): SseHa
     close(): void {
       closed = true;
       controller.abort();
-      tauriCleanup?.();
     },
   };
 }

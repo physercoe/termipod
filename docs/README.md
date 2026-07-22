@@ -57,8 +57,8 @@ first — it defines what every doc must declare and where it lives.
 - [`changelog.md`](changelog.md) — mobile app + hub release record
   (`v1.0.x`), Keep-a-Changelog format, one section per tagged release.
 - [`changelog-desktop.md`](changelog-desktop.md) — the **desktop
-  workbench** release record (its own version scheme; `desktop-v*` /
-  `electron-v*` lanes).
+  workbench** release record (its own version scheme; `electron-v*` lane —
+  the former `desktop-v*` Tauri lane was retired at the M3.4 cutover).
 
 **I'm exploring an open question.**
 - [`discussions/`](discussions/) — pre-decision exploration, mixed

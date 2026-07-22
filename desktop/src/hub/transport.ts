@@ -1,6 +1,3 @@
-import { invoke } from '../bridge';
-import { shellKind } from '../platform';
-import { proxyForConnection } from '../state/proxy';
 import type { HubConfig } from './config';
 import { HubApiError } from './errors';
 
@@ -16,12 +13,9 @@ interface RawResponse {
 /// HubTransport. Injects the bearer token, builds team-scoped paths, and maps
 /// non-2xx responses to HubApiError (incl. teamGate 403 on scope≠path).
 ///
-/// Under Tauri the request is routed through the Rust core's `hub_request`
-/// command (reqwest) — the webview's `fetch` would be a cross-origin call the
-/// hub rejects (no CORS) and also exposes the token to JS. The browser and
-/// Electron builds `fetch` the hub directly (under Electron the bearer is
-/// injected by the main process via `session.webRequest`; ADR-055 plan §7),
-/// so only the Tauri shell takes the proxy path.
+/// The Electron and browser builds `fetch` the hub directly (under Electron the
+/// bearer is injected by the main process via `session.webRequest`, and any
+/// system proxy is applied there; ADR-055 plan §7).
 export class HubTransport {
   constructor(private readonly cfg: HubConfig) {}
 
@@ -54,20 +48,13 @@ export class HubTransport {
     return u.toString();
   }
 
-  /** The one place the two transports diverge: Rust core vs webview fetch. */
   private async raw(
     method: string,
     url: string,
     headers: Record<string, string>,
     bodyText?: string,
   ): Promise<RawResponse> {
-    if (shellKind() === 'tauri') {
-      return await invoke<RawResponse>('hub_request', {
-        req: { method, url, headers, body: bodyText ?? null, proxy: proxyForConnection('hub') ?? null },
-      });
-    }
-    // Time out a hung request instead of pending forever (the Tauri path is
-    // bounded in the Rust core; this covers the plain-browser build).
+    // Time out a hung request instead of pending forever.
     const res = await fetch(url, { method, headers, body: bodyText, signal: AbortSignal.timeout(30000) });
     return { status: res.status, body: await res.text() };
   }
@@ -126,19 +113,10 @@ export class HubTransport {
 
   /** GET raw binary bytes (e.g. `/v1/blobs/{sha}` image/pdf blobs) as base64 plus
    * the response content-type. The JSON/text transports would corrupt non-UTF-8
-   * bytes, so under Tauri this routes through the Rust core's `hub_request_bytes`
-   * (reqwest → base64); the browser and Electron builds read the ArrayBuffer
-   * directly. */
+   * bytes; the browser and Electron builds read the ArrayBuffer directly. */
   async getBytes(path: string): Promise<{ mime: string; base64: string }> {
     const url = this.buildUrl(path);
     const headers = this.headers(true);
-    if (shellKind() === 'tauri') {
-      const res = await invoke<{ status: number; mime: string; base64: string }>('hub_request_bytes', {
-        req: { method: 'GET', url, headers, body: null, proxy: proxyForConnection('hub') ?? null },
-      });
-      if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, res.base64);
-      return { mime: res.mime, base64: res.base64 };
-    }
     const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(120000) });
     if (res.status < 200 || res.status >= 300) throw new HubApiError(res.status, await res.text());
     const mime = res.headers.get('content-type') ?? '';

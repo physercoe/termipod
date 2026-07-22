@@ -13,6 +13,7 @@
 /// by M3 packaging) and a load failure surfaces as a rejected invoke rather than
 /// a boot crash. `TERMIPOD_VAULT_WASM` overrides the path for packaging.
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Handler } from './dispatch';
 
 /// The wasm-bindgen exports (nodejs target). Loaded via a computed path, so this
@@ -43,8 +44,14 @@ function wasmPath(): string {
 
 let wasmP: Promise<VaultWasm> | null = null;
 function loadVault(): Promise<VaultWasm> {
-  // Computed-path dynamic import: opaque to esbuild, resolved at runtime.
-  if (wasmP === null) wasmP = import(wasmPath()).then((m) => (m.default ?? m) as VaultWasm);
+  // Computed-path dynamic import: opaque to esbuild, resolved at runtime. The
+  // path MUST be turned into a file:// URL — Node's ESM loader rejects a bare
+  // absolute path, and on Windows reads the drive letter as a URL scheme
+  // (`import('D:\\…')` → ERR_UNSUPPORTED_ESM_URL_SCHEME, "protocol 'd:'"). Any
+  // `vault_*` invoke (e.g. sync-down decrypt) is the first to trip it.
+  if (wasmP === null) {
+    wasmP = import(pathToFileURL(wasmPath()).href).then((m) => (m.default ?? m) as VaultWasm);
+  }
   return wasmP;
 }
 

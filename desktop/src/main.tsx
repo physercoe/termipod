@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { armExport, importStateIfFresh } from './migration/state';
+import { installNativeContextMenu } from './nativeContextMenu';
 import '@fontsource-variable/inter/index.css';
 import '@fontsource-variable/jetbrains-mono/index.css';
 import 'katex/dist/katex.min.css';
@@ -46,6 +47,9 @@ async function boot(): Promise<void> {
     );
   }
   armExport();
+  // Chromium/Electron has no default right-click menu; add a native
+  // Cut/Copy/Paste fallback for surfaces without their own (electron-only).
+  installNativeContextMenu();
 }
 
 void boot();

@@ -118,6 +118,14 @@ test('terminal UI: opening a local shell mounts an xterm screen', async () => {
   // Ctrl+8 → the Terminal surface (AppShell command hint). The panel is
   // always-mounted but CSS-hidden until active.
   await page.keyboard.press('Control+8');
+  // On boot with no hub configured the "Add a hub" connect modal is open; its
+  // backdrop intercepts clicks on the surface, so dismiss it first (its close
+  // button lives in the modal head). Conditional — it isn't always present.
+  const connectClose = page.locator('.connect-head button');
+  if (await connectClose.isVisible().catch(() => false)) {
+    await connectClose.click();
+    await expect(page.locator('.connect')).toHaveCount(0);
+  }
   await page.locator('.term-add-btn').first().click(); // the "+" new-session menu
   await page.locator('.term-add-menu button').first().click(); // "Local shell"
   // xterm mounted its screen — proves the UI PTY path renders without crashing

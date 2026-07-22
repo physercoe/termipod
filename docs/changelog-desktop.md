@@ -42,6 +42,12 @@ This complements:
 ## Unreleased
 
 ### Added
+- **Author · markdown outline (W2)**: the markdown editor gains a foldable
+  **right-hand outline** (Obsidian-style), reusing the shared `MarkdownOutline`
+  rail. Clicking a heading jumps the **source editor** to its line (edit/split),
+  scrolls the **preview** to it (read/split), and is best-effort in wysiwyg; the
+  rail hides at ≤ 1 heading, and its width + fold state persist. The Read
+  surface's reader and note outlines are unchanged.
 - **Author · shell cleanup (W1)**: the six standalone "New X" header buttons
   collapse into one categorized **New ▾** menu (Write / Data / Draw / Figure, the
   figure rows driven by the renderer registry), leaving a clean

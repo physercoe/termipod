@@ -33,6 +33,9 @@ export interface MarkdownEditorHandle {
   wrap: (before: string, after?: string) => void;
   linePrefix: (prefix: string) => void;
   focus: () => void;
+  /// Move the caret to the start of a 1-based source line, center it, and focus
+  /// the editor — the outline rail's jump target for the edit/split view modes.
+  revealLine: (line: number) => void;
 }
 
 // Markdown token → style, in CSS-token colors so it's theme-aware.
@@ -215,6 +218,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, {
         }
       },
       focus: () => viewRef.current?.focus(),
+      revealLine: (line) => {
+        const v = viewRef.current;
+        if (v === null) return;
+        const n = Math.max(1, Math.min(line, v.state.doc.lines));
+        const info = v.state.doc.line(n);
+        v.dispatch({
+          selection: EditorSelection.cursor(info.from),
+          effects: EditorView.scrollIntoView(info.from, { y: 'center' }),
+        });
+        v.focus();
+      },
     }),
     [],
   );

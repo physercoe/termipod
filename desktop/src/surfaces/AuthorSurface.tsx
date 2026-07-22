@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { isShell, revealPath } from '../platform';
@@ -24,7 +24,8 @@ import { useTextPrompt } from '../ui/PromptModal';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
 import { CanvasEditor } from '../ui/CanvasEditor';
-import { Markdown } from '../ui/Markdown';
+import { Markdown, slugify } from '../ui/Markdown';
+import { extractHeadings, MarkdownOutline, type Head } from '../ui/MarkdownOutline';
 // The table/database grid is only pulled in when a table doc is opened.
 const TableEditor = lazy(() => import('../ui/TableEditor').then((m) => ({ default: m.TableEditor })));
 // The figure editor pulls in a renderer library (mermaid/graphviz/vega) on first
@@ -107,6 +108,9 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
   const t = useT();
   const update = useDocuments((s) => s.update);
   const edRef = useRef<MarkdownEditorHandle>(null);
+  // The `.author-body` element — the outline routes preview scroll + the
+  // best-effort wysiwyg jump by querying inside it.
+  const bodyElRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<ViewMode>(() => {
     const v = localStorage.getItem('termipod.author.viewMode');
     return v === 'wysiwyg' || v === 'edit' || v === 'split' || v === 'read' ? v : 'split';
@@ -120,8 +124,37 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
     }
   }
   const words = doc.body.trim() ? doc.body.trim().split(/\s+/).length : 0;
-  // The preview renders the debounced body, not the per-keystroke one (#311).
+  // The preview renders the debounced body, not the per-keystroke one (#311); the
+  // outline recomputes from the same debounced body, not per keystroke.
   const previewBody = useDebounced(doc.body, 250);
+  const headings = useMemo(() => extractHeadings(previewBody), [previewBody]);
+
+  // Route an outline click by view mode: the source editor jumps its selection to
+  // the heading's line (edit/split), the preview scrolls to the stamped id
+  // (read/split), and wysiwyg is best-effort (Crepe stamps no ids — match a
+  // rendered heading by slugified text; a miss is a no-op).
+  const onJump = useCallback(
+    (h: Head): void => {
+      if (mode === 'edit' || mode === 'split') edRef.current?.revealLine(h.line);
+      if (mode === 'read' || mode === 'split') {
+        const sel = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(h.slug) : h.slug;
+        bodyElRef.current?.querySelector(`.preview-pane #${sel}`)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
+      if (mode === 'wysiwyg') {
+        const host = bodyElRef.current;
+        if (host !== null) {
+          const hs = host.querySelectorAll('.milkdown h1, .milkdown h2, .milkdown h3, .milkdown h4, .milkdown h5, .milkdown h6');
+          for (const el of Array.from(hs)) {
+            if (slugify(el.textContent ?? '') === h.slug) {
+              el.scrollIntoView({ behavior: 'auto', block: 'start' });
+              break;
+            }
+          }
+        }
+      }
+    },
+    [mode],
+  );
 
   // Formatting actions act on the live CodeMirror selection (mousedown-preventDefault
   // keeps that selection alive through the button click).
@@ -175,7 +208,7 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
           )}
         </span>
       </div>
-      <div className={`author-body mode-${mode}`}>
+      <div className={`author-body mode-${mode}`} ref={bodyElRef}>
         {mode === 'wysiwyg' ? (
           <Suspense fallback={<div className="milkdown-host muted region-pad">{t('author.loadingEditor')}</div>}>
             <WysiwygEditor
@@ -200,7 +233,7 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
             {mode !== 'edit' && (
               <div className="preview-pane">
                 {previewBody.trim() ? (
-                  <Markdown text={previewBody} />
+                  <Markdown text={previewBody} headingIds />
                 ) : (
                   <div className="muted region-pad">{t('author.empty')}</div>
                 )}
@@ -208,6 +241,16 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
             )}
           </>
         )}
+        {/* Obsidian-style outline on the right, in every view mode. Hidden when
+            ≤ 1 heading (the shared rail's own rule). */}
+        <MarkdownOutline
+          headings={headings}
+          bodyRef={bodyElRef}
+          widthKey="termipod.author.outlineW"
+          foldKey="termipod.author.outlineOpen"
+          side="right"
+          onJump={onJump}
+        />
       </div>
     </div>
   );

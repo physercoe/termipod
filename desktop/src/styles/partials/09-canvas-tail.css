@@ -340,6 +340,16 @@
   border-right: 1px solid var(--border);
   background: var(--surface-sunken, var(--surface));
 }
+/* Right-docked variant (the Author editor's Obsidian-style outline): the border
+   moves to the left edge, and the collapsed show-button sits at the right. */
+.mdreader-outline.side-right {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+.mdreader-outline-show.side-right {
+  align-self: flex-start;
+  margin: var(--spacing-s8) var(--spacing-s4) 0 0;
+}
 .mdreader-outline-head {
   display: flex;
   align-items: center;

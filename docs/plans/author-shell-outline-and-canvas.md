@@ -1,7 +1,7 @@
 # Author — shell cleanup, outline pane, canvas v2
 
 > **Type:** plan
-> **Status:** In progress — W1 shipped (2026-07-22)
+> **Status:** In progress — W1 + W2 shipped (2026-07-22)
 > **Audience:** contributors · principal
 > **Last verified vs code:** desktop 2026.722.1327 (on main)
 >

@@ -334,6 +334,34 @@ test('author: the New ▾ menu creates a document and the workspace pane folds',
   await expect(page.locator('.author-nav')).toBeVisible();
 });
 
+// ── Author outline: right-hand heading nav + jump-to-line (W2) ───────────────
+// The markdown editor gains an Obsidian-style outline on the right (the shared
+// MarkdownOutline rail, extended to drive the CodeMirror source pane). Pin that
+// it lists the document's headings and that a click jumps the source editor to
+// the heading's line.
+test('author: the markdown outline lists headings and jumps the source editor', async () => {
+  await page.getByRole('button', { name: 'Author', exact: true }).click();
+  // A fresh Document from the New ▾ menu.
+  await page.locator('.author-newcaret').click();
+  await page.getByRole('menuitem', { name: 'New', exact: true }).click();
+  // Split mode keeps both the editor and preview live.
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  // Replace the seed body with a two-heading document.
+  const editor = page.locator('.md-editor .cm-content').last();
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('# First heading\n\nalpha\n\n## Second heading\n\nbeta\n');
+  // The outline rail appears on the right listing both headings (it hides at
+  // ≤ 1 heading, so its presence also proves the recompute ran).
+  const outline = page.locator('.mdreader-outline.side-right');
+  await expect(outline).toBeVisible();
+  await expect(outline.getByRole('button', { name: 'Second heading' })).toBeVisible();
+  // Clicking the second heading jumps the source editor to its line — the active
+  // line becomes the `## Second heading` line.
+  await outline.getByRole('button', { name: 'Second heading' }).click();
+  await expect(page.locator('.md-editor .cm-activeLine').last()).toContainText('Second heading');
+});
+
 // ── Web tab: real <webview> guest (read-web-tabs plan W1) ────────────────────
 // The Read surface's in-app browser tab is an Electron <webview> guest in the
 // isolated `persist:webtab` partition. This pins the load-bearing invariants that

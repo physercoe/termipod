@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { isShell } from '../platform';
+import { isShell, revealPath } from '../platform';
 import { toast } from '../state/toast';
 import {
   bodyToFile,
@@ -16,9 +16,11 @@ import {
 } from '../state/documents';
 import { figureBySpec, FIGURES, type FigureSpec } from '../state/figures';
 import { useWorkspace } from '../state/workspace';
-import { NEW_BASE, uniqueWorkspacePath } from '../state/workspaceFiles';
+import { NEW_BASE, uniqueWorkspacePath, writeDocToWorkspace } from '../state/workspaceFiles';
 import { AgentCompanion } from '../ui/AgentCompanion';
+import { useContextMenu, type MenuItem } from '../ui/ContextMenu';
 import { docKindIcon, Icon, type IconName } from '../ui/Icon';
+import { useTextPrompt } from '../ui/PromptModal';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
 import { CanvasEditor } from '../ui/CanvasEditor';
@@ -79,6 +81,15 @@ function baseName(path: string): string {
 
 function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
+}
+
+/// Keep a file's extension through a tab rename: if the typed name already has an
+/// extension it's used verbatim, otherwise the reference file's extension is
+/// appended so renaming "report" a `.md` doc doesn't drop the `.md`.
+function withExt(name: string, refPath: string): string {
+  if (/\.[a-z0-9]{1,8}$/i.test(name)) return name;
+  const ext = refPath.split('.').pop();
+  return ext !== undefined && ext !== refPath ? `${name}.${ext}` : name;
 }
 
 /// Strip a single enclosing ```` ``` ```` fence from an agent reply so a figure
@@ -202,6 +213,34 @@ function Editor({ doc }: { doc: Doc }): JSX.Element {
   );
 }
 
+/// One row of the categorized "New ▾" menu — a leading kind icon + label that
+/// closes the menu and creates the document.
+function NewItem({
+  icon,
+  label,
+  onPick,
+  close,
+}: {
+  icon: IconName;
+  label: string;
+  onPick: () => void;
+  close: () => void;
+}): JSX.Element {
+  return (
+    <button
+      role="menuitem"
+      className="author-figmenu-item"
+      onClick={() => {
+        close();
+        onPick();
+      }}
+    >
+      <Icon name={icon} size={14} />
+      {label}
+    </button>
+  );
+}
+
 export function AuthorSurface(): JSX.Element {
   const t = useT();
   const docs = useDocuments((s) => s.docs);
@@ -213,6 +252,8 @@ export function AuthorSurface(): JSX.Element {
   const update = useDocuments((s) => s.update);
   const folder = useWorkspace((s) => s.folder);
   const touchWs = useWorkspace((s) => s.touch);
+  const { ask, node: promptNode } = useTextPrompt();
+  const { open: openTabMenu, node: tabMenuNode } = useContextMenu();
   const [busy, setBusy] = useState(false);
   // Left file/workspace tree. On by default; width persisted.
   const [showNav, setShowNav] = useState(() => localStorage.getItem('termipod.author.showNav') !== '0');
@@ -223,12 +264,23 @@ export function AuthorSurface(): JSX.Element {
   // Two-step close arm — `window.confirm` is unreliable in the Tauri webview, so
   // the first × click arms (turns into a confirm ×), the second closes.
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
-  // The New-figure spec dropdown (Mermaid · Graphviz · Vega-Lite, driven by the
-  // registry). Open/closed only; picking a spec creates the doc and closes it.
-  const [figMenu, setFigMenu] = useState(false);
+  // The categorized "New ▾" dropdown — one menu for every document kind (Write /
+  // Data / Draw / Figure), the figure rows driven by the `FIGURES` registry.
+  const [newMenu, setNewMenu] = useState(false);
 
   const active = docs.find((d) => d.id === activeId);
   const tauri = isShell();
+
+  // Fold state for the workspace pane (persisted); the header chevron folds it,
+  // a slim edge button re-opens it.
+  function setNav(next: boolean): void {
+    setShowNav(next);
+    try {
+      localStorage.setItem('termipod.author.showNav', next ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
 
   function closeTab(id: string): void {
     const d = docs.find((x) => x.id === id);
@@ -239,6 +291,43 @@ export function AuthorSurface(): JSX.Element {
     }
     setConfirmClose(null);
     remove(id);
+  }
+
+  // Materialize a draft tab into the workspace folder (the same path AuthorNav's
+  // drop handler uses when a draft tab is dragged onto the tree). Drafts only.
+  async function saveDraftToWorkspace(id: string): Promise<void> {
+    const d = docs.find((x) => x.id === id);
+    if (folder === null || d === undefined || d.filePath !== undefined) return;
+    try {
+      const path = await writeDocToWorkspace(folder, d);
+      markSaved(id, path, baseName(path));
+      touchWs();
+    } catch {
+      /* permissions / race — leave the draft in memory */
+    }
+  }
+
+  // Rename a document from its tab. A draft — or a file-backed doc that lives
+  // outside the open workspace — just retitles; a file inside the workspace is
+  // renamed on disk (`workspace_rename`) and the doc re-pointed so Save keeps
+  // round-tripping to it.
+  async function renameDoc(id: string): Promise<void> {
+    const d = docs.find((x) => x.id === id);
+    if (d === undefined) return;
+    const name = await ask(t('author.renamePrompt'), d.title);
+    if (name === null || name.trim() === '' || name.trim() === d.title) return;
+    const nm = name.trim();
+    if (d.filePath !== undefined && folder !== null && d.filePath.startsWith(folder)) {
+      try {
+        const next = await invoke<string>('workspace_rename', { path: d.filePath, name: withExt(nm, d.filePath) });
+        update(d.id, { filePath: next, title: baseName(next) });
+        touchWs();
+      } catch (e) {
+        toast.error(t('author.fOpFailed').replace('{err}', e instanceof Error ? e.message : String(e)));
+      }
+      return;
+    }
+    update(d.id, { title: nm });
   }
 
   async function onSave(): Promise<void> {
@@ -344,71 +433,46 @@ export function AuthorSurface(): JSX.Element {
       job="author"
       actions={
         <>
-          <button
-            className={showNav ? 'import-btn attn' : 'import-btn'}
-            title={t('author.filesHint')}
-            onClick={() =>
-              setShowNav((v) => {
-                const n = !v;
-                try {
-                  localStorage.setItem('termipod.author.showNav', n ? '1' : '0');
-                } catch {
-                  /* ignore */
-                }
-                return n;
-              })
-            }
-          >
-            {t('author.files')}
-          </button>
-          <button className="import-btn" disabled={busy} onClick={() => void createDoc('markdown')}>
-            <Icon name="plus" size={14} />
-            {t('author.newDoc')}
-          </button>
-          <button className="import-btn" disabled={busy} onClick={() => void createDoc('diagram')}>
-            <Icon name="diagram" size={14} />
-            {t('author.newDiagram')}
-          </button>
-          <button className="import-btn" disabled={busy} onClick={() => void createDoc('canvas')}>
-            <Icon name="canvas" size={14} />
-            {t('author.newCanvas')}
-          </button>
-          <button className="import-btn" disabled={busy} onClick={() => void createDoc('table')}>
-            <Icon name="table" size={14} />
-            {t('author.newTable')}
-          </button>
-          <button className="import-btn" disabled={busy} onClick={() => void createDoc('excalidraw')}>
-            <Icon name="sketch" size={14} />
-            {t('author.newExcalidraw')}
-          </button>
-          <div className="author-figbtn">
+          <div className="author-figbtn author-newbtn">
+            {/* Primary = new Document (the common case); the caret opens the
+                categorized menu. */}
+            <button className="import-btn" disabled={busy} onClick={() => void createDoc('markdown')}>
+              <Icon name="plus" size={14} />
+              {t('author.newDoc')}
+            </button>
             <button
-              className="import-btn"
+              className="import-btn author-newcaret"
               disabled={busy}
               aria-haspopup="menu"
-              aria-expanded={figMenu}
-              onClick={() => setFigMenu((v) => !v)}
+              aria-expanded={newMenu}
+              title={t('author.newMenu')}
+              onClick={() => setNewMenu((v) => !v)}
             >
-              <Icon name="figure" size={14} />
-              {t('author.newFigure')}
               <Icon name="chevron-down" size={12} />
             </button>
-            {figMenu && (
+            {newMenu && (
               <>
-                <div className="author-figmenu-scrim" onClick={() => setFigMenu(false)} />
+                <div className="author-figmenu-scrim" onClick={() => setNewMenu(false)} />
                 <div className="author-figmenu" role="menu">
+                  <div className="author-figmenu-group">{t('author.newGroupWrite')}</div>
+                  <NewItem icon="note" label={t('author.newDoc')} onPick={() => void createDoc('markdown')} close={() => setNewMenu(false)} />
+                  <div className="author-figmenu-group">{t('author.newGroupData')}</div>
+                  <NewItem icon="table" label={t('author.newTable')} onPick={() => void createDoc('table')} close={() => setNewMenu(false)} />
+                  <div className="author-figmenu-group">{t('author.newGroupDraw')}</div>
+                  <NewItem icon="diagram" label={t('author.newDiagram')} onPick={() => void createDoc('diagram')} close={() => setNewMenu(false)} />
+                  <NewItem icon="sketch" label={t('author.newExcalidraw')} onPick={() => void createDoc('excalidraw')} close={() => setNewMenu(false)} />
+                  <NewItem icon="canvas" label={t('author.newCanvas')} onPick={() => void createDoc('canvas')} close={() => setNewMenu(false)} />
+                  <div className="author-figmenu-group">{t('author.newGroupFigure')}</div>
+                  {/* Registry-driven: a new figure spec appears here with no menu
+                      change. bpmn-js stays unlisted while its license is held. */}
                   {FIGURES.map((f) => (
-                    <button
+                    <NewItem
                       key={f.spec}
-                      role="menuitem"
-                      className="author-figmenu-item"
-                      onClick={() => {
-                        setFigMenu(false);
-                        void createDoc('figure', f.spec);
-                      }}
-                    >
-                      {t(f.labelKey)}
-                    </button>
+                      icon="figure"
+                      label={t(f.labelKey)}
+                      onPick={() => void createDoc('figure', f.spec)}
+                      close={() => setNewMenu(false)}
+                    />
                   ))}
                 </div>
               </>
@@ -420,6 +484,7 @@ export function AuthorSurface(): JSX.Element {
                 {t('author.openFile')}
               </button>
               <button className="import-btn" disabled={busy || active === undefined} onClick={() => void onSave()}>
+                {active?.dirty === true ? '● ' : ''}
                 {t('author.saveFile')}
               </button>
             </>
@@ -435,10 +500,10 @@ export function AuthorSurface(): JSX.Element {
       }
     >
       <div className="author-layout">
-      {showNav && (
+      {showNav ? (
         <>
           <div className="author-nav-col" style={{ width: navW }}>
-            <AuthorNav />
+            <AuthorNav onFold={() => setNav(false)} />
           </div>
           <ResizeHandle
             onResize={(dx) =>
@@ -454,33 +519,63 @@ export function AuthorSurface(): JSX.Element {
             }
           />
         </>
+      ) : (
+        <button className="read-pane-expand author-nav-show" title={t('author.filesShow')} onClick={() => setNav(true)}>
+          <Icon name="chevron-right" />
+        </button>
       )}
       <div className="author-main">
       {docs.length > 0 && (
         <div className="read-tabstrip" role="tablist" aria-label={t('author.docTabs')}>
-          {docs.map((d) => (
-            <span key={d.id} role="presentation" className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
-              <button
-                role="tab"
-                aria-selected={activeId === d.id}
-                tabIndex={activeId === d.id ? 0 : -1}
-                className="read-tabitem-label"
-                title={d.filePath ?? d.title}
-                onClick={() => setActive(d.id)}
-              >
-                <Icon name={docKindIcon(d.kind)} size={13} className="read-tabitem-kind" />
-                {d.dirty === true ? '● ' : ''}
-                {d.title !== '' ? d.title : t('author.untitled')}
-              </button>
-              <button
-                className={confirmClose === d.id ? 'read-tabitem-x danger' : 'read-tabitem-x'}
-                title={confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}
-                onClick={() => closeTab(d.id)}
-              >
-                {confirmClose === d.id ? '✓×' : '×'}
-              </button>
-            </span>
-          ))}
+          {docs.map((d) => {
+            const draft = d.filePath === undefined;
+            const openTab = (e: { clientX: number; clientY: number; preventDefault: () => void }): void => {
+              const items: MenuItem[] = [{ label: t('author.navRename'), onClick: () => void renameDoc(d.id) }];
+              if (draft && folder !== null) {
+                items.push({ label: t('author.navSaveToWorkspace'), onClick: () => void saveDraftToWorkspace(d.id) });
+              }
+              if (!draft && tauri) {
+                const p = d.filePath as string;
+                items.push({ label: t('author.fReveal'), onClick: () => revealPath(p) });
+              }
+              items.push({ label: t('author.navClose'), danger: true, onClick: () => closeTab(d.id) });
+              openTabMenu(e, items);
+            };
+            return (
+              <span key={d.id} role="presentation" className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
+                <button
+                  role="tab"
+                  aria-selected={activeId === d.id}
+                  tabIndex={activeId === d.id ? 0 : -1}
+                  className="read-tabitem-label"
+                  title={d.filePath ?? t('author.navDraftHint')}
+                  draggable={draft}
+                  onDragStart={
+                    draft
+                      ? (e) => {
+                          e.dataTransfer.setData('application/x-termipod-doc', d.id);
+                          e.dataTransfer.effectAllowed = 'copy';
+                        }
+                      : undefined
+                  }
+                  onClick={() => setActive(d.id)}
+                  onContextMenu={openTab}
+                >
+                  <Icon name={docKindIcon(d.kind)} size={13} className="read-tabitem-kind" />
+                  {d.dirty === true ? '● ' : ''}
+                  {d.title !== '' ? d.title : t('author.untitled')}
+                  {draft && <span className="read-tabitem-badge">{t('author.navDraft')}</span>}
+                </button>
+                <button
+                  className={confirmClose === d.id ? 'read-tabitem-x danger' : 'read-tabitem-x'}
+                  title={confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}
+                  onClick={() => closeTab(d.id)}
+                >
+                  {confirmClose === d.id ? '✓×' : '×'}
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
       {active !== undefined ? (
@@ -564,6 +659,8 @@ export function AuthorSurface(): JSX.Element {
       )}
       </div>
       </div>
+      {tabMenuNode}
+      {promptNode}
     </WorkbenchSurface>
   );
 }

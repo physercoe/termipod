@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { docKindIcon, Icon } from '../ui/Icon';
+import { Icon, type IconName } from '../ui/Icon';
 import { isShell, revealPath } from '../platform';
 import { fileToBody, kindForFile, useDocuments } from '../state/documents';
 import { useWorkspace } from '../state/workspace';
@@ -12,12 +12,15 @@ import { WorkspaceSyncModal } from './WorkspaceSyncModal';
 
 const DRAG_TYPE = 'application/x-termipod-doc';
 
-/// The Author (J2) left nav: a file/workspace tree. Two sections — the currently
-/// **open documents** (click to focus) and an on-disk **workspace folder** the
-/// director opens to browse and open files as documents. The folder is listed by
-/// the Rust `workspace_list` command (read-only, depth/entry-capped); clicking a
-/// text file reads it (`doc_read`) and opens it as a document — or focuses it if
-/// already open.
+/// The Author (J2) left nav: the on-disk **workspace folder** the director opens
+/// to browse and edit its files. The open-documents list lives on the tab strip
+/// now (W1 shell cleanup — the two were redundant); this pane is workspace-only,
+/// and each file row that is currently open echoes its tab's kind icon + dirty ●
+/// + active highlight so the tree is the one place that shows "what's open where".
+/// The folder is listed by the Rust `workspace_list` command (read-only,
+/// depth/entry-capped); clicking a text file reads it (`doc_read`) and opens it
+/// as a document — or focuses it if already open. A draft tab dragged onto the
+/// tree materializes it here.
 
 interface FileNode {
   name: string;
@@ -35,6 +38,33 @@ const TEXT_EXT = new Set([
   'mmd', 'dot', 'gv', 'nomnoml', // figure sources (mermaid / graphviz / nomnoml)
   'excalidraw', // sketch scenes (figure-plan Phase C)
 ]);
+
+// A file row's kind icon, by extension — a pure lookup (unlike `kindForFile`,
+// which content-sniffs `.json`). `.json` and anything unmapped-but-openable fall
+// back to the generic document glyph; directories render their own chevron.
+const EXT_ICON: Record<string, IconName> = {
+  md: 'note', markdown: 'note', txt: 'file-text', log: 'file-text',
+  drawio: 'diagram',
+  canvas: 'canvas',
+  csv: 'table', tsv: 'table',
+  excalidraw: 'sketch',
+  svg: 'image',
+  mmd: 'figure', dot: 'figure', gv: 'figure', nomnoml: 'figure',
+  js: 'code', ts: 'code', tsx: 'code', jsx: 'code', py: 'code', go: 'code', rs: 'code',
+  sh: 'code', c: 'code', h: 'code', cpp: 'code', hpp: 'code', java: 'code', rb: 'code',
+  php: 'code', sql: 'code', html: 'code', htm: 'code', css: 'code', xml: 'code',
+  yml: 'code', yaml: 'code', toml: 'code', ini: 'code', json: 'file-text',
+};
+function iconForFile(name: string): IconName {
+  return EXT_ICON[extOf(name)] ?? 'file-text';
+}
+
+// Which open documents (by their linked file path) are dirty / the active tab —
+// so the workspace tree can echo the tab strip's markers on the file's row.
+interface OpenMark {
+  dirty: boolean;
+  active: boolean;
+}
 
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/);
@@ -61,14 +91,13 @@ interface FileMenu {
   y: number;
 }
 
-export function AuthorNav(): JSX.Element {
+export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
   const t = useT();
   const { ask, node: promptNode } = useTextPrompt();
   const docs = useDocuments((s) => s.docs);
   const activeId = useDocuments((s) => s.activeId);
   const setActive = useDocuments((s) => s.setActive);
   const create = useDocuments((s) => s.create);
-  const remove = useDocuments((s) => s.remove);
   const update = useDocuments((s) => s.update);
   const markSaved = useDocuments((s) => s.markSaved);
   const folder = useWorkspace((s) => s.folder);
@@ -80,13 +109,19 @@ export function AuthorNav(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showSync, setShowSync] = useState(false);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const [dropActive, setDropActive] = useState(false);
   // On-disk file-tree right-click menu + its two-step delete confirm.
   const [fileMenu, setFileMenu] = useState<FileMenu | null>(null);
   const [fileConfirmDelete, setFileConfirmDelete] = useState(false);
   const tauri = isShell();
+
+  // Path → open-marker for every open, file-linked document, so a workspace row
+  // whose path matches renders emphasized (dirty ● / active highlight) like its
+  // tab. Drafts (no filePath) aren't in the tree, so they don't appear here.
+  const openByPath = new Map<string, OpenMark>();
+  for (const d of docs) {
+    if (d.filePath !== undefined) openByPath.set(d.filePath, { dirty: d.dirty === true, active: activeId === d.id });
+  }
 
   // Materialize an in-memory draft into the workspace folder (drag-to-folder or
   // the "Save to workspace" menu item), then link it so Save round-trips to disk.
@@ -273,57 +308,6 @@ export function AuthorNav(): JSX.Element {
 
   return (
     <div className="author-nav">
-      <div className="author-nav-sec">
-        <div className="author-nav-head">{t('author.navOpen')}</div>
-        {docs.length === 0 && <div className="muted small author-nav-empty">{t('author.navNoOpen')}</div>}
-        {docs.map((d) => {
-          const draft = d.filePath === undefined;
-          if (renaming !== null && renaming.id === d.id) {
-            return (
-              <input
-                key={d.id}
-                className="author-nav-rename"
-                autoFocus
-                value={renaming.value}
-                onChange={(e) => setRenaming({ id: d.id, value: e.target.value })}
-                onBlur={() => {
-                  if (renaming.value.trim() !== '') update(d.id, { title: renaming.value.trim() });
-                  setRenaming(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur();
-                  if (e.key === 'Escape') setRenaming(null);
-                }}
-              />
-            );
-          }
-          return (
-            <button
-              key={d.id}
-              className={`author-nav-doc${activeId === d.id ? ' active' : ''}${draft ? ' draft' : ''}`}
-              title={draft ? t('author.navDraftHint') : d.filePath}
-              draggable={draft}
-              onDragStart={(e) => {
-                e.dataTransfer.setData(DRAG_TYPE, d.id);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              onClick={() => setActive(d.id)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setMenu({ id: d.id, x: e.clientX, y: e.clientY });
-              }}
-            >
-              <Icon name={docKindIcon(d.kind)} size={14} className="author-nav-kind" />
-              <span className="author-nav-name">
-                {d.dirty === true ? '● ' : ''}
-                {d.title !== '' ? d.title : t('author.untitled')}
-              </span>
-              {draft && <span className="author-nav-badge muted" title={t('author.navDraftHint')}>{t('author.navDraft')}</span>}
-            </button>
-          );
-        })}
-      </div>
-
       <div
         className={`author-nav-sec grow${dropActive ? ' drop-active' : ''}`}
         onDragOver={(e) => {
@@ -358,6 +342,11 @@ export function AuthorNav(): JSX.Element {
         }}
       >
         <div className="author-nav-head">
+          {onFold !== undefined && (
+            <button className="author-nav-icon" title={t('author.navFold')} onClick={onFold}>
+              <Icon name="chevron-left" size={15} />
+            </button>
+          )}
           {t('author.navFiles')}
           <span className="spacer" />
           {folder !== null && (
@@ -399,6 +388,7 @@ export function AuthorNav(): JSX.Element {
             key={n.path}
             node={n}
             depth={0}
+            openByPath={openByPath}
             onOpen={openFile}
             onContext={(node, e) => {
               e.preventDefault();
@@ -411,46 +401,6 @@ export function AuthorNav(): JSX.Element {
       </div>
 
       {showSync && <WorkspaceSyncModal root={folder} onClose={() => setShowSync(false)} />}
-
-      {menu !== null &&
-        (() => {
-          const d = docs.find((x) => x.id === menu.id);
-          if (d === undefined) return null;
-          const draft = d.filePath === undefined;
-          return (
-            <>
-              <div className="context-backdrop" onMouseDown={() => setMenu(null)} onContextMenu={(e) => e.preventDefault()} />
-              <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
-                {draft && folder !== null && (
-                  <button
-                    onClick={() => {
-                      void saveDraftToWorkspace(menu.id);
-                      setMenu(null);
-                    }}
-                  >
-                    {t('author.navSaveToWorkspace')}
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    setRenaming({ id: menu.id, value: d.title });
-                    setMenu(null);
-                  }}
-                >
-                  {t('author.navRename')}
-                </button>
-                <button
-                  onClick={() => {
-                    remove(menu.id);
-                    setMenu(null);
-                  }}
-                >
-                  {t('author.navClose')}
-                </button>
-              </div>
-            </>
-          );
-        })()}
 
       {fileMenu !== null && (
         <>
@@ -509,11 +459,13 @@ export function AuthorNav(): JSX.Element {
 function TreeNode({
   node,
   depth,
+  openByPath,
   onOpen,
   onContext,
 }: {
   node: FileNode;
   depth: number;
+  openByPath: Map<string, OpenMark>;
   onOpen: (path: string) => void;
   onContext: (node: FileNode, e: ReactMouseEvent) => void;
 }): JSX.Element {
@@ -533,22 +485,30 @@ function TreeNode({
         </button>
         {open &&
           node.children.map((c) => (
-            <TreeNode key={c.path} node={c} depth={depth + 1} onOpen={onOpen} onContext={onContext} />
+            <TreeNode key={c.path} node={c} depth={depth + 1} openByPath={openByPath} onOpen={onOpen} onContext={onContext} />
           ))}
       </div>
     );
   }
   const openable = TEXT_EXT.has(extOf(node.name));
+  const mark = openByPath.get(node.path);
+  const cls =
+    `author-nav-item file${openable ? '' : ' inert'}` +
+    (mark !== undefined ? ' open' : '') +
+    (mark?.active === true ? ' active' : '');
   return (
     <button
-      className={`author-nav-item file${openable ? '' : ' inert'}`}
+      className={cls}
       style={pad}
       title={node.path}
       onClick={() => onOpen(node.path)}
       onContextMenu={(e) => onContext(node, e)}
     >
-      <span className="author-nav-tw" />
-      {node.name}
+      <Icon name={iconForFile(node.name)} size={13} className="author-nav-kind" />
+      <span className="author-nav-name">
+        {mark?.dirty === true ? '● ' : ''}
+        {node.name}
+      </span>
     </button>
   );
 }

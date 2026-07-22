@@ -42,6 +42,17 @@ This complements:
 ## Unreleased
 
 ### Added
+- **Author · shell cleanup (W1)**: the six standalone "New X" header buttons
+  collapse into one categorized **New ▾** menu (Write / Data / Draw / Figure, the
+  figure rows driven by the renderer registry), leaving a clean
+  `New ▾ · Open · Save · Assistant` bar; the Save button now shows the active
+  doc's dirty ●. The left pane is **workspace-only** — the redundant "Open"
+  section is gone; its affordances (rename, save-draft-to-workspace, reveal,
+  close) moved onto the **tab strip** as a right-click menu, and draft tabs are
+  draggable onto the tree to materialize them. Each workspace file that is open
+  now echoes its tab's kind icon, dirty ●, and active highlight, and every file
+  row gains a kind icon. The pane folds to a slim edge button (state persisted).
+  See [`plans/author-shell-outline-and-canvas.md`](plans/author-shell-outline-and-canvas.md).
 - **Read · web-tab bookmarks**: the in-app browser bar gains a star that
   bookmarks (or un-bookmarks) the current page, and the start (empty-tab / "Open
   link") page lists the saved sites for one-click reopening. Bookmarks persist

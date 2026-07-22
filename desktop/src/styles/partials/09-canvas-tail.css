@@ -932,7 +932,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.author-nav-doc,
 .author-nav-item {
   display: flex;
   align-items: center;
@@ -946,43 +945,23 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.author-nav-doc .author-nav-name {
+.author-nav-item .author-nav-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.author-nav-doc:hover,
 .author-nav-item:hover {
   background: var(--accent-tint);
 }
-.author-nav-doc.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+/* A workspace file that is open in a tab: emphasized text; the active tab's file
+   also gets a tinted highlight (echoing the tab strip, not a hard selection). */
+.author-nav-item.open {
+  font-weight: 500;
 }
-.author-nav-doc.draft {
-  cursor: grab;
-}
-.author-nav-doc .author-nav-name {
-  flex: 1;
-  min-width: 0;
-}
-.author-nav-badge {
-  flex: none;
-  font-size: var(--font-size-label);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.7;
-}
-.author-nav-doc.active .author-nav-badge {
-  color: var(--accent-ink);
-}
-.author-nav-rename {
-  width: 100%;
-  padding: 2px 6px;
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: var(--font-size-caption);
+.author-nav-item.active {
+  background: var(--accent-tint);
+  color: var(--accent-text);
 }
 /* Drop target highlight while dragging a draft over the workspace files list. */
 .author-nav-sec.drop-active {

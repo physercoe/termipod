@@ -390,6 +390,9 @@ button > .ui-icon:not(:only-child):first-child,
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
 }
 .author-figmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   text-align: left;
   padding: 6px 10px;
   font-size: 13px;
@@ -402,6 +405,40 @@ button > .ui-icon:not(:only-child):first-child,
 .author-figmenu-item:hover {
   background: var(--surface-sunken, var(--bg));
   color: var(--accent-text);
+}
+/* Category header inside the New ▾ menu (Write / Data / Draw / Figure). */
+.author-figmenu-group {
+  padding: 6px 10px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.author-figmenu-group:first-child {
+  padding-top: 2px;
+}
+/* Split "New" control: primary (new Document) fused to a caret that opens the
+   categorized menu. */
+.author-newbtn > .import-btn:first-child {
+  margin-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.author-newcaret {
+  padding-left: var(--spacing-s6, 6px);
+  padding-right: var(--spacing-s6, 6px);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-color: transparent;
+}
+.author-newbtn > .import-btn:hover {
+  transform: none;
+}
+/* Collapsed-workspace edge button sits at the surface's left edge — no extra
+   border there. */
+.author-nav-show {
+  border-left: none;
 }
 .author-agent,
 .read-agent {

@@ -1010,6 +1010,18 @@
 .read-tabitem-kind {
   font-size: 0.85em;
 }
+/* "draft" pill on an unsaved Author tab (drag the tab onto the workspace tree,
+   or right-click → Save to workspace, to write it to disk). */
+.read-tabitem-badge {
+  margin-left: var(--spacing-s4);
+  padding: 0 5px;
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
 .read-tabitem-x {
   padding: 0 var(--spacing-s8) 0 var(--spacing-s4);
   color: var(--text-muted);

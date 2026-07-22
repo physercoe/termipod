@@ -295,8 +295,11 @@ test('excalidraw: the sketch editor lazy-mounts and is configured for offline fo
   // Navigate to Author by clicking its activity-bar button — a keyboard shortcut
   // (Ctrl+4) is swallowed when a modal or the terminal xterm holds focus.
   await page.getByRole('button', { name: 'Author', exact: true }).click();
-  // "New Sketch" → an in-memory sketch doc (no workspace folder in CI).
-  await page.getByRole('button', { name: 'Sketch', exact: true }).click();
+  // Open the categorized "New ▾" menu and pick Sketch → an in-memory sketch doc
+  // (no workspace folder in CI). The standalone "New X" buttons collapsed into
+  // this menu in the W1 shell cleanup.
+  await page.locator('.author-newcaret').click();
+  await page.getByRole('menuitem', { name: 'Sketch (Excalidraw)' }).click();
 
   // The Excalidraw canvas mounted — the lazy chunk resolved and its React tree
   // painted without crashing on the `app://` origin.
@@ -308,6 +311,27 @@ test('excalidraw: the sketch editor lazy-mounts and is configured for offline fo
     () => (window as unknown as { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH,
   );
   expect(assetPath).toBe('/excalidraw-assets/');
+});
+
+// ── Author shell: New ▾ menu + workspace-pane fold (W1 shell cleanup) ─────────
+// The six standalone "New X" buttons collapsed into one categorized New ▾ menu,
+// and the left pane is workspace-only with a fold chevron + slim re-open button.
+// Pin the create-from-menu path and the fold/unfold of the pane.
+test('author: the New ▾ menu creates a document and the workspace pane folds', async () => {
+  await page.getByRole('button', { name: 'Author', exact: true }).click();
+  // The workspace pane shows by default.
+  await expect(page.locator('.author-nav')).toBeVisible();
+  // Open the New ▾ menu and create a Document from it (menuitem, not the primary
+  // button — this exercises the menu path).
+  await page.locator('.author-newcaret').click();
+  await page.getByRole('menuitem', { name: 'New', exact: true }).click();
+  await expect(page.locator('.read-tabstrip .read-tabitem').last()).toBeVisible();
+  // Fold the pane via its header chevron → the tree is gone and a slim edge
+  // button takes its place; clicking that restores the pane.
+  await page.locator('.author-nav .author-nav-head .author-nav-icon').first().click();
+  await expect(page.locator('.author-nav')).toHaveCount(0);
+  await page.locator('.author-nav-show').click();
+  await expect(page.locator('.author-nav')).toBeVisible();
 });
 
 // ── Web tab: real <webview> guest (read-web-tabs plan W1) ────────────────────

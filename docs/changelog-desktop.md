@@ -83,6 +83,15 @@ This complements:
   Chromium the Electron shell bundles, so esbuild keeps modern syntax instead of
   down-levelling it — the entry chunk drops ~44 kB (2,583 → 2,539 kB).
 
+### Fixed
+- **`proxyFetch` no longer bypasses a configured proxy on request failure**: the
+  direct-fetch fallback was meant for "undici module missing" but its `catch`
+  also wrapped the proxied request itself, so any network/proxy error silently
+  retried the request over a DIRECT connection — leaking deliberately-proxied
+  sync/download traffic and masking a down proxy as working. Live request errors
+  now propagate; only an unloadable undici or an unusable proxy string degrades
+  to direct.
+
 ## 2026.722.331 — 2026-07-22 · Electron
 
 **Tauri lane retired (ADR-055 M3.4).**

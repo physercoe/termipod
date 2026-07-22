@@ -48,16 +48,22 @@ export async function proxyFetch(
   proxy?: string | null,
 ): Promise<Response> {
   if (!proxyable(proxy)) return fetch(url, init);
+  let undiciFetch: typeof import('undici').fetch;
+  let dispatcher: import('undici').ProxyAgent;
   try {
-    const { fetch: undiciFetch } = await undiciMod();
-    const dispatcher = await agentFor(proxy);
-    // undici's fetch/Response are structurally the WHATWG shapes the callers use
-    // (.status/.ok/.text/.arrayBuffer/.headers); the cast bridges the nominal
-    // type gap between undici's RequestInit/Response and the global lib types.
-    return (await undiciFetch(url, { ...init, dispatcher } as never)) as unknown as Response;
+    ({ fetch: undiciFetch } = await undiciMod());
+    dispatcher = await agentFor(proxy);
   } catch {
-    // undici unavailable (module load failed) — fall back to a direct fetch so
-    // sync still works off-proxy rather than hard-failing.
+    // undici unavailable (module load failed) or the proxy string is unusable
+    // (ProxyAgent rejected it) — fall back to a direct fetch so sync still works
+    // off-proxy rather than hard-failing. The request itself runs OUTSIDE this
+    // try: a live network/proxy error must propagate to the caller, not silently
+    // retry direct — that would leak deliberately-proxied traffic and mask a
+    // down proxy as a working one.
     return fetch(url, init);
   }
+  // undici's fetch/Response are structurally the WHATWG shapes the callers use
+  // (.status/.ok/.text/.arrayBuffer/.headers); the cast bridges the nominal
+  // type gap between undici's RequestInit/Response and the global lib types.
+  return (await undiciFetch(url, { ...init, dispatcher } as never)) as unknown as Response;
 }

@@ -39,6 +39,7 @@ export type IconName =
   | 'note'
   | 'diagram'
   | 'figure'
+  | 'sketch'
   | 'copy'
   | 'check'
   | 'bold'
@@ -238,6 +239,13 @@ const PATHS: Record<IconName, JSX.Element> = {
       <rect x="7" y="12" width="3" height="6" rx="0.6" />
       <rect x="12" y="8" width="3" height="10" rx="0.6" />
       <rect x="17" y="5" width="3" height="13" rx="0.6" />
+    </>
+  ),
+  sketch: (
+    <>
+      <path d="M3 17.3V21h3.7L18.8 8.9l-3.7-3.7z" />
+      <path d="M14.1 6.3l3.6 3.6" />
+      <path d="M20.7 6.3a1.9 1.9 0 0 0 0-2.7l-1.3-1.3a1.9 1.9 0 0 0-2.7 0l-1 1 4 4z" />
     </>
   ),
   alert: (
@@ -533,6 +541,8 @@ export function docKindIcon(kind: DocKind): IconName {
       return 'table';
     case 'figure':
       return 'figure';
+    case 'excalidraw':
+      return 'sketch';
     default:
       return 'note';
   }

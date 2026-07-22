@@ -21,10 +21,12 @@ import { figureBySpec, specForFile, type FigureSpec } from './figures';
 ///   • `table`    — a JSON database grid (typed columns + rows, `ui/TableEditor`).
 ///   • `figure`   — a text-to-figure source (mermaid/graphviz/vega-lite, …); the
 ///     `spec` field selects the renderer via the `state/figures` registry.
+///   • `excalidraw` — a freeform hand-drawn sketch; body = `.excalidraw` scene
+///     JSON (an interactive editor, so a kind of its own — figure-plan Phase C).
 /// Canvas and table were formerly a separate top-level surface / are new — they
 /// now live here as document kinds so a workspace holds many of each as tabs.
 
-export type DocKind = 'markdown' | 'diagram' | 'canvas' | 'table' | 'figure';
+export type DocKind = 'markdown' | 'diagram' | 'canvas' | 'table' | 'figure' | 'excalidraw';
 
 export interface Doc {
   id: string;
@@ -44,6 +46,9 @@ export interface Doc {
 const CANVAS_SEED = '{"cards":[],"edges":[]}';
 const TABLE_SEED =
   '{"columns":[{"id":"col0","name":"Name","type":"text"}],"rows":[{"id":"row0","cells":{}},{"id":"row1","cells":{}},{"id":"row2","cells":{}}]}';
+// A valid empty Excalidraw scene, so a freshly-created `.excalidraw` file on disk
+// round-trips as a real scene (not an empty file) and the editor opens blank.
+const EXCALIDRAW_SEED = '{"type":"excalidraw","version":2,"source":"termipod","elements":[],"appState":{},"files":{}}';
 export function seedBody(kind: DocKind): string {
   switch (kind) {
     case 'markdown':
@@ -52,6 +57,8 @@ export function seedBody(kind: DocKind): string {
       return CANVAS_SEED;
     case 'table':
       return TABLE_SEED;
+    case 'excalidraw':
+      return EXCALIDRAW_SEED;
     default:
       return '';
   }
@@ -80,6 +87,8 @@ export function extForKind(kind: DocKind): string {
       return 'json';
     case 'diagram':
       return 'drawio';
+    case 'excalidraw':
+      return 'excalidraw';
     case 'figure':
       return 'txt';
     default:
@@ -92,6 +101,19 @@ export function extForKind(kind: DocKind): string {
 export function extForDoc(doc: Pick<Doc, 'kind' | 'spec'>): string {
   if (doc.kind === 'figure' && doc.spec !== undefined) return figureBySpec(doc.spec)?.ext ?? 'txt';
   return extForKind(doc.kind);
+}
+
+/// A `.json` blob is an Excalidraw scene if its top-level `type` is
+/// `"excalidraw"` (the ecosystem-standard discriminator) — so a scene saved with
+/// a `.json` extension still opens in the sketch editor, and arbitrary JSON never
+/// is. Kept cheap: bail on the first structural mismatch.
+function isExcalidrawBody(content: string): boolean {
+  try {
+    const d = JSON.parse(content) as { type?: unknown; elements?: unknown };
+    return d.type === 'excalidraw' && Array.isArray(d.elements);
+  } catch {
+    return false;
+  }
 }
 
 /// The document kind (+ figure spec) for a file being opened. Extension decides
@@ -107,8 +129,11 @@ export function kindForFile(ext: string, content: string): { kind: DocKind; spec
       return { kind: 'table' };
     case 'drawio':
       return { kind: 'diagram' };
+    case 'excalidraw':
+      return { kind: 'excalidraw' };
     case 'json': {
       if (isTableBody(content)) return { kind: 'table' };
+      if (isExcalidrawBody(content)) return { kind: 'excalidraw' };
       const spec = specForFile('json', content);
       return spec !== undefined ? { kind: 'figure', spec } : { kind: 'markdown' };
     }

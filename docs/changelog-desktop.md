@@ -39,6 +39,24 @@ This complements:
 
 ---
 
+## Unreleased
+
+### Added
+- **Author · Excalidraw sketch editor** (figure-plan Phase C): a freeform
+  hand-drawn sketch surface as a new document kind (`excalidraw`), beside
+  `canvas`/`table`/`figure`. Body is the ecosystem-standard `.excalidraw` JSON
+  (agent-authorable); Export SVG/PNG. `@excalidraw/excalidraw` loads as a lazy
+  chunk (never at boot) with **self-hosted fonts** (offline-first — no esm.sh
+  CDN fetch; fonts copied into the build by `scripts/sync-excalidraw-assets.mjs`
+  and served from `/excalidraw-assets/`). New-doc "Sketch" button (en + zh),
+  `sketch` icon, `.excalidraw`/`.json`-sniff file round-trip. E2E smoke pins the
+  lazy-mount + offline-asset-path config.
+
+### Notes
+- Figure-plan Phase B **LikeC4 spike** resolved: no headless `dsl → SVG` path
+  (its CLI export runs a headless browser), so it is a Phase C editor-mount
+  candidate, not a registry row. **bpmn-js** remains held on its license gate.
+
 ## 2026.722.818 — 2026-07-22 · Electron
 
 **M4 Chromium paydown (ADR-055 §6/§7) — post device-test of 2026.722.331.**

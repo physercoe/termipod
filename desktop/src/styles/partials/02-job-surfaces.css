@@ -267,9 +267,28 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
 }
 .author-split .author-doc,
-.author-split .figure-editor {
+.author-split .figure-editor,
+.author-split .excalidraw-editor {
   flex: 1;
   min-width: 0;
+}
+
+/* J2 Excalidraw editor — a freeform sketch surface (figure-plan Phase C). The
+   `<Excalidraw>` component measures its parent, so the host must be an explicitly
+   sized, positioned box; it reuses the figure bar for the export toolbar. */
+.excalidraw-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.excalidraw-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.excalidraw-host .excalidraw {
+  width: 100%;
+  height: 100%;
 }
 
 /* J2 figure editor — split source ↔ live SVG preview (figure-renderer registry). */

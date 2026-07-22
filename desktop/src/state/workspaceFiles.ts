@@ -20,6 +20,7 @@ export const NEW_BASE: Record<DocKind, string> = {
   canvas: 'canvas',
   table: 'table',
   figure: 'figure',
+  excalidraw: 'sketch',
 };
 
 function sep(dir: string): string {

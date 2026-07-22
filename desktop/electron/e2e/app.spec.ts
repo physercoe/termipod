@@ -270,3 +270,32 @@ test('bytes over IPC: attachment write→read round-trips raw bytes (no base64)'
   });
   expect(rt.readback).toEqual(rt.original);
 });
+
+// ── Excalidraw sketch editor (figure-plan Phase C) ───────────────────────────
+// The interactive sketch surface is a heavy lazy chunk that mounts its own React
+// tree and loads fonts. Pin that it lazy-loads and mounts under the packaged
+// `app://` origin (the black-screen render class doesn't reproduce), AND that its
+// font loader is pointed at the SELF-HOSTED assets — never the esm.sh CDN
+// fallback — which is the offline-first contract (full airplane-mode is
+// device-verified: fonts degrade gracefully to system fonts if absent).
+test('excalidraw: the sketch editor lazy-mounts and is configured for offline fonts', async () => {
+  await page.keyboard.press('Control+4'); // → Author (J2), rail index 4
+  // Same boot-modal guard as the terminal UI test — its backdrop can intercept
+  // the toolbar click. Conditional; it may already be dismissed by an earlier test.
+  const connectClose = page.locator('.connect-head button');
+  if (await connectClose.isVisible().catch(() => false)) {
+    await connectClose.click();
+    await expect(page.locator('.connect')).toHaveCount(0);
+  }
+  await page.getByRole('button', { name: 'Sketch' }).first().click(); // "New Sketch" → in-memory sketch doc
+  // The Excalidraw canvas mounted — the lazy chunk resolved and its React tree
+  // painted without crashing on the `app://` origin.
+  await expect(page.locator('.excalidraw-host .excalidraw').first()).toBeVisible({ timeout: 20_000 });
+  // The font loader was pointed at the local copy, so it will not fall back to the
+  // esm.sh CDN. (Set at the ExcalidrawEditor module scope, which only evaluates
+  // once the lazy chunk above has loaded.)
+  const assetPath = await page.evaluate(
+    () => (window as unknown as { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH,
+  );
+  expect(assetPath).toBe('/excalidraw-assets/');
+});

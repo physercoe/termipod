@@ -28,6 +28,9 @@ const TableEditor = lazy(() => import('../ui/TableEditor').then((m) => ({ defaul
 // The figure editor pulls in a renderer library (mermaid/graphviz/vega) on first
 // use of a spec — split it (and them) out of the entry chunk.
 const FigureEditor = lazy(() => import('./FigureEditor').then((m) => ({ default: m.FigureEditor })));
+// Excalidraw is a heavy interactive editor (its own React tree + fonts) — split
+// it out so it loads only when a sketch doc is opened, never at app boot.
+const ExcalidrawEditor = lazy(() => import('./ExcalidrawEditor').then((m) => ({ default: m.ExcalidrawEditor })));
 import type { MarkdownEditorHandle } from '../ui/MarkdownEditor';
 // CodeMirror is heavy (~500 KB) and Author isn't the landing tab — split it out.
 const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })));
@@ -374,6 +377,10 @@ export function AuthorSurface(): JSX.Element {
             <Icon name="table" size={14} />
             {t('author.newTable')}
           </button>
+          <button className="import-btn" disabled={busy} onClick={() => void createDoc('excalidraw')}>
+            <Icon name="sketch" size={14} />
+            {t('author.newExcalidraw')}
+          </button>
           <div className="author-figbtn">
             <button
               className="import-btn"
@@ -489,6 +496,10 @@ export function AuthorSurface(): JSX.Element {
           ) : active.kind === 'figure' ? (
             <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
               <FigureEditor key={active.id} doc={active} />
+            </Suspense>
+          ) : active.kind === 'excalidraw' ? (
+            <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
+              <ExcalidrawEditor key={active.id} doc={active} />
             </Suspense>
           ) : (
             <Editor key={active.id} doc={active} />

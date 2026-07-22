@@ -3,3 +3,4 @@ dist/
 *.local
 .vite/
 src/styles/tokens.css
+public/excalidraw-assets/

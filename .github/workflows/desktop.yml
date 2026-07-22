@@ -119,12 +119,33 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/electron/package-lock.json
+      # node-gyp (pinned to 10 via package overrides) needs Python for the
+      # node-pty Electron-ABI rebuild; pin 3.11 so it has distutils.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Build the frontend (dist/ — the app the shell loads)
         working-directory: desktop
         run: npm ci && npm run build
       - name: Install Electron shell deps (incl. the real Electron binary + Playwright)
         working-directory: desktop/electron
         run: npm ci # NOT ELECTRON_SKIP_BINARY_DOWNLOAD — the E2E run needs the binary
+      # The terminal test spawns a real shell via node-pty, a native addon built
+      # by npm against system Node — its ABI differs from Electron's, so rebuild
+      # it against the Electron headers. Plain node-gyp, NOT @electron/rebuild
+      # (electron-builder's forked rebuilder deadlocks — issue #358; same recipe
+      # as desktop-electron-release.yml). node-pty is the only addon that needs
+      # it (@napi-rs/keyring is N-API prebuilt).
+      - name: Rebuild node-pty for the Electron ABI (plain node-gyp)
+        working-directory: desktop/electron
+        run: |
+          npm install -g node-gyp@^10
+          EV=$(node -p "require('electron/package.json').version")
+          ARCH=$(node -p "process.arch")
+          echo "Rebuilding node-pty for Electron $EV ($ARCH)"
+          cd node_modules/node-pty
+          node-gyp rebuild --target="$EV" --arch="$ARCH" --dist-url=https://electronjs.org/headers
+          ls -la build/Release/*.node
       - name: Build the Electron main/preload bundles
         working-directory: desktop/electron
         run: npm run build

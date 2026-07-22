@@ -45,10 +45,13 @@ This complements:
 
 ### Added
 - **E2E test harness** (§7 row 14): Playwright drives the real Electron app under
-  xvfb in CI (`desktop.yml` → `e2e` job; specs in `desktop/electron/e2e/`). The
-  smoke suite asserts boot + paint, the injected preload bridge + an `app_version`
-  round-trip, and the secure `app://` origin. This is the gate that lets the
-  remaining guard-deletions be verified against real Chromium, not by faith.
+  xvfb in CI (`desktop.yml` → `e2e` job; specs in `desktop/electron/e2e/`).
+  Beyond the boot/bridge/secure-context smoke, it covers three flows: **terminal**
+  (a real node-pty round-trip — the CI job rebuilds node-pty for the Electron ABI
+  — plus a UI open-local-shell → xterm-mounts check), **draw.io** (`drawio_status`
+  round-trip), and **figure export** (SVG→canvas→PNG rasterization). This is the
+  gate that lets the remaining guard-deletions be verified against real Chromium,
+  not by faith.
 
 ### Changed
 - **Unique ids now use `crypto.randomUUID`** (canvas boards, library items,

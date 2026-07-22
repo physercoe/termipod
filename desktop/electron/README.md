@@ -71,14 +71,25 @@ npm start          # esbuild → out/, then `electron .`
 - **`npm run test:e2e`** — Playwright drives the **real Electron app** (ADR-055
   §7 row 14; specs in `e2e/`, config in `playwright.config.ts`). Needs the
   Electron binary + a display, so it runs in CI under xvfb (`.github/workflows/desktop.yml`
-  → the `e2e` job); there is no local Electron binary on the dev host. The smoke
-  suite launches `out/main.cjs` unpackaged (loading the frontend from
-  `../dist` via `TERMIPOD_DIST`) and asserts: the window boots + paints, the
-  preload bridge is injected and `app_version` round-trips, and the renderer is a
-  secure `app://` context (`crypto.randomUUID` available). Native addons
-  (node-pty, keyring) are lazily imported, so the smoke suite needs no ABI
-  rebuild — a terminal/SSH suite that exercises them would (`electron-builder
-  install-app-deps` first).
+  → the `e2e` job); there is no local Electron binary on the dev host. It launches
+  `out/main.cjs` unpackaged (loading the frontend from `../dist` via
+  `TERMIPOD_DIST`) and covers:
+  - **Smoke** — the window boots + paints, the preload bridge is injected and
+    `app_version` round-trips, and the renderer is a secure `app://` context
+    (`crypto.randomUUID` available).
+  - **Terminal** — a real local shell over node-pty: `pty_open`→`start`→`write`
+    and the `pty-data` byte stream carries the command output (the layer the
+    base64→bytes IPC paydown will change), plus a UI check that opening a local
+    shell mounts an xterm screen.
+  - **draw.io** — `drawio_status` round-trips (not-installed in CI; the full
+    ~50 MB iframe embed isn't downloaded).
+  - **Figure export** — Chromium rasterizes an SVG to PNG via canvas (the half of
+    `save_image_as` that isn't the native save dialog).
+
+  The terminal test spawns node-pty, a native addon whose ABI must match Electron
+  (not system Node), so the CI job **rebuilds it with plain node-gyp** (NOT
+  `@electron/rebuild` — it deadlocks, issue #358; same recipe as the release
+  workflow). `@napi-rs/keyring` is N-API prebuilt and needs no rebuild.
 
 ## Status — M1 slices
 

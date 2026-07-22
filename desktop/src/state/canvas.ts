@@ -54,9 +54,9 @@ export function parseBoard(body: string): Board {
 
 export const serializeBoard = (b: Board): string => JSON.stringify(b);
 
-// Monotonic id — no crypto.randomUUID under tauri:// (see library.ts note).
-let seq = 0;
+// Unique id. The renderer serves from the secure `app://` origin, so
+// crypto.randomUUID is available (ADR-055 §7 row 12; was a monotonic fallback
+// under the non-secure tauri:// scheme).
 export function newId(prefix: string): string {
-  seq += 1;
-  return `${prefix}${Date.now().toString(36)}${seq}`;
+  return `${prefix}${crypto.randomUUID()}`;
 }

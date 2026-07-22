@@ -121,12 +121,10 @@ function save(items: Annotation[]): void {
   }
 }
 
-// Monotonic id — no crypto.randomUUID (not guaranteed secure-context under the
-// tauri:// scheme, per the desktop id convention; matches state/library.ts).
-let seq = 0;
+// Unique id via crypto.randomUUID — available now the renderer serves from the
+// secure `app://` origin (ADR-055 §7 row 12; matches state/library.ts).
 function newId(): string {
-  seq += 1;
-  return `ann${Date.now().toString(36)}${seq}`;
+  return `ann${crypto.randomUUID()}`;
 }
 
 // A coarse reading-order key: page, then vertical (higher-on-page first), then

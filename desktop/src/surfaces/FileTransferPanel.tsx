@@ -25,12 +25,10 @@ interface Transfer {
   error?: string;
 }
 
-// Monotonic transfer id — unique within the session, no secure-context dependency
-// (crypto.randomUUID isn't guaranteed under the tauri:// scheme).
-let txSeq = 0;
+// Unique transfer id via crypto.randomUUID — available now the renderer serves
+// from the secure `app://` origin (ADR-055 §7 row 12).
 function nextTransferId(): string {
-  txSeq += 1;
-  return `tx${txSeq}`;
+  return `tx${crypto.randomUUID()}`;
 }
 
 function formatBytes(n: number): string {

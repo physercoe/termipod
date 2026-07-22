@@ -15,6 +15,14 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  build: {
+    // ADR-055 §7 row 13: the app runs on the pinned Chromium the Electron shell
+    // bundles (Electron 43 ⇒ Chromium ~138), not a multi-engine matrix, so target
+    // a modern floor well below that. esbuild keeps modern syntax instead of
+    // down-levelling it → smaller output. (`chrome120` is also broadly supported
+    // by the plain-browser degrade build.)
+    target: 'chrome120',
+  },
   server: {
     fs: { allow: ['..'] },
   },

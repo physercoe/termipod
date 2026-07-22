@@ -39,6 +39,19 @@ This complements:
 
 ---
 
+## Unreleased · Electron
+
+**M4 Chromium paydown (ADR-055 §6/§7) — post device-test of 2026.722.331.**
+
+### Changed
+- **Unique ids now use `crypto.randomUUID`** (canvas boards, library items,
+  annotations, file transfers) — the renderer serves from the secure `app://`
+  origin, so the monotonic-counter fallbacks written for the non-secure
+  `tauri://` scheme are gone (§7 row 12).
+- **Vite build target pinned to `chrome120`** (§7 row 13): the app runs on the
+  Chromium the Electron shell bundles, so esbuild keeps modern syntax instead of
+  down-levelling it — the entry chunk drops ~44 kB (2,583 → 2,539 kB).
+
 ## 2026.722.331 — 2026-07-22 · Electron
 
 **Tauri lane retired (ADR-055 M3.4).**

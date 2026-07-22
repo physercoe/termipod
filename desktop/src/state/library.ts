@@ -254,12 +254,11 @@ function save(p: Persisted): void {
   }
 }
 
-// Monotonic id — no crypto.randomUUID (not guaranteed secure-context under the
-// tauri:// scheme, per the desktop id convention).
-let seq = 0;
+// Unique id via crypto.randomUUID — available now the renderer serves from the
+// secure `app://` origin (ADR-055 §7 row 12; was a monotonic fallback under the
+// non-secure tauri:// scheme).
 function newId(prefix: string): string {
-  seq += 1;
-  return `${prefix}${Date.now().toString(36)}${seq}`;
+  return `${prefix}${crypto.randomUUID()}`;
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({

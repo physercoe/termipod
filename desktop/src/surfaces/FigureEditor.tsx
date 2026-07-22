@@ -103,27 +103,26 @@ function SourceEditor({ value, onChange, placeholder }: { value: string; onChang
   return <div className="md-editor figure-source" ref={hostRef} />;
 }
 
-/// Ensure an SVG string carries explicit pixel `width`/`height` so an offscreen
-/// `<img>` rasterizes it deterministically — mermaid/vega emit a `viewBox` but
-/// often only a CSS `max-width`, and WebKit reports `naturalWidth === 0` for
-/// such an SVG, which would draw a blank PNG.
-function sizedSvg(svg: string): { svg: string; w: number; h: number } {
+/// Extract the intended pixel size of a rendered figure SVG — its explicit
+/// `width`/`height`, else the `viewBox`, else a default — so `svgToPngBase64` can
+/// size the output canvas. (It formerly also injected explicit width/height into
+/// the `<svg>` to work around WebKit reporting `naturalWidth === 0` for
+/// viewBox-only SVGs; the Electron shell's Chromium rasterizes those via
+/// `drawImage(img, 0, 0, w, h)` with no injection — §7 row 3, pinned in
+/// electron/e2e/app.spec.ts.)
+function svgSize(svg: string): { w: number; h: number } {
   const vb = /viewBox\s*=\s*["']\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*["']/.exec(svg);
   const wAttr = /<svg[^>]*\bwidth\s*=\s*["']\s*([\d.]+)(?:px)?\s*["']/.exec(svg);
   const hAttr = /<svg[^>]*\bheight\s*=\s*["']\s*([\d.]+)(?:px)?\s*["']/.exec(svg);
   const w = wAttr !== null ? Number(wAttr[1]) : vb !== null ? Number(vb[3]) : 800;
   const h = hAttr !== null ? Number(hAttr[1]) : vb !== null ? Number(vb[4]) : 600;
-  // Inject explicit dimensions into the opening <svg> tag when missing.
-  let out = svg;
-  if (wAttr === null) out = out.replace(/<svg\b/, `<svg width="${Math.round(w)}"`);
-  if (hAttr === null) out = out.replace(/<svg\b/, `<svg height="${Math.round(h)}"`);
-  return { svg: out, w, h };
+  return { w, h };
 }
 
 /// Rasterize an SVG string to a base64 PNG at `scale`× via an offscreen canvas.
 async function svgToPngBase64(svg: string, scale = 2): Promise<string> {
-  const { svg: sized, w, h } = sizedSvg(svg);
-  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sized)}`;
+  const { w, h } = svgSize(svg);
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   const img = new Image();
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();

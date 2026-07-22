@@ -210,3 +210,38 @@ test('blob-URL iframe loads and stays same-origin scriptable (the pattern WebVie
   expect(result.text).toBe('BLOB_IFRAME_OK');
   expect(result.zoomable).toBe(true);
 });
+
+// ── sizedSvg WebKit shim (§6 row 3 / §7 row 3 guard-deletion) ────────────────
+// mermaid/vega emit a `viewBox` but often no explicit width/height (just a CSS
+// max-width). WebKit reported `naturalWidth === 0` for such an SVG and drew a
+// blank PNG, so `FigureEditor.sizedSvg` injected explicit dimensions before
+// rasterizing. This mirrors the SIMPLIFIED path (no injection): load the
+// viewBox-only SVG and `drawImage(img, 0, 0, w, h)` with explicit dest dims.
+// Passing proves the injection is unnecessary on Chromium, so it can be deleted.
+test('sizedSvg: Chromium rasterizes a viewBox-only SVG (the WebKit naturalWidth=0 case)', async () => {
+  const out = await page.evaluate(async () => {
+    // No width/height attrs — only a viewBox + a CSS max-width, exactly what
+    // mermaid/vega emit and what WebKit blanked.
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" style="max-width:100%">' +
+      '<rect width="120" height="80" fill="#22aa66"/></svg>';
+    const w = 120;
+    const h = 80;
+    const img = new Image();
+    await new Promise<void>((res, rej) => {
+      img.onload = () => res();
+      img.onerror = () => rej(new Error('svg decode failed'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, w, h); // explicit dest dims — no injected width/height needed
+    const px = ctx.getImageData(10, 10, 1, 1).data; // should be the green rect
+    return { alpha: px[3], green: px[1] };
+  });
+  // A blank PNG (the WebKit failure) would be fully transparent — assert real pixels.
+  expect(out.alpha).toBeGreaterThan(0);
+  expect(out.green).toBeGreaterThan(100);
+});

@@ -54,6 +54,12 @@ This complements:
   not by faith.
 
 ### Changed
+- **sizedSvg WebKit shim removed** (§6 row 3, test-first): figure PNG export no
+  longer injects explicit `width`/`height` into the rendered SVG — that worked
+  around WebKit reporting `naturalWidth === 0` for viewBox-only SVGs. Chromium
+  rasterizes them via `drawImage` with explicit dest dims; the helper is now
+  `svgSize`, returning just the canvas dimensions. An E2E test pins the capability
+  (a viewBox-only SVG rasterizes to real pixels).
 - **blob-iframe guard-deletion** (§6 row 2, test-first): corrected the stale
   WebView2 rationale comments in the reader/artifact viewers to the real,
   shell-agnostic reason (the pdf.js/epub.js canvas pipeline is kept because it

@@ -64,6 +64,15 @@ export function setupWebtab(): void {
   // Deny every permission a preview browser has no business granting; allow only
   // fullscreen (video). Applies to the whole partition.
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'fullscreen'));
+  // The http(s)-only navigation policy, enforced at the request layer:
+  // `will-navigate` (below) does NOT fire for programmatic loads — and
+  // `webview.loadURL` is exactly how the renderer navigates (address bar) — nor
+  // for server redirects, so a `file:`/custom-scheme top-frame load would slip
+  // through it. Cancel any non-http(s) top-frame request for the partition
+  // (about:blank makes no request; subresources are Chromium-policed).
+  ses.webRequest.onBeforeRequest((details, cb) => {
+    cb({ cancel: details.resourceType === 'mainFrame' && !/^https?:\/\//i.test(details.url) });
+  });
   // Downloads default (until W2b's chooser): force a save dialog into Downloads
   // so a click on a PDF link isn't silently swallowed or auto-dumped.
   ses.on('will-download', (_e, item) => {

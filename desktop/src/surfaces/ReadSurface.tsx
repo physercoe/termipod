@@ -1898,6 +1898,15 @@ export function ReadSurface(): JSX.Element {
     setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, title } : tb)));
   }, []);
 
+  // Track the guest's real navigation on the tab — the web tab is mounted only
+  // while active, so a remount starts from `tab.url`; without this a switched-
+  // away tab would snap back to the URL it was OPENED with (or, for a "+" new
+  // tab, all the way to the empty start state).
+  const setTabUrl = useCallback((id: string, url: string): void => {
+    if (url === '') return;
+    setTabs((ts) => ts.map((tb) => (tb.id === id && tb.url !== url ? { ...tb, url } : tb)));
+  }, []);
+
   function openNoteTab(refId: string): void {
     const existing = tabs.find((tb) => tb.kind === 'note' && tb.refId === refId);
     if (existing !== undefined) {
@@ -2285,7 +2294,15 @@ export function ReadSurface(): JSX.Element {
         ) : activeTabObj.kind === 'note' && activeTabObj.refId !== undefined ? (
           <NoteTab refId={activeTabObj.refId} />
         ) : (
-          <BrowserView initialUrl={activeTabObj.url ?? ''} onTitle={(title) => setTabTitle(activeTabObj.id, title)} />
+          // key: two web tabs render at the same JSX position — unkeyed, React
+          // would reuse one instance (and one guest) across them, so switching
+          // web tab → web tab would silently keep showing the first tab's page.
+          <BrowserView
+            key={activeTabObj.id}
+            initialUrl={activeTabObj.url ?? ''}
+            onTitle={(title) => setTabTitle(activeTabObj.id, title)}
+            onNavigate={(url) => setTabUrl(activeTabObj.id, url)}
+          />
         )
       ) : (
         <>

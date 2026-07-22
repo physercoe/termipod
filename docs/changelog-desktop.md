@@ -76,6 +76,22 @@ This complements:
   lazy-mount + offline-asset-path config.
 
 ### Fixed
+- **Web tabs enforce http(s)-only at the request layer**: the guest's
+  `will-navigate` policy does not fire for programmatic loads — which is
+  exactly how the address bar navigates (`webview.loadURL`) — so a typed
+  `file:`/custom-scheme URL loaded in the guest. The `persist:webtab` session
+  now cancels any non-http(s) top-frame request (`webRequest.onBeforeRequest`),
+  closing the loadURL, `src`, and server-redirect paths alike.
+- **Switching between two web tabs no longer shows the wrong page**: the
+  `BrowserView` rendered unkeyed at a stable JSX position, so React reused one
+  component instance (and one guest) across different web tabs. Now keyed by
+  tab id.
+- **A web tab remembers where you were**: the guest's real navigations are
+  written back to the tab (`onNavigate` → `tab.url`), so switching away and
+  back resumes the **last** page instead of the URL the tab was opened with —
+  a "+" new tab previously snapped all the way back to the empty start state.
+  (In-memory page state — scroll, form fields — is still not preserved across
+  tab switches; cookies/logins persist via the partition as before.)
 - **`.excalidraw` files are reopenable**: the extension was missing from both
   openability allowlists, so a workspace-saved sketch showed in the file tree
   but was click-inert, and the Open dialog filtered it out — breaking the

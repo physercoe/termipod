@@ -59,13 +59,22 @@ export function normalizeUrl(raw: string): string {
 export function BrowserView({
   initialUrl,
   onTitle,
+  onNavigate,
 }: {
   initialUrl: string;
   onTitle?: (title: string) => void;
+  /// Reports the guest's real navigations so the owner can persist the tab's
+  /// current URL — the web tab unmounts while inactive, so a remount must start
+  /// from the LAST page, not the one the tab was opened with.
+  onNavigate?: (url: string) => void;
 }): JSX.Element {
   const t = useT();
   const viewRef = useRef<WebviewEl | null>(null);
   const addrRef = useRef<HTMLInputElement | null>(null);
+  // The guest's `src` is fixed at mount: `onNavigate` feeds navigations back
+  // into the owner's `initialUrl` prop, and letting that flow into the `src`
+  // attribute would re-trigger the very load it reports (a reload per click).
+  const [initialSrc] = useState(initialUrl !== '' ? initialUrl : 'about:blank');
   // The URL the guest is currently on (drives the address bar); starts at
   // `initialUrl` (empty → the start state, no guest navigation yet).
   const [current, setCurrent] = useState(initialUrl);
@@ -105,12 +114,13 @@ export function BrowserView({
   useEffect(() => {
     const v = viewRef.current;
     if (v === null) return;
-    const onNavigate = (e: Event): void => {
+    const onNavigated = (e: Event): void => {
       const url = (e as unknown as { url?: string }).url;
       if (typeof url === 'string' && url !== '' && url !== 'about:blank') {
         setCurrent(url);
         setAddress(url);
         setStarted(true);
+        onNavigate?.(url);
       }
       setLoadError(null);
       syncNavState();
@@ -126,19 +136,19 @@ export function BrowserView({
       if (ev.errorCode === -3 || ev.isMainFrame === false) return;
       setLoadError({ code: ev.errorCode ?? 0, desc: ev.errorDescription ?? '', url: ev.validatedURL ?? current });
     };
-    v.addEventListener('did-navigate', onNavigate);
-    v.addEventListener('did-navigate-in-page', onNavigate);
+    v.addEventListener('did-navigate', onNavigated);
+    v.addEventListener('did-navigate-in-page', onNavigated);
     v.addEventListener('page-title-updated', onTitleUpdate);
     v.addEventListener('did-stop-loading', syncNavState);
     v.addEventListener('did-fail-load', onFail);
     return () => {
-      v.removeEventListener('did-navigate', onNavigate);
-      v.removeEventListener('did-navigate-in-page', onNavigate);
+      v.removeEventListener('did-navigate', onNavigated);
+      v.removeEventListener('did-navigate-in-page', onNavigated);
       v.removeEventListener('page-title-updated', onTitleUpdate);
       v.removeEventListener('did-stop-loading', syncNavState);
       v.removeEventListener('did-fail-load', onFail);
     };
-  }, [onTitle, syncNavState, current]);
+  }, [onTitle, onNavigate, syncNavState, current]);
 
   // Push the app's effective proxy to the webtab session before the first load
   // (the session default is system-proxy; this applies a manual override).
@@ -192,12 +202,12 @@ export function BrowserView({
         </button>
       </div>
       <div className="browser-frame-wrap">
-        {/* The guest is always mounted (stable per tab); `src` is the constant
-            initial URL — later navigation goes through loadURL, never `src`. */}
+        {/* The guest is always mounted (stable per tab); `src` is the mount-time
+            URL — later navigation goes through loadURL, never `src`. */}
         <Webview
           ref={viewRef as unknown as React.Ref<HTMLElement>}
           className="browser-webview"
-          src={initialUrl !== '' ? initialUrl : 'about:blank'}
+          src={initialSrc}
           partition="persist:webtab"
           allowpopups="true"
         />

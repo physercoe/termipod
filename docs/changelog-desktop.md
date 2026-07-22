@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-22)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.722.211 / electron-v2026.722.211
+> **Last verified vs code:** desktop 2026.722.252 / electron-v2026.722.252
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -38,6 +38,19 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## 2026.722.252 — 2026-07-22 · Electron
+
+**Sync-down connection refresh + graceful update check.**
+
+### Fixed
+- **SSH connections now appear right after a vault sync-down** (they previously
+  stayed empty until an app restart). The always-mounted terminal panel that
+  hosts the connections nav re-reads the list on a new `termipod:vault-imported`
+  broadcast instead of only at mount.
+- **Update check no longer errors when the update feed isn't published yet.** A
+  404 on the (not-yet-promoted) `electron-latest` feed is treated as
+  "up-to-date" rather than surfacing "Update failed: … Cannot find channel".
 
 ## 2026.722.211 — 2026-07-22 · Electron
 

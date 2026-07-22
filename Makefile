@@ -31,7 +31,11 @@ endif
 	cvy=$$(echo $$core | cut -d. -f1); \
 	cvmmdd=$$(echo $$core | cut -d. -f2); \
 	cvhhmm=$$(echo $$core | cut -d. -f3); \
-	build=$$(( ( $$(date -u -d "$$cvy-$$((10#$$cvmmdd/100))-$$((10#$$cvmmdd%100)) $$((10#$$cvhhmm/100)):$$((10#$$cvhhmm%100)):00 UTC" +%s) - 1577836800 ) / 60 )); \
+	cvmm=$$((10#$$cvmmdd/100)); cvdd=$$((10#$$cvmmdd%100)); \
+	cvhh=$$((10#$$cvhhmm/100)); cvmi=$$((10#$$cvhhmm%100)); \
+	cva=$$(( (14-cvmm)/12 )); cvyy=$$(( cvy+4800-cva )); cvm=$$(( cvmm+12*cva-3 )); \
+	cvjdn=$$(( cvdd + (153*cvm+2)/5 + 365*cvyy + cvyy/4 - cvyy/100 + cvyy/400 - 32045 )); \
+	build=$$(( (cvjdn-2458850)*1440 + cvhh*60 + cvmi )); \
 	sed -i.bak "s/^version: .*/version: $(VERSION)+$$build/" pubspec.yaml && rm pubspec.yaml.bak; \
 	sed -i.bak "s/^const Version = .*/const Version = \"$(VERSION)\"/" hub/internal/buildinfo/buildinfo.go && rm hub/internal/buildinfo/buildinfo.go.bak; \
 	echo "bumped to $(VERSION) (build $$build)"; \

@@ -71,11 +71,14 @@ jobs:
           VERSION_NUM="${VERSION#v}"
           # CalVer YYYY.MMDD.HHMM → build number = minutes since 2020-01-01 UTC
           # (monotonic across the day boundary; must match release.yml's formula).
+          # Pure integer Julian-Day arithmetic — the macOS runner's BSD `date`
+          # rejects GNU's `-d` flag, so we never shell out to `date` here.
           IFS='.' read -r CVY CVMMDD CVHHMM <<< "${VERSION_NUM%%-*}"
           CVMM=$((10#$CVMMDD / 100)); CVDD=$((10#$CVMMDD % 100))
           CVHH=$((10#$CVHHMM / 100)); CVMI=$((10#$CVHHMM % 100))
-          BUILD_SECS=$(date -u -d "${CVY}-${CVMM}-${CVDD} ${CVHH}:${CVMI}:00 UTC" +%s)
-          BUILD_NUMBER=$(( (BUILD_SECS - 1577836800) / 60 ))
+          CVA=$(( (14 - CVMM) / 12 )); CVYY=$(( CVY + 4800 - CVA )); CVM=$(( CVMM + 12 * CVA - 3 ))
+          CVJDN=$(( CVDD + (153 * CVM + 2) / 5 + 365 * CVYY + CVYY / 4 - CVYY / 100 + CVYY / 400 - 32045 ))
+          BUILD_NUMBER=$(( (CVJDN - 2458850) * 1440 + CVHH * 60 + CVMI ))  # 2458850 = JDN(2020-01-01)
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
 
           flutter build ios --release --no-codesign \

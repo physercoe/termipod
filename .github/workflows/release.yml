@@ -73,14 +73,18 @@ jobs:
           # CalVer YYYY.MMDD.HHMM (UTC build time). versionCode = minutes since
           # 2020-01-01 UTC — a monotonic int32 that survives the day boundary
           # (the old MAJOR*10000+MINOR*100+PATCH would REGRESS at midnight, since
-          # HHMM runs 0..2359 > the 100-wide PATCH slot). `10#` forces base-10 so
-          # a component like "08" is never read as octal. Android caps versionCode
-          # at ~2.1e9; minutes-since-2020 stays ~3.4M for decades.
+          # HHMM runs 0..2359 > the 100-wide PATCH slot). Computed with a pure
+          # integer Julian-Day formula, NOT `date -u -d` — that flag is GNU-only
+          # and fails on the macOS iOS runner (`date: illegal option -- d`); the
+          # Android + iOS builds MUST agree, so both use this arithmetic. `10#`
+          # forces base-10 so "08"/"09" is never read as octal. Android caps
+          # versionCode at ~2.1e9; minutes-since-2020 stays ~3.4M for decades.
           IFS='.' read -r CVY CVMMDD CVHHMM <<< "${VERSION_NUM%%-*}"
           CVMM=$((10#$CVMMDD / 100)); CVDD=$((10#$CVMMDD % 100))
           CVHH=$((10#$CVHHMM / 100)); CVMI=$((10#$CVHHMM % 100))
-          BUILD_SECS=$(date -u -d "${CVY}-${CVMM}-${CVDD} ${CVHH}:${CVMI}:00 UTC" +%s)
-          BUILD_NUMBER=$(( (BUILD_SECS - 1577836800) / 60 ))
+          CVA=$(( (14 - CVMM) / 12 )); CVYY=$(( CVY + 4800 - CVA )); CVM=$(( CVMM + 12 * CVA - 3 ))
+          CVJDN=$(( CVDD + (153 * CVM + 2) / 5 + 365 * CVYY + CVYY / 4 - CVYY / 100 + CVYY / 400 - 32045 ))
+          BUILD_NUMBER=$(( (CVJDN - 2458850) * 1440 + CVHH * 60 + CVMI ))  # 2458850 = JDN(2020-01-01)
           if [ "$BUILD_NUMBER" -le 0 ] || [ "$BUILD_NUMBER" -ge 2100000000 ]; then
             echo "::error::computed versionCode $BUILD_NUMBER out of range for $VERSION_NUM"; exit 1
           fi

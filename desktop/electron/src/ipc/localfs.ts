@@ -1,8 +1,9 @@
 /// Local file pane for the two-pane transfer (ADR-055 M1.4) — port of
 /// `src-tauri/src/localfs.rs`. Non-recursive listing (hidden files INCLUDED — an
 /// SSH user wants `~/.ssh`) plus single-file byte read/write (raw bytes over IPC,
-/// no base64 — ADR-055 §7 row 4).
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+/// no base64 — ADR-055 §7 row 4), and the mkdir/delete/rename ops behind the
+/// transfer panel's New Folder / Delete / Rename and directory download.
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Handler } from './dispatch';
 import { home, parentOrNull, sortDirsFirst } from './fsutil';
@@ -51,5 +52,20 @@ export const localfsHandlers: Record<string, Handler> = {
 
   localfs_write: async (args): Promise<void> => {
     await writeFile(String(args.path ?? ''), (args.bytes ?? new Uint8Array()) as Uint8Array);
+  },
+
+  /// mkdir -p locally (New Folder + the directory-download destination).
+  localfs_mkdir: async (args): Promise<void> => {
+    await mkdir(String(args.path ?? ''), { recursive: true });
+  },
+
+  /// Recursive delete (files and folders) behind the panel's Delete — the
+  /// renderer confirms with the user before invoking.
+  localfs_delete: async (args): Promise<void> => {
+    await rm(String(args.path ?? ''), { recursive: true });
+  },
+
+  localfs_rename: async (args): Promise<void> => {
+    await rename(String(args.from ?? ''), String(args.to ?? ''));
   },
 };

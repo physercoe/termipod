@@ -160,6 +160,65 @@ interface SftpEntry {
   size: number;
 }
 
+/// Promisified SFTP primitives used by the directory-transfer / file-op
+/// handlers below (the transfer panel's New Folder / Rename / Delete and the
+/// recursive directory upload/download).
+function sftpMkdirOnce(sftp: SFTPWrapper, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.mkdir(path, (err) => (err ? reject(new Error(`mkdir: ${err.message}`)) : resolve()));
+  });
+}
+function sftpStat(sftp: SFTPWrapper, path: string): Promise<{ isDir: boolean } | null> {
+  return new Promise((resolve) => {
+    sftp.stat(path, (err, st) => {
+      if (err) resolve(null); // missing / unreadable — caller decides
+      else resolve({ isDir: st.isDirectory() });
+    });
+  });
+}
+/// mkdir -p: walk the path components, creating each missing segment. A segment
+/// that already exists as a directory is fine; anything else that collides
+/// throws. Handles both absolute ('/a/b') and home-relative ('./a', 'a') paths.
+async function sftpMkdirp(sftp: SFTPWrapper, dirPath: string): Promise<void> {
+  const absolute = dirPath.startsWith('/');
+  const parts = dirPath.split('/').filter((p) => p !== '' && p !== '.');
+  let cur = absolute ? '/' : '.';
+  for (const part of parts) {
+    cur = cur === '/' ? `/${part}` : `${cur}/${part}`;
+    try {
+      await sftpMkdirOnce(sftp, cur);
+    } catch (e) {
+      const st = await sftpStat(sftp, cur);
+      if (st === null || !st.isDir) throw e;
+    }
+  }
+}
+/// rm -rf: recursive delete. Readdir returns full names; '.'/'..' never appear
+/// in ssh2's readdir output, but skip defensively.
+async function sftpRmrf(sftp: SFTPWrapper, target: string): Promise<void> {
+  const st = await sftpStat(sftp, target);
+  if (st === null) throw new Error(`no such file: ${target}`);
+  if (!st.isDir) {
+    await new Promise<void>((resolve, reject) => {
+      sftp.unlink(target, (err) => (err ? reject(new Error(`delete: ${err.message}`)) : resolve()));
+    });
+    return;
+  }
+  const names = await new Promise<string[]>((resolve, reject) => {
+    sftp.readdir(target, (err, list) => {
+      if (err) reject(new Error(`read_dir: ${err.message}`));
+      else resolve(list.map((e) => e.filename));
+    });
+  });
+  for (const name of names) {
+    if (name === '.' || name === '..') continue;
+    await sftpRmrf(sftp, target === '/' ? `/${name}` : `${target.replace(/\/$/, '')}/${name}`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    sftp.rmdir(target, (err) => (err ? reject(new Error(`rmdir: ${err.message}`)) : resolve()));
+  });
+}
+
 export const sshHandlers: Record<string, Handler> = {
   ssh_connect: async (args, ctx): Promise<string> => {
     const req = (args.req !== null && typeof args.req === 'object' ? args.req : {}) as SshConnectReq;
@@ -376,6 +435,44 @@ export const sshHandlers: Record<string, Handler> = {
       }
       ws.end();
     });
+  },
+
+  /// mkdir -p on the remote (recursive — New Folder + directory upload).
+  sftp_mkdir: async (args): Promise<void> => {
+    const id = String(args.id ?? '');
+    const dirPath = String(args.path ?? '');
+    const sftp = await openSftp(id);
+    try {
+      await sftpMkdirp(sftp, dirPath);
+    } finally {
+      sftp.end();
+    }
+  },
+
+  /// Recursive delete (rm -rf) — files unlink, dirs walk then rmdir.
+  sftp_delete: async (args): Promise<void> => {
+    const id = String(args.id ?? '');
+    const target = String(args.path ?? '');
+    const sftp = await openSftp(id);
+    try {
+      await sftpRmrf(sftp, target);
+    } finally {
+      sftp.end();
+    }
+  },
+
+  sftp_rename: async (args): Promise<void> => {
+    const id = String(args.id ?? '');
+    const from = String(args.from ?? '');
+    const to = String(args.to ?? '');
+    const sftp = await openSftp(id);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        sftp.rename(from, to, (err) => (err ? reject(new Error(`rename: ${err.message}`)) : resolve()));
+      });
+    } finally {
+      sftp.end();
+    }
   },
 };
 

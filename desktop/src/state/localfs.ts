@@ -32,3 +32,14 @@ export function localRead(path: string): Promise<Uint8Array> {
 export function localWrite(path: string, bytes: Uint8Array): Promise<void> {
   return invoke('localfs_write', { path, bytes });
 }
+/** mkdir -p locally (New Folder, directory-download destination). */
+export function localMkdir(path: string): Promise<void> {
+  return invoke('localfs_mkdir', { path });
+}
+/** Recursive delete (files and folders). */
+export function localDelete(path: string): Promise<void> {
+  return invoke('localfs_delete', { path });
+}
+export function localRename(from: string, to: string): Promise<void> {
+  return invoke('localfs_rename', { from, to });
+}

@@ -66,6 +66,17 @@ export function sftpRead(id: string, path: string, transferId: string): Promise<
 export function sftpWrite(id: string, path: string, bytes: Uint8Array, transferId: string): Promise<void> {
   return invoke('sftp_write', { id, path, bytes, transferId });
 }
+/** mkdir -p on the remote (New Folder, directory-upload destination). */
+export function sftpMkdir(id: string, path: string): Promise<void> {
+  return invoke('sftp_mkdir', { id, path });
+}
+/** Recursive delete (rm -rf) — files and directories. */
+export function sftpDelete(id: string, path: string): Promise<void> {
+  return invoke('sftp_delete', { id, path });
+}
+export function sftpRename(id: string, from: string, to: string): Promise<void> {
+  return invoke('sftp_rename', { id, from, to });
+}
 
 interface SftpProgressPayload {
   transfer_id: string;

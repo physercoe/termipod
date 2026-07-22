@@ -64,7 +64,10 @@ This complements:
   the reference — **Download PDF** on the Inspector Info + Read tabs and **Add +
   PDF** on a Discover card. Idempotent via a new `Attachment.srcUrl` (a matching
   URL renders an inert "Downloaded"). The download core (`ipc/download.ts`) is a
-  pure, unit-tested module.
+  pure, unit-tested module. **W2b** — a file downloaded *inside* a web tab is
+  paused and offered to the Read surface: with a reference selected, a chooser
+  bar attaches it to that reference or saves it to disk; with none selected it
+  saves straight to disk.
 - **Author · Excalidraw sketch editor** (figure-plan Phase C): a freeform
   hand-drawn sketch surface as a new document kind (`excalidraw`), beside
   `canvas`/`table`/`figure`. Body is the ecosystem-standard `.excalidraw` JSON

@@ -32,7 +32,10 @@ export function downloadFilename(res: Response, url: string, fallback: string): 
   if (name.trim() === '' || name === '/') name = fallback.trim();
   name = path.basename(name.trim());
   if (name === '') name = 'download.pdf';
-  if (!/\.pdf$/i.test(name)) name += '.pdf';
+  // Default a name with NO extension to `.pdf` (the metadata path is always a
+  // PDF); a name that already carries an extension keeps it — a W2b browser-tab
+  // download can be any file type, so don't force `.pdf` onto `report.zip`.
+  if (!/\.[a-z0-9]{1,8}$/i.test(name)) name += '.pdf';
   return name;
 }
 

@@ -27,8 +27,14 @@ import { app, session, shell } from 'electron';
 import path from 'node:path';
 import type { Handler } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
+import { emit } from './events';
 
 const WEBTAB_PARTITION = 'persist:webtab';
+
+// Downloads paused in `will-download`, awaiting the Read surface's chooser
+// decision (W2b). Keyed by an id echoed back through `webtab_download_decide`.
+const pendingDownloads = new Map<string, Electron.DownloadItem>();
+let downloadSeq = 0;
 
 function webtabSession(): Electron.Session {
   return session.fromPartition(WEBTAB_PARTITION);
@@ -73,10 +79,41 @@ export function setupWebtab(): void {
   ses.webRequest.onBeforeRequest((details, cb) => {
     cb({ cancel: details.resourceType === 'mainFrame' && !/^https?:\/\//i.test(details.url) });
   });
-  // Downloads default (until W2b's chooser): force a save dialog into Downloads
-  // so a click on a PDF link isn't silently swallowed or auto-dumped.
-  ses.on('will-download', (_e, item) => {
-    item.setSaveDialogOptions({ defaultPath: path.join(app.getPath('downloads'), item.getFilename()) });
+  // A download started inside a web tab (W2b): pause it and ask the renderer's
+  // Read surface how to handle it — attach to the selected reference, or save to
+  // disk. The guest's embedder (`hostWebContents`) is the app renderer that owns
+  // the chooser; with no embedder or no answer within the timeout we fall back to
+  // a save dialog so a download is never silently lost or stuck paused.
+  ses.on('will-download', (_e, item, webContents) => {
+    const host = webContents?.hostWebContents ?? null;
+    const saveToDisk = (): void => {
+      item.setSaveDialogOptions({ defaultPath: path.join(app.getPath('downloads'), item.getFilename()) });
+      if (item.isPaused()) item.resume();
+    };
+    if (host === null || host.isDestroyed()) {
+      saveToDisk();
+      return;
+    }
+    const id = `wtdl-${(downloadSeq += 1)}`;
+    pendingDownloads.set(id, item);
+    item.pause();
+    emit(host, 'webtab:download', {
+      id,
+      url: item.getURL(),
+      filename: item.getFilename(),
+      mime: item.getMimeType(),
+    });
+    // Safety net: if the renderer never answers (no Read surface listening),
+    // fall back to a save dialog rather than leaving the item paused forever.
+    const timer = setTimeout(() => {
+      if (!pendingDownloads.has(id)) return;
+      pendingDownloads.delete(id);
+      saveToDisk();
+    }, 60_000);
+    item.once('done', () => {
+      pendingDownloads.delete(id);
+      clearTimeout(timer);
+    });
   });
 
   app.on('web-contents-created', (_e, wc) => {
@@ -122,5 +159,25 @@ export const webtabHandlers: Record<string, Handler> = {
   /// Settings → Network "Clear web-tab browsing data".
   webtab_clear_data: async (): Promise<void> => {
     await webtabSession().clearStorageData();
+  },
+
+  /// The Read-surface chooser answers a `webtab:download` (W2b): 'attach' (cancel
+  /// the Electron item — the renderer re-fetches the URL into a managed
+  /// attachment via `attachment_download`), 'save' (resume with a save dialog),
+  /// or 'cancel' (drop it).
+  webtab_download_decide: async (args): Promise<void> => {
+    const id = typeof args.id === 'string' ? args.id : '';
+    const action = typeof args.action === 'string' ? args.action : '';
+    const item = pendingDownloads.get(id);
+    if (item === undefined) return;
+    pendingDownloads.delete(id);
+    if (action === 'save') {
+      item.setSaveDialogOptions({ defaultPath: path.join(app.getPath('downloads'), item.getFilename()) });
+      if (item.isPaused()) item.resume();
+    } else {
+      // 'attach' (re-fetched through attachment_download) or 'cancel' — the
+      // Electron download itself is unused; cancel it.
+      item.cancel();
+    }
   },
 };

@@ -1,7 +1,7 @@
 # Read — real browser tabs + PDF-to-attachment
 
 > **Type:** plan
-> **Status:** In progress — **W1 + W2 core shipped** (2026-07-22); W2b deferred
+> **Status:** **Shipped** — W1 + W2 + W2b (2026-07-22); device-verify pending
 > **Audience:** contributors · principal
 > **Last verified vs code:** desktop 2026.722.818 (on main)
 >
@@ -19,15 +19,21 @@
 > unit-tested `electron/src/ipc/download.ts` (`downloadPdfBytes` — content-type
 > guard, 200 MB cap, filename resolution) behind `attachment_download`;
 > `Attachment.srcUrl?`; `downloadPdfAsAttachment` helper; the three affordances
-> (Inspector Info + Read tabs, Discover "Add + PDF"). **Two deliberate deviations
-> from the draft below:** (1) progress reuses the sibling `sync:progress` /
-> `invokeWithProgress` convention, not a bespoke `attachment-download-progress`
-> event; (2) a web tab is mounted only while active (matching the existing PDF/note
-> tabs) — cross-tab-switch in-memory state (scroll/forms) is not yet preserved;
-> the `persist:` partition still keeps cookies/logins across restarts. Native
-> menus, real publisher logins, and airplane-mode are **device-verify**.
-> **Deferred: W2b** (§1.7 — a PDF link clicked *inside* a web tab offering
-> attach-to-reference); the plan's pre-W2b fallback (a save dialog) is in place.
+> (Inspector Info + Read tabs, Discover "Add + PDF"). **W2b** (a download started
+> *inside* a web tab): the `persist:webtab` `will-download` pauses the item and
+> asks the Read surface via a `webtab:download` event — with a reference selected
+> a chooser offers **attach to it** (`attachment_download` re-fetches the URL) or
+> **save to disk** (resume → save dialog); no selection → straight to save; no
+> listener / 60 s → save fallback (`webtab_download_decide`). **Two deliberate
+> deviations from the draft below:** (1) progress reuses the sibling
+> `sync:progress` / `invokeWithProgress` convention, not a bespoke
+> `attachment-download-progress` event; (2) a web tab is mounted only while active
+> (matching the existing PDF/note tabs) — cross-tab-switch in-memory state
+> (scroll/forms) is not preserved, though the guest's last URL now persists to the
+> tab and the `persist:` partition keeps cookies/logins across restarts.
+> **Device-verify** (not headlessly testable): native menus, real publisher
+> logins, airplane-mode fonts, and the W2b `hostWebContents` embedder lookup +
+> pause→resume save-dialog path.
 >
 > Feeds the J1 Read surface ([desktop-workbench-jobs.md](desktop-workbench-jobs.md));
 > relates to [reference-library-and-reading.md](../discussions/reference-library-and-reading.md)

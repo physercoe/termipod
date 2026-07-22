@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '../bridge';
+import { invoke, listen } from '../bridge';
 import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
 import { useT, tStatic } from '../i18n';
 import {
@@ -1816,6 +1816,9 @@ export function ReadSurface(): JSX.Element {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  // W2b: a download started inside a web tab, awaiting the user's chooser
+  // decision (attach to the selected reference, or save to disk).
+  const [dlChooser, setDlChooser] = useState<{ id: string; url: string; filename: string } | null>(null);
   // Right-click menu for a library row (Zotero-style item context menu). Delete
   // is two-step (`menuConfirm`) — `window.confirm` is unreliable in WebView2.
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; id: string } | null>(null);
@@ -2110,6 +2113,52 @@ export function ReadSurface(): JSX.Element {
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
   const selectedRef = selected !== null ? references.find((r) => r.id === selected) : undefined;
 
+  // A stable mirror of the current selection so the download listener (mounted
+  // once) reads the LIVE value, not the selection captured at mount.
+  const selRef = useRef<string | null>(selected);
+  selRef.current = selected;
+
+  // W2b: the main process pauses a web-tab download and asks how to handle it.
+  // With a reference selected, offer the attach-or-save chooser; otherwise save
+  // straight to disk (the plan's no-selection default).
+  useEffect(() => {
+    if (!isShell()) return;
+    let un: (() => void) | undefined;
+    let dead = false;
+    void listen<{ id: string; url: string; filename: string; mime: string }>('webtab:download', (e) => {
+      const { id, url, filename } = e.payload;
+      if (selRef.current === null) {
+        void invoke('webtab_download_decide', { id, action: 'save' }).catch(() => undefined);
+        return;
+      }
+      setDlChooser({ id, url, filename });
+    }).then((u) => {
+      if (dead) u();
+      else un = u;
+    });
+    return () => {
+      dead = true;
+      un?.();
+    };
+  }, []);
+
+  // Answer the chooser: attach re-fetches the URL into the selected reference's
+  // managed attachments; save/cancel just tell the main process what to do.
+  async function decideDownload(action: 'attach' | 'save' | 'cancel'): Promise<void> {
+    const dl = dlChooser;
+    if (dl === null) return;
+    setDlChooser(null);
+    try {
+      await invoke('webtab_download_decide', { id: dl.id, action });
+      if (action === 'attach' && selected !== null) {
+        await downloadPdfAsAttachment(selected, dl.url, { filename: dl.filename });
+        setImportMsg(t('read.webtabDownloadAttached').replace('{file}', dl.filename));
+      }
+    } catch (err) {
+      setImportMsg(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   // In-app prompts (window.prompt renders an unreliable native `tauri.localhost`
   // dialog in the webview — see useTextPrompt).
   async function newCollection(): Promise<void> {
@@ -2239,6 +2288,27 @@ export function ReadSurface(): JSX.Element {
           <span className="spacer" />
           <button className="link-btn" onClick={() => setImportMsg(null)}>
             <Icon name="close" size={13} />
+          </button>
+        </div>
+      )}
+      {dlChooser !== null && (
+        <div className="read-import-msg attn">
+          <span>{t('read.webtabDownloadPrompt').replace('{file}', dlChooser.filename)}</span>
+          <span className="spacer" />
+          {selectedRef !== undefined && (
+            <button className="link-btn" onClick={() => void decideDownload('attach')}>
+              <Icon name="download" size={13} />{' '}
+              {t('read.webtabDownloadAttach').replace(
+                '{ref}',
+                selectedRef.title !== '' ? selectedRef.title : t('read.untitled'),
+              )}
+            </button>
+          )}
+          <button className="link-btn" onClick={() => void decideDownload('save')}>
+            {t('read.webtabDownloadSave')}
+          </button>
+          <button className="link-btn" onClick={() => void decideDownload('cancel')}>
+            {t('read.webtabDownloadCancel')}
           </button>
         </div>
       )}

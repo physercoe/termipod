@@ -130,4 +130,9 @@ test('downloadFilename: Content-Disposition wins, then URL basename, then fallba
   // A basename without a .pdf extension gets one appended.
   const bare = new Response('', {});
   assert.equal(downloadFilename(bare, 'https://h/dir/paper', 'fb.pdf'), 'paper.pdf');
+
+  // A W2b browser-tab download that already has an extension keeps it (not
+  // forced to .pdf) — Content-Disposition wins and .zip is preserved.
+  const zip = new Response('', { headers: { 'content-disposition': 'attachment; filename="dataset.zip"' } });
+  assert.equal(downloadFilename(zip, 'https://h/dl', 'fb.pdf'), 'dataset.zip');
 });

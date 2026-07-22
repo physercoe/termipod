@@ -15,20 +15,23 @@ test:
 	flutter test
 
 # Bump mobile + hub to the same version. Updates pubspec.yaml's version:
-# line (X.Y.Z-alpha+N) and hub/internal/buildinfo/buildinfo.go's
+# line (YYYY.MMDD.HHMM-alpha+N) and hub/internal/buildinfo/buildinfo.go's
 # Version constant in one shot. Usage:
-#   make bump VERSION=1.0.262-alpha
-# The build-number suffix (+N) is derived as MAJOR*10000 + MINOR*100 +
-# PATCH so it stays unique and monotonic for Android packaging.
+#   make bump VERSION=2026.722.219-alpha
+# Versions are date-based CalVer YYYY.MMDD.HHMM (UTC build time). The
+# build-number suffix (+N) is minutes-since-2020-01-01-UTC — a monotonic
+# int32 Android versionCode that (unlike MAJOR*10000+MINOR*100+PATCH) does
+# not regress at the day boundary where HHMM wraps 2359→0. CI recomputes
+# the same value from the tag; keep the two formulas in sync.
 bump:
 ifndef VERSION
 	$(error VERSION is required, e.g. make bump VERSION=1.0.262-alpha)
 endif
 	@core=$$(echo "$(VERSION)" | sed 's/-.*//'); \
-	major=$$(echo $$core | cut -d. -f1); \
-	minor=$$(echo $$core | cut -d. -f2); \
-	patch=$$(echo $$core | cut -d. -f3); \
-	build=$$(( major * 10000 + minor * 100 + patch )); \
+	cvy=$$(echo $$core | cut -d. -f1); \
+	cvmmdd=$$(echo $$core | cut -d. -f2); \
+	cvhhmm=$$(echo $$core | cut -d. -f3); \
+	build=$$(( ( $$(date -u -d "$$cvy-$$((10#$$cvmmdd/100))-$$((10#$$cvmmdd%100)) $$((10#$$cvhhmm/100)):$$((10#$$cvhhmm%100)):00 UTC" +%s) - 1577836800 ) / 60 )); \
 	sed -i.bak "s/^version: .*/version: $(VERSION)+$$build/" pubspec.yaml && rm pubspec.yaml.bak; \
 	sed -i.bak "s/^const Version = .*/const Version = \"$(VERSION)\"/" hub/internal/buildinfo/buildinfo.go && rm hub/internal/buildinfo/buildinfo.go.bak; \
 	echo "bumped to $(VERSION) (build $$build)"; \

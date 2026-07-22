@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-14)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.822
+> **Last verified vs code:** 2026.722.219-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -11,9 +11,17 @@ One section per version, newest first. Format follows
 Fixed / Deprecated / Removed / Security. Entries link to the commit
 or PR for forensic detail.
 
-This records the **mobile app + hub** lane (`v1.0.x`). The **desktop
-workbench** has its own version scheme and changelog —
+This records the **mobile app + hub** lane (`v*` tags, owns
+`releases/latest`). The **desktop workbench** has its own changelog —
 [`changelog-desktop.md`](changelog-desktop.md) (`desktop-v*` / `electron-v*`).
+
+**Version scheme.** From `2026.722.219-alpha` onward both mobile and hub use
+date-based **CalVer `YYYY.MMDD.HHMM`** (UTC build time — e.g. `2026.722.219` =
+2026-07-22 02:19; the `-alpha` maturity suffix is retained). It is a valid,
+monotonically-increasing semver (`> 1.0.822`), so the in-app updater keeps
+working across the switch; the Android `versionCode` is minutes-since-2020 (a
+monotonic int32 that survives the day boundary). Earlier releases used
+sequential semver (`v1.0.x`).
 
 This complements:
 - `roadmap.md` — current focus and Now/Next/Later view
@@ -27,6 +35,19 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## 2026.722.219-alpha — 2026-07-22
+
+**Date-based version scheme (CalVer).** No functional change — this release
+switches the mobile app + hub to date-based versioning.
+
+### Changed
+- Versions are now **`YYYY.MMDD.HHMM`** (UTC build time) instead of sequential
+  `v1.0.x` — the version shows the build date/time directly, in parity with the
+  desktop workbench. Still a valid, increasing semver (`> 1.0.822`), so the
+  in-app updater is uninterrupted; the Android `versionCode` moves to
+  minutes-since-2020 (monotonic across the day boundary). CI's versionCode
+  formula and `make bump` were updated to match.
 
 ## v1.0.822-alpha — 2026-07-21
 

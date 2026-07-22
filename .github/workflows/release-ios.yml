@@ -69,10 +69,13 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION_NUM="${VERSION#v}"
-          MAJOR=$(echo "${VERSION_NUM%%-*}" | cut -d. -f1)
-          MINOR=$(echo "${VERSION_NUM%%-*}" | cut -d. -f2)
-          PATCH=$(echo "${VERSION_NUM%%-*}" | cut -d. -f3)
-          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + ${PATCH:-0}))
+          # CalVer YYYY.MMDD.HHMM → build number = minutes since 2020-01-01 UTC
+          # (monotonic across the day boundary; must match release.yml's formula).
+          IFS='.' read -r CVY CVMMDD CVHHMM <<< "${VERSION_NUM%%-*}"
+          CVMM=$((10#$CVMMDD / 100)); CVDD=$((10#$CVMMDD % 100))
+          CVHH=$((10#$CVHHMM / 100)); CVMI=$((10#$CVHHMM % 100))
+          BUILD_SECS=$(date -u -d "${CVY}-${CVMM}-${CVDD} ${CVHH}:${CVMI}:00 UTC" +%s)
+          BUILD_NUMBER=$(( (BUILD_SECS - 1577836800) / 60 ))
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
 
           flutter build ios --release --no-codesign \

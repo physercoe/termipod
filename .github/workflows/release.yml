@@ -70,8 +70,20 @@ jobs:
           set -euo pipefail
           VERSION="${{ github.ref_name }}"
           VERSION_NUM="${VERSION#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION_NUM%%-*}"
-          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + ${PATCH:-0}))
+          # CalVer YYYY.MMDD.HHMM (UTC build time). versionCode = minutes since
+          # 2020-01-01 UTC — a monotonic int32 that survives the day boundary
+          # (the old MAJOR*10000+MINOR*100+PATCH would REGRESS at midnight, since
+          # HHMM runs 0..2359 > the 100-wide PATCH slot). `10#` forces base-10 so
+          # a component like "08" is never read as octal. Android caps versionCode
+          # at ~2.1e9; minutes-since-2020 stays ~3.4M for decades.
+          IFS='.' read -r CVY CVMMDD CVHHMM <<< "${VERSION_NUM%%-*}"
+          CVMM=$((10#$CVMMDD / 100)); CVDD=$((10#$CVMMDD % 100))
+          CVHH=$((10#$CVHHMM / 100)); CVMI=$((10#$CVHHMM % 100))
+          BUILD_SECS=$(date -u -d "${CVY}-${CVMM}-${CVDD} ${CVHH}:${CVMI}:00 UTC" +%s)
+          BUILD_NUMBER=$(( (BUILD_SECS - 1577836800) / 60 ))
+          if [ "$BUILD_NUMBER" -le 0 ] || [ "$BUILD_NUMBER" -ge 2100000000 ]; then
+            echo "::error::computed versionCode $BUILD_NUMBER out of range for $VERSION_NUM"; exit 1
+          fi
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
           # Only ship arm64-v8a — covers every modern Android device.
           # 32-bit armeabi-v7a and x86_64 emulator builds were dropped

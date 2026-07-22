@@ -16,7 +16,10 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.822-alpha+10822
+# Date-based CalVer YYYY.MMDD.HHMM (UTC build time); the +N build number is
+# "minutes since 2020-01-01 UTC" (monotonic int32 versionCode — CI recomputes it
+# from the tag). See docs/changelog.md header for the scheme.
+version: 2026.722.219-alpha+3447499
 
 environment:
   sdk: ^3.10.7

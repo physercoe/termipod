@@ -20,6 +20,31 @@ export function parentOrNull(p: string): string | null {
   return parent === p ? null : parent;
 }
 
+/// Refuse a recursive delete of a filesystem root or the home directory itself.
+/// Defence-in-depth: the transfer panel already confirms with the user and scopes
+/// the target to a selected entry, but "validate at every boundary" means the
+/// main process — the authority — must refuse what it can't safely run, so a
+/// future caller can't `rm -rf /` (or wipe `~`). Throws; the caller surfaces it.
+export function assertSafeLocalDelete(target: string): void {
+  const t = target.trim();
+  if (t === '') throw new Error('refusing to delete an empty path');
+  const abs = path.resolve(t);
+  if (parentOrNull(abs) === null) throw new Error(`refusing to delete a filesystem root: ${abs}`);
+  if (abs === path.resolve(home())) throw new Error('refusing to delete the home directory');
+}
+
+/// POSIX-path counterpart of `assertSafeLocalDelete` for SFTP's `rm -rf`. Refuses
+/// the remote root (`/`), the SFTP working dir (`.`, which resolves to the login
+/// home on most servers) and its `~` shorthand, and `..` — the floors a recursive
+/// remote delete must never be handed. Trailing slashes are normalised first so
+/// `/`, `./`, `~/` are all caught.
+export function assertSafeRemoteDelete(target: string): void {
+  const t = target.trim().replace(/\/+$/, '');
+  if (t === '' || t === '/' || t === '.' || t === '..' || t === '~') {
+    throw new Error(`refusing to delete a protected remote path: ${target.trim() || '(empty)'}`);
+  }
+}
+
 /// Read a file as UTF-8, THROWING on invalid UTF-8 — matching Rust
 /// `read_to_string`, so the Author file tree can skip binary/unreadable files
 /// instead of opening them full of replacement characters.

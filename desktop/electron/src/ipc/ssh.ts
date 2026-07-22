@@ -32,6 +32,7 @@
 import type { WebContents } from 'electron';
 import type { Client as Ssh2Client, ClientChannel, ConnectConfig, SFTPWrapper } from 'ssh2';
 import { emit } from '../events';
+import { assertSafeRemoteDelete } from './fsutil';
 import { pinGet, pinSet } from './keychain';
 import { loadSsh2 } from './ssh2mod';
 import type { Ssh2Module } from './ssh2mod';
@@ -449,10 +450,12 @@ export const sshHandlers: Record<string, Handler> = {
     }
   },
 
-  /// Recursive delete (rm -rf) — files unlink, dirs walk then rmdir.
+  /// Recursive delete (rm -rf) — files unlink, dirs walk then rmdir. The guard
+  /// refuses the remote root / working dir / '~' before any traversal begins.
   sftp_delete: async (args): Promise<void> => {
     const id = String(args.id ?? '');
     const target = String(args.path ?? '');
+    assertSafeRemoteDelete(target);
     const sftp = await openSftp(id);
     try {
       await sftpRmrf(sftp, target);

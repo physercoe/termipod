@@ -6,7 +6,7 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Handler } from './dispatch';
-import { home, parentOrNull, sortDirsFirst } from './fsutil';
+import { assertSafeLocalDelete, home, parentOrNull, sortDirsFirst } from './fsutil';
 
 const MAX_ENTRIES = 10_000;
 
@@ -60,9 +60,13 @@ export const localfsHandlers: Record<string, Handler> = {
   },
 
   /// Recursive delete (files and folders) behind the panel's Delete — the
-  /// renderer confirms with the user before invoking.
+  /// renderer confirms with the user before invoking. `force` tolerates an entry
+  /// that vanished between listing and delete (a list→delete race); the guard
+  /// refuses a filesystem root or the home directory.
   localfs_delete: async (args): Promise<void> => {
-    await rm(String(args.path ?? ''), { recursive: true });
+    const target = String(args.path ?? '');
+    assertSafeLocalDelete(target);
+    await rm(target, { recursive: true, force: true });
   },
 
   localfs_rename: async (args): Promise<void> => {

@@ -32,8 +32,8 @@ interface RustIndex {
   folderName: string;
   entries: RustEntry[];
 }
-interface RustFile {
-  base64: string;
+interface NativeFile {
+  bytes: Uint8Array; // raw bytes over IPC, no base64 (§7 row 4)
   mime: string;
 }
 
@@ -148,24 +148,16 @@ export function hasAttachment(state: Pick<ZoteroStorageState, 'rels' | 'files'>,
   return state.rels.has(k) || state.files.has(k);
 }
 
-function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
 /// Resolve an attachment to a Blob (async). Browser mode returns the live File;
-/// Tauri mode reads the bytes through the Rust core. Null when the folder isn't
-/// linked or the file is missing.
+/// the desktop reads the bytes through the native file bridge. Null when the
+/// folder isn't linked or the file is missing.
 export async function loadAttachmentBlob(state: Resolvable, att: AttRef): Promise<Blob | null> {
   if (att === undefined) return null;
-  // Managed attachment — read its absolute path through the Rust core (Tauri).
+  // Managed attachment — read its absolute path through the native file bridge.
   if (att.path !== undefined && att.path !== '' && isShell()) {
     try {
-      const f = await invoke<RustFile>('attachment_read', { path: att.path });
-      const bytes = b64ToBytes(f.base64);
-      return new Blob([bytes.buffer as ArrayBuffer], { type: f.mime });
+      const f = await invoke<NativeFile>('attachment_read', { path: att.path });
+      return new Blob([f.bytes as BlobPart], { type: f.mime });
     } catch {
       return null;
     }
@@ -177,11 +169,8 @@ export async function loadAttachmentBlob(state: Resolvable, att: AttRef): Promis
   const rel = state.rels.get(k);
   if (rel !== undefined && state.path !== null && isShell()) {
     try {
-      const f = await invoke<RustFile>('storage_read', { path: state.path, rel });
-      // `.buffer` is a plain ArrayBuffer here (the view is created full-size over
-      // a fresh buffer); the cast silences the DOM lib's SharedArrayBuffer union.
-      const bytes = b64ToBytes(f.base64);
-      return new Blob([bytes.buffer as ArrayBuffer], { type: f.mime });
+      const f = await invoke<NativeFile>('storage_read', { path: state.path, rel });
+      return new Blob([f.bytes as BlobPart], { type: f.mime });
     } catch {
       return null;
     }

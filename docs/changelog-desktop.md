@@ -54,6 +54,14 @@ This complements:
   not by faith.
 
 ### Changed
+- **Binary IPC — base64 → raw bytes** (§7 rows 4/5): the file-bytes channels
+  (storage/attachment read+write, local file read+write, SFTP read+write) and
+  voice PCM frames now cross the IPC bridge as `Uint8Array`/`Buffer` (structured
+  clone) instead of base64 strings — no 33% inflation or encode/decode per
+  payload, felt in file transfer and voice. PTY + SSH shell data were already
+  bytes. An E2E test pins the attachment write→read byte round-trip both
+  directions; SFTP/voice ride on device verification (no SSH server / recogniser
+  in CI).
 - **sizedSvg WebKit shim removed** (§6 row 3, test-first): figure PNG export no
   longer injects explicit `width`/`height` into the rendered SVG — that worked
   around WebKit reporting `naturalWidth === 0` for viewBox-only SVGs. Chromium

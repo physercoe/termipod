@@ -55,12 +55,6 @@ export function parseSshConfig(text: string): ParsedSshHost[] {
 // re-import reuses the same saved key instead of importing a duplicate.
 const CFG_KEY_TAG = 'ssh-config:';
 
-// PEM key files are ASCII, so atob() yields the exact key text. localfs returns
-// bytes base64-encoded; guard for a missing atob (never happens in the webview).
-function b64ToText(b64: string): string {
-  return typeof atob === 'function' ? atob(b64) : '';
-}
-
 // Resolve an IdentityFile directive to an absolute path: `~` → home, and a bare
 // name (no directory) is taken relative to ~/.ssh, matching ssh(1).
 function resolveIdentityPath(idf: string, home: string | null): string {
@@ -87,7 +81,8 @@ async function ensureIdentityKey(
   const existing = listKeys().find((k) => k.comment === tag);
   if (existing !== undefined) return { keyId: existing.id, added: false };
   try {
-    const pem = b64ToText(await localRead(path));
+    // PEM key files are UTF-8 text; localRead now returns raw bytes (§7 row 4).
+    const pem = new TextDecoder().decode(await localRead(path));
     if (pem.trim() === '') return { keyId: null, added: false };
     const base = path.replace(/\\/g, '/').split('/').pop() ?? 'key';
     const meta = await importKey({ name: connName || base, pem, comment: tag });

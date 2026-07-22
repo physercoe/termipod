@@ -19,9 +19,9 @@ export interface VoiceEvent {
 export function voiceOpen(req: VoiceOpenReq): Promise<string> {
   return invoke<string>('voice_open', { req });
 }
-/** Stream one PCM16/16k frame (base64) to the recogniser. */
-export function voiceSend(id: string, pcmB64: string): Promise<void> {
-  return invoke('voice_send', { id, pcmB64 });
+/** Stream one PCM16/16k frame (raw bytes; no base64 over IPC — §7 row 4/5). */
+export function voiceSend(id: string, bytes: Uint8Array): Promise<void> {
+  return invoke('voice_send', { id, bytes });
 }
 /** Signal end-of-audio; the recogniser flushes a final result then closes. */
 export function voiceFinish(id: string): Promise<void> {

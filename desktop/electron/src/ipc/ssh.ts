@@ -313,13 +313,13 @@ export const sshHandlers: Record<string, Handler> = {
     }
   },
 
-  sftp_read: async (args, ctx): Promise<string> => {
+  sftp_read: async (args, ctx): Promise<Uint8Array> => {
     const id = String(args.id ?? '');
     const filePath = String(args.path ?? '');
     const transferId = String(args.transferId ?? '');
     const sender = ctx.sender;
     const sftp = await openSftp(id);
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<Uint8Array>((resolve, reject) => {
       const rs = sftp.createReadStream(filePath);
       const chunks: Buffer[] = [];
       let done = 0;
@@ -340,7 +340,7 @@ export const sshHandlers: Record<string, Handler> = {
         const buf = Buffer.concat(chunks);
         emit(sender, 'sftp-progress', { transfer_id: transferId, done: buf.length }); // final exact tick
         sftp.end();
-        resolve(buf.toString('base64'));
+        resolve(buf); // raw bytes over IPC (§7 row 4), no base64
       });
     });
   },
@@ -348,10 +348,9 @@ export const sshHandlers: Record<string, Handler> = {
   sftp_write: async (args, ctx): Promise<void> => {
     const id = String(args.id ?? '');
     const filePath = String(args.path ?? '');
-    const dataB64 = String(args.dataB64 ?? '');
     const transferId = String(args.transferId ?? '');
     const sender = ctx.sender;
-    const data = Buffer.from(dataB64, 'base64');
+    const data = Buffer.from((args.bytes ?? new Uint8Array()) as Uint8Array); // raw bytes over IPC (§7 row 4)
     const total = data.length;
     const sftp = await openSftp(id);
     return new Promise<void>((resolve, reject) => {

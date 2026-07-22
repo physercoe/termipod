@@ -20,7 +20,9 @@ interface StorageIndex {
   entries: StorageEntry[];
 }
 interface StorageFile {
-  base64: string;
+  // Raw bytes over IPC (a Node Buffer → Uint8Array via structured clone); no
+  // base64 inflation (ADR-055 §7 row 4). Consumers wrap it in a Blob/data view.
+  bytes: Uint8Array;
   mime: string;
 }
 interface AddedAttachment {
@@ -109,7 +111,7 @@ export const storageHandlers: Record<string, Handler> = {
     if (canonFull !== canonRoot && !canonFull.startsWith(canonRoot + path.sep)) {
       throw new Error('path escapes storage root');
     }
-    return { base64: (await readFile(canonFull)).toString('base64'), mime: mimeFor(rel) };
+    return { bytes: await readFile(canonFull), mime: mimeFor(rel) };
   },
 
   attachment_default_dir: async (): Promise<string> => {
@@ -144,7 +146,7 @@ export const storageHandlers: Record<string, Handler> = {
 
   attachment_write_bytes: async (args): Promise<AddedAttachment> => {
     const root = String(args.root ?? '');
-    const bytes = fromBase64(String(args.base64 ?? ''));
+    const bytes = (args.bytes ?? new Uint8Array()) as Uint8Array;
     // Sanitise to a bare filename so nothing escapes the key folder.
     const raw = path.basename(String(args.filename ?? ''));
     const file = raw === '' ? 'image.png' : raw;
@@ -153,7 +155,7 @@ export const storageHandlers: Record<string, Handler> = {
 
   attachment_read: async (args): Promise<StorageFile> => {
     const p = String(args.path ?? '');
-    return { base64: (await readFile(p)).toString('base64'), mime: mimeFor(p) };
+    return { bytes: await readFile(p), mime: mimeFor(p) };
   },
 
   save_image_as: async (args, ctx: Ctx): Promise<string | null> => {

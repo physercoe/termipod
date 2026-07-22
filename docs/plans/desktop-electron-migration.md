@@ -203,11 +203,15 @@ additive, `shellKind()==='electron'`-gated change with a robust fallback ladder
   these guards no longer protect a live product — but deleting them still needs
   device verification that the Chromium behaviour they compensated for is
   actually clean. Gated on (b).
-- **base64→bytes IPC** (SSH/SFTP/blob/PCM): the renderer call path is shared
-  across shells, so byte transfer needs the bridge to negotiate per-shell
-  encoding (§7 row 4) — a family-by-family refactor, not a flag flip. PTY is
-  already bytes end-to-end (no wire change was needed — it was authored under
-  Electron in M2). Gated on (b) for throughput verification.
+- **base64→bytes IPC** — **DONE (2026-07-22).** With Tauri retired the bridge is
+  single-shell, so each channel just passes a `Buffer`/`Uint8Array` (structured
+  clone) instead of base64. Converted: storage/attachment read+write, localfs
+  read+write, SFTP read+write, and voice PCM send. PTY + SSH shell data were
+  already bytes. (Left as base64: `save_image_as`, a one-shot dialog write; the
+  hub-blob fetch, which is renderer-direct REST, not IPC.) An E2E test pins the
+  write→read byte round-trip both directions (§7 row 4); SFTP/localfs/voice use
+  the same structured-clone mechanism but need on-device verification (no SSH
+  server / DashScope / two-pane UI in CI).
 - **Net-new affordances** (OS file drag-drop, `printToPDF`, native context
   menus): additive Chromium capabilities with no Tauri equivalent, but each
   needs UX integration + a device build to prove out. Gated on (b).
@@ -226,8 +230,8 @@ M1 rows shape the shell architecture and are folded into §3 above.
 | 1 | **Delete the SSE proxy** | `hub_sse_*` + the `hub-sse` base64 chunk pump exist because `EventSource` can't set an auth header | the browser build's fetch-SSE reader works in the renderer *with* headers — it becomes the only path; the proxy, per-stream cancellation state, base64 re-encode, and two IPC hops per event are deleted | **M1** |
 | 2 | **Renderer-direct REST** | `hub_request`/`hub_request_bytes` proxy for CORS + bearer secrecy; every blob base64s through IPC twice | bearer injected via `session.webRequest.onBeforeSendHeaders` (the token never enters renderer JS — better than today); renderer `fetch`es the hub; blob inflation gone | **M1** |
 | 3 | System probes | `reg query` / `scutil` child processes for proxy + build number | `session.resolveProxy()`, `os.release()` | M1 |
-| 4 | Binary IPC | base64 on pty/ssh/sftp/storage/attachment channels | `Uint8Array` structured clone; `xterm.write` accepts bytes — felt in terminal throughput and file transfer | M2/M4 |
-| 5 | Voice PCM frames | base64 strings per 16 kHz frame | transferable `ArrayBuffer`s to the main-process `ws` (the socket stays in main — renderer WebSocket still can't set headers) | M2 |
+| 4 | Binary IPC | base64 on pty/ssh/sftp/storage/attachment channels | **DONE (2026-07-22)** — `Uint8Array`/`Buffer` structured clone on storage/attachment/localfs/SFTP (PTY + SSH shell already bytes); E2E-pinned round-trip | M2/M4 |
+| 5 | Voice PCM frames | base64 strings per 16 kHz frame | **DONE (2026-07-22)** — `voice_send` passes raw PCM bytes to the main-process `ws` (no per-frame base64) | M2/M4 |
 | 6 | Zotero import | `sql.js` WASM in the renderer (1–2 MB chunk, whole DB in memory, UI thread) | `better-sqlite3` in main, off-thread; the WASM chunk leaves the bundle | M2 |
 | 7 | Sync-engine streaming | whole zips buffered in memory (Rust) | Node streams (`yauzl`/`archiver` piped to HTTP) — matters at the 100 MB folder-sync cap | M2 |
 | 8 | Secret splitting | frontend splits secrets at CredMan's 2560-byte cap (`keychain_is_windows`) | if the keychain spike lands on `safeStorage`: cap, splitting, and probe all deleted | M2 (spike outcome) |

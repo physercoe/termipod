@@ -133,8 +133,8 @@ export async function pickAndCopyAttachment(): Promise<
 
 export const NOTE_ATT_SCHEME = 'termipod-att://';
 
-interface RustFileB64 {
-  base64: string;
+interface NativeFile {
+  bytes: Uint8Array; // raw bytes over IPC, no base64 (§7 row 4)
   mime: string;
 }
 
@@ -152,7 +152,7 @@ export async function writeNoteImage(base64: string, filename: string): Promise<
   const added = await invoke<{ key: string; file: string }>('attachment_write_bytes', {
     root,
     filename,
-    base64,
+    bytes: b64ToBytes(base64), // decode once here; raw bytes cross IPC (§7 row 4)
   });
   // A linked-Zotero root: refresh the index so the new file resolves immediately.
   if (useZoteroStorage.getState().path === root) {
@@ -187,9 +187,8 @@ export async function loadNoteImage(ref: string): Promise<Blob | null> {
 
   const tryRead = async (root: string, rel: string): Promise<Blob | null> => {
     try {
-      const f = await invoke<RustFileB64>('storage_read', { path: root, rel });
-      const bytes = b64ToBytes(f.base64);
-      return new Blob([bytes.buffer as ArrayBuffer], { type: f.mime });
+      const f = await invoke<NativeFile>('storage_read', { path: root, rel });
+      return new Blob([f.bytes as BlobPart], { type: f.mime });
     } catch {
       return null;
     }

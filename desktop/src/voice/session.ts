@@ -76,9 +76,7 @@ export class VoiceSession {
     try {
       this.mic = await startMic((pcm) => {
         if (this.wsId !== null && !this.stopped) {
-          let binary = '';
-          for (let i = 0; i < pcm.length; i += 1) binary += String.fromCharCode(pcm[i]);
-          void voiceSend(this.wsId, btoa(binary));
+          void voiceSend(this.wsId, pcm); // raw PCM bytes; no per-frame base64 (§7 row 4/5)
         }
       });
     } catch {

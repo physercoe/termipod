@@ -1,10 +1,11 @@
 /// Local file pane for the two-pane transfer (ADR-055 M1.4) — port of
 /// `src-tauri/src/localfs.rs`. Non-recursive listing (hidden files INCLUDED — an
-/// SSH user wants `~/.ssh`) plus single-file base64 read/write.
+/// SSH user wants `~/.ssh`) plus single-file byte read/write (raw bytes over IPC,
+/// no base64 — ADR-055 §7 row 4).
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Handler } from './dispatch';
-import { fromBase64, home, parentOrNull, sortDirsFirst } from './fsutil';
+import { home, parentOrNull, sortDirsFirst } from './fsutil';
 
 const MAX_ENTRIES = 10_000;
 
@@ -44,11 +45,11 @@ export const localfsHandlers: Record<string, Handler> = {
     return { path: base, parent: parentOrNull(base), entries };
   },
 
-  localfs_read: async (args): Promise<string> => {
-    return (await readFile(String(args.path ?? ''))).toString('base64');
+  localfs_read: async (args): Promise<Uint8Array> => {
+    return await readFile(String(args.path ?? ''));
   },
 
   localfs_write: async (args): Promise<void> => {
-    await writeFile(String(args.path ?? ''), fromBase64(String(args.dataB64 ?? '')));
+    await writeFile(String(args.path ?? ''), (args.bytes ?? new Uint8Array()) as Uint8Array);
   },
 };

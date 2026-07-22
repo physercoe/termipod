@@ -56,15 +56,15 @@ export interface SftpEntry {
 export function sftpList(id: string, path: string): Promise<SftpEntry[]> {
   return invoke<SftpEntry[]>('sftp_list', { id, path });
 }
-/** Download a remote file; resolves to its base64-encoded bytes. Emits
- *  `sftp-progress` ticks tagged with `transferId` as it streams. */
-export function sftpRead(id: string, path: string, transferId: string): Promise<string> {
-  return invoke<string>('sftp_read', { id, path, transferId });
+/** Download a remote file; resolves to its raw bytes (no base64 over IPC — §7
+ *  row 4). Emits `sftp-progress` ticks tagged with `transferId` as it streams. */
+export function sftpRead(id: string, path: string, transferId: string): Promise<Uint8Array> {
+  return invoke<Uint8Array>('sftp_read', { id, path, transferId });
 }
-/** Upload base64 bytes to a remote path (create/overwrite). Emits
- *  `sftp-progress` ticks tagged with `transferId` as it streams. */
-export function sftpWrite(id: string, path: string, dataB64: string, transferId: string): Promise<void> {
-  return invoke('sftp_write', { id, path, dataB64, transferId });
+/** Upload raw bytes to a remote path (create/overwrite). Emits `sftp-progress`
+ *  ticks tagged with `transferId` as it streams. */
+export function sftpWrite(id: string, path: string, bytes: Uint8Array, transferId: string): Promise<void> {
+  return invoke('sftp_write', { id, path, bytes, transferId });
 }
 
 interface SftpProgressPayload {

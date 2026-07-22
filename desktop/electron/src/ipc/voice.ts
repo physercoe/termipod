@@ -158,10 +158,10 @@ export const voiceHandlers: Record<string, Handler> = {
 
   voice_send: async (args): Promise<void> => {
     const id = String(args.id ?? '');
-    const pcmB64 = String(args.pcmB64 ?? '');
     const s = sessions.get(id);
     if (s === undefined) throw new Error('no such voice session');
-    s.ws.send(Buffer.from(pcmB64, 'base64'));
+    // Raw PCM bytes over IPC (§7 row 4/5), no per-frame base64.
+    s.ws.send(Buffer.from((args.bytes ?? new Uint8Array()) as Uint8Array));
   },
 
   voice_finish: async (args): Promise<void> => {

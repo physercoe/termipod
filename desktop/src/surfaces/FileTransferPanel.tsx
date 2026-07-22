@@ -148,8 +148,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     setTransfer({ id: tid, name: entry.name, dir: 'down', done: 0, total: entry.size, status: 'active' });
     const unlisten = await onSftpProgress(tid, (done) => settle(tid, { done }));
     try {
-      const b64 = await sftpRead(sessionId, joinPosix(rdir, entry.name), tid);
-      await localWrite(joinPosix(local.path, entry.name), b64);
+      const bytes = await sftpRead(sessionId, joinPosix(rdir, entry.name), tid);
+      await localWrite(joinPosix(local.path, entry.name), bytes);
       settle(tid, { status: 'done', done: entry.size > 0 ? entry.size : 0 });
       await loadLocal(local.path);
     } catch (e) {
@@ -171,8 +171,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     setTransfer({ id: tid, name: entry.name, dir: 'up', done: 0, total: entry.size, status: 'active' });
     const unlisten = await onSftpProgress(tid, (done) => settle(tid, { done }));
     try {
-      const b64 = await localRead(entry.path);
-      await sftpWrite(sessionId, joinPosix(rdir, entry.name), b64, tid);
+      const bytes = await localRead(entry.path);
+      await sftpWrite(sessionId, joinPosix(rdir, entry.name), bytes, tid);
       settle(tid, { status: 'done', done: entry.size });
       await loadRemote(rdir);
     } catch (e) {

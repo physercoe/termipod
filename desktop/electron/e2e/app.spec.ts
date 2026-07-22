@@ -245,3 +245,28 @@ test('sizedSvg: Chromium rasterizes a viewBox-only SVG (the WebKit naturalWidth=
   expect(out.alpha).toBeGreaterThan(0);
   expect(out.green).toBeGreaterThan(100);
 });
+
+// ── bytes-over-IPC (§7 row 4 — base64→bytes) ────────────────────────────────
+// The file-bytes channels (storage/attachment, localfs, sftp) and voice now pass
+// raw bytes over IPC instead of base64. This pins the round-trip on the one path
+// reachable without a server/dialog — attachment write→read — in BOTH directions
+// (renderer→main write, main→renderer read). The high bytes (253–255) would be
+// mangled by any stray text/base64 (mis)handling; exact equality proves binary
+// transfer. SFTP/localfs/voice use the identical structured-clone mechanism.
+test('bytes over IPC: attachment write→read round-trips raw bytes (no base64)', async () => {
+  const rt = await page.evaluate(async () => {
+    const b = window.__ELECTRON_BRIDGE__!;
+    const root = await b.invoke<string>('attachment_default_dir');
+    const original = [0, 1, 2, 66, 121, 116, 101, 115, 253, 254, 255]; // incl. high bytes
+    const added = await b.invoke<{ key: string; file: string; path: string }>('attachment_write_bytes', {
+      root,
+      filename: 'e2e-bytes-roundtrip.bin',
+      bytes: new Uint8Array(original),
+    });
+    const f = await b.invoke<{ bytes: ArrayLike<number>; mime: string }>('attachment_read', { path: added.path });
+    const readback = Array.from(new Uint8Array(f.bytes));
+    await b.invoke('attachment_delete', { path: added.path }); // clean up
+    return { original, readback };
+  });
+  expect(rt.readback).toEqual(rt.original);
+});

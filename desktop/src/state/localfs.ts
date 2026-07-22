@@ -24,11 +24,11 @@ export function localHome(): Promise<string> {
 export function localList(path: string): Promise<LocalListing> {
   return invoke<LocalListing>('localfs_list', { path });
 }
-/** Read a local file → base64 bytes (for upload to remote). */
-export function localRead(path: string): Promise<string> {
-  return invoke<string>('localfs_read', { path });
+/** Read a local file → raw bytes (for upload to remote; no base64 over IPC — §7 row 4). */
+export function localRead(path: string): Promise<Uint8Array> {
+  return invoke<Uint8Array>('localfs_read', { path });
 }
-/** Write base64 bytes to a local path (for download from remote). */
-export function localWrite(path: string, dataB64: string): Promise<void> {
-  return invoke('localfs_write', { path, dataB64 });
+/** Write raw bytes to a local path (for download from remote). */
+export function localWrite(path: string, bytes: Uint8Array): Promise<void> {
+  return invoke('localfs_write', { path, bytes });
 }

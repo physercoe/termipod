@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ePub, { type Rendition, type Contents, type NavItem, type Location } from 'epubjs';
-import { useT } from '../i18n';
-import { openExternal } from '../platform';
+import { invoke } from '../bridge';
+import { tStatic, useT } from '../i18n';
+import { isShell, openExternal } from '../platform';
 import { Icon } from './Icon';
 import { ResizeHandle, usePanelWidth } from './ResizeHandle';
 import { EPUB_THEMES, epubThemeCss, type EpubTheme } from './epubThemes';
@@ -209,6 +210,41 @@ export function EpubView({
           },
           true,
         );
+
+        // Context-menu bridge (ADR-055 M4). The section renders in an iframe whose
+        // `contextmenu` never bubbles to the window listener in `nativeContextMenu.ts`,
+        // so the reader had no Copy. Forward it: a live selection → Copy (a role acts
+        // on the whole webContents' selection, so no coordinates are needed); a
+        // right-clicked <img> → Copy image via `copyImageAt`, for which we translate
+        // the iframe-local point into webContents space by adding the iframe's offset.
+        if (isShell()) {
+          doc.addEventListener('contextmenu', (e: MouseEvent) => {
+            if (e.defaultPrevented) return;
+            const selected = (contents.window.getSelection()?.toString().trim() ?? '') !== '';
+            const img = (e.target as Element | null)?.closest?.('img');
+            if (img !== null && img !== undefined) {
+              // frameElement is same-origin here (epub.js renders into our iframe);
+              // guard anyway so a cross-origin edge case degrades to no menu.
+              let rect: DOMRect | undefined;
+              try {
+                rect = (doc.defaultView?.frameElement as Element | null)?.getBoundingClientRect();
+              } catch {
+                rect = undefined;
+              }
+              if (rect === undefined) return;
+              e.preventDefault();
+              void invoke('menu_show_context', {
+                image: true,
+                x: rect.left + e.clientX,
+                y: rect.top + e.clientY,
+                imageLabel: tStatic('common.copyImage'),
+              });
+            } else if (selected) {
+              e.preventDefault();
+              void invoke('menu_show_context', { hasSelection: true });
+            }
+          });
+        }
       } catch {
         /* section torn down / cross-origin — ignore */
       }

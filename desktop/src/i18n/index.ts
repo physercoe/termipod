@@ -207,6 +207,7 @@ const en: Dict = {
   'common.cancel': 'Cancel',
   'common.close': 'Close',
   'common.remove': 'Remove',
+  'common.copyImage': 'Copy image',
   'attention.principalOverride': 'Principal override',
   'ctx.cut': 'Cut',
   'ctx.copy': 'Copy',
@@ -1540,6 +1541,7 @@ const zh: Dict = {
   'common.cancel': '取消',
   'common.close': '关闭',
   'common.remove': '移除',
+  'common.copyImage': '复制图片',
   'attention.principalOverride': '主理人覆盖',
   'ctx.cut': '剪切',
   'ctx.copy': '复制',
@@ -2726,6 +2728,16 @@ export interface TLookup {
 /// `useEffect` that captures it, forcing re-render storms in large trees (the
 /// PDF page list, the library table). Stable-by-default is the correct contract
 /// for a context-like value (#311).
+/// A non-hook `t(key)` for code that runs outside React (global listeners, plain
+/// modules — e.g. `nativeContextMenu.ts`). Reads the current language from the
+/// store directly; same English-fallback lookup as `useT`. Not memoised (there is
+/// no render identity to preserve), so don't use it where `useT`'s stability
+/// matters.
+export function tStatic(key: string): string {
+  const lang = useLang.getState().lang;
+  return DICTS[lang][key] ?? en[key] ?? key;
+}
+
 export function useT(): TLookup {
   const lang = useLang((s) => s.lang);
   return useMemo(() => {

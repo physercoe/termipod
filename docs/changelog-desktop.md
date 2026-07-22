@@ -64,6 +64,16 @@ This complements:
   the editor re-wrote an identical body and marked a just-saved doc dirty
   again. Flushes are now consume-once; the unmount flush only fires when a
   write is genuinely pending.
+- **Right-click Copy now reaches the EPUB reader, note images, and rendered
+  figures**: the native context-menu fallback (added when Electron replaced
+  WebView2's built-in menu) only covered editable fields and text selections in
+  the top document, so three surfaces had no Copy at all. The EPUB reader
+  renders in an iframe whose `contextmenu` never reached the window listener —
+  it now forwards its own (Copy for a selection; Copy image for a book image).
+  A note attachment `<img>` gets **Copy image** via `copyImageAt`. A rendered
+  figure (`.figure-preview`/`.md-figure` — mermaid/graphviz/vega-lite/echarts/…)
+  is inline SVG, which Chromium's own "Copy image" can't target, so it is
+  rasterized to PNG in the renderer and offered as **Copy image**.
 
 ### Notes
 - Figure-plan Phase B **LikeC4 spike** resolved: no headless `dsl → SVG` path

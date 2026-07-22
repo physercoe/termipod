@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { onSftpProgress, sftpList, sftpRead, sftpWrite, type SftpEntry } from '../ssh/tauri';
+import { onSftpProgress, sftpList, sftpRead, sftpWrite, type SftpEntry } from '../ssh/native';
 import { localHome, localList, localRead, localWrite, type LocalEntry, type LocalListing } from '../state/localfs';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';

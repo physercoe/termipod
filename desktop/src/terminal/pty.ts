@@ -1,7 +1,7 @@
 import { invoke, listen, type UnlistenFn } from '../bridge';
 
-/// Typed bridge to the Tauri core's local-PTY commands (pty.rs, → ADR-053). The
-/// desktop analogue of `ssh/tauri.ts`: same shape, but the shell runs on the
+/// Typed bridge to the native local-PTY commands (electron/src/ipc/pty.ts,
+/// → ADR-053). The desktop analogue of `ssh/native.ts`: same shape, but the shell runs on the
 /// user's *own* machine rather than over SSH. Desktop-only — the plain-browser
 /// build has no native core.
 

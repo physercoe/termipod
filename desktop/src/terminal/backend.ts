@@ -1,9 +1,9 @@
 import type { UnlistenFn } from '../bridge';
 import { onPtyData, onPtyExit, ptyClose, ptyResize, ptyStart, ptyWrite } from './pty';
-import { onSshData, onSshExit, sshClose, sshResize, sshWrite } from '../ssh/tauri';
+import { onSshData, onSshExit, sshClose, sshResize, sshWrite } from '../ssh/native';
 
 /// One I/O contract over the two session transports the dock multiplexes:
-/// remote shells (`ssh` — russh, `ssh/tauri.ts`) and local shells (`local` —
+/// remote shells (`ssh` — russh, `ssh/native.ts`) and local shells (`local` —
 /// portable-pty, `pty.ts`). `<Screen>` speaks only this interface, so it needn't
 /// know which core command backs a given tab. Connect/open stays transport-
 /// specific (SSH needs a credential form; local is a one-shot spawn) — only the

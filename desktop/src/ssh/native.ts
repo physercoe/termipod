@@ -1,9 +1,11 @@
 import { invoke, listen, type UnlistenFn } from '../bridge';
 import { isShell } from '../platform';
 
-/// Thin typed bridge to the Tauri Rust core's `russh` SSH transport (ADR-052,
-/// personal direct-SSH). Only functional under the desktop (Tauri) build — the
-/// plain-browser build has no native core, so `isShell()` gates the UI.
+/// Thin typed bridge to the native `russh` SSH transport (ADR-052, personal
+/// direct-SSH). The `invoke`/`listen` calls route through `../bridge` to the
+/// Electron main process (`electron/src/ipc/ssh.ts`). Only functional under the
+/// desktop (Electron) build — the plain-browser build has no native core, so
+/// `isShell()` gates the UI.
 
 export { isShell };
 

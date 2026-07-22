@@ -7,7 +7,7 @@ import {
   sshConnect,
   type SshConnectPhase,
   type SshConnectReq,
-} from '../ssh/tauri';
+} from '../ssh/native';
 import {
   DEFAULT_GROUP,
   deleteConnection,

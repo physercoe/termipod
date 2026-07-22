@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-22)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.722.252 / electron-v2026.722.252
+> **Last verified vs code:** desktop 2026.722.331 / electron-v2026.722.331
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -39,7 +39,7 @@ This complements:
 
 ---
 
-## Unreleased · Electron
+## 2026.722.331 — 2026-07-22 · Electron
 
 **Tauri lane retired (ADR-055 M3.4).**
 
@@ -60,6 +60,8 @@ This complements:
   Electron path).
 - **Packaged-bundle icons** moved from `src-tauri/icons/` to `electron/assets/`
   (`icon.icns` / `icon.ico` / `icon.png`), rewired in `electron-builder.yml`.
+- **`src/ssh/tauri.ts` renamed to `src/ssh/native.ts`** (+ its docstring): the
+  SSH/SFTP bridge routes through the Electron main process, not a Tauri core.
 
 ## 2026.722.252 — 2026-07-22 · Electron
 

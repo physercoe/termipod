@@ -16,7 +16,7 @@ import {
   type Connection,
 } from '../state/connections';
 import { importSshConfig } from '../ssh/config';
-import { sshDuplicate } from '../ssh/tauri';
+import { sshDuplicate } from '../ssh/native';
 import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';

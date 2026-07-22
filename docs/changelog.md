@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-14)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.722.219-alpha
+> **Last verified vs code:** 2026.722.236-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -15,8 +15,8 @@ This records the **mobile app + hub** lane (`v*` tags, owns
 `releases/latest`). The **desktop workbench** has its own changelog —
 [`changelog-desktop.md`](changelog-desktop.md) (`desktop-v*` / `electron-v*`).
 
-**Version scheme.** From `2026.722.219-alpha` onward both mobile and hub use
-date-based **CalVer `YYYY.MMDD.HHMM`** (UTC build time — e.g. `2026.722.219` =
+**Version scheme.** From `2026.722.236-alpha` onward both mobile and hub use
+date-based **CalVer `YYYY.MMDD.HHMM`** (UTC build time — e.g. `2026.722.236` =
 2026-07-22 02:19; the `-alpha` maturity suffix is retained). It is a valid,
 monotonically-increasing semver (`> 1.0.822`), so the in-app updater keeps
 working across the switch; the Android `versionCode` is minutes-since-2020 (a
@@ -36,7 +36,7 @@ binding). Seed entries prior to that are in
 
 ---
 
-## 2026.722.219-alpha — 2026-07-22
+## 2026.722.236-alpha — 2026-07-22
 
 **Date-based version scheme (CalVer).** No functional change — this release
 switches the mobile app + hub to date-based versioning.

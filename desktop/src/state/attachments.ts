@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { invoke } from '../bridge';
 import { isShell } from '../platform';
 import { useZoteroStorage } from './zoteroStorage';
+import { useLibrary } from './library';
+import { proxyForConnection } from './proxy';
+import { invokeWithProgress, type SyncProgress } from './syncProgress';
 
 /// Where user-added attachments are written (Tauri only). Resolution, per the
 /// director's spec:
@@ -120,6 +123,46 @@ export async function pickAndCopyAttachment(): Promise<
     src: picked.path,
   });
   return { file: added.file, contentType: added.contentType, key: added.key, path: added.path };
+}
+
+/// Download an open-access PDF straight into the managed-attachment layout and
+/// register it on the reference — the one-click "in Discover → in my library →
+/// open in the reader" path (plan §1.6). Resolves the root exactly as
+/// `pickAndCopyAttachment` does, streams via the proxy-aware `attachment_download`
+/// (200 MB cap, typed "not a PDF" error for paywall landing pages), then records
+/// it with `srcUrl` set (idempotence: the UI renders an inert "Downloaded" when a
+/// matching `srcUrl` already exists). Throws with a message on failure.
+export async function downloadPdfAsAttachment(
+  refId: string,
+  url: string,
+  opts?: { filename?: string; onProgress?: (p: SyncProgress) => void },
+): Promise<{ file: string; path: string } | null> {
+  if (!isShell()) throw new Error('attachments require the desktop app');
+  if (url.trim() === '') return null;
+  let root = activeAttachmentRoot();
+  if (root === null) {
+    await useAttachmentConfig.getState().resolveDefault();
+    root = activeAttachmentRoot();
+  }
+  if (root === null) throw new Error('no attachment storage location');
+  const added = await invokeWithProgress<{ key: string; file: string; path: string; contentType: string }>(
+    'attachment_download',
+    { root, url, filename: opts?.filename ?? null, proxy: proxyForConnection('attachments') ?? null },
+    opts?.onProgress,
+  );
+  useLibrary.getState().addAttachment(refId, {
+    file: added.file,
+    contentType: added.contentType,
+    source: 'managed',
+    key: added.key,
+    path: added.path,
+    srcUrl: url,
+  });
+  // A linked-Zotero root: refresh the index so the new file resolves immediately.
+  if (useZoteroStorage.getState().path === root) {
+    await useZoteroStorage.getState().reindex();
+  }
+  return { file: added.file, path: added.path };
 }
 
 // ---- note images (de-inlined) ---------------------------------------------

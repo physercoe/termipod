@@ -31,6 +31,7 @@ import { vaultHandlers } from './vault';
 import { updaterHandlers } from './updater';
 import { menuHandlers } from './menu';
 import { drawioHandlers } from '../drawio';
+import { webtabHandlers } from '../webtab';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -59,6 +60,7 @@ const handlers: Record<string, Handler> = {
   ...updaterHandlers,
   ...menuHandlers,
   ...drawioHandlers,
+  ...webtabHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

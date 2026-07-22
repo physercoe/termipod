@@ -14,7 +14,7 @@ import { isShell } from '../platform';
 /// Reuses the original About/Update proxy keys so a proxy the user already saved
 /// there carries over verbatim.
 
-export type ProxyConn = 'hub' | 'attachments' | 'workspace' | 'discovery' | 'update' | 'drawio';
+export type ProxyConn = 'hub' | 'attachments' | 'workspace' | 'discovery' | 'update' | 'drawio' | 'webtab';
 export const PROXY_CONNS: ProxyConn[] = [
   'hub',
   'attachments',
@@ -22,6 +22,7 @@ export const PROXY_CONNS: ProxyConn[] = [
   'discovery',
   'update',
   'drawio',
+  'webtab',
 ];
 
 const OVERRIDE_KEY = 'termipod.update.proxy'; // reused from the old About setting

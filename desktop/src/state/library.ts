@@ -114,6 +114,7 @@ export interface Attachment {
   source: 'zotero' | 'managed';
   key?: string; // storage subfolder key (Zotero layout: `<key>/<file>`)
   path?: string; // absolute path — set for 'managed' files, read directly
+  srcUrl?: string; // the URL a downloaded attachment came from (idempotence + provenance)
   addedAt: number;
 }
 

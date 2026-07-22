@@ -8,6 +8,9 @@ import path from 'node:path';
 import type { Ctx, Handler } from './dispatch';
 import { openDialog, saveDialog } from './dialogs';
 import { copyFileTo, ensureDir, fromBase64, genKey, mimeFor } from './fsutil';
+import { proxyFetch } from './net';
+import { downloadPdfBytes } from './download';
+import { emit } from '../events';
 
 interface StorageEntry {
   key: string;
@@ -90,6 +93,12 @@ async function intoKeyDir(
   return { key, file, path: dest, contentType: mimeFor(file) };
 }
 
+/// Scoped progress tick (same convention as the sync backends: `sync:progress`
+/// keyed by the caller's `progressId`, consumed via `invokeWithProgress`).
+function downloadProgress(ctx: Ctx, id: string | null, done: number, total: number): void {
+  if (id !== null) emit(ctx.sender, 'sync:progress', { id, done, total });
+}
+
 export const storageHandlers: Record<string, Handler> = {
   storage_pick_folder: async (args, ctx: Ctx): Promise<StorageIndex | null> => {
     const start = typeof args.start === 'string' && args.start !== '' ? args.start : undefined;
@@ -156,6 +165,25 @@ export const storageHandlers: Record<string, Handler> = {
   attachment_read: async (args): Promise<StorageFile> => {
     const p = String(args.path ?? '');
     return { bytes: await readFile(p), mime: mimeFor(p) };
+  },
+
+  /// Stream a (proxy-aware) HTTP download straight into the managed-attachment
+  /// layout — the one-click "open-access PDF → my library" path (plan §1.5). The
+  /// URL is http(s)-validated; the body is streamed with a 200 MB cap and typed
+  /// errors for a non-PDF (paywall landing page). Returns the same
+  /// `AddedAttachment` shape as `attachment_write_bytes`.
+  attachment_download: async (args, ctx: Ctx): Promise<AddedAttachment> => {
+    const root = String(args.root ?? '');
+    const url = String(args.url ?? '');
+    const proxy = typeof args.proxy === 'string' ? args.proxy : null;
+    const fallback = String(args.filename ?? 'download.pdf');
+    const progressId = typeof args.progressId === 'string' ? args.progressId : null;
+    const { bytes, file } = await downloadPdfBytes(url, {
+      fetchImpl: (u, init) => proxyFetch(u, init, proxy),
+      fallback,
+      onProgress: (done, total) => downloadProgress(ctx, progressId, done, total),
+    });
+    return intoKeyDir(root, file, (dest) => writeFile(dest, bytes));
   },
 
   save_image_as: async (args, ctx: Ctx): Promise<string | null> => {

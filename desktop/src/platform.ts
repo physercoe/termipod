@@ -107,16 +107,3 @@ export function hostOf(url: string): string {
   }
 }
 
-/// Whether the page at `url` refuses to be embedded in an iframe
-/// (`X-Frame-Options` / CSP `frame-ancestors`) — the native `frame_check`
-/// command preflights the response headers, which the webview's own fetch can't
-/// read (CORS). Drives the in-app browser tab's refused-frame error (#322). The
-/// browser build has no way to check, so it answers false and lets the frame try.
-export async function frameCheck(url: string): Promise<boolean> {
-  if (url === '' || !isShell()) return false;
-  try {
-    return await invoke<boolean>('frame_check', { url });
-  } catch {
-    return false; // unreachable / unsupported scheme — not a refusal
-  }
-}

@@ -1020,6 +1020,18 @@
 .read-tabitem-x:hover {
   color: var(--text);
 }
+/* "+" new-web-tab button riding at the end of the strip. */
+.read-tabitem-new {
+  flex: 0 0 auto;
+  padding: 0 var(--spacing-s8);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.read-tabitem-new:hover {
+  color: var(--text);
+}
 
 /* Zotero-style sortable column table for the library list. */
 .read-table-wrap {
@@ -1159,10 +1171,28 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
-/* Refused-frame error (#322): replaces the iframe when the page's framing
-   headers deny embedding; offers the system-browser escape hatch. */
-.browser-refused {
+.browser-frame-wrap {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative; /* anchors the start + error overlays */
+}
+/* The real browser guest (Electron <webview>). `flex:1` + explicit sizing —
+   a webview defaults to inline and would collapse otherwise. */
+.browser-webview {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+/* Start state (empty-URL tab) + real load-failure pane — both centered overlays
+   above the (blank) guest; the error replaces the old refused-frame panel but
+   only for genuine failures (DNS / offline / TLS). */
+.browser-start,
+.browser-error {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1170,14 +1200,13 @@
   gap: var(--spacing-s8);
   padding: var(--spacing-s12);
   text-align: center;
+  background: var(--bg);
 }
-.browser-frame-wrap {
-  flex: 1;
-  min-height: 0;
+.browser-start-address {
+  flex: 0 0 auto;
+  width: min(32rem, 80%);
+}
+.browser-error-actions {
   display: flex;
-}
-.browser-frame {
-  flex: 1;
-  border: none;
-  background: #fff;
+  gap: var(--spacing-s8);
 }

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
-import { useT } from '../i18n';
+import { useT, tStatic } from '../i18n';
 import {
   hasAnyAttachment,
   isInternalTag,
@@ -17,6 +17,7 @@ import { hasAttachment, loadAttachmentBlob, useZoteroStorage } from '../state/zo
 import {
   activeAttachmentRoot,
   deleteManagedAttachmentFile,
+  downloadPdfAsAttachment,
   pickAndCopyAttachment,
   useAttachmentConfig,
   writeNoteImage,
@@ -802,6 +803,17 @@ function RefMeta({
   );
 }
 
+// A last-resort download filename (the main process prefers Content-Disposition
+// then the URL basename; this fills in only when both are absent). A title slug
+// is portable and human-legible.
+function pdfFilenameHint(r: { title: string }): string {
+  const base = (r.title !== '' ? r.title : 'download')
+    .slice(0, 80)
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${base === '' ? 'download' : base}.pdf`;
+}
+
 function Inspector({
   refId,
   onOpenReader,
@@ -919,6 +931,30 @@ function Inspector({
     // (its file stays in the user's Zotero library, untouched).
     if (a.source === 'managed') void deleteManagedAttachmentFile(a.path);
     removeAttachmentFromRef(ref.id, a.id);
+  }
+
+  // Whether this item's open-access `pdfUrl` is already in the library (a matching
+  // `srcUrl` on some attachment) — drives the inert "Downloaded" state.
+  const pdfDownloaded = ref.pdfUrl !== undefined && atts.some((a) => a.srcUrl === ref.pdfUrl);
+
+  // Download the item's open-access PDF straight into the library (§1.6). On
+  // success from the Read tab, open the reader on the new attachment directly.
+  async function onDownloadPdf(openAfter: boolean): Promise<void> {
+    if (ref === undefined || ref.pdfUrl === undefined) return;
+    setAttBusy(true);
+    setAttErr(null);
+    try {
+      const res = await downloadPdfAsAttachment(ref.id, ref.pdfUrl, { filename: pdfFilenameHint(ref) });
+      if (openAfter && res !== null) {
+        const cur = useLibrary.getState().references.find((r) => r.id === ref.id);
+        const newAtt = cur?.attachments?.find((a) => a.path === res.path);
+        if (newAtt !== undefined) onOpenReader?.(ref.id, newAtt.id);
+      }
+    } catch (e) {
+      setAttErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAttBusy(false);
+    }
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -1144,11 +1180,24 @@ function Inspector({
             <div className="wide ref-attach-info">
               <div className="att-head-row">
                 <span className="muted small">{t('read.attHead')}</span>
-                {isShell() && (
-                  <button className="link-btn att-add" disabled={attBusy} onClick={() => void onAddAttachment()}>
-                    <Icon name="plus" size={14} /> {attBusy ? t('read.attAdding') : t('read.attAdd')}
-                  </button>
-                )}
+                <span className="att-head-actions">
+                  {isShell() && ref.pdfUrl !== undefined && (
+                    pdfDownloaded ? (
+                      <span className="muted small att-downloaded">
+                        <Icon name="check" size={13} /> {t('read.attPdfDownloaded')}
+                      </span>
+                    ) : (
+                      <button className="link-btn att-add" disabled={attBusy} onClick={() => void onDownloadPdf(false)}>
+                        <Icon name="download" size={14} /> {attBusy ? t('read.attDownloading') : t('read.attDownloadPdf')}
+                      </button>
+                    )
+                  )}
+                  {isShell() && (
+                    <button className="link-btn att-add" disabled={attBusy} onClick={() => void onAddAttachment()}>
+                      <Icon name="plus" size={14} /> {attBusy ? t('read.attAdding') : t('read.attAdd')}
+                    </button>
+                  )}
+                </span>
               </div>
               {attErr !== null && <div className="muted small att-err">{attErr}</div>}
               {atts.length === 0 ? (
@@ -1193,6 +1242,11 @@ function Inspector({
             {ref.pdfUrl !== undefined && (
               <div className="ref-pdf muted small">
                 {t('read.pdf')}: <span className="mono">{ref.pdfUrl}</span>
+                {isShell() && !attPresent && !pdfDownloaded && (
+                  <button className="link-btn ref-pdf-dl" disabled={attBusy} onClick={() => void onDownloadPdf(true)}>
+                    <Icon name="download" size={13} /> {attBusy ? t('read.attDownloading') : t('read.attDownloadPdf')}
+                  </button>
+                )}
               </div>
             )}
             {primary !== undefined && (
@@ -1490,6 +1544,9 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   // scrape-and-add instead of a keyword search.
   const idSeed = useMemo(() => detectIdentifier(q), [q]);
   const [addingId, setAddingId] = useState(false);
+  // "Add + PDF" per-card state (which card is downloading, and a keyed error).
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
+  const [pdfErr, setPdfErr] = useState<{ id: string; msg: string } | null>(null);
 
   const source = sourceById(sourceId);
   const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
@@ -1539,6 +1596,24 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   function importPaper(p: DiscoveryPaper): void {
     const id = add(paperToRef(p));
     onSelect(id);
+  }
+
+  // Import + download the open-access PDF in one flow (§1.6). A download failure
+  // leaves the imported item in place (import must not roll back) + a card error.
+  async function addWithPdf(p: DiscoveryPaper): Promise<void> {
+    const cardId = p.paperId || p.title;
+    const id = add(paperToRef(p));
+    onSelect(id);
+    if (p.pdfUrl === undefined) return;
+    setPdfBusy(cardId);
+    setPdfErr(null);
+    try {
+      await downloadPdfAsAttachment(id, p.pdfUrl, { filename: pdfFilenameHint(p) });
+    } catch (e) {
+      setPdfErr({ id: cardId, msg: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setPdfBusy(null);
+    }
   }
 
   async function addById(): Promise<void> {
@@ -1679,8 +1754,23 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
                 <button className="primary small" disabled={imported} onClick={() => importPaper(p)}>
                   {imported ? t('read.inLibrary') : t('read.addToLibrary')}
                 </button>
-                {p.pdfUrl !== undefined && <span className="pill ok small">PDF</span>}
+                {p.pdfUrl !== undefined &&
+                  (isShell() && !imported ? (
+                    <button
+                      className="small"
+                      disabled={pdfBusy === (p.paperId || p.title)}
+                      onClick={() => void addWithPdf(p)}
+                    >
+                      <Icon name="download" size={13} />{' '}
+                      {pdfBusy === (p.paperId || p.title) ? t('read.attDownloading') : t('read.addWithPdf')}
+                    </button>
+                  ) : (
+                    <span className="pill ok small">PDF</span>
+                  ))}
               </div>
+              {pdfErr !== null && pdfErr.id === (p.paperId || p.title) && (
+                <div className="muted small att-err">{pdfErr.msg}</div>
+              )}
             </div>
           );
         })}
@@ -1791,11 +1881,21 @@ export function ReadSurface(): JSX.Element {
 
   // useCallback: this is the OpenLinkContext value — a fresh identity per render
   // would re-render every consumer and defeat the memoised PDF PageViews (#311).
+  // An empty URL opens a blank web tab (the "+"/"Open link" affordances): its
+  // BrowserView renders the start state (autofocused address bar). A tab titled
+  // "New tab" re-titles itself from the first `page-title-updated`.
   const openWebTab = useCallback((url: string): void => {
-    if (url === '') return;
     const id = nextTabId();
-    setTabs((ts) => [...ts, { id, kind: 'web', url, title: hostOf(url) }]);
+    const title = url === '' ? tStatic('read.newTab') : hostOf(url);
+    setTabs((ts) => [...ts, { id, kind: 'web', url, title }]);
     setActiveTab(id);
+  }, []);
+
+  // Re-title a tab in place — the web tab's BrowserView calls this from the
+  // guest's `page-title-updated` so the strip reflects the real page title.
+  const setTabTitle = useCallback((id: string, title: string): void => {
+    if (title === '') return;
+    setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, title } : tb)));
   }, []);
 
   function openNoteTab(refId: string): void {
@@ -2094,6 +2194,11 @@ export function ReadSurface(): JSX.Element {
               <Icon name="cloud" size={14} /> {t('read.syncFiles')}
             </button>
           )}
+          {isShell() && (
+            <button className="import-btn" title={t('read.openLinkHint')} onClick={() => openWebTab('')}>
+              <Icon name="globe" size={14} /> {t('read.openLink')}
+            </button>
+          )}
           <div className="seg">
             <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
               {t('read.modeLibrary')}
@@ -2161,6 +2266,11 @@ export function ReadSurface(): JSX.Element {
               </button>
             </span>
           ))}
+          {isShell() && (
+            <button className="read-tabitem-new" title={t('read.openLinkHint')} onClick={() => openWebTab('')}>
+              <Icon name="plus" size={13} />
+            </button>
+          )}
         </div>
       )}
       {activeTabObj !== undefined ? (
@@ -2175,7 +2285,7 @@ export function ReadSurface(): JSX.Element {
         ) : activeTabObj.kind === 'note' && activeTabObj.refId !== undefined ? (
           <NoteTab refId={activeTabObj.refId} />
         ) : (
-          <BrowserView initialUrl={activeTabObj.url ?? ''} />
+          <BrowserView initialUrl={activeTabObj.url ?? ''} onTitle={(title) => setTabTitle(activeTabObj.id, title)} />
         )
       ) : (
         <>

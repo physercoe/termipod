@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import path from 'node:path';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 // The preload injects this on the renderer's `window` (see src/preload.ts). It
 // is declared in the frontend package, not here, so mirror the minimal surface
@@ -306,4 +308,62 @@ test('excalidraw: the sketch editor lazy-mounts and is configured for offline fo
     () => (window as unknown as { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH,
   );
   expect(assetPath).toBe('/excalidraw-assets/');
+});
+
+// ── Web tab: real <webview> guest (read-web-tabs plan W1) ────────────────────
+// The Read surface's in-app browser tab is an Electron <webview> guest in the
+// isolated `persist:webtab` partition. This pins the load-bearing invariants that
+// the guest hardening in webtab.ts enforces (native menus / real logins are
+// device-verified): a guest loads a real page, its title propagates, it does NOT
+// carry the preload bridge, and it cannot reach the privileged `app://` scheme
+// (registered on defaultSession only). Serving from an in-test http server keeps
+// it offline + deterministic.
+test('web tab: a <webview> guest loads, isolates the bridge, and cannot reach app://', async () => {
+  const server = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end('<!doctype html><html><head><title>E2E Webview OK</title></head><body>hello guest</body></html>');
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const { port } = server.address() as AddressInfo;
+  const guestUrl = `http://127.0.0.1:${port}/`;
+  try {
+    const result = await page.evaluate(async (url) => {
+      const wv = document.createElement('webview') as HTMLElement & {
+        getTitle(): string;
+        executeJavaScript(code: string): Promise<unknown>;
+      };
+      wv.setAttribute('src', url);
+      // The main-process `will-attach-webview` guard REJECTS any partition other
+      // than persist:webtab, so setting it correctly is also what lets the guest
+      // attach at all (an implicit test of that enforcement).
+      wv.setAttribute('partition', 'persist:webtab');
+      wv.style.width = '400px';
+      wv.style.height = '300px';
+      document.body.appendChild(wv);
+      await new Promise<void>((resolve, reject) => {
+        const to = setTimeout(() => reject(new Error('webview load timeout')), 15_000);
+        wv.addEventListener('did-finish-load', () => { clearTimeout(to); resolve(); }, { once: true });
+        wv.addEventListener('did-fail-load', (e) => {
+          if ((e as unknown as { isMainFrame?: boolean }).isMainFrame === false) return;
+          clearTimeout(to);
+          reject(new Error('did-fail-load ' + String((e as unknown as { errorCode?: number }).errorCode)));
+        });
+      });
+      const title = wv.getTitle();
+      const hasBridge = await wv.executeJavaScript('typeof window.__ELECTRON_BRIDGE__');
+      const appFetch = await wv.executeJavaScript(
+        "fetch('app://termipod/index.html').then(r => 'reached:' + r.status).catch(() => 'blocked')",
+      );
+      wv.remove();
+      return { title, hasBridge, appFetch };
+    }, guestUrl);
+    expect(result.title).toBe('E2E Webview OK');
+    // No preload → the bridge (and the whole command allowlist) never exists here.
+    expect(result.hasBridge).toBe('undefined');
+    // The app:// scheme handler is installed on defaultSession only — the guest
+    // partition can't resolve it.
+    expect(result.appFetch).toBe('blocked');
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()));
+  }
 });

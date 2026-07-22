@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLang, useT, type Lang } from '../i18n';
 import { isShell, openExternal } from '../platform';
+import { invoke } from '../bridge';
 import { cacheSizeBytes, clearCache } from '../state/queryClient';
 import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
@@ -189,6 +190,7 @@ function NetworkSettings(): JSX.Element {
     discovery: t('network.connDiscovery'),
     update: t('network.connUpdate'),
     drawio: t('network.connDrawio'),
+    webtab: t('network.connWebtab'),
   };
 
   return (
@@ -220,7 +222,35 @@ function NetworkSettings(): JSX.Element {
           </label>
         ))}
       </div>
+      {isShell() && <ClearWebtabData />}
     </section>
+  );
+}
+
+/// "Clear web-tab browsing data" — wipes the persistent `persist:webtab`
+/// partition (cookies/storage/cache the in-app browser accumulates). Closes the
+/// privacy loop the persistent partition opens (plan §4).
+function ClearWebtabData(): JSX.Element {
+  const t = useT();
+  const [done, setDone] = useState(false);
+  return (
+    <div className="setting-row network-clear-webtab">
+      <div>
+        <label>{t('network.clearWebtab')}</label>
+        <p className="muted small">{t('network.clearWebtabHint')}</p>
+      </div>
+      <button
+        className="import-btn"
+        onClick={() => {
+          setDone(false);
+          void invoke('webtab_clear_data')
+            .then(() => setDone(true))
+            .catch(() => undefined);
+        }}
+      >
+        {done ? t('network.clearWebtabDone') : t('network.clearWebtab')}
+      </button>
+    </div>
   );
 }
 

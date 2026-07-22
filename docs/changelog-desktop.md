@@ -42,6 +42,29 @@ This complements:
 ## Unreleased
 
 ### Added
+- **Read · real in-app browser tab** (read-web-tabs plan W1): the web tab is now
+  an Electron `<webview>` guest, not a sandboxed `<iframe>` — a real top-level
+  frame, so `X-Frame-Options`/`frame-ancestors` no longer refuse it and arXiv,
+  publisher landing pages, GitHub, and Scholar actually load (the iframe was a
+  bounce page for nearly every site). Guests run in an isolated, **persistent**
+  `persist:webtab` partition (cookies/logins survive restart) with no preload
+  bridge, popup-denied, http(s)-only navigation, and permissions denied except
+  fullscreen — all enforced main-side in `electron/src/webtab.ts`. The nav bar
+  drives the guest's **real** history (back/forward/reload/address), and the tab
+  re-titles from the page title. New **"Open link"** header button and a
+  tab-strip **"+"** open a blank tab with an autofocused address bar (a web tab
+  no longer needs a reference link); **Ctrl/Cmd+L** focuses the address bar. A
+  `webtab` proxy connection and a Settings → Network **"Clear web-tab browsing
+  data"** button close the proxy/privacy loops. The old `frame_check` preflight +
+  "refused" panel are removed (replaced by a real `did-fail-load` error pane).
+- **Read · download open-access PDF into the library** (read-web-tabs plan W2):
+  wherever a reference or discovery result carries an open-access `pdfUrl`, one
+  click streams it (proxy-aware, 200 MB cap, typed "not a PDF" error for paywall
+  landing pages) straight into the managed-attachment layout and records it on
+  the reference — **Download PDF** on the Inspector Info + Read tabs and **Add +
+  PDF** on a Discover card. Idempotent via a new `Attachment.srcUrl` (a matching
+  URL renders an inert "Downloaded"). The download core (`ipc/download.ts`) is a
+  pure, unit-tested module.
 - **Author · Excalidraw sketch editor** (figure-plan Phase C): a freeform
   hand-drawn sketch surface as a new document kind (`excalidraw`), beside
   `canvas`/`table`/`figure`. Body is the ecosystem-standard `.excalidraw` JSON

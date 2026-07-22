@@ -16,6 +16,7 @@ import './schemes'; // registers privileged app:// + drawio:// before app ready
 import { APP_ORIGIN, registerAppScheme } from './appscheme';
 import { registerDrawioScheme } from './drawio';
 import { installHubCors } from './hubcors';
+import { setupWebtab } from './webtab';
 import { startKeychainMigration } from './ipc/keychain';
 import { dispatch, isAllowed } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
@@ -57,14 +58,19 @@ function createWindow(): void {
       sandbox: true,
       nodeIntegration: false,
       spellcheck: false,
+      // The Read surface's web tab embeds arbitrary external sites in a
+      // `<webview>` guest (real top-level frame — X-Frame-Options can't refuse
+      // it). All guest hardening (isolated partition, no preload, popup/nav
+      // policy) lives in webtab.ts; enabling the tag here is inert without it.
+      webviewTag: true,
     },
   });
   mainWindow = win;
-  // The app embeds arbitrary external sites (in-app browser iframe, with
-  // `allow-popups`). A `window.open` from one would spawn a child window that
+  // A `window.open` from any embedded content would spawn a child window that
   // INHERITS this window's webPreferences — preload included — handing
   // `__ELECTRON_BRIDGE__` and the whole command allowlist to remote content.
-  // Deny every popup; safe http(s) links go to the OS browser instead.
+  // Deny every popup; safe http(s) links go to the OS browser instead. (Guest
+  // webview popups are additionally handled in webtab.ts.)
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternal(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -122,6 +128,8 @@ if (!app.requestSingleInstanceLock()) {
     // Let the renderer's app:// origin reach the hub directly (renderer-direct
     // transport; plan §7 rows 1–2) — no Rust proxy.
     installHubCors(session.defaultSession);
+    // Isolated persistent partition + guest hardening for the Read web tab.
+    setupWebtab();
     // One-time read of the Tauri-written secret document into the safeStorage
     // store (ADR-055 M1.3). Fire-and-forget: the window paints now, the first
     // secret access awaits it.

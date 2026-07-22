@@ -1,6 +1,6 @@
 /// Platform-helper command family (ADR-055 M1) — the Electron equivalents of
 /// the Tauri `platform_os` / `os_build_number` / `open_external` / `reveal_path`
-/// / `open_browser_window` / `frame_check` / `system_proxy` / `system_hostname`
+/// / `open_browser_window` / `system_proxy` / `system_hostname`
 /// commands in `src-tauri/src/lib.rs`. Same command names + return shapes, so
 /// `src/platform.ts` and `src/discovery/*` call them unchanged through the
 /// bridge.
@@ -41,24 +41,6 @@ export function isSafeExternal(url: string): boolean {
   try {
     const scheme = new URL(url).protocol;
     return scheme === 'http:' || scheme === 'https:' || scheme === 'mailto:';
-  } catch {
-    return false;
-  }
-}
-
-/// Whether `url` refuses iframe embedding (`X-Frame-Options` deny/sameorigin, or
-/// a CSP `frame-ancestors` that isn't `*`). Preflighted in main because the
-/// renderer can't read those headers cross-origin. Best-effort: a failed probe
-/// answers false (not a refusal) so the frame is at least attempted.
-async function frameRefused(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, { method: 'GET', redirect: 'follow' });
-    const xfo = (res.headers.get('x-frame-options') ?? '').toLowerCase();
-    if (xfo.includes('deny') || xfo.includes('sameorigin')) return true;
-    const csp = res.headers.get('content-security-policy') ?? '';
-    const fa = /frame-ancestors\s+([^;]+)/i.exec(csp);
-    if (fa !== null && !fa[1].includes('*')) return true;
-    return false;
   } catch {
     return false;
   }
@@ -142,12 +124,6 @@ export const platformHandlers: Record<string, Handler> = {
       return { action: 'deny' };
     });
     void win.loadURL(url);
-  },
-
-  frame_check: (args: Record<string, unknown>) => {
-    const url = typeof args.url === 'string' ? args.url : '';
-    if (url === '') return false;
-    return frameRefused(url);
   },
 
   system_proxy: () => resolveSystemProxy(),

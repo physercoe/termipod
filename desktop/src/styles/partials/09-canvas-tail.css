@@ -529,10 +529,27 @@
   justify-content: space-between;
   gap: var(--spacing-s8);
 }
+.att-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
 .att-add {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.att-downloaded {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* "Download PDF" affordance on the Read-tab pdfUrl row. */
+.ref-pdf-dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--spacing-s8);
 }
 .att-remove {
   display: inline-flex;

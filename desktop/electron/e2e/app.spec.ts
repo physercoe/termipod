@@ -64,9 +64,11 @@ test('window opens with the app title', async () => {
 test('the preload bridge is injected and a native command round-trips', async () => {
   const hasBridge = await page.evaluate(() => typeof window.__ELECTRON_BRIDGE__ !== 'undefined');
   expect(hasBridge).toBe(true);
-  // `app_version` is a native command; it returns the packaged CalVer version.
+  // `app_version` is a native command — the round-trip through the bridge is what
+  // this asserts. The VALUE is `app.getVersion()`: the CalVer only in a packaged
+  // build; unpackaged (as here) it's Electron's own version. Either is semver-shaped.
   const version = await page.evaluate(() => window.__ELECTRON_BRIDGE__!.invoke<string>('app_version'));
-  expect(version).toMatch(/^\d{4}\.\d+\.\d+/);
+  expect(version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
 test('renderer is a secure context — crypto.randomUUID works (§7 row 12)', async () => {

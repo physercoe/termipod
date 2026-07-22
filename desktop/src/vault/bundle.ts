@@ -94,6 +94,12 @@ export async function importBundle(bundle: VaultBundle): Promise<void> {
     Object.assign(secrets, collectAppIntegrationSecrets(bundle.app.config, bundle.app.secrets));
   }
   await secretSetMany(secrets);
+  // Sync-down wrote the connection/key/integration lists straight to
+  // localStorage, bypassing React. Views that read those lists once at mount
+  // and never remount — notably the always-mounted TerminalPanel (it owns live
+  // PTY/SSH sessions, so nav can't unmount it) — would otherwise show stale
+  // (often empty) lists until an app restart. Broadcast so they re-read now.
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('termipod:vault-imported'));
 }
 
 export function readBundleJson(): Promise<string> {

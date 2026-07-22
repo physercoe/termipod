@@ -165,6 +165,19 @@ export function TerminalPanel(): JSX.Element {
     if (!connecting && tauri) setConns(listConnections());
   }, [connecting, tauri]);
 
+  // A vault sync-down / recovery-restore rewrites the saved connections straight
+  // to localStorage (see vault/bundle.ts importBundle). This panel is
+  // always-mounted (it owns live PTY/SSH sessions), so without this it would keep
+  // showing the pre-sync list until an app restart. Re-read on the broadcast.
+  useEffect(() => {
+    if (!tauri) return;
+    const onImported = (): void => refreshConns();
+    window.addEventListener('termipod:vault-imported', onImported);
+    return () => window.removeEventListener('termipod:vault-imported', onImported);
+    // refreshConns is stable (defined in render, closes over stable setters).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tauri]);
+
   // Dismiss the "+" menu on an outside click.
   useEffect(() => {
     function onDoc(e: MouseEvent): void {

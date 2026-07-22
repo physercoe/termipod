@@ -83,7 +83,20 @@ export const updaterHandlers: Record<string, Handler> = {
     if (!app.isPackaged) return null; // electron-updater refuses to run unpacked
     const au = await autoUpdater();
     await applyProxy(au, args.proxy);
-    const result = await au.checkForUpdates();
+    let result;
+    try {
+      result = await au.checkForUpdates();
+    } catch (e) {
+      // The rolling `electron-latest` update feed is published by the go-live
+      // `promote` step; until then the provider 404s on `latest*.yml`
+      // ("Cannot find channel ... HttpError: 404"). That means "no update
+      // channel yet", NOT a failure the user should see — treat it as
+      // up-to-date. Any other error (real network/parse failure) still surfaces.
+      const status = (e as { statusCode?: number })?.statusCode;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (status === 404 || /HttpError:\s*404|Cannot find channel/i.test(msg)) return null;
+      throw e;
+    }
     if (result === null || result === undefined) return null;
     const info = result.updateInfo;
     if (info === undefined || info === null) return null;

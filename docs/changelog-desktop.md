@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-22)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.722.331 / electron-v2026.722.331
+> **Last verified vs code:** desktop 2026.722.818 / electron-v2026.722.818
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -39,7 +39,7 @@ This complements:
 
 ---
 
-## Unreleased · Electron
+## 2026.722.818 — 2026-07-22 · Electron
 
 **M4 Chromium paydown (ADR-055 §6/§7) — post device-test of 2026.722.331.**
 

@@ -4,6 +4,7 @@ import { Icon } from '../ui/Icon';
 import { hostOf, isShell, openBrowserWindow, openExternal } from '../platform';
 import { invoke } from '../bridge';
 import { proxyForConnection } from '../state/proxy';
+import { useBookmarks } from '../state/bookmarks';
 
 /// The Read surface's in-app browser tab (director request: external links open
 /// in a dedicated tab *inside* the app, not the OS browser).
@@ -82,9 +83,23 @@ export function BrowserView({
   const [started, setStarted] = useState(initialUrl !== '');
   const [canBack, setCanBack] = useState(false);
   const [canFwd, setCanFwd] = useState(false);
+  // The current page's title (for the bookmark label; the tab strip gets it via
+  // `onTitle`).
+  const [title, setTitle] = useState('');
   // A real load failure (DNS / offline / TLS) — the replacement for the old
   // frame-refused panel, now only for genuine failures.
   const [loadError, setLoadError] = useState<{ code: number; desc: string; url: string } | null>(null);
+
+  const bookmarks = useBookmarks((s) => s.bookmarks);
+  const addBookmark = useBookmarks((s) => s.add);
+  const removeBookmark = useBookmarks((s) => s.remove);
+  const bookmarkable = current !== '' && current !== 'about:blank';
+  const bookmarked = bookmarks.some((b) => b.url === current);
+  const toggleBookmark = (): void => {
+    if (!bookmarkable) return;
+    if (bookmarked) removeBookmark(current);
+    else addBookmark(current, title !== '' ? title : hostOf(current));
+  };
 
   // Navigate the guest imperatively (never via the `src` prop — that would
   // remount/reset the guest on every address change).
@@ -126,8 +141,11 @@ export function BrowserView({
       syncNavState();
     };
     const onTitleUpdate = (e: Event): void => {
-      const title = (e as unknown as { title?: string }).title;
-      if (typeof title === 'string' && title !== '') onTitle?.(title);
+      const pageTitle = (e as unknown as { title?: string }).title;
+      if (typeof pageTitle === 'string' && pageTitle !== '') {
+        setTitle(pageTitle);
+        onTitle?.(pageTitle);
+      }
     };
     const onFail = (e: Event): void => {
       const ev = e as unknown as { errorCode?: number; errorDescription?: string; validatedURL?: string; isMainFrame?: boolean };
@@ -194,6 +212,14 @@ export function BrowserView({
             if (e.key === 'Enter') navigate(address);
           }}
         />
+        <button
+          className={bookmarked ? 'browser-nav active' : 'browser-nav'}
+          title={bookmarked ? t('read.browserBookmarkRemove') : t('read.browserBookmarkAdd')}
+          onClick={toggleBookmark}
+          disabled={!bookmarkable}
+        >
+          <Icon name="star" />
+        </button>
         <button className="browser-nav" title={t('read.openInWindow')} onClick={() => openBrowserWindow(current)} disabled={current === ''}>
           <Icon name="expand" />
         </button>
@@ -226,6 +252,26 @@ export function BrowserView({
                 if (e.key === 'Enter') navigate(address);
               }}
             />
+            {bookmarks.length > 0 && (
+              <div className="browser-bookmarks">
+                <div className="browser-bookmarks-head muted small">{t('read.browserBookmarks')}</div>
+                {bookmarks.map((b) => (
+                  <div key={b.url} className="browser-bookmark">
+                    <button className="browser-bookmark-open" title={b.url} onClick={() => navigate(b.url)}>
+                      <Icon name="star" size={13} />
+                      <span className="browser-bookmark-title">{b.title}</span>
+                    </button>
+                    <button
+                      className="browser-bookmark-x"
+                      title={t('read.browserBookmarkRemove')}
+                      onClick={() => removeBookmark(b.url)}
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {loadError !== null && (

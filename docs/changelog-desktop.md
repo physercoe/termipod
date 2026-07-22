@@ -39,6 +39,20 @@ This complements:
 
 ---
 
+## Unreleased
+
+### Added
+- **Read · web-tab bookmarks**: the in-app browser bar gains a star that
+  bookmarks (or un-bookmarks) the current page, and the start (empty-tab / "Open
+  link") page lists the saved sites for one-click reopening. Bookmarks persist
+  across restarts (localStorage).
+
+### Fixed
+- **Discover results survive a tab switch**: the Discover pane unmounts when you
+  switch to Library mode or open a reader/web tab, which cleared the last search.
+  The query + results now live in a module store, so returning to Discover
+  restores exactly what was there (session-scoped; not persisted to disk).
+
 ## 2026.722.1327 — 2026-07-22 · Electron
 
 **Read: real `<webview>` browser tab + open-access PDF download (incl. downloads

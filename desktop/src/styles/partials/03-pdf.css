@@ -1161,6 +1161,11 @@
   opacity: 0.4;
   cursor: default;
 }
+/* A toggled-on nav button (the bookmark star when the page is saved). */
+.browser-nav.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
 .browser-address {
   flex: 1;
   min-width: 0;
@@ -1205,6 +1210,61 @@
 .browser-start-address {
   flex: 0 0 auto;
   width: min(32rem, 80%);
+}
+/* Saved-sites list on the start (empty-tab) page. */
+.browser-bookmarks {
+  flex: 0 1 auto;
+  width: min(32rem, 80%);
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  text-align: left;
+}
+.browser-bookmarks-head {
+  margin-bottom: var(--spacing-s2);
+}
+.browser-bookmark {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.browser-bookmark-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.browser-bookmark-open:hover {
+  background: var(--raised);
+  border-color: var(--border);
+}
+.browser-bookmark-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-bookmark-x {
+  flex: 0 0 auto;
+  padding: var(--spacing-s4);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.browser-bookmark-x:hover {
+  color: var(--text);
 }
 .browser-error-actions {
   display: flex;

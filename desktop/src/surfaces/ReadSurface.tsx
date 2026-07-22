@@ -23,6 +23,7 @@ import {
   writeNoteImage,
 } from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
+import { useDiscoverySearch } from '../state/discoverySearch';
 import { syncAnnotations } from '../state/annotationSync';
 import { useSession } from '../state/session';
 import {
@@ -1533,8 +1534,13 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   const openLink = useOpenLink();
   const add = useLibrary((s) => s.addReference);
   const references = useLibrary((s) => s.references);
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState<DiscoveryPaper[]>([]);
+  // Query + results live in a module store so they survive this pane unmounting
+  // (switching to Library mode or opening a tab) — a fresh mount restores the
+  // last search instead of clearing it.
+  const q = useDiscoverySearch((s) => s.query);
+  const setQ = useDiscoverySearch((s) => s.setQuery);
+  const results = useDiscoverySearch((s) => s.results);
+  const setResults = useDiscoverySearch((s) => s.setResults);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string>(() => localStorage.getItem(SOURCE_LS) ?? 'openalex');

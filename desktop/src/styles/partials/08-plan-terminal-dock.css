@@ -234,6 +234,41 @@
   min-width: 0;
 }
 .sftp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Select-only click model: the highlighted row is just the selection — actions
+   come from the context menu / the per-row transfer button / double-click. */
+.sftp-row.selected {
+  background: var(--accent-tint);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sftp-transfer-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* View modal (file preview). */
+.sftp-view-modal {
+  width: 640px;
+  max-width: 92vw;
+  max-height: 80vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-2, none);
+  padding: var(--spacing-s16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.sftp-view-head { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sftp-view-body {
+  flex: 1 1 auto;
+  min-height: 120px;
+  margin: 0;
+  padding: var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+  user-select: text;
+}
 .sftp-err { margin: var(--spacing-s8); }
 /* Two-pane (local | remote) transfer layout. */
 .sftp-dual {

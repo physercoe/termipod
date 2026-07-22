@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-22)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 0.3.87 / electron-v0.3.87
+> **Last verified vs code:** desktop 2026.722.211 / electron-v2026.722.211
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -21,6 +21,13 @@ lanes:
 - **Electron desktop** — `electron-v*` prerelease tags (ADR-055 migration; the
   future shell). The `electron-latest` feed is the go-live switch.
 
+**Version scheme.** From `2026.722.211` onward the desktop uses date-based
+**CalVer `YYYY.MMDD.HHMM`** (UTC build time — e.g. `2026.722.211` = 2026-07-22
+02:11): the version shows the build date/time directly. It is a valid,
+monotonically-increasing semver (`> 0.3.87`), so the electron-updater chain from
+older `0.3.x` installs is uninterrupted. Earlier releases used sequential semver
+(`0.1.0` → `0.3.87`).
+
 Every desktop release appends here — this is the desktop counterpart of the
 mobile changelog. Reconstructed records before 0.3.31 are terser (the earliest
 point releases carried only a version bump); detail improves from 0.3.31 on.
@@ -31,6 +38,17 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## 2026.722.211 — 2026-07-22 · Electron
+
+**Date-based version scheme (CalVer).**
+
+### Changed
+- Desktop versions are now **`YYYY.MMDD.HHMM`** (UTC build time) instead of
+  sequential semver — the version shows the build date/time directly. Still a
+  valid, increasing semver (`> 0.3.87`), so auto-update from older `0.3.x`
+  installs is uninterrupted. Applies to both the `desktop-v*` (Tauri) and
+  `electron-v*` (Electron) lanes.
 
 ## 0.3.87 — 2026-07-22 · Electron
 

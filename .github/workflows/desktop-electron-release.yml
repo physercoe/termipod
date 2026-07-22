@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       promote:
-        description: 'Version to promote to the electron-latest update feed (e.g. 0.3.87). Leave empty to just build.'
+        description: 'Version to promote to the electron-latest update feed (e.g. 2026.722.211). Leave empty to just build.'
         required: false
         default: ''
   push:

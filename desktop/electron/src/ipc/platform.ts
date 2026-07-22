@@ -4,7 +4,7 @@
 /// commands in `src-tauri/src/lib.rs`. Same command names + return shapes, so
 /// `src/platform.ts` and `src/discovery/*` call them unchanged through the
 /// bridge.
-import { BrowserWindow, shell } from 'electron';
+import { BrowserWindow, session, shell } from 'electron';
 import os from 'node:os';
 import type { Handler } from './dispatch';
 
@@ -64,14 +64,49 @@ async function frameRefused(url: string): Promise<boolean> {
   }
 }
 
-/// A single global proxy string for outbound hub/updater HTTP, from the standard
-/// env vars, or null. A faithful M1 stand-in for the Rust `system_proxy`
-/// (registry/scutil probe); `session.resolveProxy` per-URL is the richer M2/M4
-/// path (plan §7 row 3).
+/// Proxy from the standard env vars, or null. Kept as the FIRST source so an
+/// explicit `HTTPS_PROXY`/`ALL_PROXY` still wins (a CI/terminal launch, or a
+/// user override) before the OS resolver.
 function envProxy(): string | null {
   const raw = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.ALL_PROXY ?? process.env.all_proxy;
   if (raw === undefined || raw.trim() === '') return null;
   return raw.trim();
+}
+
+/// Turn a Chromium PAC result (`session.resolveProxy`) into a proxy URL string —
+/// the same `scheme://host:port` shape the Rust `normalize_proxy` produced, so
+/// the renderer's `proxyForConnection` consumers are unchanged. The result is a
+/// `; `-separated list of directives (`DIRECT`, `PROXY h:p`, `HTTPS h:p`,
+/// `SOCKS h:p`, `SOCKS5 h:p`); we take the first non-DIRECT one.
+function pacToProxyUrl(pac: string): string | null {
+  for (const entry of pac.split(';')) {
+    const parts = entry.trim().split(/\s+/);
+    const kind = (parts[0] ?? '').toUpperCase();
+    const hostPort = parts[1] ?? '';
+    if (kind === 'DIRECT' || kind === '') continue;
+    if (hostPort === '') continue;
+    const scheme = kind === 'HTTPS' ? 'https' : kind === 'SOCKS5' ? 'socks5' : kind === 'SOCKS' ? 'socks4' : 'http';
+    return `${scheme}://${hostPort}`;
+  }
+  return null;
+}
+
+/// Resolve the system proxy for outbound external traffic (updater/sync/drawio;
+/// the hub is intranet-direct). Env vars first, then Chromium's own resolver —
+/// which reads the WINDOWS registry / WPAD / PAC and the macOS SystemConfiguration
+/// that the env-only M1 stand-in missed (Windows Settings sets no env var, so a
+/// system proxy there was invisible). Resolved against a representative public
+/// HTTPS host: the app carries one global proxy string, so a single external
+/// probe is the right granularity (per-host PAC divergence is out of scope here).
+async function resolveSystemProxy(): Promise<string | null> {
+  const fromEnv = envProxy();
+  if (fromEnv !== null) return fromEnv;
+  try {
+    const pac = await session.defaultSession.resolveProxy('https://github.com');
+    return pacToProxyUrl(pac);
+  } catch {
+    return null;
+  }
 }
 
 export const platformHandlers: Record<string, Handler> = {
@@ -115,7 +150,7 @@ export const platformHandlers: Record<string, Handler> = {
     return frameRefused(url);
   },
 
-  system_proxy: () => envProxy(),
+  system_proxy: () => resolveSystemProxy(),
 
   system_hostname: () => {
     const h = os.hostname();

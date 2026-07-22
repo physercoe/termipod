@@ -1,0 +1,715 @@
+# Desktop Changelog
+
+> **Type:** reference
+> **Status:** Current (2026-07-22)
+> **Audience:** contributors, operators
+> **Last verified vs code:** desktop 0.3.87 / electron-v0.3.87
+
+**TL;DR.** Append-only record of what shipped in each **desktop workbench**
+release. One section per version, newest first. Format follows
+[Keep a Changelog](https://keepachangelog.com/) — Added / Changed / Fixed /
+Deprecated / Removed. Entries link back to the release commit for forensic
+detail.
+
+The desktop app (ADR-050/052/055 — React + TypeScript control plane, Tauri
+core migrating to Electron) has its **own version scheme**, independent of the
+mobile/hub lane recorded in [`changelog.md`](changelog.md) (`v1.0.x`). Release
+lanes:
+
+- **Tauri desktop** — `desktop-v*` tags (the shipping shell; retiring after the
+  Electron cutover).
+- **Electron desktop** — `electron-v*` prerelease tags (ADR-055 migration; the
+  future shell). The `electron-latest` feed is the go-live switch.
+
+Every desktop release appends here — this is the desktop counterpart of the
+mobile changelog. Reconstructed records before 0.3.31 are terser (the earliest
+point releases carried only a version bump); detail improves from 0.3.31 on.
+
+This complements:
+- [`roadmap.md`](roadmap.md) — current focus and Now/Next/Later view
+- [`plans/desktop-electron-migration.md`](plans/desktop-electron-migration.md) — the M0–M4 Electron migration plan
+- [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
+
+---
+
+## 0.3.87 — 2026-07-22 · Electron
+
+**Windows Electron fixes — vault sync, native right-click, proxy.** First
+paydown pass after the M3.1 packaging turned green.
+
+### Fixed
+- **Vault sync-down on Windows** no longer fails with
+  `ERR_UNSUPPORTED_ESM_URL_SCHEME` ("protocol 'd:'"). The vault crypto WASM is
+  now loaded via a `file://` URL — a bare `D:\…` path is rejected by Node's ESM
+  loader (the drive letter reads as a URL scheme). This had broken *every*
+  `vault_*` operation on the Windows Electron build (sync, recovery-restore,
+  opening migrated secrets).
+- **System-proxy detection** now uses Chromium's `session.resolveProxy` (Windows
+  registry / WPAD / PAC + macOS system config), not env vars alone — a proxy set
+  through Windows Settings was previously invisible.
+
+### Added
+- **Native right-click menu** (Cut / Copy / Paste / Select-All) for editable
+  fields and text selections. Chromium ships no default menu (WebView2 did); a
+  renderer fallback defers to in-app custom menus so there are no double menus.
+- **Configured proxy is now applied** to the WebDAV / folder / S3 / Zotero /
+  draw.io transports (via an undici `ProxyAgent`), not just detected.
+
+## 0.3.86 — 2026-07-21 · Tauri (M0) + Electron (M3.1 prerelease)
+
+**Electron migration M0 + figure-renderer registry.** The final Tauri feature
+release before the Electron shell takes over; all M0 work is behavior-neutral
+under Tauri. An `electron-v0.3.86` prerelease also shipped here — the first
+green three-OS Electron packaging build (installers + update feed).
+
+### Added
+- **M0.1 runtime-agnostic shell bridge** (ADR-055) — every native `invoke`/
+  `listen` funnels through one seam; the Tauri SDK becomes a lazy chunk.
+- **M0.2 migration data egress** — `termipod.*` localStorage snapshots to
+  `state-v1.json` so user data survives the WebView2→Chromium profile change.
+- **M0.3 updater handoff hook** — a dormant path to offer the Electron installer.
+- **Author figure-renderer registry** — Mermaid, Graphviz, Vega-Lite (Phase A);
+  nomnoml, WaveDrom, ECharts (Phase B).
+
+### Fixed
+- M0 review fixes: hub REST/SSE proxy made Tauri-specific via `shellKind`,
+  updater shell-guards, egress close-flush; figure open-dialog exts + export
+  cancel toast + renderer-cache eviction; session runtime config in the Info tab.
+
+## 0.3.85 — 2026-07-21 · Tauri
+
+**Real transcript tail + session digest.**
+
+### Added
+- Session-scoped digest; an agent config/runtime **Info** tab.
+### Fixed
+- Load the real transcript tail; window-load insight jumps reach unloaded turns.
+
+## 0.3.84 — 2026-07-21 · Tauri
+
+**Transcript session scope + Cancel semantics.**
+
+### Fixed
+- Session-scoped feed; composer shows **Cancel** (not kill/Stop); ordinal-keyed
+  insight navigation.
+
+## 0.3.83 — 2026-07-20 · Tauri
+
+**Transcript mobile-parity fixes (#332).**
+
+### Fixed
+- Composer shows **Send** when idle, **Stop** only mid-turn; insight turn-jump
+  and noise filter brought to mobile parity.
+
+## 0.3.82 — 2026-07-20 · Tauri
+
+**Transcript visual redesign (#332).**
+
+### Added
+- De-chromed feed, tool-call summaries, code-copy, scroll pill; running-state /
+  Stop control, lifecycle overflow, hover actions, timestamps, skeletons, clamp,
+  fully i18n'd chrome.
+
+## 0.3.81 — 2026-07-20 · Tauri
+
+**Transcript insight-jump accuracy.**
+
+### Fixed
+- Quiescence-based reveal (retired the hydration pin), reserved image box (#331);
+  accurate insight-turn jumps via item-height estimate (#349).
+
+## 0.3.80 — 2026-07-20 · Tauri
+
+**ConPTY scrollback fix + epic-tail merges.**
+
+### Fixed
+- Tell xterm it's on ConPTY (Windows scrollback pollution).
+### Added
+- Vault TOTP UI, SSH-key fingerprints + ed25519 keygen; PDF fit-page, 90°
+  rotation, hand/pan, ink-drag preview; page memo & preview-debounce perf; more
+  modals onto `ui/Modal`; connect-phase terminal UX + SSH split-duplicate.
+
+## 0.3.79 — 2026-07-19 · Tauri
+
+**Reader zoom, EPUB + image annotations, terminal renderer.**
+
+### Added
+- Freeform annotations on the image viewer (area + ink); EPUB highlights
+  (CFI-anchored) + color palette, underline, notes; zoom for markdown/text/html;
+  GPU renderer ladder behind a Rust platform gate (#333); hub kimi-code-ts engine
+  family + ACP `configOptions`→mode/model (#335/#336).
+### Fixed
+- Transcript opens at the last page with no visible scroll (#331); EPUB links
+  clickable/jumping (#321).
+
+## 0.3.78 — 2026-07-19 · Tauri
+
+### Fixed
+- PDF link/annotation overlays no longer messy while scrolling (#321/#311).
+
+## 0.3.77 — 2026-07-19 · Tauri
+
+**Epic-tail burn-down (a11y, perf, vault, terminal, EPUB).**
+
+### Added
+- EPUB reading themes (default/sepia/night); vault recovery-hint prompt +
+  reveal toggle; terminal unread-activity dot; table-editor structural undo.
+### Fixed
+- Human titles + annotation-editor dialog semantics; keyboard-operable context
+  menus; stabilized `useT()` identity to unblock memoization.
+
+## 0.3.76 — 2026-07-19 · Tauri
+
+**Epic backlog sweep.**
+
+### Added
+- Unified modal layer (`Modal` primitive, dialog semantics, Esc fix); vault
+  session lock + autolock, recovery-code copy; design-token governance
+  (phantom-token fix + forward-only ratchet); a11y pass (tabs, aria-sort,
+  keyboard resize, live regions).
+### Fixed
+- Annotation undo, empty-`.md` state, `hostOf` dedup (#322); PDF annotations no
+  longer block page text/links; library-table virtualization + PDF offscreen
+  un-render (#311). Token ratchet no longer counts issue-refs as hex colours.
+
+## 0.3.75 — 2026-07-19 · Tauri
+
+### Fixed
+- EPUB CSP fix (blank/flicker); right-click menus on editors & list panes.
+
+## 0.3.74 — 2026-07-19 · Tauri
+
+**Review-backlog sweep** (SSE/SFTP/contrast, toasts, keyboard, a11y, terminal,
+vault, PDF, voice, perf, modals) + CSP/secret-cache.
+
+### Added
+- Shared modal a11y (focus trap/restore, scroll lock) (#313); voice recording
+  HUD + multiline composer + persistent drafts (#323); vault password generator
+  + strength meter, clipboard auto-clear (#320); terminal scrollback, clickable
+  links, font zoom, find count (#319); keyboard operability + job shortcuts
+  (#312); transient toast channel (#315).
+### Fixed
+- `--accent-text` AA token for light theme + global z-index scale; SFTP overwrite
+  confirm (#314); SSE residuals (no 4xx retry, sanitized error body) (#310.4);
+  CSP lockdown + clear secret cache on disconnect/switch (#325, #329).
+
+## 0.3.73 — 2026-07-19 · Tauri
+
+**Terminal geometry + SSH host-key TOFU, PTY crash-proofing, in-app prompts.**
+
+### Fixed
+- Terminal geometry, PTY mutex-poison crash, SSH host-key TOFU, session leaks
+  (#330/#326/#327/#324); WCAG AA contrast + theme FOUC (#317); consistent
+  destructive-action confirms (#314); retired `window.prompt` for `PromptModal`
+  (#313.3); vault sync-down triggers one macOS keychain prompt, not ~20.
+
+## 0.3.72 — 2026-07-18 · Tauri
+
+### Fixed
+- Terminal right-dock shrink (`min-width:0`); Author blank-space menu; show all
+  collections.
+
+## 0.3.71 — 2026-07-18 · Tauri
+
+**Read rail split + tag filter; Author file-tree ops.**
+
+### Added
+- Tag-pane filter; resizable collection/tag panes in the Read rail; grouped
+  terminal connections; Author file-tree operations.
+### Fixed
+- Terminal scrollbar overlap + resize hygiene; invisible markdown outline;
+  Read-tab tag/collection context menus.
+
+## 0.3.70 — 2026-07-18 · Tauri
+
+### Added
+- Live N/M file progress on the status-bar sync chips.
+### Fixed
+- Hide internal Zotero tags (automatic + `/unread`); kimi terminal truncation
+  root cause (`letterSpacing`) + resize-loop guard.
+
+## 0.3.69 — 2026-07-18 · Tauri
+
+### Fixed
+- One settled fit per resize; native scrollbar gutter; size Windows keychain
+  secret chunks in **bytes**, not chars.
+
+## 0.3.68 — 2026-07-18 · Tauri
+
+### Added
+- Vault Read-S3 in the TermiPod tab; richer sync status (last time + machine);
+  hub records the machine that last pushed the vault.
+### Fixed
+- Kimi right-edge truncation + resize splash.
+
+## 0.3.67 — 2026-07-17 · Tauri
+
+**Network proxy tab + status-bar chips.**
+
+### Added
+- **Network** settings tab — per-connection HTTP proxy for every outbound
+  connection; terminal count in the status bar; local agent moves to the
+  terminal dock; right-side dock.
+### Fixed
+- Terminal login-shell PATH, web-font fit (kimi truncation).
+
+## 0.3.66 — 2026-07-17 · Tauri
+
+### Added
+- Background Zotero sync + status-bar indicator, neutral "Sync files" label,
+  storage-picker start dir.
+### Fixed
+- Differentiate workspace vs library sync indicators in the status bar.
+
+## 0.3.65 — 2026-07-17 · Tauri
+
+### Added
+- S3 backend for Zotero attachment sync.
+
+## 0.3.64 — 2026-07-17 · Tauri
+
+**Author agent panel + workspace background sync.**
+
+### Added
+- Run workspace WebDAV/S3 sync as a background job; draft drag-to-workspace +
+  right-click; terminal local agent; Author panel for all doc kinds; @-mentions.
+### Fixed
+- New doc/diagram lands in the open workspace folder; pin live feed to last msg
+  through full settle (not a fixed window).
+
+## 0.3.63 — 2026-07-17 · Tauri
+
+### Fixed
+- Per-tab Focus selection; transcript lands at last msg on remount; clickable
+  Fleet search hits; moveable/resizable Sessions dialog.
+
+## 0.3.62 — 2026-07-17 · Tauri
+
+### Added
+- Sessions scope grouping, real titles, right-click rename.
+### Fixed
+- Transcript lands at the true bottom on open.
+
+## 0.3.61 — 2026-07-17 · Tauri
+
+**Virtualized transcript feed (react-virtuoso).**
+
+### Added
+- Virtualized, measured transcript feed; Sessions search, status filter,
+  grouping, richer rows; jump to the agent from a Fleet search hit.
+### Fixed
+- Settle-then-reveal on open; foldable Insight nav.
+
+## 0.3.60 — 2026-07-17 · Tauri
+
+### Fixed
+- Defer history render so opening the transcript stays smooth.
+
+## 0.3.59 — 2026-07-16 · Tauri
+
+### Fixed
+- Hold the transcript tail as cards hydrate (stop the scroll drift).
+
+## 0.3.58 — 2026-07-16 · Tauri
+
+### Fixed
+- Batch secret deletes to cut the macOS keychain prompt storm.
+
+## 0.3.57 — 2026-07-16 · Tauri
+
+**Project documents + deliverable viewing.**
+
+### Added
+- **Documents** tab on the project board; view deliverable component content
+  (docs + artifacts).
+### Fixed
+- Bind a steward instead of 422 on start when unbound.
+### Changed
+- Instant transcript tail paint + background history, sticky bottom (perf).
+
+## 0.3.56 — 2026-07-16 · Tauri
+
+### Added
+- Back control to return from a drill-down to the project board; resizable dock,
+  Fleet Spawn button, Me→History; foldable/resizable Fleet+Projects nav with
+  kind + role subtabs.
+
+## 0.3.55 — 2026-07-16 · Tauri
+
+### Changed
+- Split **Projects** into a dedicated tab; the fleet becomes the ops roster.
+
+## 0.3.54 — 2026-07-16 · Tauri
+
+### Changed
+- Table canonical on-disk format is now JSON (lossless).
+
+## 0.3.53 — 2026-07-16 · Tauri
+
+### Added
+- Canvas & table round-trip as real files; canvas + table/database as Author
+  document kinds; soft 64 KB size nudge on large vault items.
+### Changed
+- Fold the Updates tab into About.
+
+## 0.3.52 — 2026-07-15 · Tauri
+
+### Added
+- Vault **TermiPod** tab — app-integration secrets in the vault; S3 backend for
+  Author workspace sync.
+
+## 0.3.51 — 2026-07-15 · Tauri
+
+**Workspace WebDAV sync + vault env/scripts + confirm audit.**
+
+### Added
+- WebDAV workspace sync (Obsidian-vault style); vault config/env + runnable
+  script item types.
+### Changed
+- Split the 7k-line `app.css` into ordered partials.
+### Fixed
+- Confirm all destructive actions (audit).
+
+## 0.3.50 — 2026-07-15 · Tauri
+
+### Fixed
+- Consolidate secrets into one keychain item — end the macOS prompt storm.
+
+## 0.3.49 — 2026-07-15 · Tauri
+
+### Added
+- Vault mini-1Password item manager + generic items in sync.
+### Removed
+- Command-blocks (OSC-133) — buggy shell integration.
+
+## 0.3.48 — 2026-07-15 · Tauri
+
+### Fixed
+- Load `IdentityFile` keys on SSH-config import; editable hosts; Vault settings.
+
+## 0.3.47 — 2026-07-15 · Tauri
+
+**Two-pane SFTP transfer + Account-first settings.**
+
+### Added
+- Two-pane local↔remote file transfer; import `~/.ssh/config`; Account-first,
+  categorized Settings with an About section.
+### Fixed
+- Chunk large keychain secrets.
+
+## 0.3.46 — 2026-07-15 · Tauri
+
+### Changed
+- Hub identity moved to top-left; terminal redesign.
+
+## 0.3.45 — 2026-07-15 · Tauri
+
+### Changed
+- Terminal & Settings become top-level tabs; dropped the titlebar row.
+### Fixed
+- WYSIWYG toolbar contrast; annotation→hub sync; note-in-tab.
+
+## 0.3.44 — 2026-07-14 · Tauri
+
+**WebDAV file sync + Milkdown WYSIWYG + note-image de-inline.**
+
+### Added
+- Milkdown WYSIWYG editor for notes + Author (Layer 3); inline image preview in
+  the Markdown source editor (Layer 2); de-inline note images to managed
+  attachments (Layer 1); Zotero-compatible WebDAV file sync for storage.
+### Fixed
+- Resizable + readable outline/TOC in markdown & EPUB readers.
+
+## 0.3.43 — 2026-07-14 · Tauri
+
+### Fixed
+- EPUB pane width (real cause: container flex) + markdown outline chrome.
+
+## 0.3.42 — 2026-07-14 · Tauri
+
+### Fixed
+- EPUB width (3rd pass), markdown math delimiters + headings outline; quick-open
+  button + row indicator show the attachment's actual kind.
+
+## 0.3.41 — 2026-07-13 · Tauri
+
+### Fixed
+- EPUB width, note-screenshot render, markdown math/width, library context menu.
+
+## 0.3.40 — 2026-07-13 · Tauri
+
+**PDF screenshots, annotation tags, markdown notes.**
+
+### Added
+- Markdown notes + screenshots-into-notes + export (Phase C); annotation tags
+  distinct from the comment (Phase B); PDF area screenshot — copy/save image
+  (Phase A).
+
+## 0.3.39 — 2026-07-13 · Tauri
+
+### Fixed
+- Render markdown attachments as formatted, not raw; draggable Settings,
+  attach-remove confirm, reader open button, EPUB width.
+
+## 0.3.38 — 2026-07-13 · Tauri
+
+### Added
+- Manage attachments — add/remove, multiple per item.
+### Fixed
+- Instant ref-link jump + robust dest-page resolution.
+
+## 0.3.37 — 2026-07-13 · Tauri
+
+**Reader polish.**
+
+### Added
+- Copy in the context menu, visible links, zebra rows; centered annotation
+  tools, editable zoom.
+### Fixed
+- Removed the redundant PDF title row; modal backdrop z-index (settings scroll +
+  read-header bleed).
+
+## 0.3.36 — 2026-07-13 · Tauri
+
+### Added
+- PDF viewer polish — right-click menu, split view, larger toolbar, auto-collapse;
+  Annotations tab in the PDF left panel (Zotero-style list).
+
+## 0.3.35 — 2026-07-13 · Tauri
+
+**PDF annotations (highlight/underline/note/area/ink).**
+
+### Added
+- PDF annotation rendering + tools in the reader (ADR-053 consumer); hub PDF
+  annotations as child records of a reference (migration, #308).
+### Fixed
+- "Show in folder" opens the right path on Windows (normalize separators).
+
+## 0.3.34 — 2026-07-13 · Tauri
+
+### Added
+- PDF left panel — Outline + Thumbnails tabs (Zotero-style).
+### Fixed
+- PDF TOC resize (real root cause) + robust jump + reveal-file button.
+
+## 0.3.33 — 2026-07-13 · Tauri
+
+### Added
+- Local agent in a PTY (ConPTY on Windows) — first native runner slice.
+
+## 0.3.32 — 2026-07-13 · Tauri
+
+### Changed
+- Unify iconography + tokenize type — app-wide consistency pass.
+
+## 0.3.31 — 2026-07-13 · Tauri
+
+### Fixed
+- Pane resize works on Windows (WebView2); true cited-by total; accurate PDF TOC
+  jumps; attachment info.
+
+## 0.3.30 — 2026-07-12 · Tauri
+
+**Author CodeMirror 6 + PDF reader overhaul.**
+
+### Added
+- Author markdown editor overhaul — CodeMirror 6 (#6); PDF reader — resizable
+  TOC, real search highlight, ref links, +notes fix, assistant tab (#1–#5).
+
+## 0.3.29 — 2026-07-12 · Tauri
+
+### Added
+- Assistant can drive a local agent, not only a hub agent (#4); Author
+  file/workspace tree nav (#2); Read renders EPUB/image/video/audio/text, not
+  just PDF.
+### Fixed
+- Meta/Enrich blank-app crash; draw.war local-file install.
+
+## 0.3.28 — 2026-07-12 · Tauri
+
+**Reference library ↔ hub sync + pdf.js reader + draw.io.**
+
+### Added
+- Offline draw.io diagram editor (#2); library ↔ hub Reference entity sync (#4);
+  store reference enrichment (hub migration 0063, #306); pdf.js render + text
+  layer (selectable text, in-PDF find, copy-to-notes) + navigation/TOC; library
+  scraper (citation graph, journal metrics, code/data links); `AgentCompanion`
+  panel.
+### Fixed
+- In-app browser new-tab links.
+
+## 0.3.27 — 2026-07-12 · Tauri
+
+### Added
+- Collapsible left rail + right inspector in Read; multi-source discovery (6
+  providers) + a real in-app browser window.
+### Fixed
+- Semantic Scholar rate-limit — retry-with-backoff + optional API key.
+
+## 0.3.26 — 2026-07-12 · Tauri
+
+### Added
+- Author J2 — multiple document tabs + on-disk file save/open.
+### Fixed
+- PDF blocked on WebView2; delete-confirm not showing (Read J1).
+
+## 0.3.25 — 2026-07-12 · Tauri
+
+**Tabbed reader + sortable library.**
+
+### Added
+- In-app browser tabs, multiple PDF tabs, sortable library columns; dedicated
+  PDF reader.
+### Fixed
+- Fixed table layout + colgroup (columns ellipsis instead of overflowing);
+  persist Zotero storage link; delete-confirm; external-link handling.
+
+## 0.3.24 — 2026-07-12 · Tauri
+
+### Fixed
+- Read-body editor went read-only after one character.
+
+## 0.3.23 — 2026-07-12 · Tauri
+
+### Added
+- Hub reference-library entity — REST + MCP CRUD (ADR-053, #305).
+### Fixed
+- Make Zotero PDFs reachable — header button + re-import backfill.
+
+## 0.3.22 — 2026-07-12 · Tauri
+
+### Added
+- Read tab — full Zotero fields + resizable panes; open Zotero PDF attachments
+  from a linked storage folder.
+
+## 0.3.21 — 2026-07-11 · Tauri
+
+### Added
+- J4 **Canvas** — native spatial-thinking board.
+
+## 0.3.20 — 2026-07-11 · Tauri
+
+### Added
+- Host detail surface + Zotero library import (J1); Fleet navigator split into
+  kind sections.
+
+## 0.3.19 — 2026-07-10 · Tauri
+
+### Fixed
+- Active tabs/rows invisible — wrong accent-token pairing.
+
+## 0.3.18 — 2026-07-10 · Tauri
+
+### Changed
+- Scope control-plane actions to the Fleet tab.
+
+## 0.3.17 — 2026-07-10 · Tauri
+
+### Added
+- Pro SVG job icons; Read tab as a reference library.
+
+## 0.3.16 — 2026-07-10 · Tauri
+
+### Added
+- Workbench sidebar — J1–J6 jobs as distinct tabs.
+
+## 0.3.15 — 2026-07-08 · Tauri
+
+### Added
+- Live SFTP transfer progress bar.
+
+## 0.3.14 — 2026-07-08 · Tauri
+
+### Fixed
+- Don't inject the bash OSC-133 script into `cmd.exe` / PowerShell.
+
+## 0.3.13 — 2026-07-08 · Tauri
+
+### Fixed
+- Local PTY — async commands + gated reader (Windows black screen + freeze).
+
+## 0.3.12 — 2026-07-08 · Tauri
+
+### Fixed
+- Drop the WebGL renderer — black terminal + freeze on Windows WebView2.
+
+## 0.3.11 — 2026-07-08 · Tauri
+
+### Added
+- Persistent terminal dock — local PTY + tabs + OSC-133 blocks.
+### Fixed
+- Bind the `pty_resize` mutex guard to a local (drop-order borrow).
+
+## 0.3.5 – 0.3.10 — 2026-07-06 → 2026-07-07 · Tauri
+
+Point releases stabilizing the post-0.3.4 UI redesign and the SSH/tmux terminal
+(device-test fixes, terminal session-lifecycle fix, deferred-set handling).
+Records are version-bump only; see git log for the underlying commits.
+
+## 0.3.4 — 2026-07-06 · Tauri
+
+### Changed
+- Elevated UI design language.
+
+## 0.3.3 — 2026-07-06 · Tauri
+
+### Added
+- Run charts/media, run+plan edit, criteria create, deliverable send-back.
+
+## 0.3.2 — 2026-07-06 · Tauri
+
+### Added
+- Project detail parity — criteria, files, activity, deliverable detail, hero;
+  run detail (clickable runs) + project Agents tab; transcript Live filter +
+  Insight turn/error navigation.
+
+## 0.3.1 — 2026-07-06 · Tauri
+
+### Fixed
+- Register the OS credential store — keychain "No default store" on add-hub.
+
+## 0.3.0 — 2026-07-06 · Tauri
+
+**Governance depth + Phase 4 breadth.**
+
+### Added
+- Governance — templates + engine-families read tabs; insights, docs, me,
+  search, ratify, run/plan create; governed create paths; project/team channels
+  chat; task create + Sessions surface; hub profiles + offline cache; vault UI
+  (create/sync/restore) + zero-knowledge vault crypto (Rust port); saved SSH
+  connections + key store; OS keychain + SSH key introspection; composer
+  attachments (images/files/multimodal); digest dashboard; rich transcript
+  rendering (per-kind cards + tool pairing).
+
+## 0.2.2 — 2026-07-06 · Tauri
+
+### Fixed
+- Route the GitHub updater through the corporate proxy.
+
+## 0.2.1 — 2026-07-06 · Tauri
+
+### Fixed
+- Runs/plans are team-scoped with `?project=` (was 404 on the nested path).
+
+## 0.2.0 — 2026-07-06 · Tauri
+
+### Added
+- In-app auto-updater (Tauri updater plugin, signed GitHub releases).
+
+## 0.1.1 — 2026-07-06 · Tauri
+
+### Fixed
+- Route hub REST+SSE through the Rust core (CORS); render the shell offline;
+  correct release-name expansion + align app version.
+
+## 0.1.0 — 2026-07-05 · Tauri
+
+**First testable build.** The initial desktop control-plane shell (ADR-050/052).
+
+### Added
+- WS1 shared DTCG design-token pipeline (ADR-051); WS2 control-plane shell
+  (React+TS + Tauri v2 Rust core); WS3 fleet navigator + WS4 transcript reader;
+  WS5 always-visible approvals dock; WS6 projects + tasks kanban; WS7 team
+  governance + operator admin cockpit; WS8 Tauri installers (Linux/macOS/Windows)
+  via CI; Settings + light/dark themes + en/zh i18n; personal-SSH breakglass
+  terminal; cross-device zero-knowledge SSH key-vault sync (ADR-052 D-4).

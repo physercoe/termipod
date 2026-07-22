@@ -54,8 +54,11 @@ first — it defines what every doc must declare and where it lives.
   a decision is still current.
 
 **I'm wondering "what shipped in version X?"**
-- [`changelog.md`](changelog.md) — append-only release record in
-  Keep-a-Changelog format. One section per tagged release.
+- [`changelog.md`](changelog.md) — mobile app + hub release record
+  (`v1.0.x`), Keep-a-Changelog format, one section per tagged release.
+- [`changelog-desktop.md`](changelog-desktop.md) — the **desktop
+  workbench** release record (its own version scheme; `desktop-v*` /
+  `electron-v*` lanes).
 
 **I'm exploring an open question.**
 - [`discussions/`](discussions/) — pre-decision exploration, mixed
@@ -70,7 +73,8 @@ first — it defines what every doc must declare and where it lives.
 docs/
 ├── README.md                       this file
 ├── roadmap.md                      where we're going (vision + Now/Next/Later)
-├── changelog.md                    append-only record of what shipped, per release
+├── changelog.md                    mobile app + hub release record (v1.0.x)
+├── changelog-desktop.md            desktop workbench release record (desktop-v*/electron-v*)
 ├── doc-spec.md                     contract every doc honors
 │
 ├── spine/                          axioms — always-true architecture

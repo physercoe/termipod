@@ -11,8 +11,13 @@ One section per version, newest first. Format follows
 Fixed / Deprecated / Removed / Security. Entries link to the commit
 or PR for forensic detail.
 
+This records the **mobile app + hub** lane (`v1.0.x`). The **desktop
+workbench** has its own version scheme and changelog —
+[`changelog-desktop.md`](changelog-desktop.md) (`desktop-v*` / `electron-v*`).
+
 This complements:
 - `roadmap.md` — current focus and Now/Next/Later view
+- `changelog-desktop.md` — the desktop workbench's release record
 - `decisions/` — append-only ADRs for architectural choices
 - Git tag annotations — short-form release notes per tag
 

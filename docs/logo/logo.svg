@@ -1,76 +1,53 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod">
   <defs>
-    <!-- Main accent gradient -->
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00e0d0"/>
-      <stop offset="100%" stop-color="#0090ff"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#14182a"/>
+      <stop offset="55%" stop-color="#0e1120"/>
+      <stop offset="100%" stop-color="#080a11"/>
     </linearGradient>
-
-    <!-- Subtle background radial glow -->
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#0090ff" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#0090ff" stop-opacity="0"/>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14e2c6"/>
+      <stop offset="48%" stop-color="#0cbdf4"/>
+      <stop offset="100%" stop-color="#1f8fff"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#8ef2ff"/>
+      <stop offset="100%" stop-color="#45c2f7"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-
-    <!-- Soft halo behind the star -->
     <radialGradient id="starHalo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#00e0d0" stop-opacity="0.55"/>
-      <stop offset="60%" stop-color="#00e0d0" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#00e0d0" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#40cdfa" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#40cdfa" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#40cdfa" stop-opacity="0"/>
     </radialGradient>
+    <clipPath id="tile"><path d="M512.0,256.0 L511.9,319.3 L511.7,340.4 L511.4,355.9 L511.0,368.6 L510.4,379.4 L509.7,389.1 L508.8,397.7 L507.8,405.6 L506.7,412.9 L505.5,419.7 L504.1,426.0 L502.5,432.0 L500.9,437.6 L499.1,442.8 L497.1,447.8 L495.0,452.5 L492.8,456.9 L490.4,461.2 L487.8,465.2 L485.1,468.9 L482.2,472.5 L479.2,475.9 L475.9,479.2 L472.5,482.2 L468.9,485.1 L465.2,487.8 L461.2,490.4 L456.9,492.8 L452.5,495.0 L447.8,497.1 L442.8,499.1 L437.6,500.9 L432.0,502.5 L426.0,504.1 L419.7,505.5 L412.9,506.7 L405.6,507.8 L397.7,508.8 L389.1,509.7 L379.4,510.4 L368.6,511.0 L355.9,511.4 L340.4,511.7 L319.3,511.9 L256.0,512.0 L192.7,511.9 L171.6,511.7 L156.1,511.4 L143.4,511.0 L132.6,510.4 L122.9,509.7 L114.3,508.8 L106.4,507.8 L99.1,506.7 L92.3,505.5 L86.0,504.1 L80.0,502.5 L74.4,500.9 L69.2,499.1 L64.2,497.1 L59.5,495.0 L55.1,492.8 L50.8,490.4 L46.8,487.8 L43.1,485.1 L39.5,482.2 L36.1,479.2 L32.8,475.9 L29.8,472.5 L26.9,468.9 L24.2,465.2 L21.6,461.2 L19.2,456.9 L17.0,452.5 L14.9,447.8 L12.9,442.8 L11.1,437.6 L9.5,432.0 L7.9,426.0 L6.5,419.7 L5.3,412.9 L4.2,405.6 L3.2,397.7 L2.3,389.1 L1.6,379.4 L1.0,368.6 L0.6,355.9 L0.3,340.4 L0.1,319.3 L0.0,256.0 L0.1,192.7 L0.3,171.6 L0.6,156.1 L1.0,143.4 L1.6,132.6 L2.3,122.9 L3.2,114.3 L4.2,106.4 L5.3,99.1 L6.5,92.3 L7.9,86.0 L9.5,80.0 L11.1,74.4 L12.9,69.2 L14.9,64.2 L17.0,59.5 L19.2,55.1 L21.6,50.8 L24.2,46.8 L26.9,43.1 L29.8,39.5 L32.8,36.1 L36.1,32.8 L39.5,29.8 L43.1,26.9 L46.8,24.2 L50.8,21.6 L55.1,19.2 L59.5,17.0 L64.2,14.9 L69.2,12.9 L74.4,11.1 L80.0,9.5 L86.0,7.9 L92.3,6.5 L99.1,5.3 L106.4,4.2 L114.3,3.2 L122.9,2.3 L132.6,1.6 L143.4,1.0 L156.1,0.6 L171.6,0.3 L192.7,0.1 L256.0,0.0 L319.3,0.1 L340.4,0.3 L355.9,0.6 L368.6,1.0 L379.4,1.6 L389.1,2.3 L397.7,3.2 L405.6,4.2 L412.9,5.3 L419.7,6.5 L426.0,7.9 L432.0,9.5 L437.6,11.1 L442.8,12.9 L447.8,14.9 L452.5,17.0 L456.9,19.2 L461.2,21.6 L465.2,24.2 L468.9,26.9 L472.5,29.8 L475.9,32.8 L479.2,36.1 L482.2,39.5 L485.1,43.1 L487.8,46.8 L490.4,50.8 L492.8,55.1 L495.0,59.5 L497.1,64.2 L499.1,69.2 L500.9,74.4 L502.5,80.0 L504.1,86.0 L505.5,92.3 L506.7,99.1 L507.8,106.4 L508.8,114.3 L509.7,122.9 L510.4,132.6 L511.0,143.4 L511.4,156.1 L511.7,171.6 L511.9,192.7 Z"/></clipPath>
   </defs>
 
-  <!-- Background -->
-  <rect width="512" height="512" rx="112" fill="#0D0E18"/>
+  <!-- Background squircle -->
+  <path d="M512.0,256.0 L511.9,319.3 L511.7,340.4 L511.4,355.9 L511.0,368.6 L510.4,379.4 L509.7,389.1 L508.8,397.7 L507.8,405.6 L506.7,412.9 L505.5,419.7 L504.1,426.0 L502.5,432.0 L500.9,437.6 L499.1,442.8 L497.1,447.8 L495.0,452.5 L492.8,456.9 L490.4,461.2 L487.8,465.2 L485.1,468.9 L482.2,472.5 L479.2,475.9 L475.9,479.2 L472.5,482.2 L468.9,485.1 L465.2,487.8 L461.2,490.4 L456.9,492.8 L452.5,495.0 L447.8,497.1 L442.8,499.1 L437.6,500.9 L432.0,502.5 L426.0,504.1 L419.7,505.5 L412.9,506.7 L405.6,507.8 L397.7,508.8 L389.1,509.7 L379.4,510.4 L368.6,511.0 L355.9,511.4 L340.4,511.7 L319.3,511.9 L256.0,512.0 L192.7,511.9 L171.6,511.7 L156.1,511.4 L143.4,511.0 L132.6,510.4 L122.9,509.7 L114.3,508.8 L106.4,507.8 L99.1,506.7 L92.3,505.5 L86.0,504.1 L80.0,502.5 L74.4,500.9 L69.2,499.1 L64.2,497.1 L59.5,495.0 L55.1,492.8 L50.8,490.4 L46.8,487.8 L43.1,485.1 L39.5,482.2 L36.1,479.2 L32.8,475.9 L29.8,472.5 L26.9,468.9 L24.2,465.2 L21.6,461.2 L19.2,456.9 L17.0,452.5 L14.9,447.8 L12.9,442.8 L11.1,437.6 L9.5,432.0 L7.9,426.0 L6.5,419.7 L5.3,412.9 L4.2,405.6 L3.2,397.7 L2.3,389.1 L1.6,379.4 L1.0,368.6 L0.6,355.9 L0.3,340.4 L0.1,319.3 L0.0,256.0 L0.1,192.7 L0.3,171.6 L0.6,156.1 L1.0,143.4 L1.6,132.6 L2.3,122.9 L3.2,114.3 L4.2,106.4 L5.3,99.1 L6.5,92.3 L7.9,86.0 L9.5,80.0 L11.1,74.4 L12.9,69.2 L14.9,64.2 L17.0,59.5 L19.2,55.1 L21.6,50.8 L24.2,46.8 L26.9,43.1 L29.8,39.5 L32.8,36.1 L36.1,32.8 L39.5,29.8 L43.1,26.9 L46.8,24.2 L50.8,21.6 L55.1,19.2 L59.5,17.0 L64.2,14.9 L69.2,12.9 L74.4,11.1 L80.0,9.5 L86.0,7.9 L92.3,6.5 L99.1,5.3 L106.4,4.2 L114.3,3.2 L122.9,2.3 L132.6,1.6 L143.4,1.0 L156.1,0.6 L171.6,0.3 L192.7,0.1 L256.0,0.0 L319.3,0.1 L340.4,0.3 L355.9,0.6 L368.6,1.0 L379.4,1.6 L389.1,2.3 L397.7,3.2 L405.6,4.2 L412.9,5.3 L419.7,6.5 L426.0,7.9 L432.0,9.5 L437.6,11.1 L442.8,12.9 L447.8,14.9 L452.5,17.0 L456.9,19.2 L461.2,21.6 L465.2,24.2 L468.9,26.9 L472.5,29.8 L475.9,32.8 L479.2,36.1 L482.2,39.5 L485.1,43.1 L487.8,46.8 L490.4,50.8 L492.8,55.1 L495.0,59.5 L497.1,64.2 L499.1,69.2 L500.9,74.4 L502.5,80.0 L504.1,86.0 L505.5,92.3 L506.7,99.1 L507.8,106.4 L508.8,114.3 L509.7,122.9 L510.4,132.6 L511.0,143.4 L511.4,156.1 L511.7,171.6 L511.9,192.7 Z" fill="url(#bg)"/>
 
-  <!-- Subtle center glow -->
-  <circle cx="256" cy="256" r="200" fill="url(#glow)"/>
+  <!-- Soft top sheen, clipped to the tile -->
+  <g clip-path="url(#tile)">
+    <ellipse cx="256" cy="-40" rx="460" ry="300" fill="url(#sheen)"/>
+  </g>
 
-  <!-- Outer ring — thin geometric border -->
-  <rect x="72" y="72" width="368" height="368" rx="84" fill="none" stroke="url(#accent)" stroke-width="1.5" stroke-opacity="0.15"/>
+  <!-- Inner tile — thin geometric border -->
+  <rect x="66" y="66" width="380" height="380" rx="85" fill="#0e111c" stroke="#2a3554" stroke-opacity="0.47" stroke-width="1"/>
 
-  <!-- > symbol — clean geometric chevron -->
-  <path
-    d="M152 192 L232 264 L152 336"
-    fill="none"
-    stroke="url(#accent)"
-    stroke-width="28"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+  <!-- > chevron — terminal prompt -->
+  <path d="M162 182 L232 252 L162 322" fill="none" stroke="url(#accent)" stroke-width="31" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- _ underscore — clean horizontal line -->
-  <line
-    x1="260" y1="336"
-    x2="360" y2="336"
-    stroke="url(#accent)"
-    stroke-width="28"
-    stroke-linecap="round"
-  />
-
-  <!-- Twinkling star — replaces the blinking cursor block -->
-  <g transform="translate(354 206)">
-    <!-- Soft halo that pulses with the star -->
-    <circle r="48" fill="url(#starHalo)">
+  <!-- 4-point sparkle on the prompt midline — the agent at the cursor -->
+  <g transform="translate(326.5 252)">
+    <circle r="44" fill="url(#starHalo)">
       <animate attributeName="opacity" values="0.9;0.25;0.9" dur="2.2s" repeatCount="indefinite"/>
     </circle>
-
-    <!-- 4-point sparkle (Gemini-style), drawn around (0,0) so the
-         scale animation breathes from its center. Quadratic curves
-         with control points near the center pull each side inward,
-         giving sharp points with concave waists. -->
-    <path
-      d="M 0,-34 Q 4.5,-4.5 34,0 Q 4.5,4.5 0,34 Q -4.5,4.5 -34,0 Q -4.5,-4.5 0,-34 Z"
-      fill="url(#accent)"
-    >
+    <path d="M 0,-29 Q 4.35,-4.35 29,0 Q 4.35,4.35 0,29 Q -4.35,4.35 -29,0 Q -4.35,-4.35 0,-29 Z" fill="url(#spark)">
       <animate attributeName="opacity" values="1;0.4;1" dur="2.2s" repeatCount="indefinite"/>
-      <animateTransform
-        attributeName="transform"
-        type="scale"
-        values="1;1.12;1"
-        dur="2.2s"
-        repeatCount="indefinite"
-      />
+      <animateTransform attributeName="transform" type="scale" values="1;1.12;1" dur="2.2s" repeatCount="indefinite"/>
     </path>
   </g>
 </svg>

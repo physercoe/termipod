@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/logo/logo.svg" alt="TermiPod logo — chevron prompt with twinkling 4-point sparkle" width="140" height="140">
+  <img src="docs/logo/logo.svg" alt="TermiPod logo — chevron prompt with a 4-point agent sparkle on the cursor line" width="140" height="140">
 </p>
 
 <h1 align="center">TermiPod</h1>
 
 <p align="center">
-  <b>Mobile control plane for a fleet of AI agents.</b><br>
-  <sub>Direct agents from your phone. A steward turns your goal into a plan, a fleet executes across your own hardware, you ratify and review.<br>Android, iOS, iPadOS — open source, self-hosted, Apache 2.0.</sub>
+  <b>Control plane for a fleet of AI agents — on phone and desktop.</b><br>
+  <sub>Direct agents from your pocket or your desk. A steward turns your goal into a plan, a fleet executes across your own hardware, you ratify and review.<br>Android, iOS, iPadOS, macOS, Windows, Linux — open source, self-hosted, Apache 2.0.</sub>
 </p>
 
 <p align="center">
@@ -15,7 +15,9 @@
   <img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
   <img src="https://img.shields.io/badge/iPadOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iPadOS">
-  <img src="https://img.shields.io/badge/Flutter-3.24+-02569B?style=flat-square&logo=flutter&logoColor=white" alt="Flutter">
+  <img src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux">
 </p>
 
 <p align="center">
@@ -26,13 +28,14 @@
 
 ## What makes it different
 
-Mobile agent apps are catching up on raw session count — several now juggle more than one session at a time. TermiPod isn't another session multiplexer; it's a **director's control plane**: you state a goal, a steward decomposes it into a plan and tasks, a governed fleet executes across your own machines, and the loop closes back to you.
+Agent front-ends are catching up on raw session count — several now juggle more than one session at a time. TermiPod isn't another session multiplexer; it's a **director's control plane**: you state a goal, a steward decomposes it into a plan and tasks, a governed fleet executes across your own machines, and the loop closes back to you — on your phone or at your desk.
 
 - **Multi-agent fleet** — coordinate Claude Code, Codex, Gemini CLI, Kimi Code, or any CLI that takes a pty, each with its own pane, profile, and budget. One inbox for all of them.
 - **Multi-host over your own infra** — a steward on a $5/mo VPS delegates work to a GPU box at home behind NAT, via A2A over a self-hosted reverse-tunnel relay. No cloud middleman holds your sessions.
 - **Director, not operator** — write a natural-language goal. The steward decomposes it into a plan and a set of first-class **tasks**, dispatches workers, and you ratify. You don't author DAGs or babysit terminals.
 - **Governed actions** — consequential moves are *proposed*, not silently executed: the steward surfaces them, you ratify. Backed by budget caps, policy overrides, per-agent usage, an immutable audit log, and team roles.
-- **Closed-loop orchestration** — dispatched work routes back to you when it finishes or blocks, so you're notified instead of polling. The fleet itself — host-runners, agents, tokens — is startable, stoppable, and updatable from the phone.
+- **Closed-loop orchestration** — dispatched work routes back to you when it finishes or blocks, so you're notified instead of polling. The fleet itself — host-runners, agents, tokens — is startable, stoppable, and updatable from the client.
+- **Phone and desktop** — the same control plane in two clients: a Flutter mobile app (Android / iOS / iPadOS) and a desktop workbench (macOS / Windows / Linux) built on one shared React + TypeScript frontend in an Electron shell. Point both at the same hub.
 - **Offline-first** — SQLite snapshot cache shows last-known-good lists on every screen when the hub is unreachable. Subway-safe.
 - **Scales on a small VPS** — the Go hub drives a large fleet on cheap hardware with **zero added infrastructure** (no Redis, no managed DB at MVP): per-team SQLite sharding, a writer/reader pool split, and a deferred digest fold take it to **~1,000 concurrent agents on a 2 GB-RAM / 2-vCPU box with no write-error cliff** (load-tested). When you outgrow one box, a **selectable Postgres backend** is the designed scale-out path for HA and high write-concurrency.
 - **Vendor-agnostic, self-hosted** — Apache 2.0 Go hub you run yourself. No account gating, no cloud relay, no vendor lock-in.
@@ -131,7 +134,7 @@ preliminary build as the demo above — UX still in flight).
 
 ## Why TermiPod?
 
-AI agents produce ten times more output than any human can review. The moment you run **more than one** agent, or span **more than one machine**, the existing mobile tools show their seams. Session-bridge apps (Claude Code Remote Control, Happy, Tactic Remote, the Codex app) put a session — or now several — in your pocket, but each is still a window onto agents *you* launch and babysit; messenger-bridge agents (OpenClaw, Hermes, Claude Code Channels) give you one chat-style assistant across your chat apps. Neither decomposes a goal, dispatches a fleet across your own machines, and governs what those agents may do. TermiPod is built on a different axiom: the human is a **director**, not an operator.
+AI agents produce ten times more output than any human can review. The moment you run **more than one** agent, or span **more than one machine**, the existing tools show their seams. Session-bridge apps (Claude Code Remote Control, Happy, Tactic Remote, the Codex app) put a session — or now several — in your pocket, but each is still a window onto agents *you* launch and babysit; messenger-bridge agents (OpenClaw, Hermes, Claude Code Channels) give you one chat-style assistant across your chat apps. Neither decomposes a goal, dispatches a fleet across your own machines, and governs what those agents may do. TermiPod is built on a different axiom: the human is a **director**, not an operator.
 
 | Dimension | Remote Control / Happy / Tactic / Codex | TermiPod |
 |---|---|---|
@@ -143,6 +146,7 @@ AI agents produce ten times more output than any human can review. The moment yo
 | Governance | Minimal | Governed-action propose/ratify, policies, budgets, audit log, roles |
 | Data ownership | Vendor cloud or laptop-only | Hub holds names/events, hosts hold bytes — you run both |
 | Offline | Needs a live connection | SQLite snapshot cache — last-known-good on every list |
+| Clients | Phone or web, one at a time | Mobile app **and** desktop workbench on the same hub |
 | Open source | Mixed (Happy: yes; others: no) | Apache 2.0, self-hosted Go hub |
 
 ### Who is this for?
@@ -163,7 +167,24 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 
 ## Features
 
-### SSH & Connectivity
+### Desktop workbench (macOS · Windows · Linux)
+
+The same control plane at full size. The desktop client is a **React + TypeScript** frontend wrapped by an **Electron** shell (`desktop/`, ADR-055) — it succeeds the original Tauri shell, and both wrap the identical frontend. Connect it to your hub, or use the built-in SSH terminal standalone.
+
+- **Mission-control shell** — three-region layout with the fleet Navigator (hosts ▸ agents tree, live status dots), a persistent status bar, and a ⌘K command palette
+- **Transcript workbench** — live agent transcripts over SSE (tail backfill + seq cursor) with a composer, a digest tab, and run insights
+- **Approvals dock** — governed actions surface as always-visible attention cards (permission prompts, propose+override, help requests); ratify or reject inline
+- **Projects** — overview with phase track and deliverables, a tasks kanban with inline status/priority edits, runs, and plans
+- **Admin & governance** — team members, editable policy YAML, host/agent/team administration, and DB upkeep behind two-click confirms
+- **Breakglass SSH terminal** — direct SSH + SFTP (password or key, in-app ed25519 key generation, TOFU host-key pinning). Keys stay on the device — never sent to the hub
+- **Local PTY & agent CLIs** — spawn local terminals and run agent CLIs on the desktop itself
+- **Vault & sync** — WASM vault crypto; folder sync over WebDAV, S3, and Zotero-layout backends
+- **Yours to theme** — light / dark / system themes and English / 中文 i18n throughout
+- **Self-updating installers** — macOS `.dmg`, Windows `.msi`/`.exe`, Linux `.AppImage`/`.deb` with a built-in updater; one-time migration imports your Tauri-install state and secrets
+
+### Mobile app (Android · iOS · iPadOS)
+
+#### SSH & Connectivity
 - **Ed25519 / RSA keys** — generate on-device (RSA 2048 / 3072 / 4096) or import, stored in Android Keystore / iOS Keychain with optional passphrase, one-tap public-key copy
 - **SSH ProxyJump** — connect through bastion/jump hosts to internal machines
 - **SOCKS5 proxy** — route through corporate proxies, VPNs, or Shadowsocks/Clash
@@ -174,7 +195,7 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 - **Adaptive polling** — refresh rate ramps from 50 ms (active) down to 500 ms (idle) to save battery
 - **Background connection service** — Android foreground service keeps SSH alive while the app is backgrounded; optional keep-screen-on for long sessions
 
-### tmux Session Management
+#### tmux Session Management
 - **Dashboard** — recent sessions sorted by last access with relative timestamps ("Just now", "5 min ago"); one tap reconnects and restores the last window + pane
 - **Visual navigation** — breadcrumb header: tap Session > Window > Pane to switch
 - **Pane layout view** — accurate proportional split visualization, tap any pane to focus
@@ -185,7 +206,7 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 - **Bell / Activity / Silence alerts** — tmux window flags monitored across all connections; tap any alert to jump straight to that window and pane (alert auto-clears)
 - **256-color ANSI** terminal rendering with auto-extend scrollback
 
-### Input UX (Mobile-Optimized)
+#### Input UX (Mobile-Optimized)
 
 | Component | What it does |
 |-----------|-------------|
@@ -199,15 +220,15 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 
 **4 built-in profiles** — Claude Code, Codex, General Terminal, tmux — each with optimized button groups. Create custom profiles for any CLI. Each pane remembers its profile and auto-detects from `pane_current_command`.
 
-### File Transfer
+#### File Transfer
 - **SFTP upload/download** with progress tracking and remote directory browser
 - **Image transfer** with format conversion, resize presets, and path injection
 
 ### Termipod Hub (optional)
 
-Opt-in coordination layer for teams running multiple AI agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the five-tab IA — **Projects · Activity · Me · Hosts · Settings** — comes alive.
+Opt-in coordination layer for teams running multiple AI agents across machines. Paste a hub URL + bearer token — on the phone (**Settings → Hub**) or the desktop connect panel — and the shared information architecture comes alive: **Projects · Activity · Me · Hosts · Settings**.
 
-**Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the phone; you ratify, not operate. The MVP demo target is the locked **ablation-sweep** template (nanoGPT-Shakespeare optimizer × size; see [docs/decisions/001-locked-candidate-a.md](docs/decisions/001-locked-candidate-a.md)); paper-reproduction and benchmark-comparison templates are deferred until the demo lands.
+**Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the client; you ratify, not operate. The MVP demo target is the locked **ablation-sweep** template (nanoGPT-Shakespeare optimizer × size; see [docs/decisions/001-locked-candidate-a.md](docs/decisions/001-locked-candidate-a.md)); paper-reproduction and benchmark-comparison templates are deferred until the demo lands.
 
 **Me** (center, default) — your personal triage: pending approvals, urgent tasks, recent activity digest, and a Vault shortcut. Tap a pending approval to Approve / Reject inline.
 
@@ -226,7 +247,7 @@ The hub itself ships as a separate Go daemon under `hub/` — install with `go i
 ### Other
 - **Data export / import** — full JSON backup of connections, keys, snippets, history, and settings; restore on a new device or migrate from the legacy MuxPod app
 - **Built-in file browser** — manage SFTP downloads and app storage from Settings, share or delete files in place
-- **Update checker** — Settings → Check for updates queries GitHub releases and links to the latest APK
+- **Update checker** — Settings → Check for updates queries GitHub releases and links to the latest build (in-app on mobile; self-updating installers on desktop)
 - **Help & onboarding** — cheat sheet for action bar + tmux keybindings, 4-card walkthrough
 - **Deep linking** — `termipod://connect?server=<id>&session=<n>&window=<n>&pane=<i>` opens a specific server / session / window / pane from external apps. Each connection has a stable **Deep Link ID** (set in Edit) so URLs survive renames; pairs with [claude-telegram-notify](https://github.com/launch52-ai/claude-telegram-notify) to tap a Telegram alert straight into the right pane. Legacy `muxpod://` URLs still resolve
 - **Tablet & foldable** adaptive layout
@@ -247,14 +268,14 @@ Against mobile **agent control** tools (session-bridge category):
 | **Governance (budget, audit, policy)** | Yes | No | No | No |
 | **Self-hosted hub** | Yes (Go daemon) | Cloud relay (Anthropic API) | Relay server | Cloudflare Tunnel |
 | **Offline snapshot cache** | Yes (SQLite) | No | No | No |
-| **Platform** | Android + iOS + iPad | iOS + Android + Web | iOS + Android + Web | iOS only |
+| **Platform** | Android + iOS + iPad + macOS + Windows + Linux | iOS + Android + Web | iOS + Android + Web | iOS only |
 | **Pricing** | Free, Apache 2.0 | Claude Max ($100+) | Free, open source | Paid trial |
 
 Against **messenger-bridge agents** (different thesis, overlapping user question):
 
 | Feature | TermiPod | OpenClaw | Hermes Agent | Claude Code Channels |
 |---|---|---|---|---|
-| **UI surface** | Purpose-built mobile app | Existing messengers (WhatsApp, Telegram, Slack, Signal, iMessage, Discord, 15+) | Telegram / Discord / Slack / WhatsApp / Signal | Telegram + Discord |
+| **UI surface** | Purpose-built mobile + desktop apps | Existing messengers (WhatsApp, Telegram, Slack, Signal, iMessage, Discord, 15+) | Telegram / Discord / Slack / WhatsApp / Signal | Telegram + Discord |
 | **Primary use case** | Fleet cockpit + research ops | Personal assistant across messengers | Personal assistant + self-improving skills | Remote Claude Code via chat |
 | **Agent topology** | Director → steward → fleet | One agent, cross-platform memory | One self-improving agent | One local Claude Code session |
 | **Multi-host / A2A** | Yes | No | No | No |
@@ -271,7 +292,7 @@ Against mobile **SSH clients** (TermiPod also covers this layer — breakglass, 
 
 | Feature | TermiPod | Termux | JuiceSSH | Termius | ConnectBot |
 |---|---|---|---|---|---|
-| **Platform** | Android + iOS + iPad | Android | Android | Multi | Android |
+| **Platform** | Android + iOS + iPad + desktop | Android | Android | Multi | Android |
 | **tmux integration** | Native visual | Manual CLI | None | None | None |
 | **AI agent profiles** | Claude Code + Codex, per-pane | None | None | None | None |
 | **SSH jump host** | Built-in | CLI | CLI | Built-in | None |
@@ -290,6 +311,8 @@ Against mobile **SSH clients** (TermiPod also covers this layer — breakglass, 
 
 **iOS / iPadOS:** Build from source with Xcode (see below). TestFlight is on the roadmap.
 
+**Desktop (macOS / Windows / Linux):** Download the latest desktop installer from [**Releases**](https://github.com/physercoe/termipod/releases) (look for `desktop-v*` / `electron-v*` assets: `.dmg`, `.msi`/`.exe`, `.AppImage`/`.deb`). Unsigned builds: on macOS, right-click → Open the first time.
+
 ### Build from source
 
 ```bash
@@ -304,9 +327,20 @@ flutter build apk --release
 flutter build ios --release
 ```
 
+```bash
+# Desktop workbench (requires Node 22+)
+cd desktop
+npm ci && npm run build        # the shared React + TS frontend
+
+cd electron && npm install
+npm start                      # dev-launch the Electron shell
+# installers: npx electron-builder --mac | --win | --linux
+# (see desktop/electron/README.md for packaging, signing, and the update feed)
+```
+
 ### Connect
 
-1. **Add a host** — Tap + on the **Hosts** tab, enter host / port / username
+1. **Add a host** — Tap + on the **Hosts** tab (mobile) or open the connect panel (desktop), enter host / port / username
 2. **Authenticate** — Password or SSH key (generate via the Keys tile on the host detail screen)
 3. **Optional** — Configure jump host or SOCKS5 proxy in the connection form
 4. **Navigate** — Expand host > session > window > pane
@@ -318,10 +352,12 @@ flutter build ios --release
 
 | Component | Requirement |
 |-----------|-------------|
-| **Device** | Android 8.0+ (API 26), iOS 13.0+, iPadOS 13.0+ |
+| **Mobile device** | Android 8.0+ (API 26), iOS 13.0+, iPadOS 13.0+ |
+| **Desktop** | macOS (Apple Silicon + Intel), Windows 10+, or a modern Linux distro; Node 22+ only for building from source |
 | **Server** | Any SSH server (OpenSSH, Dropbear, etc.) |
 | **tmux** | Any version (tested 2.9+) — optional with raw PTY mode |
 | **Network** | Direct SSH, or via jump host / SOCKS5 proxy |
+| **Hub (optional)** | The Go daemon under `hub/` on any small VPS; clients take a URL + bearer token |
 
 ---
 
@@ -332,7 +368,7 @@ The MVP target is the **research demo** described in
 writes a directive → steward decomposes → fleet executes runs across
 hosts → briefing agent summarizes overnight → user reviews on phone.
 
-**Phase status (as of v1.0.808):**
+**Mobile + hub lane (`v1.0.x`), phase status as of v1.0.822:**
 
 | Phase | Status |
 |---|---|
@@ -347,6 +383,17 @@ The demo path is shipped end-to-end on the dress-rehearsal harness
 run of Candidate A (nanoGPT-Shakespeare optimizer × size sweep) is
 the MVP milestone — gated on two consecutive walkthrough-clean
 device tests.
+
+**Desktop lane (`desktop-v*` / `electron-v*`, own changelog):** the workbench
+feature set (WS2–WS8: shell, navigator, transcripts, approvals, projects,
+admin, SSH terminal, packaging) is shipped on the Tauri shell, and its
+**Electron successor** has completed M1 (scaffold + hub bridging), M2 (native
+ports: PTY, SSH/SFTP + keys, folder sync, vault WASM) and M3.1–3.3
+(electron-builder packaging, electron-updater, first-boot migration from the
+Tauri install). Final cutover (M3.4) is maintainer-gated on signing certs and
+the first promoted release; the Tauri lane retires after one overlap release.
+Record: [docs/changelog-desktop.md](docs/changelog-desktop.md), plan:
+[docs/plans/desktop-electron-migration.md](docs/plans/desktop-electron-migration.md).
 
 **Still open (post-demo):**
 
@@ -363,14 +410,15 @@ device tests.
 Live trackers:
 - [docs/roadmap.md](docs/roadmap.md) — Now / Next / Later
 - [docs/plans/research-demo-gaps.md](docs/plans/research-demo-gaps.md) — demo-scoped detail
-- [docs/changelog.md](docs/changelog.md) — what shipped per release
+- [docs/changelog.md](docs/changelog.md) — what shipped per release (mobile + hub)
+- [docs/changelog-desktop.md](docs/changelog-desktop.md) — the desktop lane
 - [docs/decisions/](docs/decisions/) — ADRs (numbered, append-only)
 
 ---
 
 ## Attribution
 
-TermiPod is a derivative work of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura) (Copyright 2025 mox), licensed under the [Apache License 2.0](LICENSE). The original MuxPod provided SSH connectivity and basic tmux session viewing for Android. TermiPod has since diverged substantially with cross-platform support, input UX redesign, agent profiles, SFTP, ProxyJump, SOCKS5, custom keyboard, and more. TermiPod is an independent project, not affiliated with the original author. See [NOTICE](NOTICE) for full attribution.
+TermiPod is a derivative work of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura) (Copyright 2025 mox), licensed under the [Apache License 2.0](LICENSE). The original MuxPod provided SSH connectivity and basic tmux session viewing for Android. TermiPod has since diverged substantially with cross-platform support, input UX redesign, agent profiles, SFTP, ProxyJump, SOCKS5, custom keyboard, the hub control plane, and the desktop workbench. TermiPod is an independent project, not affiliated with the original author. See [NOTICE](NOTICE) for full attribution.
 
 ## Feedback
 
@@ -383,5 +431,5 @@ Found a bug or have a feature request? [Open an issue](https://github.com/physer
 ---
 
 <p align="center">
-  <sub>Built with Flutter. Designed for mobile. Made for developers who live in the terminal.</sub>
+  <sub>Flutter on mobile, React + Electron on desktop, Go in the hub. Made for developers who live in the terminal.</sub>
 </p>

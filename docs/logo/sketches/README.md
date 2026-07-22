@@ -1,6 +1,12 @@
 # Logo sketches
 
-The current `docs/logo/logo.svg` dates from the MuxPod era — a `>_ ✦`
+> **Status (2026-07): superseded — decision made.** The brand refresh
+> shipped: `docs/logo/logo.svg` was redrawn as `> ✦` — the chevron
+> prompt with the 4-point agent sparkle moved onto the cursor midline
+> (optically centered, 45° arms, refined teal→azure ramp). The sketches
+> below stay as the archive of what we considered.
+
+The then-current `docs/logo/logo.svg` dated from the MuxPod era — a `>_ ✦`
 shell prompt. That reads "AI terminal". The product is now a
 director's harness for a pod of agents; the terminal is one surface
 among many. These five sketches span "evolve the prompt DNA" to "new

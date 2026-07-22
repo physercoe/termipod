@@ -2,8 +2,12 @@
 
 The unified web-tech client shell — WS2 of
 [`../docs/plans/desktop-control-plane.md`](../docs/plans/desktop-control-plane.md)
-([ADR-051](../docs/decisions/051-desktop-client-stack.md)). A **Tauri v2 + React +
-TypeScript** app; the same frontend also runs as a plain-browser build.
+([ADR-051](../docs/decisions/051-desktop-client-stack.md)). A **React +
+TypeScript** frontend that today ships in a **Tauri v2** shell (and also runs
+as a plain-browser build); its **Electron** successor lives in
+[`electron/`](electron/README.md) (ADR-055 — M1/M2 and the packaging,
+updater, and migration slices of M3 are done; final cutover is
+maintainer-gated).
 
 ## Layout
 

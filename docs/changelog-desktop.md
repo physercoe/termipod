@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-22)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.722.818 / electron-v2026.722.818
+> **Last verified vs code:** desktop 2026.722.1327 / electron-v2026.722.1327
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -39,7 +39,12 @@ This complements:
 
 ---
 
-## Unreleased
+## 2026.722.1327 — 2026-07-22 · Electron
+
+**Read: real `<webview>` browser tab + open-access PDF download (incl. downloads
+started inside a web tab). Author: Excalidraw sketch editor (figure-plan Phase
+C). Native right-click Copy for the EPUB reader, note images, and rendered
+figures.** Prerelease cut for device testing.
 
 ### Added
 - **Read · real in-app browser tab** (read-web-tabs plan W1): the web tab is now

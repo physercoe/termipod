@@ -52,6 +52,19 @@ This complements:
   `sketch` icon, `.excalidraw`/`.json`-sniff file round-trip. E2E smoke pins the
   lazy-mount + offline-asset-path config.
 
+### Fixed
+- **`.excalidraw` files are reopenable**: the extension was missing from both
+  openability allowlists, so a workspace-saved sketch showed in the file tree
+  but was click-inert, and the Open dialog filtered it out — breaking the
+  Phase C save/reopen round-trip. Added to `AuthorNav`'s `TEXT_EXT` and the
+  `doc_open` dialog's `TEXT_EXTS` (which also gained the missed Phase B
+  `nomnoml`).
+- **Sketch docs no longer re-dirty after save-then-close**: the debounced
+  Excalidraw persist kept its flush callback armed after it ran, so unmounting
+  the editor re-wrote an identical body and marked a just-saved doc dirty
+  again. Flushes are now consume-once; the unmount flush only fires when a
+  write is genuinely pending.
+
 ### Notes
 - Figure-plan Phase B **LikeC4 spike** resolved: no headless `dsl → SVG` path
   (its CLI export runs a headless browser), so it is a Phase C editor-mount

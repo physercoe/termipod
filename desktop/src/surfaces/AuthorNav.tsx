@@ -33,6 +33,7 @@ const TEXT_EXT = new Set([
   'yml', 'yaml', 'toml', 'ini', 'html', 'htm', 'css', 'js', 'ts', 'tsx', 'jsx',
   'py', 'go', 'rs', 'sh', 'c', 'h', 'cpp', 'hpp', 'java', 'rb', 'php', 'sql',
   'mmd', 'dot', 'gv', 'nomnoml', // figure sources (mermaid / graphviz / nomnoml)
+  'excalidraw', // sketch scenes (figure-plan Phase C)
 ]);
 
 function baseName(path: string): string {

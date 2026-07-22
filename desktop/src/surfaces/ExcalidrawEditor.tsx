@@ -91,12 +91,21 @@ export function ExcalidrawEditor({ doc }: { doc: Doc }): JSX.Element {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const flush = useRef<(() => void) | undefined>(undefined);
 
+  // Consume-and-clear: a flush runs at most once, so the unmount flush only
+  // fires when a debounced write is still pending — re-running an already-
+  // flushed write would re-dirty a doc the user just saved (identical body).
+  function runFlush(): void {
+    const f = flush.current;
+    flush.current = undefined;
+    f?.();
+  }
+
   useEffect(() => {
     return () => {
       if (timer.current !== undefined) clearTimeout(timer.current);
-      flush.current?.();
+      runFlush();
     };
-  }, [doc.id]);
+  }, [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onChange(...[elements, appState, files]: ChangeArgs): void {
     const version = getSceneVersion(elements);
@@ -106,7 +115,7 @@ export function ExcalidrawEditor({ doc }: { doc: Doc }): JSX.Element {
     if (timer.current !== undefined) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = undefined;
-      flush.current?.();
+      runFlush();
     }, 600);
   }
 

@@ -11,8 +11,10 @@ interface OpenedDoc {
   content: string;
 }
 
-// Openable Author documents (mirrors docfile.rs TEXT_EXTS).
-const TEXT_EXTS = ['md', 'markdown', 'txt', 'drawio', 'xml', 'svg', 'canvas', 'json', 'csv', 'mmd', 'dot', 'gv'];
+// Openable Author documents. Keep in sync with AuthorNav's TEXT_EXT (the
+// workspace-tree gate): figure sources (mmd/dot/gv/nomnoml; the *.json specs
+// ride on 'json') and Phase C sketch scenes ('excalidraw').
+const TEXT_EXTS = ['md', 'markdown', 'txt', 'drawio', 'xml', 'svg', 'canvas', 'json', 'csv', 'mmd', 'dot', 'gv', 'nomnoml', 'excalidraw'];
 
 export const docfileHandlers: Record<string, Handler> = {
   doc_open: async (_args, ctx: Ctx): Promise<OpenedDoc | null> => {

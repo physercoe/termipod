@@ -1,3 +1,8 @@
 node_modules/
 out/
 *.local
+# Playwright E2E (ADR-055 §7 row 14) artefacts
+playwright-report/
+test-results/
+blob-report/
+.playwright/

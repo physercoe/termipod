@@ -102,3 +102,42 @@ jobs:
             if (v.vault_unwrap_recovery(code, re) !== k) throw new Error("recovery wrap");
             console.log("vault WASM round-trips: ok");
           '
+
+  e2e:
+    # ADR-055 §7 row 14: drive the REAL Electron app with Playwright under xvfb
+    # (there is no local Electron binary on the dev host, so CI is the E2E gate).
+    # The smoke suite proves the app boots + paints and pins the invariants the
+    # M4 guard-deletions rely on (secure app:// origin, injected bridge). It
+    # unblocks verifying the remaining paydowns (blob-iframe, sizedSvg,
+    # base64→bytes) against real Chromium instead of by faith.
+    name: E2E (Playwright + Electron, xvfb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/electron/package-lock.json
+      - name: Build the frontend (dist/ — the app the shell loads)
+        working-directory: desktop
+        run: npm ci && npm run build
+      - name: Install Electron shell deps (incl. the real Electron binary + Playwright)
+        working-directory: desktop/electron
+        run: npm ci # NOT ELECTRON_SKIP_BINARY_DOWNLOAD — the E2E run needs the binary
+      - name: Build the Electron main/preload bundles
+        working-directory: desktop/electron
+        run: npm run build
+      - name: Install Chromium/Electron shared libraries
+        working-directory: desktop/electron
+        run: npx playwright install-deps chromium
+      - name: Run the E2E smoke suite (headless via xvfb)
+        working-directory: desktop/electron
+        run: xvfb-run -a npm run test:e2e
+      - name: Upload the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: desktop/electron/playwright-report/
+          if-no-files-found: ignore

@@ -65,6 +65,21 @@ npm start          # esbuild → out/, then `electron .`
 `npm run typecheck` type-checks without the Electron binary
 (`ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install` is enough for typecheck/build).
 
+## Tests
+
+- **`npm test`** — the sync-core fixture suite (`node --test 'src/**/*.test.ts'`).
+- **`npm run test:e2e`** — Playwright drives the **real Electron app** (ADR-055
+  §7 row 14; specs in `e2e/`, config in `playwright.config.ts`). Needs the
+  Electron binary + a display, so it runs in CI under xvfb (`.github/workflows/desktop.yml`
+  → the `e2e` job); there is no local Electron binary on the dev host. The smoke
+  suite launches `out/main.cjs` unpackaged (loading the frontend from
+  `../dist` via `TERMIPOD_DIST`) and asserts: the window boots + paints, the
+  preload bridge is injected and `app_version` round-trips, and the renderer is a
+  secure `app://` context (`crypto.randomUUID` available). Native addons
+  (node-pty, keyring) are lazily imported, so the smoke suite needs no ABI
+  rebuild — a terminal/SSH suite that exercises them would (`electron-builder
+  install-app-deps` first).
+
 ## Status — M1 slices
 
 - [x] **M1.1** shell scaffold: window, `app://`, preload bridge, IPC allowlist,

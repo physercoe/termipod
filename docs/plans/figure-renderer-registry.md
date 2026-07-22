@@ -1,7 +1,7 @@
 # Figure-renderer registry — Phases A–C
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-21) — executes Phases **A–C** of
+> **Status:** In progress (2026-07-21) — executes Phases **A–C** of
 > [figure-and-diagram-tooling-landscape.md](../discussions/figure-and-diagram-tooling-landscape.md)
 > §4 (the registry + the 80%, the niche renderers, the two interactive
 > editors). Phases D (slides + math escalation) and E (agent-artifact
@@ -10,7 +10,13 @@
 > relates to [author-agent-assist-and-diagrams.md](../discussions/author-agent-assist-and-diagrams.md)
 > (AgentCompanion, draw.io precedents).
 > **Audience:** contributors · principal
-> **Last verified vs code:** desktop v0.3.84 (on main)
+> **Last verified vs code:** desktop 2026.722.818 (on main)
+>
+> **Progress:** **Phase A** shipped (`1f46c3b6` — Mermaid + Graphviz +
+> Vega-Lite). **Phase B** shipped (`71e0e328` — nomnoml + WaveDrom + ECharts);
+> the LikeC4 spike (§3) resolved it to a Phase C editor-mount candidate, **not** a
+> registry row (see §3). **Phase C** in progress: **Excalidraw shipped**;
+> **bpmn-js held** on the license gate (§4).
 
 **TL;DR.** One new abstraction — a **figure-renderer registry**
 (`state/figures.ts`) keyed by a `spec` discriminator on a new single `figure`
@@ -169,7 +175,7 @@ Each item is: registry row + lazy `import()` + sample + extension/fence/sniff
 | `nomnoml` | `nomnoml` | MIT | tiny; quick UML classes |
 | `wavedrom` | `wavedrom` | MIT | timing/bitfield; JSON body, `sniffJson` |
 | `echarts` | `echarts` (tree-shaken, **SVG renderer**) | Apache-2.0 | `option` JSON body; authored dashboards only (ChartView boundary, §1.4) |
-| `likec4` | *evaluate first* | MIT | React-Flow-based — if it exposes a headless spec→SVG path, it's a row; if it is irreducibly a React component, it moves to Phase C as an editor mount. Spike before committing. |
+| `likec4` | *spike done → **not a row*** | MIT | **Spike result (2026-07-22):** `likec4` exports only `./react` (React-Flow components) + `./model`/`./config`; `@likec4/core` exports `./compute-view`/`./geometry`, which produce a *computed layout model*, not an SVG string. Its own CLI SVG/PNG export runs **playwright** (headless-browser screenshot) — there is **no pure `dsl → SVG` function**. So per this row's rule it is "irreducibly a React component" → it moves to **Phase C as an editor-mount candidate**, not a registry row. Deferred (Excalidraw is the Phase C wedge that ships first). |
 
 **Acceptance:** each new spec passes the Phase A criteria list (create · render
 · save/reopen · fence · export · lazy chunk); ECharts additionally verified to
@@ -189,6 +195,26 @@ These are stateful surfaces, not `src → SVG` functions — they follow the
    SVG/PNG via its `exportToSvg`/`exportToBlob` utils, matching the Phase A
    export affordance. Complements — does not replace — the native `canvas`
    kind (Zettelkasten cards vs. freeform sketch).
+   **SHIPPED (2026-07-22).** Implementation notes vs the plan:
+   - Fonts are copied from the package's `dist/prod/fonts` (14 MB, gitignored)
+     into `public/excalidraw-assets/fonts` at build time
+     (`scripts/sync-excalidraw-assets.mjs`, wired into `npm run build`); the
+     runtime `window.EXCALIDRAW_ASSET_PATH = '/excalidraw-assets/'` points the
+     loader at them so it never hits the esm.sh CDN fallback. Full airplane-mode
+     verification is a device-test item (fonts degrade gracefully to system fonts
+     if absent — not a crash).
+   - The `<Excalidraw>` component is uncontrolled after mount, so it follows the
+     `key={doc.id}` remount pattern (like `DiagramEditor`): read `initialData`
+     once, stream changes out via a debounced `onChange` → `serializeAsJSON`,
+     skipping emits whose `getSceneVersion` is unchanged (mount + font-reflow
+     re-emits must not dirty the doc). No controlled reconcile loop.
+   - `.excalidraw` ⇄ file round-trip via `extForDoc`/`kindForFile`; a `.json`
+     scene is sniffed by its `type: "excalidraw"` discriminator. New-doc button
+     "Sketch" (`author.newExcalidraw`, en + zh) + `sketch` icon.
+   - Lazy chunk verified out of the entry/App chunks (`vite build` report); E2E
+     smoke pins the lazy-mount + offline-asset-path config under `app://`.
+   - The AgentCompanion is read/assist-only for this kind (structured JSON body,
+     no safe text insert — same as canvas/table).
 2. **bpmn-js** — `DocKind` `'bpmn'`, body = `.bpmn` XML. **Gated on the §5
    license decision in the landscape doc** (the "Powered by bpmn.io" watermark
    clause is product-visible): the director accepts the watermark or we seek

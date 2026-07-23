@@ -154,6 +154,14 @@ This complements:
   same-origin under the `app://` scheme, so it works fully offline with no CSP
   change. A new `megraph` inspect-tab kind carries it. (The WebGL render is
   device-verified.)
+- **Inspect — module graph with code sync (W4b).** A **Module graph** action on a
+  file-backed Python tab reads the modeling file's class hierarchy (a stdlib-`ast`
+  helper on the file's venue — any python3, no torch) and renders an interactive
+  **class-composition graph** (React Flow + elkjs): one card per class with its
+  bases and submodules, edges for composition (incl. the element class inside
+  `nn.ModuleList([...])`) and in-file inheritance. **Clicking a class scrolls the
+  code tab to its definition** — the code sync. React Flow + elkjs ride their own
+  lazy chunk (never the boot bundle). (The interactive render is device-verified.)
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

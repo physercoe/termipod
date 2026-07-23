@@ -59,6 +59,7 @@ export type IconName =
   | 'split-h'
   | 'git-compare'
   | 'git-branch'
+  | 'sitemap'
   | 'split-v'
   | 'dock-bottom'
   | 'dock-right'
@@ -365,6 +366,15 @@ const PATHS: Record<IconName, JSX.Element> = {
       <circle cx="18" cy="6" r="3" />
       <circle cx="6" cy="18" r="3" />
       <path d="M18 9a9 9 0 0 1-9 9" />
+    </>
+  ),
+  // sitemap — a parent node over two children: a class / module hierarchy.
+  sitemap: (
+    <>
+      <rect x="9" y="3" width="6" height="5" rx="1" />
+      <rect x="3" y="16" width="6" height="5" rx="1" />
+      <rect x="15" y="16" width="6" height="5" rx="1" />
+      <path d="M12 8v4M6 16v-2h12v2" />
     </>
   ),
   // split-h — two panes side by side (a vertical divider): split right

@@ -19,7 +19,7 @@ import { looksLikeDot } from './dotGraph';
 /// activate (open question 1's proposed answer), so a huge log or checkpoint is
 /// never copied into `localStorage`.
 
-export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph';
+export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub';
 
 /// A reference to one readable source — the two sides of a two-blob compare

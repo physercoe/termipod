@@ -39,6 +39,9 @@ const DotGraphView = lazy(() => import('../ui/DotGraphView').then((m) => ({ defa
 // The interactive Model Explorer WebGL graph — the 2.5 MB element + worker load on
 // first render (its own chunk; the runtime is self-hosted, never in the boot bundle).
 const ModelExplorerView = lazy(() => import('../ui/ModelExplorerView').then((m) => ({ default: m.ModelExplorerView })));
+// W4b — the interactive class-composition graph (React Flow + elkjs), its own lazy
+// chunk (neither heavy dep touches the boot bundle), loaded when a modgraph tab opens.
+const ModuleGraphView = lazy(() => import('../ui/ModuleGraphView').then((m) => ({ default: m.ModuleGraphView })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -111,6 +114,8 @@ function kindIcon(kind: InspectKind): IconName {
       return 'diagram';
     case 'megraph':
       return 'canvas';
+    case 'modgraph':
+      return 'git-branch';
     default:
       return 'code';
   }
@@ -283,6 +288,8 @@ function CodeTab({
   const isPython = isShell() && (langId === 'python' || (tab.path?.toLowerCase().endsWith('.py') ?? false));
   // A py/js/ruby/php source can be turned into a static call graph via code2flow.
   const isCallable = isShell() && ((langId !== undefined && CALLGRAPH_LANGS.has(langId)) || CALLGRAPH_EXTS.has(extOf(tab.path ?? '').toLowerCase()));
+  // A file-backed Python module can be read into a class-composition graph (W4b).
+  const isModeling = isPython && tab.path !== undefined;
   const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable;
   return (
     <div className="inspect-tabbody">
@@ -325,6 +332,16 @@ function CodeTab({
           {isCallable && (
             <button className="import-btn" onClick={() => setCgOpen(true)}>
               <Icon name="git-branch" size={14} /> {t('callgraph.action')}
+            </button>
+          )}
+          {isModeling && (
+            <button
+              className="import-btn"
+              onClick={() =>
+                openTab({ kind: 'modgraph', source: tab.source, title: `modules: ${tab.path !== undefined ? baseName(tab.path) : ''}`, path: tab.path, hostId: tab.hostId, projectId: tab.projectId })
+              }
+            >
+              <Icon name="sitemap" size={14} /> {t('modgraph.action')}
             </button>
           )}
           {interp !== null && (
@@ -631,6 +648,26 @@ function MEGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
   );
 }
 
+// ── interactive module (class-composition) graph tab (W4b) ────────────────────
+// A `modgraph` tab reads a file-backed Python module's class hierarchy on its venue
+// (stdlib `ast`) and renders the React-Flow/elkjs class graph. `onReveal` scrolls the
+// modeling file's code tab to a clicked class (the code-sync).
+function ModGraphTab({ tab, onReveal }: { tab: InspectTab; onReveal: (lineno: number) => void }): JSX.Element {
+  const t = useT();
+  if (!isShell() || tab.path === undefined) {
+    return (
+      <div className="surface-placeholder region-pad">
+        <div className="surface-posture">{t('modgraph.needsFile')}</div>
+      </div>
+    );
+  }
+  return (
+    <Suspense fallback={<div className="muted region-pad">{t('modgraph.reading')}</div>}>
+      <ModuleGraphView tab={tab} onReveal={onReveal} />
+    </Suspense>
+  );
+}
+
 export function DebugSurface(): JSX.Element {
   const t = useT();
   const tabs = useInspect((s) => s.tabs);
@@ -717,6 +754,14 @@ export function DebugSurface(): JSX.Element {
     }
     openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId });
     setDialog(null);
+  }
+
+  // Code-sync for the module graph: open/focus the modeling file's code tab and
+  // scroll it to a clicked class's line. Reuses the trace-lens reveal mechanism.
+  function revealModeling(from: InspectTab, lineno: number): void {
+    if (from.path === undefined) return;
+    const id = openTab({ kind: 'code', source: from.source, title: baseName(from.path), path: from.path, hostId: from.hostId, projectId: from.projectId });
+    setReveal((m) => ({ ...m, [id]: lineno }));
   }
 
   async function resolveFrame(frame: TraceFrame, from: InspectTab): Promise<void> {
@@ -883,6 +928,8 @@ export function DebugSurface(): JSX.Element {
             <GraphTab key={active.id} tab={active} />
           ) : active.kind === 'megraph' ? (
             <MEGraphTab key={active.id} tab={active} />
+          ) : active.kind === 'modgraph' ? (
+            <ModGraphTab key={active.id} tab={active} onReveal={(l) => revealModeling(active, l)} />
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}

@@ -1430,6 +1430,10 @@ const en: Dict = {
   'callgraph.note': 'code2flow must be installed on the venue.',
   'callgraph.run': 'Build',
   'callgraph.running': 'Building…',
+  'modgraph.action': 'Module graph',
+  'modgraph.reading': 'Reading module…',
+  'modgraph.empty': 'No classes found in this module.',
+  'modgraph.needsFile': 'The module graph needs a file-backed Python module.',
   'inspect.viewSource': 'View source',
 
   // Log viewer (W3)
@@ -2940,6 +2944,10 @@ const zh: Dict = {
   'callgraph.note': '运行位置必须已安装 code2flow。',
   'callgraph.run': '构建',
   'callgraph.running': '构建中…',
+  'modgraph.action': '模块图',
+  'modgraph.reading': '正在读取模块…',
+  'modgraph.empty': '此模块中未找到类。',
+  'modgraph.needsFile': '模块图需要一个基于文件的 Python 模块。',
   'inspect.viewSource': '查看源码',
 
   // 日志查看器（W3）

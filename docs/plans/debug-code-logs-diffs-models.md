@@ -14,10 +14,10 @@
 > header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
 > gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
 > tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
-> Tab renamed (§0a). **Tracer** + **code2flow** + **ONNX→graph** + **Model Explorer**
-> (self-hosted WebGL element; device-test pending) feed the graph views. **Next:** W4b.
+> Tab renamed (§0a). Graph views: tracer, code2flow, ONNX→graph, Model Explorer
+> (WebGL), W4b module graph (RF+elkjs, code-sync). **W4 COMPLETE** — WebGL/RF device-test.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core + ONNX + tracer + call-graph + graphs + ME
+> **Last verified vs code:** W1–W3 + W4 core/ONNX + tracer + call-graph + graphs + ME + W4b
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -500,24 +500,30 @@ issue-vs-plan reconciliation:
   the dense formula (which would massively overestimate). Labelled approximate
   (framework overhead/fragmentation on top). A per-host GPU-memory hint from the
   connections store is a later add.
-- **Adopted (scoped) — AST worker for code sync**: a stdlib-only Python
-  worker (same **interpreter-preset venues** as the tracer — its open Q1)
-  parses the modeling file's AST for the class hierarchy + **source spans**,
-  so graph-node clicks scroll CodeView and back. This does NOT contradict the
-  "no static parsing" verdict above: for *known, regular HF modeling files*
-  the AST yields structure and spans reliably; `forward()` dataflow stays
-  approximate and is **flagged as such** — measured truth remains the
-  meta-device tracer. IR JSON cached per (model, version).
+- **Adopted (scoped) — AST worker for code sync** — **SHIPPED 2026-07-23.** A
+  stdlib-only Python `ast` helper (`state/moduleAstCore.ts` `MODULE_AST_HELPER`,
+  run over the tracer's generic `trace_run` IPC / `ssh_exec` — any python3 venue,
+  no torch) extracts each class's bases, `[lineno, end_lineno]` span, and submodule
+  composition (`self.x = Cls(…)`, incl. the local element class inside
+  `nn.ModuleList([Block(…)])`). `buildModuleGraph` turns it into a class graph
+  (composition + local-inheritance edges; external types like `nn.Linear` stay node
+  metadata). A **Module graph** action on a file-backed Python tab opens a `modgraph`
+  tab (`ui/ModuleGraphView.tsx`, lazy — React Flow + elkjs); **clicking a class card
+  scrolls the modeling file's code tab to its line** (the code-sync). `forward()`
+  dataflow stays approximate — the measured truth is the meta-device tracer. Pure
+  core `node --test`-verified end-to-end against the real python3.
 - **Corrected — the issue's optional `torch.fx` trace**: stale;
   `symbolic_trace` fails on shape-dependent control flow (verified, §above).
   The measured tier is `torch.export` on meta tensors, already specified.
-- **Engine (its open Q2)**: **React Flow + elkjs** for this view — React Flow
-  is already a dependency (canvas W3), so only `elkjs` (~1.4 MB, lazy chunk)
-  is new; its compound/nested layout fits the drill-down cards. This does NOT
-  replace the other two backends — RF chokes past ~1–2k nodes (the issue
-  concedes this), so the split is: **RF+elk = templated/AST reader** (tens of
-  visible nodes thanks to ×N), **Model Explorer = deep traced ATen graphs**,
-  **WASM graphviz = torchview DOT**.
+- **Engine (its open Q2)** — **SHIPPED 2026-07-23** (`ui/ModuleGraphView.tsx`):
+  **React Flow + elkjs**. React Flow was already a dependency (canvas), so only
+  `elkjs` (0.9.3, ~1.4 MB — its own lazy chunk, verified NOT in boot) is new; its
+  `layered` layout positions the class cards, RF renders + pans/zooms them (drag &
+  manual-connect disabled — it's a read view). The three-backend split holds:
+  **RF+elk = the AST class reader** (tens of nodes), **Model Explorer = deep traced/
+  ONNX graphs**, **WASM graphviz = torchview/code2flow DOT**. The interactive RF
+  render + code-sync verify on-device; the AST extraction + graph build are
+  headlessly `node --test`-covered.
 - **Family order (its open Q3)**: as the config-card list above —
   llama/qwen/deepseek first (deepseek exercises MLA+MoE; the issue's own
   screenshots are deepseek).

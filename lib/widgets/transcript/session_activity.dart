@@ -91,7 +91,10 @@ class SessionTodoItem {
 
   const SessionTodoItem({required this.content, required this.status});
 
-  bool get isCompleted => status == 'completed';
+  /// `'done'` tolerated alongside the canonical `'completed'` — desktop's
+  /// planMark (EventCard.tsx) and dock already treat both as finished, and
+  /// the same transcript must count the same on both clients.
+  bool get isCompleted => status == 'completed' || status == 'done';
 }
 
 /// The todos rollup behind the `Todos (done/total)` chip: the NEWEST plan

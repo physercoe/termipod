@@ -76,8 +76,11 @@ const KEY_ARG_KEYS = [
   'command',
   'cmd',
   'script',
-  'prompt',
+  // description before prompt — mobile's toolCallKeyArg picks the short
+  // description for a Task/sub-agent call; a Task row must not show the
+  // long prompt on one client and the one-liner on the other.
   'description',
+  'prompt',
   'task',
   'file_path',
   'path',

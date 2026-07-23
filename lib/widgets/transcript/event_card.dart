@@ -524,7 +524,11 @@ class AgentEventCard extends StatefulWidget {
     final rows = <Widget>[];
     for (final e in entriesRaw) {
       if (e is! Map) continue;
-      final status = (e['status'] ?? '').toString();
+      var status = (e['status'] ?? '').toString();
+      // 'done' tolerated alongside the canonical 'completed' — desktop's
+      // planMark treats both as finished, and the P2 dock's done/total
+      // count must agree with the card the user sees (both clients).
+      if (status == 'done') status = 'completed';
       final content = (e['content'] ?? '').toString();
       rows.add(Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),

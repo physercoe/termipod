@@ -429,4 +429,18 @@ void main() {
       expect(find.text('npm test'), findsNothing);
     });
   });
+
+  group('todo status tolerance', () {
+    test("'done' counts as completed (desktop planMark parity)", () {
+      final a = _activity([
+        _plan([
+          {'content': 'a', 'status': 'done'},
+          {'content': 'b', 'status': 'completed'},
+          {'content': 'c', 'status': 'pending'},
+        ]),
+      ]);
+      expect(a.todos!.done, 2);
+      expect(a.todos!.total, 3);
+    });
+  });
 }

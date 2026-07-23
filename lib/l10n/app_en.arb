@@ -2850,5 +2850,17 @@
   "vaultSyncDisableDialogTitle": "Disable sync?",
   "vaultSyncDisableDialogBody": "This device will stop syncing and forget its copy of the vault key. Other devices and the hub copy are unaffected.",
   "vaultSyncRevokeDialogTitle": "Revoke device?",
-  "vaultSyncRevokeDialogBody": "That device loses access on its next sync. Reset your recovery code afterward if it may be compromised."
+  "vaultSyncRevokeDialogBody": "That device loses access on its next sync. Reset your recovery code afterward if it may be compromised.",
+  "sessionDockTasksChip": "Tasks ({count})",
+  "@sessionDockTasksChip": { "description": "State-dock chip above the composer (agent-transcript-redesign P2): shell tasks still running. Visible only while count > 0.", "placeholders": { "count": { "type": "int" } } },
+  "sessionDockSubagentsChip": "Sub-agents ({count})",
+  "@sessionDockSubagentsChip": { "description": "State-dock chip above the composer (P2): sub-agent calls still running. Visible only while count > 0.", "placeholders": { "count": { "type": "int" } } },
+  "sessionDockTodosChip": "Todos ({done}/{total})",
+  "@sessionDockTodosChip": { "description": "State-dock chip above the composer (P2): todos completed out of the newest plan snapshot's total.", "placeholders": { "done": { "type": "int" }, "total": { "type": "int" } } },
+  "sessionDockKindTasks": "Tasks",
+  "sessionDockKindSubagents": "Sub-agents",
+  "sessionDockKindTodos": "Todos",
+  "sessionDockTasksEmpty": "No shell tasks yet",
+  "sessionDockSubagentsEmpty": "No sub-agents yet",
+  "sessionDockTodosEmpty": "No todos yet"
 }

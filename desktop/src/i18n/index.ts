@@ -328,6 +328,14 @@ const en: Dict = {
   'tx.toolState.error': 'error',
   'tx.toolState.done': 'done',
   'tx.toolGroupToggle': 'Toggle tool group',
+  // P2 state dock (kimi-web ChatDock parity): ambient chips above the
+  // composer toggle a detail panel — state visibility, not feed filtering.
+  'tx.dock.label': 'Session state',
+  'tx.dock.tasks': 'Tasks ({n})',
+  'tx.dock.subagents': 'Sub-agents ({n})',
+  'tx.dock.todos': 'Todos ({done}/{total})',
+  'tx.dock.close': 'Close panel',
+  'tx.dock.noTodos': 'No todos in the latest plan.',
   'tx.now': 'now',
   'composer.attach': 'Attach file or image',
   'composer.unsupported': '{name}: unsupported file type',
@@ -1870,6 +1878,14 @@ const zh: Dict = {
   'tx.toolState.error': '出错',
   'tx.toolState.done': '完成',
   'tx.toolGroupToggle': '展开/收起工具组',
+  // P2 状态坞（kimi-web ChatDock 对齐）：输入框上方的状态胶囊，点击切换详情
+  // 面板——只呈现会话状态，不过滤消息流。
+  'tx.dock.label': '会话状态',
+  'tx.dock.tasks': '任务 ({n})',
+  'tx.dock.subagents': '子代理 ({n})',
+  'tx.dock.todos': '待办 ({done}/{total})',
+  'tx.dock.close': '关闭面板',
+  'tx.dock.noTodos': '最新的计划中没有待办。',
   'tx.now': '刚刚',
   'composer.attach': '附加文件或图片',
   'composer.unsupported': '{name}：不支持的文件类型',

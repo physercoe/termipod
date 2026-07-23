@@ -2660,5 +2660,17 @@
   "vaultSyncDisableDialogTitle": "停用同步？",
   "vaultSyncDisableDialogBody": "此设备将停止同步并忘记其保存的密钥库密钥。其他设备与 Hub 上的副本不受影响。",
   "vaultSyncRevokeDialogTitle": "撤销设备？",
-  "vaultSyncRevokeDialogBody": "该设备将在下次同步时失去访问权限。若其可能已泄露，请随后重置恢复码。"
+  "vaultSyncRevokeDialogBody": "该设备将在下次同步时失去访问权限。若其可能已泄露，请随后重置恢复码。",
+  "sessionDockTasksChip": "任务 ({count})",
+  "@sessionDockTasksChip": { "placeholders": { "count": { "type": "int" } } },
+  "sessionDockSubagentsChip": "子代理 ({count})",
+  "@sessionDockSubagentsChip": { "placeholders": { "count": { "type": "int" } } },
+  "sessionDockTodosChip": "待办 ({done}/{total})",
+  "@sessionDockTodosChip": { "placeholders": { "done": { "type": "int" }, "total": { "type": "int" } } },
+  "sessionDockKindTasks": "任务",
+  "sessionDockKindSubagents": "子代理",
+  "sessionDockKindTodos": "待办",
+  "sessionDockTasksEmpty": "暂无 shell 任务",
+  "sessionDockSubagentsEmpty": "暂无子代理",
+  "sessionDockTodosEmpty": "暂无待办"
 }

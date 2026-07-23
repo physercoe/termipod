@@ -14,6 +14,12 @@ import { agentIsBusy, errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, mat
 import { collapseStreamingPartials } from '../ui/streamingPartials';
 import { groupToolCalls, toolCallUpdateParentId, type FeedRow } from '../ui/toolGroups';
 import { ToolGroupCard } from '../ui/ToolGroupCard';
+import { deriveStateDock } from '../ui/stateDock';
+// NB explicit .tsx: the pure module `stateDock.ts` differs from this file
+// name only in casing, so on macOS's case-insensitive filesystem a bare
+// '../ui/StateDock' import resolves to stateDock.ts (TS1149). The extension
+// pins the component (allowImportingTsExtensions covers .tsx here).
+import { StateDock } from '../ui/StateDock.tsx';
 import { RunReport } from '../ui/RunReport';
 import { AgentInfo, latestStatusLine, mergeSessionInit } from '../ui/AgentInfo';
 
@@ -357,6 +363,15 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, updateById, nameById, callIds } = useToolMaps(feed);
+  // P2 state dock (kimi-web ChatDock parity — plan §6 P2): session-state
+  // chips + detail panel above the composer. Derived from the FULL feed —
+  // NOT the lens-filtered list — so a lens change never moves the counts
+  // (chips are session state, not feed filters; the lens system below stays
+  // untouched).
+  const stateDock = useMemo(
+    () => deriveStateDock(feed, { nameById, resultById, updateById }),
+    [feed, nameById, resultById, updateById],
+  );
   // P1 tool-group collapse state (kimi-web parity — plan §7 decision 3):
   // groups are EXPANDED by default and never auto-collapse; the header click
   // is the only toggle, opt-in per group instance. Keyed by the group's
@@ -1161,6 +1176,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
               ))}
             </div>
           )}
+          {/* P2 state dock — live mode only, outside the virtual list,
+              directly above the composer. */}
+          <StateDock model={stateDock} />
           <Composer
             onSend={send}
             generating={generating}

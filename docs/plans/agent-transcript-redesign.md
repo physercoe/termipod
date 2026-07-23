@@ -1,4 +1,4 @@
-# Agent transcript redesign — tool groups, state chips, slash picker, kimi M4 wire-tail
+# Agent transcript redesign — embed kimi-web, tool groups, state dock, slash picker, kimi M4 wire-tail
 
 > **Type:** plan
 > **Status:** Draft — for maintainer review
@@ -10,12 +10,15 @@ individually-collapsed card, gives session state (todos, usage, mode) no real
 home, and — for kimi engines — silently drops usage/subagent/todo data that
 the engine produces but ACP doesn't stream. This plan redesigns the transcript
 around a shared model — **turn-grouped prose + batched tool-activity cards +
-a state-chip row** — borrowing proven patterns from kimi-web (MIT), Cline,
-and Zed, and adds a kimi `wire.jsonl` tail adapter as kimi's proper **M4**
-mode. Four delivery phases (tool groups → state chips → slash picker →
-wire-tail), all evidenced below from live probing of kimi-code 0.28.1 and a
-code map of both termipod clients. **Deferred by director decision:** mobile
-turn navigation (`TurnStepperPill`/`FeedMinimap` promotion) and mobile
+a kimi-web-style state dock** — borrowing proven patterns from kimi-web
+(MIT, source-verified), Cline, and Zed; embeds **`kimi web` as a desktop web
+panel** so kimi users get the first-class UI today; and adds a kimi
+`wire.jsonl` tail adapter as kimi's proper **M4** mode. Five delivery phases
+(**P0** embed panel → **P1** tool groups + plan fold-in-place + desktop
+parity → **P2** state dock → **P3** slash picker → **P4** wire-tail), all
+evidenced below from live probing of kimi-code 0.28.1, the kimi-web source,
+and a code map of both termipod clients. **Deferred by director decision:**
+mobile turn navigation (`TurnStepperPill`/`FeedMinimap` promotion) and mobile
 mode/plan/goal composer toggles.
 
 ---
@@ -87,15 +90,34 @@ driver already translates these (`translateConfigOptions`,
   `packages/transcript` (model library), `packages/protocol` (v2 schema),
   `packages/acp-adapter` (ground truth on what ACP strips).
 
-### 2.3. kimi-web transcript anatomy (screenshotted live)
+### 2.3. kimi-web transcript anatomy (screenshotted live + source-verified)
 
-Tool calls batched into a group card (`● ☰ N tool calls · done` header;
-rows = icon + verb + key arg + diffstat `+1 −1` + status ✓; per-row lazy
-expansion); assistant text as prose between groups; **filter chips above the
-composer** — `Bash (32) · Sub Agent (3) · Todos (3/5)` — where the Todos chip
-*is* the plan state (done/total); composer Mode menu (Plan/Swarm/Goal
-toggles) + permission-mode selector + model picker; `Latest messages` jump
-pill; `ConversationToc` turn navigation; inline media cards.
+**Turn rendering.** Consecutive tool calls in a turn form a `tool-stack`
+(`chatTurnRendering.ts` — a run of ≥2; a lone call renders standalone via
+position `single`). The group card (`ToolGroup.vue`): header `● ☰ N tool
+calls · <state>`, aggregate state = **running > error > done**; rows = icon +
+verb + key arg + diffstat `+1 −1` + status ✓, per-row lazy detail. Groups are
+**expanded by default and never auto-collapse** — header click is the only
+toggle (with scroll-pinning). Assistant text flows as prose between groups.
+
+**State dock (not transcript filters).** The chips above the composer —
+`Bash (32) · Sub Agent (3) · Todos (3/5)` — are a **bottom dock**
+(`ChatDock.vue`): ambient state chips that toggle a **dock panel** above the
+composer listing that kind of task. kimi-web has *no transcript filtering*;
+chips are state + detail-panel toggles, orthogonal to any lens. Only
+**background** bash/subagent tasks get chips — *foreground* subagents render
+inline in the transcript (`ConversationPane.vue:225-229`).
+
+**Todos.** The checklist (`TodoCard.vue`) renders **inside the dock panel**
+("待办 · N/M" header owned by the dock); done rows = strikethrough + faint,
+in-progress = medium weight, and todo rows share `StatusGlyph` with the
+bash/subagent task rows so all state reads as one system. On **mobile**,
+todos get a **dedicated `~/todo` tab** (TodoCard CSS), not a dock.
+
+**Composer.** Mode menu with Plan/Swarm/Goal toggles + permission-mode
+selector ("Manual") + model picker; `SlashMenu.vue` on `/`. Elsewhere:
+`Latest messages` jump pill, `ConversationToc` turn navigation, inline media
+cards, `GoalStrip`/`CronNotice`/`StatusPanel`/`TasksPane` state components.
 
 ![kimi-web tool groups](https://raw.githubusercontent.com/agentfleets/termipod/issue-assets-llmforge/docs/issue-assets/kimi-web/transcript-tool-groups.png)
 
@@ -105,9 +127,17 @@ pill; `ConversationToc` turn navigation; inline media cards.
 
 Source components (Vue, MIT): `apps/kimi-web/src/components/chat/`
 (`ToolGroup.vue`, `ToolRow.vue`, `ToolCall.vue`, `TodoCard.vue`,
-`ThinkingBlock.vue`, `DiffView.vue`, `ApprovalCard.vue`,
+`ChatDock.vue`, `ThinkingBlock.vue`, `DiffView.vue`, `ApprovalCard.vue`,
 `ConversationToc.vue`, `SlashMenu.vue`, `GoalStrip.vue`, `CronNotice.vue`,
 `TasksPane.vue`) + `chatTurnRendering.ts` (the turn-grouping model).
+
+### 2.3.1. kimi-web is embeddable — and its server is local
+
+`kimi web` serves the full UI on `127.0.0.1:<port>` with a bearer token in
+the URL hash (`#token=…`, printed at startup; persistent token rotatable via
+`kimi web rotate-token`). The UI is an SPA with client-side session switching
+— **no per-session deep link** (the hash carries the token, not routes).
+This makes the UI embeddable in a `<webview>` guest as-is (see P0).
 
 ### 2.4. Current termipod substrate (code map)
 
@@ -131,7 +161,7 @@ Already exists and reusable:
 
 | Source | License | Borrow |
 |---|---|---|
-| **kimi-web** (MoonshotAI/kimi-code) | MIT | Tool-group cards; filter chips with counts; Todos (n/m) chip; turn-grouped prose; `Latest messages` pill; `SlashMenu` UX |
+| **kimi-web** (MoonshotAI/kimi-code) | MIT | Tool-group cards (expanded-by-default, running>error>done); **state dock** (chips toggle a bottom task panel, not feed filters); Todos-in-dock with shared status glyphs; background-only task chips / foreground-subagents-inline; turn-grouped prose; `Latest messages` pill; `SlashMenu` UX |
 | **Cline** | Apache-2.0 | Task-timeline polish; per-edit approve/reject; cumulative session **Changes rollup** (P5) |
 | **Zed** agent panel | GPL — design only | ACP-native rendering: inline per-edit diffs, mode selector |
 | **Goose** (Block) | Apache-2.0 | Electron desktop IA (same shell tech as our desktop) |
@@ -146,10 +176,15 @@ patterns only — no palette, no light surfaces, no per-card shadows.
 
 ### Goals
 
+- G0. Kimi users get kimi's first-class transcript UI *today*, embedded as a
+  web panel in the desktop app — the escape hatch while G1–G5 build the
+  native cross-engine rendering (and the wedge that makes the assistant panel
+  type-extensible: terminal | files | **web**).
 - G1. Scan a busy transcript without expanding anything: tool activity is
   batched into glanceable group cards; errors still surface.
-- G2. Session state visible at a glance: a chip row with counts incl. a live
-  **Todos (done/total)** chip that opens the full checklist.
+- G2. Session state visible at a glance: a **state dock** — ambient chips
+  with live counts (incl. **Todos done/total**) that toggle a detail panel,
+  per the kimi-web ChatDock model. State, not feed filtering.
 - G3. Plan updates fold in place (one card updates, not N snapshots).
 - G4. Slash-command picker on both clients, fed engine-neutrally from the
   ACP catalog.
@@ -175,16 +210,49 @@ patterns only — no palette, no light surfaces, no per-card shadows.
 
 **Model:** turn groups (anchored by `input.text`) → assistant prose →
 **activity-group cards** (consecutive tool calls of a turn, one card) →
-rows (icon + verb + key arg + diffstat + status, lazy detail). A **state-chip
-row** (kind filters with live counts + Todos done/total) sits above the
-composer. Errors auto-expand at row level and surface in the group header
-count.
+rows (icon + verb + key arg + diffstat + status, lazy detail; groups expanded
+by default, user opt-in collapse; aggregate state running > error > done).
+A **state dock** sits above the composer: ambient chips with live counts
+(background tasks, background subagents, Todos done/total) that toggle a
+**detail panel** for that kind — *not* feed filters; the existing lens system
+stays untouched. Foreground subagents render inline in the transcript. Errors
+auto-expand at row level and surface in the group header count.
 
-**Renderers:** desktop gets the chip row + optional side/rail treatments;
-mobile gets the same chips above its composer and **bottom sheets** for the
-full todo checklist (no rails). Same reducers, same counts, same model.
+**Renderers:** desktop gets the dock panel above the composer; mobile gets
+the same chips, opening **dedicated tabs / bottom sheets** for the todo
+checklist (kimi-web's `~/todo` tab pattern — no rails, no docks on small
+screens). Same reducers, same counts, same model.
 
 ## 6. Phases
+
+### P0 — Embed kimi web as a session web panel (desktop escape hatch)
+
+Ships kimi's first-class transcript UI *inside* termipod today, and makes the
+assistant panel type-extensible (terminal | files | **web**). Independent of
+P1–P4, which build the native cross-engine rendering.
+
+- **Substrate exists**: the Read surface's `<webview>` stack
+  (`desktop/src/surfaces/BrowserView.tsx` + `desktop/electron/src/webtab.ts`)
+  already solves guest hardening — isolated partition, no preload, navigation
+  policy, real history. Add a third panel kind in the session area
+  (`desktop/src/terminal/SessionView.tsx` sub-tab switcher) hosting a guest.
+- **Local kimi**: spawn/attach `kimi web --no-open --port <free>` (lifecycle
+  mirrors `LocalAgentLauncher`'s local-process management), capture the
+  printed `#token=…`, embed `http://127.0.0.1:<port>/#token=<tok>`. Dedicated
+  `persist:kimiweb` partition; navigation policy pinned to loopback.
+- **Remote hosts**: one new wedge — SSH local port-forward (`forwardOut`) on
+  the existing ssh2 connection (termipod has no port-forwarding today; only
+  hub A2A tunnels), new `ssh_forward_start/stop` IPC; the same panel then
+  works for agents on remote GPU boxes running `kimi web` on their loopback.
+- **Honest caveats**: (a) kimi-web is an SPA with **no per-session deep
+  link** — the panel opens its last-active session and the user switches in
+  its own sidebar (upstream feature request candidate); (b) this is a
+  *parallel UI*, not an integration — hub events / attention / team features
+  do not see what happens inside the guest. It's "kimi's UI in our chrome",
+  not a data path.
+- Verification: desktop typecheck + e2e smoke (guest loads a loopback URL,
+  policy blocks external navigation); manual: kimi session usable end-to-end
+  inside the panel (todos dock, subagents, usage, mode toggles, slash menu).
 
 ### P1 — Tool-group cards + plan fold-in-place + desktop streaming parity
 
@@ -199,9 +267,13 @@ The daily-annoyance phase; pure client/hub presentation, no protocol change.
   stop always-hiding `tool_call_update` — fold into the parent card's status
   pill like mobile (`feedLens.ts:50-57`).
 - **Group cards, both clients**: group consecutive `tool_call` events within
-  a turn (threshold ≥2) into one card: header `● N tool calls · done/running`,
-  rows with icon + localized verb + key argument + diffstat + status, per-row
-  lazy expansion, error rows auto-expanded and counted in the header.
+  a turn (threshold ≥2 — kimi-web's `tool-stack` rule; a lone call stays
+  standalone) into one card: header `● N tool calls · <state>` with aggregate
+  state **running > error > done**; rows with icon + localized verb + key
+  argument + diffstat + status, per-row lazy detail. **Groups default
+  expanded and never auto-collapse** (kimi-web behavior — collapse is user
+  opt-in per group); error rows auto-expand their detail and are counted in
+  the header.
   - Mobile: `live_feed.dart` build pipeline (post-`FoldMaps`),
     `transcript/tool_renderers.dart` group widget; reuse `FoldableToolCall`
     for rows.
@@ -212,20 +284,27 @@ The daily-annoyance phase; pure client/hub presentation, no protocol change.
   surfacing); desktop typecheck + e2e smoke; manual: a kimi steward session
   with 10+ tool calls scans cleanly.
 
-### P2 — State-chip row + Todos chip (the session-state home)
+### P2 — State dock (the session-state home, kimi-web ChatDock model)
 
-- **Chip row above the composer, both clients**: `Tools (n) · Sub-agents (n)
-  · Todos (done/total) · Errors (n)` — counts from existing reducers +
-  `FoldMaps`; chips act as lens filters (extends `FeedLens`, no new state
-  system). Mobile replaces the hidden funnel menu (`feed_misc.dart:210`);
-  desktop augments the lens `<select>` (`AgentTranscript.tsx:960`).
-- **Todos chip** opens the live checklist: mobile modal bottom sheet, desktop
-  popover — fed by the latest folded `plan` event (P1 makes this stable).
-- Sub-agent chip counts `Agent`/`Task`-named tool calls (name match,
-  engine-agnostic); deep subagent rendering waits for P4 (kimi) / upstream
-  (others).
-- Verification: reducer unit tests for counts; lens behavior unchanged when
-  no chip active.
+Ambient state chips above the composer that **toggle a detail panel** — state
+visibility, not feed filtering (the lens/funnel system stays untouched on
+both clients).
+
+- **Chips (both clients)**: `Tasks (n running) · Sub-agents (n) · Todos
+  (done/total)` — counts from existing reducers + `FoldMaps`. **Background
+  tasks only** earn chips; foreground subagents render inline in the
+  transcript (kimi-web rule). Background detection: ACP/tool-call metadata
+  where available (kimi `display` hints via P4, claude task frames);
+  engine-agnostic name match (`Agent`/`Task`) as the baseline.
+- **Desktop**: a collapsible **dock panel above the composer**
+  (ChatDock analogue) listing the chip's kind — task rows and todo rows share
+  one status-glyph style, done todos strikethrough + faint. Todos content
+  comes from the folded `plan` card (P1 makes it stable).
+- **Mobile**: chips open a **dedicated tab / modal bottom sheet** with the
+  same lists (kimi-web's `~/todo` tab pattern) — no dock on small screens.
+- Verification: reducer unit tests for counts; widget/component tests for the
+  dock open/close + list rendering; lens behavior unchanged (no chip = no
+  filter).
 
 ### P3 — Slash-command picker (engine-neutral, ACP catalog)
 
@@ -284,19 +363,23 @@ the wire store:
 
 ## 7. Open questions for the maintainer
 
-1. Tool-group threshold and default expansion: group at ≥2 consecutive calls,
-   header collapsed when the group is done? (kimi-web ships expanded-rows /
-   collapsible-header; Cline ships collapsed-by-default.) Proposal: expanded
-   rows while running, auto-collapse header on turn end.
-2. Should the chip row *replace* the lens control or coexist (chips = quick
-   lenses, funnel = advanced)? Proposal: coexist on desktop, replace on
-   mobile.
-3. P4 scope guard: OK to keep M1-enrichment out of P4 and review it as its
-   own wedge?
-4. Where does the desktop Todos popover live — anchored to the chip, or a
-   pinned card in the status bar (`.transcript-status`)?
-5. Mobile funnel removal: any operator attachment to the current funnel UI,
-   or clean swap?
+1. **P0 scope**: is the embedded-kimi-web panel wanted at all (it is a
+   parallel, non-integrated UI), and is **local-first** acceptable with the
+   remote SSH-forward wedge as its own follow-up PR? Proposal: yes / yes.
+2. **Web-panel type generalization**: P0 adds a "web" panel kind to the
+   session area. Keep it kimi-scoped for now, or design the panel-kind
+   registry for any agent web UI (goose, opencode) from the start? Proposal:
+   kimi-scoped UI, registry-shaped internals.
+3. **Tool-group expansion**: the plan now follows kimi-web exactly (≥2
+   threshold, expanded by default, no auto-collapse, user opt-in per group).
+   Any objection, or a maintained preference for Cline-style
+   collapsed-by-default? Proposal: kimi-web behavior as written.
+4. **P4 scope guard**: OK to keep M1-enrichment out of P4 and review it as
+   its own wedge? (Dedupe/provenance between ACP frames and wire events for
+   the same tool call needs its own design.)
+5. **Mobile todo surface**: dedicated tab (kimi-web's `~/todo` pattern) or a
+   modal bottom sheet over the feed? Proposal: bottom sheet first (less IA
+   churn), tab if the checklist becomes multi-section.
 
 ## Appendix A — ACP probe transcript (excerpt)
 

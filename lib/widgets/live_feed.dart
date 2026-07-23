@@ -26,6 +26,8 @@ import 'transcript/feed_misc.dart';
 import 'transcript/feed_telemetry.dart';
 import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
+import 'transcript/session_activity.dart';
+import 'transcript/session_activity_dock.dart';
 import 'transcript/tool_renderers.dart';
 import 'transcript/transcript_seek.dart';
 import 'transcript/interaction_cards.dart';
@@ -1155,6 +1157,15 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
             onToggle: () => setState(() => _verbose = !_verbose),
           )
         : null;
+    // P2 state dock (agent-transcript-redesign §6 P2, decision §7.5):
+    // ambient session-state chips above the composer. Derived from the
+    // FULL _events list (+ the same FoldMaps the cards render from) —
+    // deliberately NOT the lensed list, so a lens change can't move the
+    // counts (state visibility, not feed filtering). The strip self-hides
+    // when no chip's visibility rule holds, so it's placed
+    // unconditionally. The empty-feed early return above doesn't need it:
+    // zero events → zero chips.
+    final sessionActivity = sessionActivityFromEvents(_events, fold);
     return Column(
       children: [
         // session.init is rendered in the parent AppBar via the
@@ -1406,6 +1417,10 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
             ],
           ),
         ),
+        // P2 state dock — the chip strip sits directly above the composer
+        // (kimi-web ChatDock placement). Tapping a chip opens a modal
+        // bottom sheet; it never touches the lens.
+        SessionActivityStrip(activity: sessionActivity),
         compose,
       ],
     );

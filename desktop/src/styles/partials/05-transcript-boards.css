@@ -622,10 +622,108 @@
 .tg-status.st-done {
   color: var(--ok);
 }
+/* P2 state dock reuses these glyphs; a PENDING todo takes the plan card's
+   muted square (running/error/done above cover the task rows). */
+.tg-status.st-pending {
+  color: var(--text-muted);
+}
 .tg-detail {
   margin-bottom: var(--spacing-s4);
   padding-top: var(--spacing-s2, 2px);
   border-top: 1px dashed var(--border);
+}
+
+/* ---- P2 state dock (agent-transcript-redesign §6 P2) ----
+   kimi-web ChatDock parity: ambient session-state chips above the composer
+   toggle ONE detail panel — state visibility, not feed filtering (the lens
+   system is untouched). The chips follow the feed-verbose pill idiom (the
+   existing chip look in the transcript chrome); the panel is a flat surface
+   + hairline, per the #332 token stance — no shadows, no light surfaces.
+   Task/sub-agent rows and todo rows share the ToolGroupCard status glyphs
+   (tg-status st-*) so all session state reads as one system; todo styling
+   (done = strikethrough + faint, in-progress = medium weight) matches the
+   plan card. */
+.sd {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+.sd-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s6) var(--spacing-s12);
+}
+.sd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: 3px 10px;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  border-radius: var(--radius-stadium);
+}
+.sd-chip.active {
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+}
+.sd-panel {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.sd-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  color: var(--text);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.sd-close {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+.sd-rows {
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-s4) var(--spacing-s12) var(--spacing-s8);
+}
+.sd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  min-width: 0;
+  padding: var(--spacing-s4) 0;
+  font-size: var(--font-size-body-small);
+}
+.sd-row-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text);
+}
+.sd-todo-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-todo.done .sd-todo-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.sd-todo.doing .sd-todo-text {
+  font-weight: 500;
+}
+.sd-empty {
+  padding: var(--spacing-s8) var(--spacing-s12);
+  font-size: var(--font-size-label);
 }
 .ev-diff-path {
   font-family: var(--font-mono, monospace);

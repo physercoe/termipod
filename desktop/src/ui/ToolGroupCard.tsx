@@ -22,6 +22,9 @@ function statusGlyph(s: ToolStatus): { icon: 'circle-half' | 'close' | 'check'; 
   if (s === 'done') return { icon: 'check', cls: 'tg-status st-done' };
   return { icon: 'circle-half', cls: 'tg-status st-running' };
 }
+// Exported for the P2 state dock (StateDock.tsx) — task/sub-agent/todo rows
+// share these glyphs so all session state reads as one system.
+export { statusGlyph };
 
 function GroupRow({
   ev,

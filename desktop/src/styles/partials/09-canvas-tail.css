@@ -4,44 +4,52 @@
   min-height: 0;
   display: flex;
 }
-.canvas-viewport {
+/* React Flow host (canvas v2). RF paints the pan/zoom surface, edges, minimap,
+   and controls; our custom node/edge components live inside .react-flow__node /
+   the EdgeLabelRenderer and are themed below. */
+.canvas-flow {
   position: relative;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  min-height: 0;
   background: var(--bg);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
 }
-.canvas-viewport:active {
-  cursor: grabbing;
+.canvas-flow .react-flow__attribution {
+  display: none;
 }
-.canvas-viewport.connecting {
-  cursor: crosshair;
+.canvas-flow .react-flow__controls-button {
+  background: var(--raised);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
 }
-.canvas-world {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: 0 0;
-  will-change: transform;
+.canvas-flow .react-flow__controls-button:hover {
+  background: var(--hover);
 }
-.canvas-edges {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 1px;
-  height: 1px;
-  overflow: visible;
-  pointer-events: none;
+.canvas-flow .react-flow__controls-button svg {
+  fill: currentColor;
 }
-.canvas-edge-line {
+.canvas-flow .react-flow__minimap {
+  background: var(--surface);
+}
+.canvas-flow .react-flow__edge-path {
   stroke: var(--border-strong, var(--text-muted));
   stroke-width: 1.5;
 }
-#canvas-arrow path {
-  fill: var(--border-strong, var(--text-muted));
+.canvas-flow .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent);
+}
+/* Connection handles — small dots on the four sides, revealed on hover/select. */
+.canvas-handle {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border: 1px solid var(--bg);
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+.canvas-node:hover .canvas-handle,
+.react-flow__node.selected .canvas-handle {
+  opacity: 0.9;
 }
 .canvas-edge-label {
   position: absolute;
@@ -75,8 +83,14 @@
 .canvas-edge-x:hover {
   color: var(--danger);
 }
-.canvas-card {
-  position: absolute;
+/* Custom node chrome. RF wraps each in .react-flow__node (position/size); the
+   .canvas-node fills it. */
+.canvas-node {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: var(--raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -84,17 +98,34 @@
   font-size: var(--font-size-body-small);
   overflow: hidden;
 }
-.canvas-card.ref {
+.canvas-node.ref {
   border-left: 3px solid var(--accent);
 }
-.canvas-card.selected {
+.canvas-node.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-tint), var(--sh-1);
 }
-.canvas-card.connect-src {
-  box-shadow: 0 0 0 2px var(--accent), var(--sh-1);
+.canvas-node.group {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-style: dashed;
+  box-shadow: none;
 }
-.canvas-card-head {
+.canvas-node.group.selected {
+  border-style: solid;
+}
+.canvas-node.inert {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.canvas-node-grouplabel {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.canvas-node-head {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
@@ -104,59 +135,87 @@
   cursor: grab;
   user-select: none;
 }
-.canvas-card-head:active {
-  cursor: grabbing;
-}
-.canvas-card-kind {
+.canvas-node-kind {
   color: var(--accent-text);
   flex: 0 0 auto;
 }
-.canvas-card-title {
+.canvas-node-title {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
 }
-.canvas-card-note {
+.canvas-node-note {
+  flex: 1;
   width: 100%;
   border: none;
   background: transparent;
   color: var(--text);
   resize: none;
   padding: var(--spacing-s8);
-  min-height: 54px;
   font: inherit;
   font-size: var(--font-size-body-small);
 }
-.canvas-card-note:focus {
+.canvas-node-note:focus {
   outline: none;
 }
-.canvas-card-ref {
+.canvas-node-ref {
   padding: var(--spacing-s8);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s4);
+  overflow: auto;
 }
-.canvas-card-ref-tldr {
+.canvas-node-ref-tldr {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: var(--text-secondary);
 }
-.canvas-hint {
+/* Node color swatches (inspector); JSON Canvas presets 1–6 + "none". */
+.canvas-insp-colors {
+  display: flex;
+  gap: var(--spacing-s4);
+  flex-wrap: wrap;
+}
+.canvas-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: none;
+}
+.canvas-swatch.none {
+  position: relative;
+  background: var(--raised);
+}
+.canvas-swatch.none::after {
+  content: '';
   position: absolute;
-  top: var(--spacing-s12);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  background: var(--accent);
-  color: var(--accent-ink);
-  padding: var(--spacing-s4) var(--spacing-s12);
-  border-radius: var(--radius-stadium);
-  font-size: var(--font-size-body-small);
-  box-shadow: var(--sh-1);
+  inset: 3px;
+  border-top: 1.5px solid var(--danger);
+  transform: rotate(45deg);
+  transform-origin: center;
+}
+.canvas-swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.canvas-toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 var(--spacing-s4);
+}
+.canvas-readonly {
+  color: var(--warning, var(--text-muted));
+}
+.mirror-x {
+  transform: scaleX(-1);
 }
 .canvas-empty {
   position: absolute;

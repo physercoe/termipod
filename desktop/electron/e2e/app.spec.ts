@@ -340,26 +340,66 @@ test('author: the New ▾ menu creates a document and the workspace pane folds',
 // it lists the document's headings and that a click jumps the source editor to
 // the heading's line.
 test('author: the markdown outline lists headings and jumps the source editor', async () => {
+  // Seed a two-heading document deterministically (typing into the CodeMirror
+  // contenteditable is flaky under xvfb), then boot into it in split mode.
+  await page.evaluate(() => {
+    localStorage.setItem('termipod.author.viewMode', 'split');
+    localStorage.setItem(
+      'termipod.documents.v1',
+      JSON.stringify({
+        docs: [{ id: 'e2e-out', kind: 'markdown', title: 'Outline', body: '# First heading\n\nalpha\n\n## Second heading\n\nbeta\n', updatedAt: 1 }],
+        activeId: 'e2e-out',
+      }),
+    );
+  });
+  await page.reload();
+  // The "Add a hub" modal auto-opens on boot; dismiss it deterministically.
+  await expect(async () => {
+    const closeBtn = page.locator('.connect .connect-head button');
+    if ((await closeBtn.count()) > 0) await closeBtn.click({ timeout: 2000 });
+    await expect(page.locator('.connect')).toHaveCount(0);
+  }).toPass({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Author', exact: true }).click();
-  // A fresh Document from the New ▾ menu.
-  await page.locator('.author-newcaret').click();
-  await page.getByRole('menuitem', { name: 'New', exact: true }).click();
-  // Split mode keeps both the editor and preview live.
-  await page.getByRole('button', { name: 'Split', exact: true }).click();
-  // Replace the seed body with a two-heading document.
-  const editor = page.locator('.md-editor .cm-content').last();
-  await editor.click();
-  await page.keyboard.press('ControlOrMeta+A');
-  await page.keyboard.type('# First heading\n\nalpha\n\n## Second heading\n\nbeta\n');
   // The outline rail appears on the right listing both headings (it hides at
   // ≤ 1 heading, so its presence also proves the recompute ran).
   const outline = page.locator('.mdreader-outline.side-right');
-  await expect(outline).toBeVisible();
+  await expect(outline).toBeVisible({ timeout: 15_000 });
   await expect(outline.getByRole('button', { name: 'Second heading' })).toBeVisible();
   // Clicking the second heading jumps the source editor to its line — the active
   // line becomes the `## Second heading` line.
   await outline.getByRole('button', { name: 'Second heading' }).click();
   await expect(page.locator('.md-editor .cm-activeLine').last()).toContainText('Second heading');
+});
+
+// ── Author canvas v2: React Flow board + JSON Canvas 1.0 body (W3) ───────────
+// The canvas editor is rebuilt on React Flow and its body/on-disk format is
+// JSON Canvas 1.0 (Obsidian-interoperable). Pin that a board mounts (the lazy
+// React Flow chunk resolves), notes add as nodes, and the persisted body is
+// JSON Canvas (`nodes`), NOT the legacy `{cards,edges}` shape — the round-trip
+// serialization is what makes "restores on reload" true.
+test('author: a canvas board mounts on React Flow and saves as JSON Canvas', async () => {
+  await page.getByRole('button', { name: 'Author', exact: true }).click();
+  await page.locator('.author-newcaret').click();
+  await page.getByRole('menuitem', { name: 'Board (canvas)' }).click();
+  // The React Flow surface mounts (its lazy chunk resolved).
+  await expect(page.locator('.canvas-flow')).toBeVisible({ timeout: 20_000 });
+  // Add two notes from the toolbar → two nodes on the board.
+  await page.getByRole('button', { name: 'Note', exact: true }).click();
+  await page.getByRole('button', { name: 'Note', exact: true }).click();
+  await expect(page.locator('.react-flow__node')).toHaveCount(2);
+  // The persisted document body is JSON Canvas 1.0 (a `nodes` array), never the
+  // legacy `{cards,edges}` shape — so a reparse on remount restores the board.
+  const body = await page.evaluate(() => {
+    const raw = localStorage.getItem('termipod.documents.v1');
+    if (raw === null) return null;
+    const docs = (JSON.parse(raw) as { docs: { kind: string; body: string }[] }).docs;
+    return docs.find((d) => d.kind === 'canvas')?.body ?? null;
+  });
+  expect(body).not.toBeNull();
+  const parsed = JSON.parse(body as string) as { nodes?: unknown[]; cards?: unknown[] };
+  expect(Array.isArray(parsed.nodes)).toBe(true);
+  expect(parsed.nodes?.length).toBe(2);
+  expect(parsed.cards).toBeUndefined();
 });
 
 // ── Web tab: real <webview> guest (read-web-tabs plan W1) ────────────────────

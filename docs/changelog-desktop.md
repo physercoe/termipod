@@ -42,6 +42,21 @@ This complements:
 ## Unreleased
 
 ### Added
+- **Author · canvas v2 (W3)**: the canvas board is rebuilt on **React Flow**
+  (`@xyflow/react`, MIT, lazy-loaded) and its body / on-disk `.canvas` format is
+  now **JSON Canvas 1.0** (jsoncanvas.org) — so a board round-trips with Obsidian
+  and other JSON Canvas apps. Note cards → `text` nodes, reference cards →
+  `link` nodes (`termipod://ref/<id>` + a namespaced `x-termipod.refId`), typed
+  edges → labeled edges (`x-termipod.edgeType`); the Zettelkasten wiring (live
+  library reference cards, typed edges, backlink inspector) carries over. New
+  capabilities: card **resize**, marquee **multi-select** + multi-drag +
+  delete-key, **side-anchored** edges, **minimap** + zoom controls + fit-view,
+  **groups**, node **colors**, and **undo/redo** (Cmd/Ctrl+Z, suppressed while a
+  text field is focused). A **legacy `{cards,edges}` board auto-converts** on
+  open (upgraded on first save), and an **unrecognized `.canvas` opens read-only**
+  with a notice instead of being overwritten with an empty board — closing the
+  data-loss foot-gun. Unknown JSON Canvas fields/node types are preserved through
+  a round-trip. *(The interaction layer is device-verified separately.)*
 - **Author · markdown outline (W2)**: the markdown editor gains a foldable
   **right-hand outline** (Obsidian-style), reusing the shared `MarkdownOutline`
   rail. Clicking a heading jumps the **source editor** to its line (edit/split),

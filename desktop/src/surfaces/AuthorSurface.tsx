@@ -23,7 +23,9 @@ import { docKindIcon, Icon, type IconName } from '../ui/Icon';
 import { useTextPrompt } from '../ui/PromptModal';
 import { AuthorNav } from './AuthorNav';
 import { DiagramEditor } from './DiagramEditor';
-import { CanvasEditor } from '../ui/CanvasEditor';
+// The canvas board pulls in React Flow (a few hundred KB) — split it out so the
+// dependency loads only when a board is opened, never at app boot.
+const CanvasEditor = lazy(() => import('../ui/CanvasEditor').then((m) => ({ default: m.CanvasEditor })));
 import { Markdown, slugify } from '../ui/Markdown';
 import { extractHeadings, MarkdownOutline, type Head } from '../ui/MarkdownOutline';
 // The table/database grid is only pulled in when a table doc is opened.
@@ -626,7 +628,9 @@ export function AuthorSurface(): JSX.Element {
           {active.kind === 'diagram' ? (
             <DiagramEditor key={active.id} doc={active} />
           ) : active.kind === 'canvas' ? (
-            <CanvasEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />
+            <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
+              <CanvasEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />
+            </Suspense>
           ) : active.kind === 'table' ? (
             <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
               <TableEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />

@@ -43,7 +43,7 @@ export interface Doc {
 
 // Default body for a freshly-created document of each non-markdown kind. Canvas
 // and table bodies are JSON; a blank markdown/diagram starts empty-ish.
-const CANVAS_SEED = '{"cards":[],"edges":[]}';
+const CANVAS_SEED = '{"nodes":[],"edges":[]}'; // JSON Canvas 1.0 empty board
 const TABLE_SEED =
   '{"columns":[{"id":"col0","name":"Name","type":"text"}],"rows":[{"id":"row0","cells":{}},{"id":"row1","cells":{}},{"id":"row2","cells":{}}]}';
 // A valid empty Excalidraw scene, so a freshly-created `.excalidraw` file on disk

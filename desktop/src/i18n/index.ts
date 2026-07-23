@@ -1397,6 +1397,10 @@ const en: Dict = {
   'inspect.cancel': 'Cancel',
   'inspect.viewAsDiff': 'View as diff',
   'inspect.viewAsLog': 'View as log',
+  'inspect.viewAsGraph': 'View as graph',
+  'graph.rendering': 'Rendering graph…',
+  'graph.reset': 'Fit',
+  'graph.copySvg': 'Copy SVG',
   'inspect.viewSource': 'View source',
 
   // Log viewer (W3)
@@ -2871,6 +2875,10 @@ const zh: Dict = {
   'inspect.cancel': '取消',
   'inspect.viewAsDiff': '以差异查看',
   'inspect.viewAsLog': '以日志查看',
+  'inspect.viewAsGraph': '以图查看',
+  'graph.rendering': '正在渲染图…',
+  'graph.reset': '适配',
+  'graph.copySvg': '复制 SVG',
   'inspect.viewSource': '查看源码',
 
   // 日志查看器（W3）

@@ -654,6 +654,25 @@ test('inspect: a pasted log renders the virtualized log viewer, filters and sear
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
 
+test('inspect: a pasted DOT graph renders to SVG via the wasm engine (graph)', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  const editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  await editor.click({ force: true });
+  await editor.focus();
+  // DOT graph — line 1 is unindented so `looksLikeDot` fires; inner lines may be
+  // auto-indented (harmless — DOT is whitespace-insensitive, semicolons terminate).
+  await page.keyboard.type(['digraph G {', 'rankdir=LR;', 'alpha -> beta;', 'beta -> gamma;', '}'].join('\n'));
+  await page.getByRole('button', { name: 'View as graph' }).click();
+  // The lazy DotGraphView mounts and the wasm Graphviz engine renders an SVG.
+  await expect(page.locator('.dotgraph')).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('.dotgraph-svg svg')).toBeVisible({ timeout: 20000 });
+  // Graphviz emits node labels as SVG <text>; our nodes are alpha/beta/gamma.
+  await expect(page.locator('.dotgraph-svg svg')).toContainText('alpha');
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});
+
 test('inspect: the log index commands slice + search a file without slurping it (W3)', async () => {
   // Exercise the main-process line index directly through the bridge — the
   // no-whole-file-read path LogView's IndexedLogModel drives.

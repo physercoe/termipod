@@ -1460,6 +1460,46 @@ button > .ui-icon:not(:only-child):first-child,
   min-height: 0;
   display: flex;
 }
+.inspect-graphwrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.dotgraph {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dotgraph-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.dotgraph-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+  background: var(--bg);
+}
+.dotgraph-canvas:active {
+  cursor: grabbing;
+}
+.dotgraph-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.dotgraph-svg svg {
+  display: block;
+  max-width: none;
+}
 .logview {
   flex: 1;
   min-height: 0;

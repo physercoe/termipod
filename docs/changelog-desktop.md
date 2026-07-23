@@ -111,6 +111,12 @@ This complements:
   repeats" toggle turns it off. Grouping is by structural signature, so a
   heterogeneous stack (e.g. a few dense layers then MoE layers) splits into
   separate groups, and nested repeats (MoE experts) collapse too.
+- **Inspect graphs — Graphviz DOT viewer (W4).** A new **graph** tab kind renders
+  Graphviz **DOT** as a pan/zoomable SVG via a WebAssembly Graphviz engine
+  (`@hpcc-js/wasm-graphviz`, fully offline). Open a `.dot`/`.gv` file (a DVC dag,
+  a saved graph), or paste a `digraph {…}` scratch and hit **View as graph**;
+  zoom (wheel/±), pan (drag), fit, copy SVG. This is the shared render substrate
+  the forthcoming code2flow call-graph and torchview model-tracer will emit into.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

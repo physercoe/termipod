@@ -334,6 +334,16 @@ custom forward code, patched attention, or adapters are invisible to it; the
 code→graph tracer below is the ground-truth path. (GGUF needs no sidecar —
 its own metadata carries the same fields.)
 
+**DOT render substrate — SHIPPED 2026-07-23.** The WASM-graphviz render path
+that both producers below target is built and standalone-useful: a new **graph**
+tab kind (`state/dotGraph.ts` `renderDot` via `@hpcc-js/wasm-graphviz` — the wasm
+is inlined in the package, so no asset self-hosting, just the CSP's existing
+`wasm-unsafe-eval`; `ui/DotGraphView.tsx` pan/zoom SVG, lazy chunk) renders any
+`.dot`/`.gv` file or pasted `digraph {…}` (sniffed by `looksLikeDot`, **View as
+graph**). `node --test` covers the sniff + a real DOT→SVG render. The code2flow
+call-graph and the torchview tracer (both needing a Python venue) now only have
+to *produce* DOT and hand it here.
+
 **Graph view**: the Model Explorer custom element as a lazy chunk, fed
 (a) the synthesized namespace hierarchy for safetensors/GGUF (its JSON format
 is namespace-hierarchical — exactly this shape), (b) the real node/edge graph

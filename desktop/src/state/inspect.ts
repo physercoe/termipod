@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { looksLikeDot } from './dotGraph';
 
 /// The Inspect (J3) surface's open-tab model — the multi-source inspector shell
 /// that replaces the round-1 paste textarea. Each tab is a viewer over one
@@ -18,7 +19,7 @@ import { create } from 'zustand';
 /// activate (open question 1's proposed answer), so a huge log or checkpoint is
 /// never copied into `localStorage`.
 
-export type InspectKind = 'code' | 'diff' | 'log' | 'model';
+export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub';
 
 /// A reference to one readable source — the two sides of a two-blob compare
@@ -60,15 +61,18 @@ export interface InspectTab {
 const DIFF_EXTS = new Set(['diff', 'patch']);
 const LOG_EXTS = new Set(['log']);
 const MODEL_EXTS = new Set(['safetensors', 'gguf', 'onnx']);
+const GRAPH_EXTS = new Set(['dot', 'gv']);
 
 export function kindForInspectFile(ext: string, content: string): InspectKind {
   const e = ext.toLowerCase();
   if (MODEL_EXTS.has(e)) return 'model';
+  if (GRAPH_EXTS.has(e)) return 'graph';
   if (DIFF_EXTS.has(e)) return 'diff';
   if (LOG_EXTS.has(e)) return 'log';
   // Content sniff: a unified diff / git patch pasted without an extension.
   const head = content.slice(0, 2048);
   if (/^(diff --git |Index: |--- \S+\n\+\+\+ )/m.test(head) && /^@@ /m.test(head)) return 'diff';
+  if (looksLikeDot(content)) return 'graph';
   return 'code';
 }
 

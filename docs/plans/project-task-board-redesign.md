@@ -1,7 +1,7 @@
 # Project & task board redesign — master-detail desktop, in-review lifecycle, agent-aware DnD
 
 > **Type:** plan
-> **Status:** Draft — for maintainer review
+> **Status:** Accepted 2026-07-23 — maintainer decisions recorded in §6
 > **Audience:** contributors, maintainer
 > **Last verified vs code:** main @ `c9a247d8`, 2026-07-23
 
@@ -15,8 +15,8 @@ agent-derived via `agent_spawns.task_id`, and projects carry phase gates
 gap, not a model gap. This plan borrows Vibe Kanban's task-execution loop
 (status board, **In-review lifecycle**, master-detail, attempts) and the
 cloud-agent review flow, in five wedges. Companion to the agent-transcript
-redesign plan (`docs/plans/agent-transcript-redesign.md`, in flight as PR
-#363 — its P5 review-feedback wedge lands here as W5).
+redesign plan (`docs/plans/agent-transcript-redesign.md`, merged `c97c522c`
+— its P5 "Session Changes rollup" future item lands here as W5).
 
 ---
 
@@ -54,9 +54,14 @@ redesign plan (`docs/plans/agent-transcript-redesign.md`, in flight as PR
 **But the hub model is secretly ahead of the reference products:**
 
 - Task statuses `todo|in_progress|blocked|done|cancelled` are **agent-derived**
-  (`hub/internal/server/handlers_tasks.go:24-31`): spawn flips
-  todo→in_progress, agent crash→blocked, agent terminated→done, cancelled is
-  human-only. Agent link = `agent_spawns.task_id` (1:N) with denormalized
+  (`hub/internal/server/handlers_tasks.go:24-31`,
+  `deriveTaskStatusFromAgent` in `handlers_agents.go`): spawn flips
+  todo→in_progress; agent crash/failed→blocked; agent terminated **splits on
+  `result_summary`** — with a summary → done, without → **cancelled** (the
+  v1.0.619 rule: an abandoned task must not look completed); cancelled is
+  human-only, and `blocked`/`cancelled` are **never overwritten** by
+  auto-derive (v1.0.628: the worker's verdict outlives operator cleanup).
+  Agent link = `agent_spawns.task_id` (1:N) with denormalized
   `assignee_handle/status`, `started_at`, `completed_at`, `result_summary`
   (ADR-029 W10).
 - Projects carry **phase gates** — deliverables with ratify/send-back and
@@ -136,11 +141,16 @@ terminal logs + test output as verifiable evidence). This reinforces W2/W5.
 ## 4. The design
 
 **Status model (W2).** `todo | in_progress | blocked | in_review | done |
-cancelled`. Auto-derivation updated: agent terminated → `in_review` (was
-`done`); human accept → `done` (optionally with note); send-back →
-`in_progress` with a note posted to the assignee session. `cancelled` stays
-human-only. Board columns: the five active states; cancelled moves to a tab
-filter (VK's Active|All|Cancelled pattern).
+cancelled`. Auto-derivation updated: agent terminated **with a
+`result_summary`** → `in_review` (was `done`); terminated **without** one
+stays → `cancelled` **unchanged** (v1.0.619 — an abandoned task has nothing
+to review and must not enter the review queue); crash/failed → `blocked`
+unchanged; and the never-overwrite guards for `blocked`/`cancelled`
+(v1.0.628) must survive the change intact. Human accept → `done`
+(optionally with note); send-back → `in_progress` with a note posted to the
+assignee session. `cancelled` stays human-only. Board columns: the five
+active states; cancelled moves to a tab filter (VK's Active|All|Cancelled
+pattern).
 
 **Desktop master-detail (W1).** `TasksTab` becomes a split: board left
 (~45%, columns `flex: 1 1 200px` — stretch to fill, no fixed 220px), selected
@@ -170,8 +180,10 @@ attempt, listed in the detail panel's audit section with agent/result/age.
 Read-only framing over the existing 1:N `agent_spawns.task_id`.
 
 **Left nav parity (W4).** Desktop project rows gain: attention badge, phase
-pill, progress bar (closed/total), children attention rollups — the mobile
-`_ProjectListCard` content, same hub payload.
+pill, progress bar (the phase-weighted `/v1/insights` metric —
+`(phases_done + current_phase_AC_ratio) / phases_total`, NOT a task count),
+children attention rollups — the mobile `_ProjectListCard` content, same
+hub payload.
 
 **Mobile deltas (W2/W4 only).** `in_review` in the status chips + task tile;
 accept/send-back actions on the task detail (mirroring the deliverable
@@ -184,14 +196,34 @@ unchanged.
   `ProjectBoard.tsx` (TasksTab split), `TaskDetail.tsx` (panel-ize + full
   content), `05-transcript-boards.css` (column flex, card styles). The
   visible widescreen win. Desktop-only; no hub change.
-- **W2 — `in_review` lifecycle end-to-end.** Hub: `handlers_tasks.go`
-  derivation (terminated→in_review), accept/send-back endpoints or PATCH
-  transitions + notes; migration for the new enum value; existing `done`
-  tasks untouched. Clients: status pickers, board column, mobile chips +
-  detail actions. Docs: ADR-029 semantics update note.
+- **W2 — `in_review` lifecycle end-to-end.** Hub — there is **no schema
+  migration**: task status has no CHECK constraint (`handlers_tasks.go:24`);
+  the vocabulary lives in handlers, and W2's real hub surface is:
+  - `deriveTaskStatusFromAgent` (`handlers_agents.go`) — the split
+    derivation per §4, guards intact;
+  - `apply_task_set_status.go` — `proposePermittedTaskStatuses` is
+    `done|cancelled` only today; send-back (`in_review`→`in_progress`) via
+    steward propose needs the vocabulary + transition rules extended;
+  - `digest_store.go:303` — the assignee-history query is
+    `status IN ('done','cancelled','blocked')`; without adding `in_review`,
+    freshly finished work vanishes from assignee digests;
+  - `handlers_agents.go:1351` — `done|cancelled` reject new spawns;
+    `in_review` must **allow** them (that's what powers "new attempt" and
+    send-back);
+  - accept/send-back as PATCH transitions + notes; existing `done` rows
+    untouched.
+  **Rollout order (version skew):** clients hard-code the status
+  vocabulary — an unknown status silently drops from mobile's grouped list
+  (exactly issue #61's recorded count-vs-list bug class) and from desktop's
+  fixed columns. Ship the client `in_review` column/chips (plus an
+  unknown-status fallback bucket so this class dies for good) **before**
+  the hub flips derivation. Clients: status pickers, board column, mobile
+  chips + detail actions. Docs: ADR-029 semantics update note.
 - **W3 — DnD-with-assign + filters/search (desktop).** HTML5 drag events on
   cards/columns; transition guard per the derivation table; assign sheet
-  reuse (`AgentSpawn`); toolbar chips + search.
+  reuse (`AgentSpawn` — which has **no `task_id` plumbing today**; W3 adds
+  the prop and passes it through to the spawn call, which the hub API
+  already accepts); toolbar chips + search.
 - **W4 — Attempts framing + left-nav parity (desktop).** Detail panel
   attempts section from spawn history; "New attempt" action; left-nav card
   content port.
@@ -202,23 +234,19 @@ unchanged.
 Each wedge is its own PR; W1 is independent and can ship first; W2 touches
 hub + both clients and should land behind the status migration.
 
-## 6. Open questions for the maintainer
+## 6. Decisions (maintainer, 2026-07-23)
 
-1. **`in_review` as a new status vs. a flag on `done`** — a new enum value is
-   cleaner for boards/filters but touches the derivation table, mobile
-   filters, and every status switch in the codebase; a `reviewed` flag keeps
-   the enum stable. Proposal: new status (matches VK, reads better on
-   boards), with a migration note for existing `done` rows (they stay done).
-2. **Send-back target**: does send-back return the task to `in_progress`
-   (re-engaging the same assignee session with the note) or to `todo`
-   (re-assignment)? Proposal: `in_progress` when the assignee session is
-   alive, else `todo`.
-3. **DnD into `in_progress`**: always open the agent picker, or default to
-   the project steward with the picker behind long-press/alt-drop? Proposal:
-   always open the picker (explicit beats magic for spawning compute).
-4. **Master-detail breakpoints**: ≥1100px split / ≥1600px tri-pane — sane
-   defaults, or should the split be user-resizable (MissionLayout already has
-   resizable rails to mirror)? Proposal: resizable split, tri-pane automatic.
-5. **W5 home**: land review-feedback here as W5, or keep it solely in the
-   transcript plan's P5 and cross-link? Proposal: one implementation,
-   whichever PR lands first carries it.
+1. **`in_review` is a new status**, not a flag on `done` — it matches VK and
+   reads better on boards. The touched-surface list is W2's hub bullet
+   (derivation, `apply_task_set_status` vocabulary, digest query, spawn
+   gate); existing `done` rows stay `done`.
+2. **Send-back target**: `in_progress` when the assignee session is alive
+   (re-engage with the note), else `todo` for re-assignment.
+3. **DnD into `in_progress`**: always open the agent picker — explicit
+   beats magic for spawning compute.
+4. **Master-detail breakpoints**: user-resizable split (mirror
+   MissionLayout's resizable rails); tri-pane engages automatically at
+   ≥1600px.
+5. **W5 home**: THIS plan carries the review-feedback implementation; the
+   transcript plan's P5 "Session Changes rollup" stays a cross-link (it is
+   "recorded, not scheduled" there, and merged that way in `c97c522c`).

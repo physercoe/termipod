@@ -1,7 +1,7 @@
 # Agent transcript redesign — embed kimi-web, tool groups, state dock, slash picker, kimi M4 wire-tail
 
 > **Type:** plan
-> **Status:** Draft — for maintainer review
+> **Status:** Accepted 2026-07-23 — maintainer decisions recorded in §7
 > **Audience:** contributors, maintainer
 > **Last verified vs code:** main @ `57d96f6d` / kimi-code 0.28.1 on macOS arm64, 2026-07-23
 
@@ -231,15 +231,23 @@ Ships kimi's first-class transcript UI *inside* termipod today, and makes the
 assistant panel type-extensible (terminal | files | **web**). Independent of
 P1–P4, which build the native cross-engine rendering.
 
-- **Substrate exists**: the Read surface's `<webview>` stack
-  (`desktop/src/surfaces/BrowserView.tsx` + `desktop/electron/src/webtab.ts`)
-  already solves guest hardening — isolated partition, no preload, navigation
-  policy, real history. Add a third panel kind in the session area
-  (`desktop/src/terminal/SessionView.tsx` sub-tab switcher) hosting a guest.
+- **Substrate exists — with one required extension**: the Read surface's
+  `<webview>` stack (`desktop/src/surfaces/BrowserView.tsx` +
+  `desktop/electron/src/webtab.ts`) solves guest hardening — no preload,
+  window-open/navigation policy, real history. But its `will-attach-webview`
+  guard **rejects any partition other than `persist:webtab`**, and its
+  navigation policy allows any http(s) origin — so the kimiweb panel cannot
+  simply reuse it. P0's concrete main-process work is extending `webtab.ts`
+  to a small partition **allowlist with per-partition navigation policy**,
+  the kimiweb partition pinned loopback-only. Then add a third panel kind in
+  the session area (`desktop/src/terminal/SessionView.tsx` terminal|files
+  sub-switcher) hosting the guest.
 - **Local kimi**: spawn/attach `kimi web --no-open --port <free>` (lifecycle
   mirrors `LocalAgentLauncher`'s local-process management), capture the
   printed `#token=…`, embed `http://127.0.0.1:<port>/#token=<tok>`. Dedicated
-  `persist:kimiweb` partition; navigation policy pinned to loopback.
+  **non-persistent** `kimiweb` partition — the bearer token rides the URL
+  hash and a persistent partition would keep it in guest history; the token
+  is re-captured at each spawn anyway. Navigation policy pinned to loopback.
 - **Remote hosts**: one new wedge — SSH local port-forward (`forwardOut`) on
   the existing ssh2 connection (termipod has no port-forwarding today; only
   hub A2A tunnels), new `ssh_forward_start/stop` IPC; the same panel then
@@ -259,10 +267,18 @@ P1–P4, which build the native cross-engine rendering.
 The daily-annoyance phase; pure client/hub presentation, no protocol change.
 
 - **Hub** (`hub/internal/hostrunner/driver_acp.go:1539`): stamp `plan`
-  updates with a stable per-turn `message_id` + `partial: true` so the
-  existing collapse chain folds them into **one card that updates in place**
-  (G3). ~20 lines + test (`driver_acp_test.go`).
-- **Desktop parity** (`desktop/src/ui/feedLens.ts`, `AgentTranscript.tsx`):
+  updates with a stable per-turn `message_id` + `partial: true`. Note the
+  `plan` arm currently posts with `tagIfReplay` only — it needs the same
+  `stampTurnID` turn tracking the `tool_call` arm has. ~20 lines + test
+  (`driver_acp_test.go`).
+- **Clients must fold `plan` too** — the hub stamp alone does nothing:
+  `collapseStreamingPartials` folds ONLY kinds `text` and `thought`
+  (`feed_reducer.dart:1252` kind allowlist). Add `'plan'` to the mobile
+  allowlist and include it in the desktop port below; that pair — not the
+  hub change by itself — is what delivers **one card that updates in place**
+  (G3).
+- **Desktop parity** (`desktop/src/ui/feedLens.ts`,
+  `desktop/src/surfaces/AgentTranscript.tsx`):
   port `collapseStreamingPartials` (mobile's reducer is the byte-reference);
   stop always-hiding `tool_call_update` — fold into the parent card's status
   pill like mobile (`feedLens.ts:50-57`).
@@ -277,9 +293,10 @@ The daily-annoyance phase; pure client/hub presentation, no protocol change.
   - Mobile: `live_feed.dart` build pipeline (post-`FoldMaps`),
     `transcript/tool_renderers.dart` group widget; reuse `FoldableToolCall`
     for rows.
-  - Desktop: `AgentTranscript.tsx` virtual-list grouping,
-    `ui/EventCard.tsx` group component; styles in
-    `styles/partials/05-transcript-boards.css` per the token stance.
+  - Desktop: `surfaces/AgentTranscript.tsx` virtual-list grouping (the
+    measured list must re-measure when a group toggles), `ui/EventCard.tsx`
+    group component; styles in `styles/partials/05-transcript-boards.css`
+    per the token stance.
 - Verification: existing feed reducer tests extended (grouping, error
   surfacing); desktop typecheck + e2e smoke; manual: a kimi steward session
   with 10+ tool calls scans cleanly.
@@ -312,7 +329,10 @@ both clients).
   the synthesized session state (`session.init.slash_commands` shape, the
   claude-code frame-profile precedent `agent_families.yaml:133`), incl. on
   `session/load` replay. Engine-neutral: covers kimi-code, kimi-code-ts,
-  gemini in one move.
+  gemini in one move. **Busy-parity anchor**: today's system/system tagging
+  exists precisely so `_isAgentBusy` skips these frames — the synthesized
+  state event must stay on that skip path (kind/producer `system`, or the
+  skip list) on BOTH clients.
 - **Mobile**: the dynamic `/` suggestion strip already consumes
   `session.init.slash_commands` (`agent_compose.dart:201-227`,
   `live_feed.dart:945-964`) — zero new UI. Add a static `kimi` entry to
@@ -346,7 +366,10 @@ the wire store:
   telemetry ACP withholds — declared out of scope for P4 proper to keep the
   wedge reviewable.
 - Verification: hostrunner test with a fixture wire.jsonl (recorded from a
-  real session, sanitized); manual: kimi pane spawn shows structured rows +
+  real session, sanitized — the fixture pins protocol v1.4; the adapter must
+  gate on the wire `metadata` protocol version and fall back to `PaneDriver`
+  on mismatch, and tolerate partial trailing lines: append/flush cadence of
+  wire.jsonl is unverified); manual: kimi pane spawn shows structured rows +
   usage chip.
 
 ### P5 — Future (recorded, not scheduled)
@@ -356,30 +379,32 @@ the wire store:
   wire store in a stable shape; revisit with upstream.
 - **Session Changes rollup** — cumulative per-session diff surface
   (Cline's task diff; kimi `apps/vscode` `baseline.manager.ts` pattern).
-- **Inspect surface** — raw-wire record/replay/diff for driver debugging
-  (kimi-inspect concept) on top of the existing `raw` verbose events.
+- **Transcript Insight mode** — raw-wire record/replay/diff for driver
+  debugging (kimi-inspect concept) as a mode of the existing transcript
+  Insight view (`insight_transcript.dart` lineage), on top of the existing
+  `raw` verbose events. NOT a new surface — and not the J3 **Inspect** tab,
+  whose name is taken by the code/diffs/logs/models inspector
+  (`docs/plans/debug-code-logs-diffs-models.md` §0a).
 - **kimi-insight/vis-style "visualize session" action** on sealed
   transcripts.
 
-## 7. Open questions for the maintainer
+## 7. Decisions (maintainer, 2026-07-23)
 
-1. **P0 scope**: is the embedded-kimi-web panel wanted at all (it is a
-   parallel, non-integrated UI), and is **local-first** acceptable with the
-   remote SSH-forward wedge as its own follow-up PR? Proposal: yes / yes.
-2. **Web-panel type generalization**: P0 adds a "web" panel kind to the
-   session area. Keep it kimi-scoped for now, or design the panel-kind
-   registry for any agent web UI (goose, opencode) from the start? Proposal:
-   kimi-scoped UI, registry-shaped internals.
-3. **Tool-group expansion**: the plan now follows kimi-web exactly (≥2
-   threshold, expanded by default, no auto-collapse, user opt-in per group).
-   Any objection, or a maintained preference for Cline-style
-   collapsed-by-default? Proposal: kimi-web behavior as written.
-4. **P4 scope guard**: OK to keep M1-enrichment out of P4 and review it as
-   its own wedge? (Dedupe/provenance between ACP frames and wire events for
-   the same tool call needs its own design.)
-5. **Mobile todo surface**: dedicated tab (kimi-web's `~/todo` pattern) or a
-   modal bottom sheet over the feed? Proposal: bottom sheet first (less IA
-   churn), tab if the checklist becomes multi-section.
+1. **P0 — accepted, local-first.** The embedded kimi-web panel is wanted;
+   ship the local spawn/attach path. The remote SSH-forward wedge
+   (`ssh_forward_start/stop` over the existing ssh2 connection) is its own
+   follow-up PR.
+2. **Web-panel kind — kimi-scoped UI, registry-shaped internals.** Build the
+   panel-kind plumbing so another agent web UI is one registry row later; no
+   generic UI now.
+3. **Tool-group expansion — kimi-web behavior as written**: ≥2 threshold,
+   expanded by default, never auto-collapse, user opt-in per group. (See the
+   desktop re-measure note in P1.)
+4. **P4 scope — M1-enrichment stays out.** Dedupe/provenance between ACP
+   frames and wire events for the same tool call needs its own design;
+   review it as a separate wedge.
+5. **Mobile todo surface — bottom sheet first** (less IA churn); promote to
+   a dedicated tab only if the checklist becomes multi-section.
 
 ## Appendix A — ACP probe transcript (excerpt)
 

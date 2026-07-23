@@ -1,9 +1,9 @@
 # Desktop Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-22)
+> **Status:** Current (2026-07-23)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.722.1327 / electron-v2026.722.1327
+> **Last verified vs code:** desktop 2026.723.247 / electron-v2026.723.247
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -40,6 +40,14 @@ This complements:
 ---
 
 ## Unreleased
+
+## 2026.723.247 — 2026-07-23 · Electron
+
+**Author workbench overhaul (`docs/plans/author-shell-outline-and-canvas.md`):
+workspace-only left nav + one categorized New ▾ menu (W1), an Obsidian-style
+right-hand markdown outline (W2), and the canvas rebuilt on React Flow with a
+JSON Canvas 1.0 (Obsidian-interoperable) body (W3). Read: web-tab bookmarks +
+Discover results that survive a tab switch.** Prerelease cut for device testing.
 
 ### Added
 - **Author · canvas v2 (W3)**: the canvas board is rebuilt on **React Flow**

@@ -26,6 +26,7 @@ import { sshHandlers } from './ssh';
 import { sshKeyHandlers } from './ssh_keys';
 import { voiceHandlers } from './voice';
 import { scriptHandlers } from './script';
+import { traceHandlers } from './trace';
 import { folderWebdavHandlers } from './sync/webdav';
 import { webdavZoteroHandlers } from './sync/webdav_zotero';
 import { s3Handlers } from './sync/s3';
@@ -57,6 +58,7 @@ const handlers: Record<string, Handler> = {
   ...sshKeyHandlers,
   ...voiceHandlers,
   ...scriptHandlers,
+  ...traceHandlers,
   ...folderWebdavHandlers,
   ...webdavZoteroHandlers,
   ...s3Handlers,

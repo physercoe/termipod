@@ -351,8 +351,22 @@ for ONNX. ⚠️ First implementation step: **pin the exact `GraphCollection` JS
 schema from the package's TS types** — research could only verify it
 second-hand (the wiki page was unfetchable).
 
-**Inspect from code — PyTorch `model.py` → graph (director's ask).** No
-mature tool statically parses `nn.Module` source into a graph (verified — an
+**Inspect from code — PyTorch `model.py` → graph (director's ask).**
+**Tier 1 SHIPPED 2026-07-23** (the trace itself needs a torch venue; the plumbing
+is verified). A Python tab's **Trace model graph** action opens a form (entry
+expression, input shape, depth) + a **venue picker** (local `trace_run` IPC / a
+saved SSH host via `ssh_exec`) with a per-venue interpreter **preset** and a
+**Detect** probe. The vendored torchview helper (`state/traceCore.ts`
+`TORCHVIEW_HELPER`) is piped to the interpreter's **stdin** (params via env, never
+interpolated), runs `draw_graph(..., device='meta')`, and prints DOT wrapped in
+sentinels (`extractDot` survives interpreter warnings / SSH stderr-folding); the
+DOT renders in the graph viewer. `electron/src/ipc/trace.ts` `trace_run` (spawn +
+stdin + multi-word argv-split, 120 s cap) is `node --test`-verified against the
+real `python3`; `traceCore.ts` (extract + remote-command assembly) is unit-tested;
+the helpers `py_compile` clean. **Tier 2** (`torch.export` → Model Explorer JSON)
+still waits on the Model Explorer graph view.
+
+No mature tool statically parses `nn.Module` source into a graph (verified — an
 AST can't resolve config-driven layer construction in general; the scoped
 exception for known HF modeling files is W4b's span-extraction below). The ecosystem
 answer is **weightless tracing**: execute the definition on the `meta` device,

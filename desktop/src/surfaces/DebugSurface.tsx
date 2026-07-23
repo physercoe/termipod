@@ -7,6 +7,7 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
 import { looksLikeDot } from '../state/dotGraph';
+import { TraceModal } from '../ui/TraceModal';
 import { useWorkspace } from '../state/workspace';
 import { readRef, readSource } from '../state/inspectSources';
 import { useSession } from '../state/session';
@@ -172,10 +173,12 @@ function CodeTab({
   const setError = useInspect((s) => s.setError);
   const setLang = useInspect((s) => s.setLang);
   const setKind = useInspect((s) => s.setKind);
+  const openTab = useInspect((s) => s.open);
   const folder = useWorkspace((s) => s.folder);
   const codeRef = useRef<CodeViewHandle>(null);
   const [runOut, setRunOut] = useState<ScriptResult | null>(null);
   const [running, setRunning] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
   const [symbols, setSymbols] = useState<CodeSymbol[]>([]);
 
   // Lazily read a file-backed tab's content the first time it is shown.
@@ -261,7 +264,9 @@ function CodeTab({
   const isPatch = looksLikePatch(body);
   const isDot = !isPatch && looksLikeDot(body);
   const isLog = !isPatch && !isDot && looksLikeLog(body);
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot;
+  // A Python tab can be traced into a model graph (needs a local/SSH venue).
+  const isPython = isShell() && (langId === 'python' || (tab.path?.toLowerCase().endsWith('.py') ?? false));
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -295,12 +300,27 @@ function CodeTab({
               <Icon name="diagram" size={14} /> {t('inspect.viewAsGraph')}
             </button>
           )}
+          {isPython && (
+            <button className="import-btn" onClick={() => setTraceOpen(true)}>
+              <Icon name="diagram" size={14} /> {t('trace.action')}
+            </button>
+          )}
           {interp !== null && (
             <button className="import-btn" disabled={running} onClick={() => void run()}>
               <Icon name="play" size={14} /> {running ? t('inspect.running') : t('inspect.run')}
             </button>
           )}
         </div>
+      )}
+      {traceOpen && (
+        <TraceModal
+          tab={tab}
+          onClose={() => setTraceOpen(false)}
+          onGraph={(dot, title) => {
+            openTab({ kind: 'graph', source: 'paste', title }, dot);
+            setTraceOpen(false);
+          }}
+        />
       )}
       <div className="inspect-codewrap">
         <div className="inspect-code">

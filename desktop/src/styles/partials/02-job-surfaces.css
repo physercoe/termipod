@@ -1178,6 +1178,75 @@ button > .ui-icon:not(:only-child):first-child,
   padding: var(--spacing-s12) var(--spacing-s16);
   border-bottom: 1px solid var(--border);
 }
+.trace-body {
+  padding: var(--spacing-s12) var(--spacing-s16) var(--spacing-s16);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.trace-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+}
+.trace-row {
+  display: flex;
+  gap: var(--spacing-s12);
+  align-items: flex-end;
+}
+.trace-field.grow {
+  flex: 1;
+  min-width: 0;
+}
+.trace-inline {
+  display: flex;
+  gap: var(--spacing-s6);
+  align-items: center;
+}
+.trace-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  outline: none;
+}
+.trace-input:focus {
+  border-color: var(--accent);
+}
+.trace-depth {
+  width: 4.5em;
+  flex: 0 0 auto;
+}
+.trace-ok {
+  color: var(--success);
+}
+.trace-err {
+  color: var(--danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 8em;
+  overflow-y: auto;
+}
+.trace-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  margin-top: var(--spacing-s4);
+}
+.import-btn.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.import-btn.primary:disabled {
+  opacity: 0.5;
+}
 .inspect-modal-title {
   font-weight: 600;
 }

@@ -117,6 +117,16 @@ This complements:
   a saved graph), or paste a `digraph {…}` scratch and hit **View as graph**;
   zoom (wheel/±), pan (drag), fit, copy SVG. This is the shared render substrate
   the forthcoming code2flow call-graph and torchview model-tracer will emit into.
+- **Inspect — trace a model graph (W4 Tier 1).** A Python tab gains a **Trace
+  model graph** action: a form (entry expression, input shape, depth) + a **venue
+  picker** — local Python or a saved SSH host — with a free-text interpreter
+  **preset** (`/opt/venv/bin/python`, `conda run -n rl python`,
+  `docker exec -i box python`, `uv run python`) and a **Detect** button that
+  probes it for torch + torchview. On run, a vendored helper is piped to the
+  interpreter's stdin and traces the module **weightlessly on the meta device**
+  (torchview — no weights, memory, or GPU), returning a DOT graph rendered in the
+  new graph viewer. Requires torch + torchview on the chosen venue (the model
+  file's repo must be importable there).
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

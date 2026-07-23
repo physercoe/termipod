@@ -522,7 +522,9 @@ func (s *Server) stopOrTerminateAgent(w http.ResponseWriter, r *http.Request, ar
 // non-terminal statuses (returns nil without touching the task). Looks
 // up the agent's most-recent spawn's task_id, and:
 //
-//   - 'terminated' AND result_summary populated  → task.status='done'
+//   - 'terminated' AND result_summary populated  → task.status='in_review'
+//     (W2: work is done *when reviewed*, not when the agent stops — the
+//     human accepts → 'done' or sends back → 'in_progress'. Was 'done'.)
 //   - 'terminated' AND result_summary empty      → task.status='cancelled'
 //     (worker never called
 //     tasks.complete — task
@@ -567,7 +569,11 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 	// and posting a misleading "Task X cancelled" wake to the steward.
 	// The operator's cleanup is cleanup; the worker's verdict is the
 	// task outcome.
-	if curStatus == "cancelled" || curStatus == "blocked" {
+	// in_review joins the never-overwrite set (W2): once a worker has handed
+	// off completed work for review, a *later* attempt that abandons (would
+	// derive 'cancelled') or crashes ('blocked') must not silently erase the
+	// pending-review verdict — only a human accept/send-back moves it out.
+	if curStatus == "cancelled" || curStatus == "blocked" || curStatus == "in_review" {
 		return nil
 	}
 
@@ -578,7 +584,7 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 	switch agentStatus {
 	case "terminated":
 		if hasSummary {
-			newStatus = "done"
+			newStatus = "in_review"
 		} else {
 			newStatus = "cancelled"
 		}
@@ -593,21 +599,16 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 		return nil
 	}
 	now := NowUTC()
-	if newStatus == "done" {
+	// done / in_review / cancelled all stamp completed_at: the worker
+	// finished its run (done/in_review = handed off; in_review records the
+	// review hand-off time), and cancelled stamps so the Tasks tab reads
+	// "cancelled <N>m ago" without falling back to updated_at (which moves on
+	// every patch). blocked leaves completed_at untouched (work isn't done).
+	if newStatus == "done" || newStatus == "in_review" || newStatus == "cancelled" {
 		if _, err := s.writeDB.ExecContext(ctx, `
 			UPDATE tasks
-			   SET status = 'done', completed_at = ?, updated_at = ?
-			 WHERE id = ?`, now, now, taskID); err != nil {
-			return err
-		}
-	} else if newStatus == "cancelled" {
-		// Stamp completed_at on cancellation too so the time line on
-		// the Tasks tab reads "cancelled <N>m ago" without falling back
-		// to updated_at (which moves on every patch).
-		if _, err := s.writeDB.ExecContext(ctx, `
-			UPDATE tasks
-			   SET status = 'cancelled', completed_at = ?, updated_at = ?
-			 WHERE id = ?`, now, now, taskID); err != nil {
+			   SET status = ?, completed_at = ?, updated_at = ?
+			 WHERE id = ?`, newStatus, now, now, taskID); err != nil {
 			return err
 		}
 	} else {

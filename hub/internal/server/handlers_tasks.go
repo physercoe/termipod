@@ -346,12 +346,18 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	if in.Status != nil {
 		sets = append(sets, "status = ?")
 		args = append(args, *in.Status)
-		// Stamp completed_at when the patch lands a terminal status, so
-		// the mobile tile can render "done 3m ago" / "cancelled 1h ago"
-		// without joining audit. Idempotent: re-stamping just refreshes.
-		if *in.Status == "done" || *in.Status == "cancelled" {
+		// Stamp completed_at when the patch lands a done/in_review/cancelled
+		// status, so the mobile tile can render "done 3m ago" / "in review 2m
+		// ago" / "cancelled 1h ago" without joining audit (idempotent —
+		// re-stamping just refreshes). A send-back / reopen to an active state
+		// (todo/in_progress) CLEARS the now-stale stamp so a running task
+		// doesn't read "completed". (W2 in_review lifecycle.)
+		switch *in.Status {
+		case "done", "in_review", "cancelled":
 			sets = append(sets, "completed_at = ?")
 			args = append(args, NowUTC())
+		case "todo", "in_progress":
+			sets = append(sets, "completed_at = NULL")
 		}
 	}
 	if in.AssigneeID != nil {

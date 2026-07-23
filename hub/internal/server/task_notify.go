@@ -26,8 +26,12 @@ import (
 // Callers: handlePatchTask (after the audit) and
 // deriveTaskStatusFromAgent (after its UPDATE).
 func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatus, toStatus string) {
+	// W2: in_review joins the notified set — a worker handing off completed
+	// work for review is exactly the transition the delegating steward must
+	// hear about (to review + accept/send-back). Without it, the steward only
+	// sees the agent vanish from the live list with no narrative.
 	switch toStatus {
-	case "done", "blocked", "cancelled":
+	case "done", "blocked", "cancelled", "in_review":
 	default:
 		return
 	}
@@ -198,12 +202,14 @@ func taskOutcomeInputBody(title, summary, toStatus string) string {
 	switch toStatus {
 	case "done":
 		b.WriteString("completed.")
+	case "in_review":
+		b.WriteString("is ready for review.")
 	case "blocked":
 		b.WriteString("blocked.")
 	case "cancelled":
 		b.WriteString("cancelled.")
 	default:
-		// Defensive: notifyTaskAssigner already gates on these three.
+		// Defensive: notifyTaskAssigner already gates on these four.
 		b.WriteString("status=")
 		b.WriteString(toStatus)
 		b.WriteString(".")

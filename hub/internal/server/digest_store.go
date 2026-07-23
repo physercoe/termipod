@@ -294,14 +294,17 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 }
 
 // deriveDigestOutcome resolves the agent's run outcome: the assigned task's
-// terminal state when it has one (done > blocked > cancelled), else the last
-// closed turn's status, else "terminated".
+// terminal-or-review state when it has one (done > in_review > blocked >
+// cancelled), else the last closed turn's status, else "terminated".
+// W2: without 'in_review' here, a worker that finished and handed off for
+// review would fall through to the turn/"terminated" fallback — its digest
+// outcome would misreport the run as if the task never resolved.
 func (s *Server) deriveDigestOutcome(ctx context.Context, team, agentID string) string {
 	var taskStatus string
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT status FROM tasks
-		 WHERE assignee_id = ? AND status IN ('done','cancelled','blocked')
-		 ORDER BY CASE status WHEN 'done' THEN 0 WHEN 'blocked' THEN 1 ELSE 2 END
+		 WHERE assignee_id = ? AND status IN ('done','in_review','cancelled','blocked')
+		 ORDER BY CASE status WHEN 'done' THEN 0 WHEN 'in_review' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END
 		 LIMIT 1`, agentID).Scan(&taskStatus)
 	if taskStatus != "" {
 		return taskStatus

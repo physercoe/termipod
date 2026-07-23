@@ -393,6 +393,41 @@ through the host-runner dispatcher) ship the next two incrementally. Remaining g
 transitions, ad-hoc agent terminate, document/artifact publish)
 are scheduled out of that discussion, not this ADR.
 
+### D-8. Terminated-with-result → `in_review`, not `done` (done-when-reviewed, 2026-07-23)
+
+Amends D-3's `terminated → done` edge (and the v1.0.619 refinement
+that split abandoned terminates to `cancelled`). Per the project &
+task-board redesign plan (`plans/project-task-board-redesign.md`,
+W2), work is done **when reviewed**, not when the agent stops:
+
+| Trigger | Auto-derived status |
+| --- | --- |
+| Linked agent → `terminated` **with** a `result_summary` | `in_review` (**was `done`**) |
+| Linked agent → `terminated` **without** a `result_summary` | `cancelled` (v1.0.619, unchanged — nothing to review) |
+| Linked agent → `crashed` / `failed` | `blocked` (unchanged) |
+
+`in_review` joins `blocked` / `cancelled` in the **never-overwrite**
+guard: once a worker hands off completed work, a *later* attempt that
+abandons or crashes must not silently erase the pending-review verdict.
+Only a human moves it out: **accept → `done`** (the directive-close
+hook `onPostDirectiveOutcome` now fires here, at accept, not at the
+agent-terminate auto-derive) or **send-back → `in_progress`** to
+re-engage the assignee. `completed_at` is stamped on `in_review`
+(records the review hand-off) and cleared on a send-back/reopen to an
+active state. `notifyTaskAssigner` gains the `in_review` transition so
+the delegating steward is woken to review; the assignee-history digest
+query (`deriveDigestOutcome`) gains `in_review` so freshly finished
+work doesn't vanish from digests. `in_review` allows new spawns
+(unlike `done`/`cancelled`), which is what powers "new attempt" and
+send-back. No schema migration — task status has no CHECK constraint.
+
+Clients hard-code the status vocabulary, so the rollout order is
+**clients before hub**: ship the `in_review` column/chip/picker plus an
+unknown-status fallback bucket (a task in an unrecognised status renders
+in its own trailing section instead of dropping — closing the
+count-vs-list gap #61 for every status) *before* the hub flips
+derivation.
+
 ## Alternatives considered
 
 ### A-1. Require task on every project-bound spawn (no escape hatch)

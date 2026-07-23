@@ -3,9 +3,10 @@
 > **Type:** plan
 > **Status:** In progress 2026-07-23 — **W1 SHIPPED** (master-detail board,
 > rich cards, stretchy columns, resizable split + tri-pane transcript preview
-> per §6.4); W2–W5 open. Maintainer decisions in §6.
+> per §6.4); **W2 SHIPPED** (`in_review` lifecycle end-to-end: hub derivation +
+> clients + unknown-status fallback + ADR-029 D-8); W3–W5 open. Decisions §6.
 > **Audience:** contributors, maintainer
-> **Last verified vs code:** W1 shipped to main; §6.4 done, 2026-07-23
+> **Last verified vs code:** W1+W2 shipped to main, 2026-07-23
 
 **TL;DR.** The desktop Projects area under-serves widescreen: the tasks
 kanban is five fixed 220px columns with dead space to their right, task cards
@@ -208,29 +209,37 @@ unchanged.
   tsc clean, `lint-desktop-tokens` clean (65 baseline), vite build green.
   Device-test (widescreen ≥1600px, resize drag, transcript height) is the
   director's.
-- **W2 — `in_review` lifecycle end-to-end.** Hub — there is **no schema
-  migration**: task status has no CHECK constraint (`handlers_tasks.go:24`);
-  the vocabulary lives in handlers, and W2's real hub surface is:
-  - `deriveTaskStatusFromAgent` (`handlers_agents.go`) — the split
-    derivation per §4, guards intact;
-  - `apply_task_set_status.go` — `proposePermittedTaskStatuses` is
-    `done|cancelled` only today; send-back (`in_review`→`in_progress`) via
-    steward propose needs the vocabulary + transition rules extended;
-  - `digest_store.go:303` — the assignee-history query is
-    `status IN ('done','cancelled','blocked')`; without adding `in_review`,
-    freshly finished work vanishes from assignee digests;
-  - `handlers_agents.go:1351` — `done|cancelled` reject new spawns;
-    `in_review` must **allow** them (that's what powers "new attempt" and
-    send-back);
-  - accept/send-back as PATCH transitions + notes; existing `done` rows
-    untouched.
-  **Rollout order (version skew):** clients hard-code the status
-  vocabulary — an unknown status silently drops from mobile's grouped list
-  (exactly issue #61's recorded count-vs-list bug class) and from desktop's
-  fixed columns. Ship the client `in_review` column/chips (plus an
-  unknown-status fallback bucket so this class dies for good) **before**
-  the hub flips derivation. Clients: status pickers, board column, mobile
-  chips + detail actions. Docs: ADR-029 semantics update note.
+- **W2 — `in_review` lifecycle end-to-end. SHIPPED (direct-to-main).** No
+  schema migration (task status has no CHECK constraint, `handlers_tasks.go:24`;
+  vocabulary lives in handlers). Landed clients-first per the rollout order:
+  - **Clients (understand `in_review` + unknown fallback, deploy first):**
+    desktop `COLUMNS`/`STATUSES` + `kanban.in_review` (en+zh) + an
+    unknown-status trailing-column fallback (any status the client doesn't
+    know renders in its own column, not dropped — closes the count-vs-list
+    #61 class for every status); accept/send-back buttons on the detail panel.
+    Mobile: `taskStatusLabel` + `taskStatusInReview` ARB (en+zh), filter
+    chips, grouped `order` + append-unknown bucket, `_StateRow._statuses`
+    picker. (Mobile accept/send-back ride the existing status picker — a
+    dedicated button pair is a polish follow-up.)
+  - **Hub (flip derivation):** `deriveTaskStatusFromAgent` — terminated **with**
+    `result_summary` → `in_review` (was `done`); **without** → `cancelled`
+    unchanged; crash/failed → `blocked`; `in_review` **added to the
+    never-overwrite guard** (a later abandoned/crashed attempt can't erase a
+    pending-review verdict). `completed_at` stamped on `in_review`, cleared on
+    send-back/reopen. `notifyTaskAssigner` + `taskOutcomeInputBody` gain
+    `in_review` (steward woken to review). `deriveDigestOutcome`
+    (`digest_store.go`) query + ordering gain `in_review` (finished work no
+    longer vanishes from digests). Spawn gate `handlers_agents.go:1351` already
+    allows `in_review` (only `done`/`cancelled` reject) — verified, no change.
+    accept (→`done`)/send-back (→`in_progress`) ride the REST PATCH path (any
+    status accepted). Docs: **ADR-029 D-8** records the semantics.
+  - **Deferred to a follow-up:** the `proposePermittedTaskStatuses` send-back
+    extension — send-back → `in_progress` is non-terminal and would mis-stamp
+    `completed_at` through the propose apply path (which assumes terminal);
+    governed stewards send back via `tasks.update`, and the UI via REST PATCH.
+    The send-back **note into the assignee session** is W5's feedback loop.
+  - Verified: hub `go test ./internal/server/` green; desktop tsc + tokens +
+    vite build green; mobile CI-verified (no local Flutter).
 - **W3 — DnD-with-assign + filters/search (desktop).** HTML5 drag events on
   cards/columns; transition guard per the derivation table; assign sheet
   reuse (`AgentSpawn` — which has **no `task_id` plumbing today**; W3 adds

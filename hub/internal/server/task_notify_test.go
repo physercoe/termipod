@@ -149,8 +149,9 @@ func TestNotifyTaskAssigner_AutoDeriveOnAgentTerminate(t *testing.T) {
 
 	// Worker called tasks.complete first (populated result_summary)
 	// then was terminated. This is the canonical happy path: result is
-	// real, auto-derive flips to done. v1.0.619: empty result_summary
-	// would flip to cancelled instead (see _CancelledOnAbandon below).
+	// real, auto-derive flips to in_review (W2: done-when-reviewed; was
+	// done). v1.0.619: empty result_summary would flip to cancelled
+	// instead (see _CancelledOnAbandon below).
 	if _, err := s.db.Exec(
 		`UPDATE tasks SET result_summary = ? WHERE assignee_id = ?`,
 		"Migration applied; 12 318 rows.", out.AgentID,
@@ -160,7 +161,7 @@ func TestNotifyTaskAssigner_AutoDeriveOnAgentTerminate(t *testing.T) {
 
 	// Flip the worker to terminated — the agent-side path the host
 	// runner takes when claude exits cleanly. This triggers
-	// deriveTaskStatusFromAgent which auto-flips the task to done
+	// deriveTaskStatusFromAgent which auto-flips the task to in_review
 	// and fires the W2.9 notification.
 	if _, err := s.db.Exec(
 		`UPDATE agents SET status = 'terminated' WHERE id = ?`, out.AgentID,
@@ -181,8 +182,8 @@ func TestNotifyTaskAssigner_AutoDeriveOnAgentTerminate(t *testing.T) {
 		Title string `json:"title"`
 	}
 	_ = json.Unmarshal([]byte(got.Payload), &p)
-	if p.To != "done" {
-		t.Errorf("payload to = %q, want done", p.To)
+	if p.To != "in_review" {
+		t.Errorf("payload to = %q, want in_review", p.To)
 	}
 	if p.Title != "Run the migration" {
 		t.Errorf("payload title = %q, want Run the migration", p.Title)

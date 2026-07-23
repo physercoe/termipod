@@ -345,7 +345,7 @@ class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
                   // the turn wraps.
                   if (state != ToolGroupState.error && errorCount > 0)
                     Padding(
-                      padding: const EdgeInsets.only(left: 6),
+                      padding: const EdgeInsets.only(left: Spacing.s8),
                       child: Text(
                         '· ${l10n.toolGroupFailedCount(errorCount)}',
                         style: GoogleFonts.jetBrainsMono(
@@ -410,7 +410,7 @@ class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
           onTap: () =>
               setState(() => _rowExpanded[rowKey] = !expanded),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
+            padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
             child: Row(
               children: [
                 Icon(_toolIconFor(name), size: 14, color: muted),
@@ -455,7 +455,11 @@ class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
         ),
         if (expanded)
           Padding(
-            padding: const EdgeInsets.only(left: 20, bottom: 4),
+            // Indent = icon (14) + row gap (6): the detail body aligns
+            // under the row's verb text. Token-composed (16+4) so the
+            // lint sees no off-grid literal (ADR-047).
+            padding: const EdgeInsets.only(
+                left: Spacing.s16 + Spacing.s4, bottom: Spacing.s4),
             child: _ToolCallDetail(
               toolId: id,
               input: input,

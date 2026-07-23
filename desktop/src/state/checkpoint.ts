@@ -109,6 +109,7 @@ const FAMILY: Record<string, string> = {
   deepseek: 'DeepSeek',
   deepseek_v2: 'DeepSeek-V2',
   deepseek_v3: 'DeepSeek-V3',
+  kimi_k2: 'Kimi K2',
   gemma: 'Gemma',
   gemma2: 'Gemma 2',
   gemma3: 'Gemma 3',

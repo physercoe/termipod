@@ -32,7 +32,9 @@ export const logfileHandlers: Record<string, Handler> = {
   log_slice: async (args): Promise<{ from: number; lines: string[] }> => {
     const idx = get(args.id);
     const from = Math.max(0, Math.floor(Number(args.from ?? 0)));
-    const count = Math.max(0, Math.floor(Number(args.count ?? 0)));
+    // Clamp like `log_search` clamps `max` — a viewport window is a few hundred
+    // lines; without the cap one call spanning every line is a whole-file read.
+    const count = Math.min(Math.max(0, Math.floor(Number(args.count ?? 0))), 10_000);
     return { from, lines: await slice(idx, from, count) };
   },
 

@@ -25,12 +25,20 @@ name: Desktop Electron Release
 #   - Run workflow, promote=<version> → copy that release's assets onto the
 #     rolling `electron-latest` feed release (go live; no rebuild).
 #
-# Signing/notarization are supplied by repo secrets when present (CSC_LINK /
-# CSC_KEY_PASSWORD for the macOS cert, WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD for
-# the — different — Windows cert, APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD
-# / APPLE_TEAM_ID for notarization). Absent, the build still produces unsigned
-# installers — enough to gate the pipeline; signed builds are the cutover
-# prerequisite (plan §5, "start signing at M1").
+# Signing/notarization are supplied by repo secrets when present. The env-var
+# names electron-builder consumes are FIXED (CSC_LINK / CSC_KEY_PASSWORD for the
+# macOS cert; APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID for
+# notarytool); the "Configure signing" step below maps the repo's secret names
+# onto them:
+#   CSC_LINK                    ← secrets.CERTIFICATES_P12      (base64 of the
+#                                 Developer ID Application .p12)
+#   CSC_KEY_PASSWORD            ← secrets.CERTIFICATES_PASSWORD (the .p12 password)
+#   APPLE_ID                    ← secrets.APPLE_ID
+#   APPLE_APP_SPECIFIC_PASSWORD ← secrets.APPLE_APP_PASSWORD    (app-specific pw)
+#   APPLE_TEAM_ID               ← secrets.APPLE_TEAM_ID
+# Windows uses a different cert (WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD, unset here).
+# Absent, the build still produces unsigned installers — enough to gate the
+# pipeline; signed builds are the cutover prerequisite (plan §5).
 
 on:
   workflow_dispatch:
@@ -190,12 +198,14 @@ jobs:
       - name: Configure signing (only when secrets present)
         shell: bash
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Map this repo's secret names onto the fixed env-var names
+          # electron-builder / notarytool read (see header comment).
+          CSC_LINK: ${{ secrets.CERTIFICATES_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.CERTIFICATES_PASSWORD }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           for v in CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do

@@ -4,7 +4,16 @@
 /// `node --test src/state/modelGraph.test.ts`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkpointNamespace, checkpointToGraphCollection, graphCollectionToDot, onnxNamespace, onnxToGraphCollection } from './modelGraph.ts';
+import {
+  checkpointNamespace,
+  checkpointToGraphCollection,
+  exportToGraphCollection,
+  graphCollectionToDot,
+  onnxNamespace,
+  onnxToGraphCollection,
+  shortOpLabel,
+  type ExportGraph,
+} from './modelGraph.ts';
 import type { OnnxGraphData, TensorInfo } from './checkpoint.ts';
 
 // A tiny linear graph: input x + weight W → MatMul → Relu → output y.
@@ -95,6 +104,37 @@ test('checkpointToGraphCollection: each tensor is a namespaced leaf node, no edg
     { key: 'params', value: '16777216' },
   ]);
   assert.equal(n1.namespace, 'lm_head');
+});
+
+test('shortOpLabel: aten target → op short name; op fallback', () => {
+  assert.equal(shortOpLabel('aten.addmm.default', 'call_function'), 'addmm');
+  assert.equal(shortOpLabel('torch.ops.aten.relu.default', 'call_function'), 'relu');
+  assert.equal(shortOpLabel('placeholder', 'placeholder'), 'placeholder');
+});
+
+test('exportToGraphCollection: FX nodes → schema graph, edges by data flow, shapes as metadata', () => {
+  const g: ExportGraph = {
+    nodes: [
+      { id: 'x', op: 'placeholder', target: 'placeholder', namespace: '', inputs: [], shape: [1, 4], dtype: 'torch.float32' },
+      { id: 'lin', op: 'call_function', target: 'aten.addmm.default', namespace: 'blocks/0', inputs: ['x'], shape: [1, 8], dtype: 'torch.float32' },
+      { id: 'out', op: 'output', target: 'output', namespace: '', inputs: ['lin'], shape: null, dtype: null },
+    ],
+  };
+  const gc = exportToGraphCollection(g, 'm');
+  assert.equal(gc.label, 'm');
+  const [x, lin, out] = gc.graphs[0].nodes;
+  assert.equal(lin.label, 'addmm');
+  assert.equal(lin.namespace, 'blocks/0');
+  assert.deepEqual(lin.incomingEdges, [{ sourceNodeId: 'x', sourceNodeOutputId: '0', targetNodeInputId: '0' }]);
+  assert.deepEqual(lin.outputsMetadata, [{ id: '0', attrs: [{ key: 'shape', value: '[1, 8]' }, { key: 'dtype', value: 'torch.float32' }] }]);
+  assert.equal(x.incomingEdges, undefined); // a placeholder has no producer
+  assert.deepEqual(out.incomingEdges, [{ sourceNodeId: 'lin', sourceNodeOutputId: '0', targetNodeInputId: '0' }]);
+  assert.equal(out.outputsMetadata, undefined); // no shape → no metadata
+});
+
+test('exportToGraphCollection: an input referencing an unknown node draws no edge', () => {
+  const g: ExportGraph = { nodes: [{ id: 'a', op: 'call_function', target: 't', namespace: '', inputs: ['ghost'], shape: null, dtype: null }] };
+  assert.equal(exportToGraphCollection(g).graphs[0].nodes[0].incomingEdges, undefined);
 });
 
 test('graphCollectionToDot: labels with quotes/backslashes are escaped', () => {

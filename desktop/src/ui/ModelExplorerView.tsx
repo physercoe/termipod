@@ -21,12 +21,12 @@ function collectionFor(info: CheckpointInfo, label: string): GraphCollection {
   return checkpointToGraphCollection(info.tensors, label);
 }
 
-/// The interactive Model Explorer WebGL graph view (plan §5, W4). Re-inspects the
-/// checkpoint at `path` (header-only, like `ModelView`), builds a schema-faithful
-/// `GraphCollection`, and mounts the `<model-explorer-visualizer>` custom element.
-/// The heavy runtime (2.5 MB IIFE + a layout web worker + WebGL) is self-hosted and
-/// loaded on first mount — never in the boot bundle.
-export function ModelExplorerView({ path }: { path: string }): JSX.Element {
+/// The interactive Model Explorer WebGL graph view (plan §5, W4). Fed either a
+/// **checkpoint path** (re-inspected header-only, like `ModelView`, → GraphCollection)
+/// or a **pre-built GraphCollection** (the tracer Tier-2 `torch.export` traced graph).
+/// Mounts the `<model-explorer-visualizer>` element; its heavy runtime (2.5 MB IIFE +
+/// a layout web worker + WebGL) is self-hosted, loaded on first mount — never in boot.
+export function ModelExplorerView({ path, collection }: { path?: string; collection?: GraphCollection }): JSX.Element {
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -39,9 +39,16 @@ export function ModelExplorerView({ path }: { path: string }): JSX.Element {
     setErr(null);
     void (async () => {
       try {
-        const info = await invoke<CheckpointInfo>('checkpoint_inspect', { path });
-        if (cancelled) return;
-        const gc = collectionFor(info, baseOf(path) || 'model');
+        let gc: GraphCollection;
+        if (collection !== undefined) {
+          gc = collection;
+        } else if (path !== undefined) {
+          const info = await invoke<CheckpointInfo>('checkpoint_inspect', { path });
+          if (cancelled) return;
+          gc = collectionFor(info, baseOf(path) || 'model');
+        } else {
+          throw new Error('no graph to render');
+        }
         await loadModelExplorer();
         if (cancelled || host.current === null) return;
         el = createVisualizer([gc]);
@@ -60,7 +67,7 @@ export function ModelExplorerView({ path }: { path: string }): JSX.Element {
       cancelled = true;
       if (el !== null && el.parentNode !== null) el.parentNode.removeChild(el);
     };
-  }, [path]);
+  }, [path, collection]);
 
   if (status === 'error')
     return (

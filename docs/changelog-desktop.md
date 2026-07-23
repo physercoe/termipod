@@ -162,6 +162,13 @@ This complements:
   `nn.ModuleList([...])`) and in-file inheritance. **Clicking a class scrolls the
   code tab to its definition** — the code sync. React Flow + elkjs ride their own
   lazy chunk (never the boot bundle). (The interactive render is device-verified.)
+- **Inspect — traced op graph, Trace tier 2 (torch.export).** The Trace-model-graph
+  form gains a **Graph** toggle: *Architecture (torchview)* — the existing weightless
+  box diagram → DOT viewer — or **Traced ops (torch.export)**, which meta-device-
+  exports the model and renders its **traced ATen operator graph** (real nodes/edges,
+  per-op shapes, module namespaces) in the interactive Model Explorer. Same venue /
+  interpreter picker; Detect probes torch only. (The export runs on the chosen torch
+  venue; the render is device-verified.)
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

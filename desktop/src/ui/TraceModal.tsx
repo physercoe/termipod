@@ -3,7 +3,13 @@ import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { listConnections, type Connection } from '../state/connections';
 import { detectInterpreter, getInterp, getLastForm, runTrace, setInterp, setLastForm } from '../state/trace';
+import { detectTorch, runTraceExport } from '../state/traceExport';
+import type { GraphCollection } from '../state/modelGraph';
 import type { InspectTab } from '../state/inspect';
+
+/// Tier 1 = torchview weightless **architecture** graph → DOT viewer. Tier 2 =
+/// `torch.export` **traced** ATen graph → the interactive Model Explorer element.
+type TraceTier = 'arch' | 'traced';
 
 function dirOf(p: string): string {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
@@ -19,11 +25,22 @@ function baseOf(p: string): string {
 /// SSH host + interpreter preset), then runs the weightless meta-device torchview
 /// trace and hands the resulting DOT back to open as a graph tab. The interpreter
 /// preset persists per venue; the entry/shape/depth persist across opens.
-export function TraceModal({ tab, onClose, onGraph }: { tab: InspectTab; onClose: () => void; onGraph: (dot: string, title: string) => void }): JSX.Element {
+export function TraceModal({
+  tab,
+  onClose,
+  onGraph,
+  onModelGraph,
+}: {
+  tab: InspectTab;
+  onClose: () => void;
+  onGraph: (dot: string, title: string) => void;
+  onModelGraph: (graph: GraphCollection, title: string) => void;
+}): JSX.Element {
   const t = useT();
   const conns = useMemo(() => listConnections(), []);
   const last = useMemo(() => getLastForm(), []);
 
+  const [tier, setTier] = useState<TraceTier>('arch');
   // Default the venue to the tab's own SFTP host, else local.
   const [venue, setVenue] = useState<string>(tab.source === 'remote' && tab.hostId ? tab.hostId : 'local');
   const [command, setCommand] = useState<string>(() => getInterp(venue));
@@ -45,13 +62,19 @@ export function TraceModal({ tab, onClose, onGraph }: { tab: InspectTab; onClose
     setErr(null);
   }
 
+  function switchTier(v: TraceTier): void {
+    setTier(v);
+    setDetected(null);
+    setErr(null);
+  }
+
   async function detect(): Promise<void> {
     setBusy('detect');
     setDetected(null);
     setErr(null);
     try {
       setInterp(venue, command);
-      const msg = await detectInterpreter(command, connection);
+      const msg = tier === 'traced' ? await detectTorch(command, connection) : await detectInterpreter(command, connection);
       setDetected(msg);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -66,8 +89,12 @@ export function TraceModal({ tab, onClose, onGraph }: { tab: InspectTab; onClose
     try {
       setInterp(venue, command);
       setLastForm({ entry, shape, depth });
-      const dot = await runTrace({ entry, shape, depth, command, repoRoot, filePath, connection });
-      onGraph(dot, `graph: ${entry || baseOf(filePath) || 'model'}`);
+      const title = `graph: ${entry || baseOf(filePath) || 'model'}`;
+      if (tier === 'traced') {
+        onModelGraph(await runTraceExport({ entry, shape, depth, command, repoRoot, filePath, connection }), title);
+      } else {
+        onGraph(await runTrace({ entry, shape, depth, command, repoRoot, filePath, connection }), title);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -87,7 +114,14 @@ export function TraceModal({ tab, onClose, onGraph }: { tab: InspectTab; onClose
           </button>
         </div>
         <div className="trace-body">
-          <p className="small muted">{t('trace.blurb')}</p>
+          <label className="trace-field">
+            <span className="small muted">{t('trace.tier')}</span>
+            <select className="surface-select" value={tier} onChange={(e) => switchTier(e.target.value as TraceTier)}>
+              <option value="arch">{t('trace.tierArch')}</option>
+              <option value="traced">{t('trace.tierTraced')}</option>
+            </select>
+          </label>
+          <p className="small muted">{tier === 'traced' ? t('trace.blurbTraced') : t('trace.blurb')}</p>
 
           <label className="trace-field">
             <span className="small muted">{t('trace.venue')}</span>
@@ -129,17 +163,19 @@ export function TraceModal({ tab, onClose, onGraph }: { tab: InspectTab; onClose
               <span className="small muted">{t('trace.shape')}</span>
               <input className="trace-input mono" value={shape} placeholder="1, 3, 224, 224" onChange={(e) => setShape(e.target.value)} />
             </label>
-            <label className="trace-field">
-              <span className="small muted">{t('trace.depth')}</span>
-              <input
-                className="trace-input trace-depth"
-                type="number"
-                min={1}
-                max={12}
-                value={depth}
-                onChange={(e) => setDepth(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
-              />
-            </label>
+            {tier === 'arch' && (
+              <label className="trace-field">
+                <span className="small muted">{t('trace.depth')}</span>
+                <input
+                  className="trace-input trace-depth"
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={depth}
+                  onChange={(e) => setDepth(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                />
+              </label>
+            )}
           </div>
 
           {err !== null && (

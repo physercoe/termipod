@@ -690,6 +690,12 @@ test('inspect: the Trace model graph form opens and Detect round-trips the inter
   // either outcome (ok/err) proves the trace_run IPC path works end-to-end.
   await page.getByRole('button', { name: 'Detect', exact: true }).click();
   await expect(page.locator('.trace-ok, .trace-err')).toBeVisible({ timeout: 25000 });
+  // Tier 2 (Traced ops / torch.export) shares the venue plumbing but probes torch
+  // only. The first select in the modal body is the Graph tier; switching it and
+  // re-detecting round-trips detectTorch → trace_run → python3 (no torch → err).
+  await page.locator('.trace-modal .surface-select').first().selectOption('traced');
+  await page.getByRole('button', { name: 'Detect', exact: true }).click();
+  await expect(page.locator('.trace-ok, .trace-err')).toBeVisible({ timeout: 25000 });
   // Close the modal (backdrop click) and the tab.
   await page.locator('.inspect-modal-backdrop').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('.trace-modal')).toHaveCount(0);

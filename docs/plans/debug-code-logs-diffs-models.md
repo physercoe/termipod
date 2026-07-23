@@ -14,10 +14,10 @@
 > header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
 > gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
 > tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
-> Tab renamed (§0a). Graph views: tracer, code2flow, ONNX→graph, Model Explorer
-> (WebGL), W4b module graph (RF+elkjs, code-sync). **W4 COMPLETE** — WebGL/RF device-test.
+> Tab renamed (§0a). Graph views: tracer T1+T2 (torch.export→ME), code2flow, ONNX→graph,
+> Model Explorer, W4b module graph. **W4 + Tier 2 COMPLETE** — WebGL/RF/torch device-test.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core/ONNX + tracer + call-graph + graphs + ME + W4b
+> **Last verified vs code:** W1–W3 + W4 core/ONNX + tracer T1/T2 + call-graph + graphs + ME + W4b
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -394,8 +394,17 @@ sentinels (`extractDot` survives interpreter warnings / SSH stderr-folding); the
 DOT renders in the graph viewer. `electron/src/ipc/trace.ts` `trace_run` (spawn +
 stdin + multi-word argv-split, 120 s cap) is `node --test`-verified against the
 real `python3`; `traceCore.ts` (extract + remote-command assembly) is unit-tested;
-the helpers `py_compile` clean. **Tier 2** (`torch.export` → Model Explorer JSON)
-still waits on the Model Explorer graph view.
+the helpers `py_compile` clean. **Tier 2 SHIPPED 2026-07-23** (device-test pending):
+the Trace form gains a **Graph** toggle — *Architecture (torchview)* [Tier 1] vs
+*Traced ops (torch.export)* [Tier 2]. Tier 2 runs `torch.export.export(model, args,
+strict=False)` on the meta device and walks the FX graph (`state/traceExportCore.ts`
+`TORCH_EXPORT_HELPER`, all `node.meta` reads guarded) into a flat node list —
+namespace from `nn_module_stack`, edges from `all_input_nodes`, shapes from
+`node.meta['val']`. `exportToGraphCollection` ([[modelGraph]]) turns that into the
+Model Explorer `GraphCollection`, which opens in the **`megraph`** tab (a `paste`
+body carrying the collection, vs the checkpoint-path variant). Detect probes **torch
+only** (torchview not needed). Pure core `node --test`-verified; the export itself
+needs a torch venue (device-test — torch ≥ 2.1).
 
 No mature tool statically parses `nn.Module` source into a graph (verified — an
 AST can't resolve config-driven layer construction in general; the scoped

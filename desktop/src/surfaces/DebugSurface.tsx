@@ -7,6 +7,7 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
 import { looksLikeDot } from '../state/dotGraph';
+import type { GraphCollection } from '../state/modelGraph';
 import { TraceModal } from '../ui/TraceModal';
 import { CallGraphModal } from '../ui/CallGraphModal';
 import { useWorkspace } from '../state/workspace';
@@ -359,6 +360,10 @@ function CodeTab({
             openTab({ kind: 'graph', source: 'paste', title }, dot);
             setTraceOpen(false);
           }}
+          onModelGraph={(gc, title) => {
+            openTab({ kind: 'megraph', source: 'paste', title }, JSON.stringify(gc));
+            setTraceOpen(false);
+          }}
         />
       )}
       {cgOpen && (
@@ -629,11 +634,31 @@ function GraphTab({ tab }: { tab: InspectTab }): JSX.Element {
 }
 
 // ── interactive model-explorer graph tab (Model Explorer WebGL) ───────────────
-// A `megraph` tab re-inspects its checkpoint (local, header-only — like a model
-// tab) and renders the interactive Model Explorer graph. Local-only: the WebGL
-// element + worker need the file's header via `checkpoint_inspect`.
+// A `megraph` tab renders the interactive Model Explorer graph from either a `local`
+// checkpoint (re-inspected header-only, like a model tab) or a `paste` body carrying
+// a pre-built GraphCollection (the tracer Tier-2 torch.export traced graph).
 function MEGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  if (tab.source === 'paste') {
+    let gc: GraphCollection | null = null;
+    try {
+      gc = content !== undefined && content !== '' ? (JSON.parse(content) as GraphCollection) : null;
+    } catch {
+      gc = null;
+    }
+    if (gc === null)
+      return (
+        <div className="inspect-error region-pad">
+          <Icon name="alert" size={16} /> {t('graph.rendering')}
+        </div>
+      );
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
+        <ModelExplorerView collection={gc} />
+      </Suspense>
+    );
+  }
   if (!isShell() || tab.source !== 'local' || tab.path === undefined) {
     return (
       <div className="surface-placeholder region-pad">

@@ -6,6 +6,8 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
+import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+import { AgentTranscript } from './AgentTranscript';
 import { ActivityTab, CriteriaTab, DeliverableDetail, DocumentsTab, FilesTab } from './ProjectPanels';
 import { ProjectHero } from './ProjectHero';
 import { PhaseSummary } from './PhaseSummary';
@@ -604,7 +606,12 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const client = useSession((s) => s.client);
   const [open, setOpen] = useState<Entity | null>(null);
   const [creating, setCreating] = useState(false);
+  // Master-detail engages ≥1100px (panel; modal below); the tri-pane transcript
+  // preview engages ≥1600px (decision §6.4). The detail panel is user-resizable,
+  // mirroring MissionLayout's right-dock rail (usePanelWidth + ResizeHandle).
   const wide = useMinWidth(1100);
+  const ultra = useMinWidth(1600);
+  const [panelW, onPanelResize] = usePanelWidth('termipod.taskboard.panelW', 360, 280, 620, -1);
   const tasksQ = useQuery({
     queryKey: ['tasks', projectId],
     enabled: client !== null,
@@ -624,6 +631,8 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   // stays as a fallback so the panel survives the task dropping off the list.
   const selected = open !== null ? tasks.find((task) => str(task, 'id') === selectedId) ?? open : null;
   const showPanel = wide && selected !== null;
+  const assigneeId = selected !== null ? str(selected, 'assignee_id') : undefined;
+  const showTranscript = ultra && selected !== null && assigneeId !== undefined;
 
   const board = (
     <div className="kanban">
@@ -658,7 +667,8 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
       {showPanel ? (
         <div className="kanban-split">
           {board}
-          <aside className="task-panel">
+          <ResizeHandle onResize={onPanelResize} />
+          <aside className="task-panel" style={{ flex: `0 0 ${panelW}px` }}>
             {/* key: the panel swaps tasks in place (no unmount, unlike the
                 modal), and TaskDetailBody seeds picker state from props — a
                 remount per task keeps task A's edits from saving onto task B. */}
@@ -669,6 +679,11 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
               onClose={() => setOpen(null)}
             />
           </aside>
+          {showTranscript && (
+            <aside className="task-transcript">
+              <AgentTranscript agentId={assigneeId!} />
+            </aside>
+          )}
         </div>
       ) : (
         board

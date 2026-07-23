@@ -1,9 +1,11 @@
 # Project & task board redesign — master-detail desktop, in-review lifecycle, agent-aware DnD
 
 > **Type:** plan
-> **Status:** Accepted 2026-07-23 — maintainer decisions recorded in §6
+> **Status:** In progress 2026-07-23 — **W1 SHIPPED** (master-detail board,
+> rich cards, stretchy columns, resizable split + tri-pane transcript preview
+> per §6.4); W2–W5 open. Maintainer decisions in §6.
 > **Audience:** contributors, maintainer
-> **Last verified vs code:** main @ `c9a247d8`, 2026-07-23
+> **Last verified vs code:** W1 shipped to main; §6.4 done, 2026-07-23
 
 **TL;DR.** The desktop Projects area under-serves widescreen: the tasks
 kanban is five fixed 220px columns with dead space to their right, task cards
@@ -192,12 +194,20 @@ unchanged.
 
 ## 5. Wedges
 
-- **W1 — Desktop master-detail + rich cards + stretchy columns.** Surfaces:
-  `ProjectBoard.tsx` (TasksTab split), `TaskDetail.tsx` (panel-ize + full
-  content), `05-transcript-boards.css` (column flex, card styles). The
-  visible widescreen win. Desktop-only; no hub change. SHIPPED `0e4085fa`
-  with a fixed 360px panel — decision 6.4 (user-resizable split, tri-pane
-  ≥1600px) is DEFERRED to a follow-up wedge (maintainer, 2026-07-23).
+- **W1 — Desktop master-detail + rich cards + stretchy columns. SHIPPED
+  (direct-to-main).** Surfaces: `ProjectBoard.tsx` (TasksTab split + `TaskCard`
+  + `useMinWidth`), `TaskDetail.tsx` (shared `TaskDetailBody` for modal + panel,
+  full content + `relTime`/`pipClass`/`firstLine` helpers),
+  `05-transcript-boards.css` (column flex `1 1 200px`, card styles, split/panel/
+  transcript). Columns stretch (dropped `min-width:min-content`); detail opens
+  inline ≥1100px, modal below. **§6.4 done:** the split is user-resizable
+  (`usePanelWidth` + `ResizeHandle`, mirroring MissionLayout's right-dock rail,
+  persisted at `termipod.taskboard.panelW`), and a **tri-pane live-transcript
+  preview** of the assignee session (`AgentTranscript`) engages automatically at
+  ≥1600px when the task has an assignee. Desktop-only; no hub change. Verified:
+  tsc clean, `lint-desktop-tokens` clean (65 baseline), vite build green.
+  Device-test (widescreen ≥1600px, resize drag, transcript height) is the
+  director's.
 - **W2 — `in_review` lifecycle end-to-end.** Hub — there is **no schema
   migration**: task status has no CHECK constraint (`handlers_tasks.go:24`);
   the vocabulary lives in handlers, and W2's real hub surface is:

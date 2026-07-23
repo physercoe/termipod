@@ -1260,15 +1260,35 @@
   min-width: 0;
 }
 .kanban-split .kanban {
-  flex: 1 1 auto;
+  flex: 3 1 0;
   min-width: 0;
 }
+/* Detail panel — width owned by TasksTab (usePanelWidth, resizable + persisted);
+   sticky so it stays in view while the board scrolls. */
 .task-panel {
-  flex: 0 0 360px;
-  align-self: stretch;
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
   border-left: 1px solid var(--border);
   padding-left: var(--spacing-s12);
   min-width: 0;
+}
+/* Tri-pane (≥1600px) live-transcript preview of the assignee session. A
+   DEFINITE height (not max-height) so the embedded virtualized feed has a
+   bounded viewport; sticky so it tracks the board scroll. */
+.task-transcript {
+  flex: 2 1 0;
+  min-width: 0;
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+  height: calc(100vh - 190px);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  padding-left: var(--spacing-s12);
 }
 
 .kanban {

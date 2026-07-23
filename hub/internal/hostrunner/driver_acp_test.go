@@ -2494,6 +2494,90 @@ func TestACPDriver_AvailableCommandsSynthesizeSessionInitOnReplay(t *testing.T) 
 	}
 }
 
+// TestACPDriver_AvailableCommandsMidTurnFallBackToSystem — the §6 P3
+// busy-parity anchor: session.init is a terminal idle short-circuit on
+// BOTH clients' busy walks (mobile agentIsBusy, desktop feedLens), NOT
+// a skipped no-signal kind, so a synthesized catalog frame landing
+// mid-turn would flip Stop→Send while the engine is still generating.
+// ACP allows the catalog to change at any time (skill-mutating commands
+// can re-announce it), so while a turn_id is active the driver must
+// route the update to the verbatim system/system forward instead; once
+// the turn ends, synthesis resumes.
+func TestACPDriver_AvailableCommandsMidTurnFallBackToSystem(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-midturn")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-midturn",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	catalog := map[string]any{
+		"sessionId": "sess-midturn",
+		"update": map[string]any{
+			"sessionUpdate": "available_commands_update",
+			"availableCommands": []any{
+				map[string]any{"name": "goal", "description": "Run goal mode."},
+			},
+		},
+	}
+
+	// Open a turn (as Input("text") does at the prompt-dispatch
+	// boundary) — the catalog must NOT synthesize while it is active.
+	drv.beginTurn(context.Background())
+	fake.notify("session/update", catalog)
+
+	// lifecycle.started + session.init (Start) + turn.start + fallback.
+	evs := poster.wait(t, 4, 2*time.Second)
+	for _, e := range evs {
+		if e.Kind == "session.init" {
+			if _, has := e.Payload["slash_commands"]; has {
+				t.Fatalf("catalog synthesized session.init mid-turn — busy walks would flip idle; kinds=%v", eventKinds(evs))
+			}
+		}
+	}
+	sawFallback := false
+	for _, e := range evs {
+		if e.Kind == "system" && e.Producer == "system" {
+			if su, _ := e.Payload["sessionUpdate"].(string); su == "available_commands_update" {
+				sawFallback = true
+			}
+		}
+	}
+	if !sawFallback {
+		t.Fatalf("mid-turn catalog not forwarded system/system; kinds=%v", eventKinds(evs))
+	}
+
+	// Turn over — synthesis resumes.
+	drv.endTurn()
+	fake.notify("session/update", catalog)
+	evs = poster.wait(t, 5, 2*time.Second)
+	sawSynth := false
+	for _, e := range evs {
+		if e.Kind == "session.init" {
+			if _, has := e.Payload["slash_commands"]; has {
+				sawSynth = true
+			}
+		}
+	}
+	if !sawSynth {
+		t.Fatalf("post-turn catalog did not synthesize session.init; kinds=%v", eventKinds(evs))
+	}
+}
+
 // TestACPDriver_EmitsSessionInitOnStart pins ADR-021 W1.1: after the
 // ACP `session/new` handshake completes, the driver emits a dedicated
 // `session.init` event with `producer=agent` carrying the engine-side

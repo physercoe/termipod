@@ -1612,13 +1612,19 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 		// catalog's single home ("lift ... into the synthesized
 		// session state").
 		//
-		// Busy-parity: session.init sits on BOTH clients' agentIsBusy
-		// short-circuit-to-idle list (mobile feed_reducer.dart,
-		// desktop feedLens.ts), and engines emit the catalog
-		// pre-prompt at session start (replays are historical), so
-		// the synthesized frame can't mask a live busy turn — the
-		// same skip path the system/system tagging below bought.
-		if names := slashCommandNames(u["availableCommands"]); len(names) > 0 {
+		// Busy-parity: session.init is a terminal idle short-circuit on
+		// BOTH clients' busy walks (mobile feed_reducer.dart agentIsBusy,
+		// desktop feedLens.ts) — NOT a skipped no-signal kind — so a
+		// synthesized frame landing mid-turn would flip Stop→Send while
+		// the engine is still generating. ACP allows the catalog to
+		// change at any time (skill-mutating commands like /sub-skill
+		// can plausibly re-announce it mid-turn), so the synthesis is
+		// gated on getTurnID() == "" — empty exactly between turns AND
+		// during session/load replay, where synthesis must still fire.
+		// A mid-turn catalog takes the verbatim system/system forward
+		// below instead (the pre-P3 path): the picker misses that one
+		// rare refresh, the busy signal stays intact.
+		if names := slashCommandNames(u["availableCommands"]); len(names) > 0 && d.getTurnID() == "" {
 			payload := map[string]any{"slash_commands": names}
 			d.mu.Lock()
 			if d.sessionID != "" {
@@ -1627,9 +1633,10 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 			d.mu.Unlock()
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "session.init", "agent", d.tagIfReplay(payload))
 		} else {
-			// Empty or malformed catalog — don't synthesize an empty
-			// slash_commands key (it would wipe the clients' merged
-			// picker state); fall back to the verbatim forward.
+			// Empty/malformed catalog (don't synthesize an empty
+			// slash_commands key — it would wipe the clients' merged
+			// picker state) or a mid-turn arrival (see busy-parity
+			// above); fall back to the verbatim forward.
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system", u)
 		}
 	case "current_mode_update", "current_model_update", "config_option_update":

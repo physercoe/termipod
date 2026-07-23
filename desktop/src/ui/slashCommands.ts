@@ -75,8 +75,10 @@ export function activeSlashMatch(
 ///
 ///   - first non-whitespace char must be `/`
 ///   - the command token after `/` must start with a letter and contain only
-///     [A-Za-z0-9_-] — excludes path-like values (`/etc/foo`) and markdown
-///     list markers (`/ - item`) that happen to start with a slash
+///     [A-Za-z0-9_.-] — the dot admits namespaced catalog names like
+///     kimi-code's `/sub-skill.review`; `/` stays excluded so path-like
+///     values (`/etc/foo`) and markdown list markers (`/ - item`) that
+///     happen to start with a slash still fail the gate
 ///   - whitespace + optional args may follow on the same line; a multi-line
 ///     body is still allowed (`/compact <multiline focus>`)
 ///
@@ -88,5 +90,5 @@ export function isSlashCommandBody(body: string): boolean {
   if (t === '' || !t.startsWith('/')) return false;
   const nl = t.indexOf('\n');
   const firstLine = nl === -1 ? t : t.slice(0, nl);
-  return /^\/[A-Za-z][\w-]*(?:\s.*)?$/.test(firstLine);
+  return /^\/[A-Za-z][\w.-]*(?:\s.*)?$/.test(firstLine);
 }

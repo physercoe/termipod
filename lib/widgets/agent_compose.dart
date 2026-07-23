@@ -34,9 +34,10 @@ const int _maxImagesPerTurn = kMaxImagesPerTurn;
 ///
 ///   - first non-whitespace char must be `/`
 ///   - the command token after `/` must start with a letter and contain
-///     only [A-Za-z0-9_-] — this excludes path-like values (`/etc/foo`)
-///     and markdown list markers (`/ - item`) that happen to start with
-///     a slash but aren't slash commands
+///     only [A-Za-z0-9_.-] — the dot admits namespaced catalog names
+///     like kimi-code's `/sub-skill.review` (P3); `/` stays excluded so
+///     path-like values (`/etc/foo`) and markdown list markers
+///     (`/ - item`) that happen to start with a slash still fail
 ///   - whitespace + optional args may follow on the same line; a
 ///     multi-line body is still allowed (`/compact <multiline focus>`)
 ///
@@ -52,7 +53,7 @@ bool isSlashCommandBody(String body) {
   if (t.isEmpty || !t.startsWith('/')) return false;
   final firstLineEnd = t.indexOf('\n');
   final firstLine = firstLineEnd == -1 ? t : t.substring(0, firstLineEnd);
-  return RegExp(r'^/[A-Za-z][\w-]*(?:\s.*)?$').hasMatch(firstLine);
+  return RegExp(r'^/[A-Za-z][\w.-]*(?:\s.*)?$').hasMatch(firstLine);
 }
 
 /// Sits under AgentFeed and routes text/cancel inputs to the hub's

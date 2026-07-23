@@ -99,6 +99,13 @@ test('isSlashCommandBody: accepts engine commands, with and without args', () =>
   assert.equal(isSlashCommandBody('/compact line1\nline2'), true); // multi-line focus
 });
 
+test('isSlashCommandBody: accepts dotted catalog names (kimi-code skills)', () => {
+  // kimi-code 0.28.1's ACP catalog namespaces skill sub-commands with a
+  // dot — the picker offers them, so the raw-send gate must accept them.
+  assert.equal(isSlashCommandBody('/sub-skill.review'), true);
+  assert.equal(isSlashCommandBody('/sub-skill.consolidate some args'), true);
+});
+
 test('isSlashCommandBody: rejects paths, prose, and list markers', () => {
   assert.equal(isSlashCommandBody(''), false);
   assert.equal(isSlashCommandBody('/etc/foo'), false);

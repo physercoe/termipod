@@ -56,6 +56,15 @@ void main() {
       expect(isSlashCommandBody('\n\t/compact\n'), isTrue);
     });
 
+    test('accepts dotted catalog names (kimi-code skill sub-commands, P3)', () {
+      // kimi-code 0.28.1's ACP catalog namespaces skill sub-commands
+      // with a dot; the dynamic picker offers them, so the raw-send
+      // gate must accept them. Path-likes still fail — `/` stays out
+      // of the token class.
+      expect(isSlashCommandBody('/sub-skill.review'), isTrue);
+      expect(isSlashCommandBody('/sub-skill.consolidate some args'), isTrue);
+    });
+
     test('rejects empty / whitespace-only bodies', () {
       expect(isSlashCommandBody(''), isFalse);
       expect(isSlashCommandBody('   '), isFalse);

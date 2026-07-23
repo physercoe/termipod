@@ -1823,6 +1823,165 @@ func TestACPDriver_AccumulatesAgentMessageChunks(t *testing.T) {
 	}
 }
 
+// TestACPDriver_StampsPlanUpdatesForFoldInPlace pins agent-transcript-redesign
+// §6 P1: each ACP plan notification is a full snapshot of the todo list, so
+// the driver must stamp it with a stable per-turn message_id + partial:true +
+// the active turn_id. The clients' fold-in-place reducer then collapses the
+// turn's N plan snapshots into one card that updates, instead of N cards.
+// The chain root must reset at the next prompt so turn N+1's plan starts a
+// fresh card, and the snapshot payload itself (entries) passes through
+// unmodified.
+func TestACPDriver_StampsPlanUpdatesForFoldInPlace(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Custom fake that answers the handshake and, on every session/prompt,
+	// streams two plan snapshots (todo list growing) BEFORE responding —
+	// i.e. mid-turn, so the driver stamps them with the active turn_id.
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-plan"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				for _, entries := range []any{
+					[]any{map[string]any{"content": "step 1", "status": "in_progress"}},
+					[]any{
+						map[string]any{"content": "step 1", "status": "completed"},
+						map[string]any{"content": "step 2", "status": "in_progress"},
+					},
+				} {
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0",
+						"method":  "session/update",
+						"params": map[string]any{
+							"sessionId": "sess-plan",
+							"update": map[string]any{
+								"sessionUpdate": "plan",
+								"entries":       entries,
+							},
+						},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+					time.Sleep(2 * time.Millisecond)
+				}
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"stopReason": "end_turn"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-plan",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	planPayloads := func() []map[string]any {
+		var out []map[string]any
+		for _, e := range poster.snapshot() {
+			if e.Kind == "plan" {
+				out = append(out, e.Payload)
+			}
+		}
+		return out
+	}
+
+	// Turn 1: the two plan snapshots must share one message_id chain
+	// root, carry partial:true, and be stamped with the active turn_id.
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input turn 1: %v", err)
+	}
+	plans := planPayloads()
+	if len(plans) != 2 {
+		t.Fatalf("turn 1 plan events = %d (want 2); got %+v", len(plans), plans)
+	}
+	for i, p := range plans {
+		if p["partial"] != true {
+			t.Errorf("turn1 plans[%d].partial = %v; want true (clients fold the chain by it)", i, p["partial"])
+		}
+		if tid, _ := p["turn_id"].(string); tid == "" {
+			t.Errorf("turn1 plans[%d].turn_id missing; want the active turn stamped (tool_call parity)", i)
+		}
+	}
+	msgID1, _ := plans[0]["message_id"].(string)
+	msgID1b, _ := plans[1]["message_id"].(string)
+	if msgID1 == "" || msgID1 != msgID1b {
+		t.Errorf("turn 1 plan snapshots must share one non-empty message_id (fold chain root); got %q vs %q",
+			msgID1, msgID1b)
+	}
+	// The ACP plan payload passes through unmodified — only the fold
+	// stamp (message_id/partial/turn_id) is added.
+	entries0, ok := plans[0]["entries"].([]any)
+	if !ok || len(entries0) != 1 {
+		t.Fatalf("turn1 plans[0].entries = %+v; want the 1-entry snapshot passed through", plans[0]["entries"])
+	}
+	if e0, _ := entries0[0].(map[string]any); e0["content"] != "step 1" || e0["status"] != "in_progress" {
+		t.Errorf("turn1 plans[0].entries[0] = %+v; want step 1/in_progress", entries0[0])
+	}
+	entries1, ok := plans[1]["entries"].([]any)
+	if !ok || len(entries1) != 2 {
+		t.Fatalf("turn1 plans[1].entries = %+v; want the 2-entry snapshot passed through", plans[1]["entries"])
+	}
+	if e1, _ := entries1[1].(map[string]any); e1["content"] != "step 2" {
+		t.Errorf("turn1 plans[1].entries[1] = %+v; want step 2", entries1[1])
+	}
+
+	// Turn 2: Input("text") resets the per-turn state, so the next plan
+	// snapshots must start a FRESH chain — a different message_id and
+	// turn_id from turn 1, otherwise the two turns' cards coalesce.
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "next"}); err != nil {
+		t.Fatalf("Input turn 2: %v", err)
+	}
+	plans = planPayloads()
+	if len(plans) != 4 {
+		t.Fatalf("after turn 2 plan events = %d (want 4); got %+v", len(plans), plans)
+	}
+	msgID2, _ := plans[2]["message_id"].(string)
+	msgID2b, _ := plans[3]["message_id"].(string)
+	if msgID2 == "" || msgID2 != msgID2b {
+		t.Errorf("turn 2 plan snapshots must share one non-empty message_id; got %q vs %q", msgID2, msgID2b)
+	}
+	if msgID2 == msgID1 {
+		t.Errorf("turn 2 message_id %q must differ from turn 1 — resetTurn starts a fresh fold chain", msgID2)
+	}
+	if tid2, _ := plans[2]["turn_id"].(string); tid2 == "" || tid2 == plans[0]["turn_id"] {
+		t.Errorf("turn 2 turn_id = %q; want stamped and distinct from turn 1's %v", tid2, plans[0]["turn_id"])
+	}
+}
+
 // TestACPDriver_PostsTurnResultOnPromptResponse pins v1.0.404 (b)+(c).
 // On session/prompt success the driver MUST post a turn.result event
 // — both because mobile's _isAgentBusy() returns false on it (clears

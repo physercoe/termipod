@@ -75,7 +75,7 @@ jobs:
       - name: Build vault-wasm (nodejs target)
         working-directory: desktop/vault-wasm
         run: wasm-pack build --target nodejs --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vault-wasm-pkg
           path: desktop/vault-wasm/pkg/
@@ -254,7 +254,7 @@ jobs:
           # (empty CSC_LINK breaks the mac/win packager).
 
       - name: Upload installers as run artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: termipod-electron-${{ matrix.label }}
           if-no-files-found: warn

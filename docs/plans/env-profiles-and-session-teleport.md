@@ -1,7 +1,7 @@
 # Environment profiles + host-to-host session teleport — two control-plane primitives
 
 > **Type:** plan
-> **Status:** Draft — for maintainer review
+> **Status:** Accepted 2026-07-23 — maintainer decisions recorded in the final section
 > **Audience:** contributors, maintainer
 > **Last verified vs code:** main @ `c97c522c`, 2026-07-23
 
@@ -25,12 +25,15 @@ web / Codex cloud), grounded in the current codebase:
    engine session store stranded on the source host's disk. This plan adds
    host-to-host teleport: a hub endpoint that re-targets the existing
    resume machinery, plus an **engine-state bundle** (per-family declared
-   state paths, tar → hub blob → target host) so cross-host resume doesn't
-   cold-start, and branch/workdir handoff for the worktree and non-worktree
-   cases.
+   state paths, tar → chunked hub-blob manifest → target host) so
+   cross-host resume doesn't cold-start, and branch/workdir handoff for the
+   worktree and non-worktree cases — pause-first, per ADR-014's
+   single-appender invariant.
 
 Companion to [`agent-transcript-redesign.md`](agent-transcript-redesign.md)
-(merged) and the project/task board plan (PR #364).
+(merged `c97c522c`) and
+[`project-task-board-redesign.md`](project-task-board-redesign.md)
+(merged `c7975380`).
 
 ---
 
@@ -134,9 +137,17 @@ created_at, updated_at, deleted_at)`.
 **Secret delivery honoring forbidden-pattern #15 (the ADR-worthy piece).**
 The vault threat model says the hub never holds usable secrets. So:
 
-1. **Host device keys (new).** Host-runner generates an X25519 keypair at
-   registration; the public key rides `capabilities_json`. Same shape as
-   ADR-052's per-device vault-key wrapping (D-4), extended to hosts.
+1. **Host device keys (new) — with the D-4 trust step, not without it.**
+   Host-runner generates an X25519 keypair at registration; the public key
+   rides `capabilities_json`. But ADR-052 D-4 wraps to a device key only
+   *"after an explicit trust step (short code / passkey)"* — and the same
+   applies here, or hub-blindness is nominal: host pubkeys are hub-relayed,
+   so an untrusted hub could substitute its own key and open every
+   envelope. E3's ADR must specify: first-seen host key requires explicit
+   operator confirmation (fingerprint short-code shown on the host console,
+   confirmed on the client), **pinned** thereafter; a changed key
+   invalidates the pin and requires re-trust. (ADR-052's preamble already
+   names host-key pinning as adjacent work.)
 2. **Envelope per spawn.** When a spawn references a profile with
    `secret_refs`, the *client* (which holds the vault key) resolves the refs,
    builds `{KEY: value}`, and seals it to the **target host's public key**.
@@ -147,9 +158,12 @@ The vault threat model says the hub never holds usable secrets. So:
    env (never written to disk; never logged — `auditAuthEnv`-style
    present/absent logging only), scrubs on exit.
 
-**Consumption at spawn.** `spawn_spec` gains `env_profile_id` +
-`env_profile_rev` (**snapshot semantics**: the spawn pins the profile
-version, so later profile edits don't mutate running history) and
+**Consumption at spawn.** `spawn_spec` gains `env_profile_id` (provenance)
+plus the **materialized** `env_vars` + `setup_script` copied into the spec
+at spawn time — snapshot semantics without any revision machinery: the
+entity above has no rev column or history table, and the resolved values
+are hub-visible anyway, so copying them into the spec is the honest
+snapshot (later profile edits don't mutate running history). And
 `env_secret_envelope`. Merge order for env: profile `env_vars` < template
 cmd-prefix tricks (unchanged) < engine-hardcoded vars (existing) < sealed
 secrets (win). Setup script: `spec.setup_script` + failure policy
@@ -181,13 +195,25 @@ existing `env`/`script` vault item types finally get a consumer).
 
 **New endpoint** `POST /v1/teams/{team}/sessions/{id}/teleport
 {target_host_id}`. Teleport = the existing `resumePausedSession` pattern
-re-targeted, in one orchestrated flow:
+re-targeted, in one orchestrated flow. **Ordering rule (ADR-014): pause
+first, bundle second.** The engine session store is append-only with a
+single appender (ADR-014's structural multi-writer invariant) — cutting
+the bundle while the source engine is alive both loses any post-tar
+appends and puts two engines on one logical store during the verify
+window. So teleport *begins* by pausing the source; the safe rollback at
+every later step is "resume on the source host", which is exactly what
+`resumePausedSession` already does today.
 
-1. **Validate.** Session active or paused; target host online
-   (`checkSpawnHostReachable`), capability supports the agent's family
-   (`capabilities_json`), and — for worktree sessions — the target confirms
-   the source repo is reachable (a new lightweight host precheck verb).
-2. **Hand off the workdir state.**
+1. **Validate.** Session paused, or active-and-idle (mid-turn → busy
+   error); target host online (`checkSpawnHostReachable`), capability
+   supports the agent's family (`capabilities_json`), and — for worktree
+   sessions — the target confirms the source repo is reachable (a new
+   lightweight host precheck verb).
+2. **Pause the source.** Graceful terminate of the source agent; the
+   session becomes a normal paused session (existing semantics). From here
+   on, any failure falls back to resume-on-source — the source is never
+   left in a half-moved state.
+3. **Hand off the workdir state.**
    - *Worktree sessions (T1)*: source host commits WIP onto `hub/<handle>`
      and pushes to the shared remote; target clones/fetches and
      `git worktree add`s the same branch. (Hosts sharing no remote → relay
@@ -195,7 +221,7 @@ re-targeted, in one orchestrated flow:
    - *Non-worktree (T2)*: tar the derived workdir (size-capped, excludes
      `.git` objects already on the branch where applicable) → hub blob →
      target untars into its own `DeriveWorkdir` path.
-3. **Hand off the engine state (the anti-cold-start piece).** Families
+4. **Hand off the engine state (the anti-cold-start piece).** Families
    declare `state_paths` globs in `agent_families.yaml` (kimi(-ts):
    `~/.kimi-code/sessions/<wd>/<session>`; claude:
    `~/.claude/projects/<slug>/<id>.jsonl`; gemini: `.gemini/sessions`;
@@ -205,21 +231,38 @@ re-targeted, in one orchestrated flow:
    (kimi's `wd_<cwd>_<hash>` dir naming makes this mechanical; claude's
    project slug likewise). The cursor in `sessions.engine_session_id` then
    resolves on the target exactly as it did on the source.
-4. **Swap.** Enqueue graceful `terminate` on the source **only after** the
-   target spawn reports ready (terminate-after-verify); splice the cursor
-   via the existing `resume_splice.go`; session row flips to the new agent
-   (same session, `agent_ids_json` accumulates); spec's
-   `spawn_spec_yaml` re-derives workdir/host fields. Failure before the swap
-   leaves the source session untouched.
-5. **Degraded fallback.** If a family has no `state_paths` declared (or the
+5. **Spawn on the target & swap.** Spawn on the target host; splice the
+   cursor via the existing `resume_splice.go`; session row flips to the new
+   agent (same session, `agent_ids_json` accumulates); spec's
+   `spawn_spec_yaml` re-derives workdir/host fields. **Secret envelopes
+   don't survive the move**: `env_secret_envelope` is sealed to the *source*
+   host's key, so the initiating client (which holds the vault key) must
+   re-resolve the profile's `secret_refs` and re-seal to the target host's
+   key as part of the teleport request — a corollary worth stating plainly:
+   headless/steward-initiated teleport of secret-bearing sessions is
+   impossible by design. Failure at any point → resume-on-source (step 2's
+   fallback); the paused source session is untouched.
+6. **Degraded fallback.** If a family has no `state_paths` declared (or the
    bundle is missing/corrupt), cold-start on the target with a
    client-generated session digest dropped as a context file — universal,
    lossy, explicit in the UI.
 
+**Transport (the missing piece the blob store doesn't provide).** `/v1/blobs`
+caps a blob at **25 MiB** (`handlers_blobs.go:21 maxBlobBytes`) and buffers
+the whole upload in memory (`io.ReadAll`) — engine stores alone (claude
+transcript `.jsonl`s, kimi session dirs) can exceed that, and the workdir
+tar cap below is 10× it. Teleport therefore ships a **chunked bundle
+manifest**: the tar stream split into ≤25 MiB parts, each a normal blob,
+plus a manifest blob `{parts: [sha256…], total_size, tar_sha256}`; the
+target fetches parts sequentially, verifies the whole-tar hash, and
+reassembles. No new endpoint, no blob-store changes, memory use bounded on
+both hosts. (A streaming transfer endpoint stays a T3 option if manifest
+overhead ever matters.)
+
 **UX.** Teleport action on the session (desktop session menu + mobile
 session details): target-host picker filtered by capability/reachability;
-progress phases (`packing → transferring → spawning → verifying →
-terminating old`); the transcript never leaves the hub, so the conversation
+progress phases (`pausing → packing → transferring → spawning →
+verifying`); the transcript never leaves the hub, so the conversation
 view is continuous across the move.
 
 **Not in scope (T3, recorded):** auto-failover on host-offline (needs a
@@ -230,9 +273,10 @@ no remote.
 ### Wedges (Part 2)
 
 - **T1 — Teleport for worktree sessions + engine-state bundles for
-  kimi-code(-ts) and claude-code.** Endpoint + orchestration + branch
-  push/pull handoff + `state_paths` for the two best-understood stores +
-  terminate-after-verify. Desktop action first.
+  kimi-code(-ts) and claude-code.** Endpoint + pause-first orchestration
+  (resume-on-source fallback) + chunked bundle manifest + branch push/pull
+  handoff + `state_paths` for the two best-understood stores. Desktop
+  action first.
 - **T2 — Non-worktree sessions.** Workdir tar relay via blobs; remaining
   families' `state_paths`; mobile action.
 - **T3 — Failover/drain/relay polish.** Host-offline auto-teleport policy,
@@ -253,24 +297,21 @@ no remote.
 - **Setup scripts run as the host user** — same trust level as the agent
   cmd itself; no new privilege. Failure policy defaults to fail-closed.
 
-## Open questions for the maintainer
+## Decisions (maintainer, 2026-07-23)
 
-1. **Profile scoping**: team-wide only, or also per-project overrides of
-   individual keys (project `env_vars` merged over profile)? Proposal: team
-   profiles + project-level `env_profile_id` attachment only; per-key
-   overrides via a second profile.
-2. **secret_refs resolution authority**: only the desktop (vault-key holder)
-   can author a spawn with secrets — is mobile expected to resolve refs too
-   (it has vault access via the same bundle)? Proposal: yes, both clients;
-   the hub-side spawn API rejects `secret_refs` it can't see resolved into
-   an envelope.
-3. **Engine-state blob sensitivity**: acceptable as hub-visible user data
-   (transcript-equivalent), or must T1 wait for E3 host-key sealing?
-   Proposal: ship hub-visible with the explicit flag; seal in T3 via E3.
-4. **Teleport of `paused` sessions only, or also active (mid-idle)?**
-   Proposal: active-but-idle allowed (terminate-after-verify covers it);
-   mid-turn refused with a busy error.
-5. **Non-git workdirs in T2**: tar size cap (proposal: 256 MB compressed,
-   refuse larger with a clear error) — or stream via a host-to-host channel
-   where reachable? Proposal: cap + clear error; NAT makes direct channels
-   the exception.
+1. **Profile scoping**: team profiles + project-level `env_profile_id`
+   attachment only; per-key overrides via a second profile — no merge
+   machinery.
+2. **secret_refs resolution authority**: both clients resolve (mobile holds
+   the same vault bundle); the hub-side spawn API rejects `secret_refs` it
+   can't see resolved into an envelope.
+3. **Engine-state blob sensitivity**: ship hub-visible with the explicit
+   flag — transcripts of the same sensitivity are already hub-stored; seal
+   via E3's host keys in T3.
+4. **Which sessions teleport**: paused, or active-and-idle — pause is the
+   *first step* of the flow (the ADR-014 ordering rule above), so
+   active-but-idle simply gets paused; mid-turn refused with a busy error.
+5. **Non-git workdirs in T2**: 256 MB compressed cap, refuse larger with a
+   clear error — carried over the chunked bundle manifest (the 25 MiB blob
+   cap makes a single-blob tar impossible; see Transport). Direct
+   host-to-host channels stay the exception (NAT).

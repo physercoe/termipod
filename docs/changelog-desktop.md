@@ -135,6 +135,15 @@ This complements:
   DOT rendered in the graph viewer. Requires code2flow on the chosen venue (plus
   Acorn / the Parser gem / PHP-Parser for JS / Ruby / PHP; Python needs nothing
   extra); it errors gracefully if the package isn't found.
+- **Inspect models — ONNX operator graph, View as graph (W4).** The ONNX parse now
+  retains the operator graph (nodes + input/output tensor names, capped at 6000
+  nodes, still header/metadata-only — no bytes), and an ONNX model tab gains a
+  **View as graph** button that renders the compute graph in the DOT viewer:
+  operators as nodes, edges wired by data flow (a producer's output tensor feeding
+  a consumer's input; weight/initializer inputs are marked constant, not edges).
+  Under the hood the graph is built as a **Model Explorer `GraphCollection`** — the
+  schema pinned verbatim to `ai-edge-model-explorer-visualizer` — so the richer
+  WebGL graph element (a later, on-device slice) will be a drop-in renderer swap.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

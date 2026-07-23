@@ -17,6 +17,24 @@ export interface TensorInfo {
   params: number;
 }
 
+/// One operator node of an ONNX graph — mirrors `electron/src/ipc/checkpoint.ts`
+/// (metadata only: op type + input/output tensor *names* that wire the edges).
+export interface OnnxGraphNode {
+  name: string;
+  opType: string;
+  inputs: string[];
+  outputs: string[];
+}
+
+/// The ONNX operator graph (nodes + external interface), for the "View as graph"
+/// render. Mirror of the main-process shape.
+export interface OnnxGraphData {
+  nodes: OnnxGraphNode[];
+  inputs: string[];
+  outputs: string[];
+  truncatedNodes?: number;
+}
+
 export interface CheckpointInfo {
   format: 'safetensors' | 'gguf' | 'onnx';
   path: string;
@@ -28,6 +46,8 @@ export interface CheckpointInfo {
   dtypeHistogram: Record<string, number>;
   /// ONNX only: op_type -> node count (the graph's operator mix).
   ops?: Record<string, number>;
+  /// ONNX only: the operator graph, for the "View as graph" render.
+  graph?: OnnxGraphData;
   truncatedTensors?: number;
 }
 

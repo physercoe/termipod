@@ -16,10 +16,16 @@ import {
   type TreeNode,
 } from '../state/checkpoint';
 import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram } from '../state/vram';
+import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph';
+import { useInspect } from '../state/inspect';
 
 function dirOf(p: string): string {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
   return i >= 0 ? p.slice(0, i) : '';
+}
+function baseOf(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+  return i >= 0 ? p.slice(i + 1) : p;
 }
 function join(dir: string, name: string): string {
   if (dir === '') return name;
@@ -367,6 +373,21 @@ export function ModelView({ path }: { path: string }): JSX.Element {
         </span>
         <DtypeBar hist={info.dtypeHistogram} total={info.totalParams} />
         {info.truncatedTensors !== undefined && <span className="small muted">(+{info.truncatedTensors} {t('model.truncated')})</span>}
+        {info.graph !== undefined && info.graph.nodes.length > 0 && (
+          <>
+            <span className="spacer" />
+            <button
+              className="import-btn modelview-graph-btn"
+              onClick={() => {
+                const gc = onnxToGraphCollection(info.graph!, new Set(info.tensors.map((x) => x.name)), baseOf(path) || 'onnx');
+                useInspect.getState().open({ kind: 'graph', source: 'paste', title: `graph: ${baseOf(path)}` }, graphCollectionToDot(gc));
+              }}
+            >
+              <Icon name="diagram" size={13} /> {t('model.viewGraph')}
+              {info.graph.truncatedNodes !== undefined && <span className="small muted"> (+{info.graph.truncatedNodes})</span>}
+            </button>
+          </>
+        )}
       </div>
       {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}

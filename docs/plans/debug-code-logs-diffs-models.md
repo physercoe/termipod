@@ -14,10 +14,10 @@
 > header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
 > gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
 > tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
-> Tab renamed (§0a). The **code→graph tracer (Tier 1)** + **code2flow call graph**
-> now produce DOT into the graph viewer. **Next:** Model Explorer graph, W4b.
+> Tab renamed (§0a). **Tracer (Tier 1)** + **code2flow calls** + **ONNX→graph**
+> (`GraphCollection`+DOT) feed the graph viewer. **Next:** Model Explorer element, W4b.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core + ONNX + tracer + call-graph shipped
+> **Last verified vs code:** W1–W3 + W4 core + ONNX + tracer + call-graph + onnx-graph
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -344,12 +344,31 @@ graph**). `node --test` covers the sniff + a real DOT→SVG render. The code2flo
 call-graph and the torchview tracer (both needing a Python venue) now only have
 to *produce* DOT and hand it here.
 
-**Graph view**: the Model Explorer custom element as a lazy chunk, fed
-(a) the synthesized namespace hierarchy for safetensors/GGUF (its JSON format
-is namespace-hierarchical — exactly this shape), (b) the real node/edge graph
-for ONNX. ⚠️ First implementation step: **pin the exact `GraphCollection` JSON
-schema from the package's TS types** — research could only verify it
-second-hand (the wiki page was unfetchable).
+**Graph view.** ⚠️ First step **DONE**: the exact `GraphCollection` JSON schema is
+**pinned verbatim** to `ai-edge-model-explorer-visualizer` v0.1.2's
+`common/input_graph.ts` + `common/types.ts` (fetched from source, verified
+2026-07-23) — `GraphCollection → Graph → GraphNode{namespace, incomingEdges,
+inputs/outputsMetadata, attrs}`, `IncomingEdge{sourceNodeId, sourceNodeOutputId,
+targetNodeInputId}`, `MetadataItem`, `KeyValue`.
+
+**ONNX → graph SHIPPED 2026-07-23.** The ONNX parse now retains the operator graph
+(`checkpoint.ts` `OnnxGraphData`: nodes + input/output tensor *names*, capped at
+6000 nodes, metadata-only — no bytes). `state/modelGraph.ts` (pure, `node --test`)
+converts it to a schema-faithful `GraphCollection` — index-based node ids, edges
+wired by matching a producer's output tensor name to a consumer's input, namespace
+from the node name's path, initializer inputs flagged `const` in `inputsMetadata` —
+and a `graphCollectionToDot` bridge renders it **now** in the existing DOT viewer
+(a **View as graph** button on an ONNX model tab). The `GraphCollection` is the
+exact input the WebGL element will consume, so that element becomes a pure renderer
+swap.
+
+**Still TODO — the Model Explorer WebGL element** (`ai-edge-model-explorer-visualizer`,
+7.1 MB): a lazy chunk fed (a) the synthesized namespace hierarchy for
+safetensors/GGUF, (b) the ONNX `GraphCollection` above. Needs **asset self-hosting**
+(`main_browser.js` + `worker.js` + `static_files/*` via a `sync:` script), a custom
+element + `assetFilesBaseUrl`/`workerScriptPath` globals under the strict CSP, and
+**device/xvfb-WebGL verification** — the heavy, on-device part deferred past the
+headlessly-verifiable adapter.
 
 **Inspect from code — PyTorch `model.py` → graph (director's ask).**
 **Tier 1 SHIPPED 2026-07-23** (the trace itself needs a torch venue; the plumbing

@@ -785,8 +785,12 @@ test('inspect: checkpoint_inspect parses an ONNX graph (W4 remainder)', async ()
     syntax = "proto3"; package onnx;
     message OperatorSetIdProto { string domain = 1; int64 version = 2; }
     message TensorProto { repeated int64 dims = 1; int32 data_type = 2; string name = 8; bytes raw_data = 9; }
-    message NodeProto { string op_type = 4; }
-    message GraphProto { repeated NodeProto node = 1; string name = 2; repeated TensorProto initializer = 5; }
+    message ValueInfoProto { string name = 1; }
+    message NodeProto { repeated string input = 1; repeated string output = 2; string name = 3; string op_type = 4; }
+    message GraphProto {
+      repeated NodeProto node = 1; string name = 2; repeated TensorProto initializer = 5;
+      repeated ValueInfoProto input = 11; repeated ValueInfoProto output = 12;
+    }
     message ModelProto { int64 ir_version = 1; string producer_name = 2; GraphProto graph = 7; repeated OperatorSetIdProto opset_import = 8; }
   `;
   const Model = protobuf.parse(enc).root.lookupType('onnx.ModelProto');
@@ -797,7 +801,12 @@ test('inspect: checkpoint_inspect parses an ONNX graph (W4 remainder)', async ()
       opsetImport: [{ version: 18 }],
       graph: {
         name: 'g',
-        node: [{ opType: 'MatMul' }, { opType: 'Relu' }],
+        input: [{ name: 'x' }],
+        output: [{ name: 'y' }],
+        node: [
+          { opType: 'MatMul', name: 'mm', input: ['x', 'model.layers.0.weight'], output: ['h'] },
+          { opType: 'Relu', name: 'act', input: ['h'], output: ['y'] },
+        ],
         initializer: [
           { name: 'model.layers.0.weight', dataType: 1, dims: [4, 4], rawData: Buffer.alloc(1024, 3) },
           { name: 'model.layers.1.weight', dataType: 10, dims: [4, 8] },
@@ -810,16 +819,23 @@ test('inspect: checkpoint_inspect parses an ONNX graph (W4 remainder)', async ()
   try {
     const info = await page.evaluate(
       (fp) =>
-        window.__ELECTRON_BRIDGE__!.invoke<{ format: string; totalParams: number; tensorCount: number; ops?: Record<string, number> }>(
-          'checkpoint_inspect',
-          { path: fp },
-        ),
+        window.__ELECTRON_BRIDGE__!.invoke<{
+          format: string;
+          totalParams: number;
+          tensorCount: number;
+          ops?: Record<string, number>;
+          graph?: { nodes: { opType: string; inputs: string[]; outputs: string[] }[]; inputs: string[]; outputs: string[] };
+        }>('checkpoint_inspect', { path: fp }),
       p,
     );
     expect(info.format).toBe('onnx');
     expect(info.tensorCount).toBe(2);
     expect(info.totalParams).toBe(16 + 32);
     expect(info.ops).toEqual({ MatMul: 1, Relu: 1 });
+    // The bundled main.cjs retains the wired operator graph (for "View as graph").
+    expect(info.graph?.nodes.length).toBe(2);
+    expect(info.graph?.nodes[0]).toEqual({ name: 'mm', opType: 'MatMul', inputs: ['x', 'model.layers.0.weight'], outputs: ['h'] });
+    expect(info.graph?.outputs).toEqual(['y']);
   } finally {
     fs.rmSync(p, { force: true });
   }

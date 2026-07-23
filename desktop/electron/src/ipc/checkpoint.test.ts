@@ -139,8 +139,12 @@ package onnx;
 message StringStringEntryProto { string key = 1; string value = 2; }
 message OperatorSetIdProto { string domain = 1; int64 version = 2; }
 message TensorProto { repeated int64 dims = 1; int32 data_type = 2; string name = 8; bytes raw_data = 9; }
+message ValueInfoProto { string name = 1; }
 message NodeProto { repeated string input = 1; repeated string output = 2; string name = 3; string op_type = 4; }
-message GraphProto { repeated NodeProto node = 1; string name = 2; repeated TensorProto initializer = 5; }
+message GraphProto {
+  repeated NodeProto node = 1; string name = 2; repeated TensorProto initializer = 5;
+  repeated ValueInfoProto input = 11; repeated ValueInfoProto output = 12;
+}
 message ModelProto {
   int64 ir_version = 1; string producer_name = 2; string producer_version = 3;
   GraphProto graph = 7; repeated OperatorSetIdProto opset_import = 8;
@@ -157,10 +161,12 @@ function makeOnnx(): Buffer {
     metadataProps: [{ key: 'framework', value: 'onnx' }],
     graph: {
       name: 'main_graph',
+      input: [{ name: 'x' }],
+      output: [{ name: 'y' }],
       node: [
-        { opType: 'MatMul', name: 'mm0' },
-        { opType: 'MatMul', name: 'mm1' },
-        { opType: 'Relu', name: 'act0' },
+        { opType: 'MatMul', name: 'mm0', input: ['x', 'model.layers.0.weight'], output: ['h0'] },
+        { opType: 'MatMul', name: 'mm1', input: ['h0', 'model.layers.1.weight'], output: ['h1'] },
+        { opType: 'Relu', name: 'act0', input: ['h1'], output: ['y'] },
       ],
       initializer: [
         // 2 KiB of raw_data — must be skipped, params come from dims.
@@ -190,6 +196,21 @@ test('parseOnnx: initializers, op mix, opset/producer metadata; raw_data skipped
     assert.equal(info.metadata.graph, 'main_graph');
     assert.equal(info.metadata.framework, 'onnx');
     assert.equal(info.metadata.ir_version, 9);
+  });
+});
+
+test('parseOnnx: retains the operator graph (nodes + tensor-name wiring)', async () => {
+  await withDir(async (dir) => {
+    const p = path.join(dir, 'tiny.onnx');
+    await writeFile(p, makeOnnx());
+    const info = await parseOnnx(p, (await import('node:fs')).statSync(p).size);
+    assert.ok(info.graph);
+    assert.equal(info.graph.nodes.length, 3);
+    assert.deepEqual(info.graph.nodes[0], { name: 'mm0', opType: 'MatMul', inputs: ['x', 'model.layers.0.weight'], outputs: ['h0'] });
+    assert.deepEqual(info.graph.nodes[2], { name: 'act0', opType: 'Relu', inputs: ['h1'], outputs: ['y'] });
+    assert.deepEqual(info.graph.inputs, ['x']);
+    assert.deepEqual(info.graph.outputs, ['y']);
+    assert.equal(info.graph.truncatedNodes, undefined);
   });
 });
 

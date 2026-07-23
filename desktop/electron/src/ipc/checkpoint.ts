@@ -20,6 +20,28 @@ export interface TensorInfo {
   params: number;
 }
 
+/// One operator node of an ONNX graph — metadata only (op type + the *names* of its
+/// input/output tensors, which wire the edges). No tensor bytes. `outputs`/`inputs`
+/// are tensor names; an input produced by another node's output is an edge, an input
+/// that is an initializer/graph-input is a constant/leaf (see `state/modelGraph.ts`).
+export interface OnnxGraphNode {
+  name: string;
+  opType: string;
+  inputs: string[];
+  outputs: string[];
+}
+
+/// The ONNX operator graph, retained so the model viewer can render it (plan §5 W4 —
+/// the Model Explorer / DOT graph substrate). Capped: a pathological graph is
+/// truncated (`truncatedNodes`) rather than ballooning the IPC payload.
+export interface OnnxGraphData {
+  nodes: OnnxGraphNode[];
+  /// Graph-level input / output tensor names (the model's external interface).
+  inputs: string[];
+  outputs: string[];
+  truncatedNodes?: number;
+}
+
 export interface CheckpointInfo {
   format: 'safetensors' | 'gguf' | 'onnx';
   path: string;
@@ -37,9 +59,16 @@ export interface CheckpointInfo {
   /// ONNX only: op_type -> node count (the graph's operator mix). Absent for
   /// weight-only checkpoints, which have no operator graph.
   ops?: Record<string, number>;
+  /// ONNX only: the operator graph (nodes + tensor-name wiring), for the "View as
+  /// graph" render. Absent for safetensors/gguf (no operator graph).
+  graph?: OnnxGraphData;
   /// Set when the tensor list was capped (pathological checkpoints).
   truncatedTensors?: number;
 }
+
+// Cap the retained operator graph — a flat DOT render chokes well before this, and
+// the WebGL viewer (later) will page; beyond it we truncate rather than bloat IPC.
+const MAX_GRAPH_NODES = 6000;
 
 // A safetensors header JSON is bounded in practice (a few MB); refuse a length
 // that is absurd or larger than the file (a corrupt / non-safetensors file).
@@ -224,7 +253,7 @@ function modelProtoType(): protobuf.Type {
 }
 
 interface OnnxInit { dims?: unknown; dataType?: unknown; name?: unknown }
-interface OnnxNode { opType?: unknown }
+interface OnnxNode { opType?: unknown; name?: unknown; input?: unknown; output?: unknown }
 interface OnnxKV { key?: unknown; value?: unknown }
 interface OnnxOpset { domain?: unknown; version?: unknown }
 
@@ -268,10 +297,27 @@ export async function parseOnnx(path: string, fileSize: number): Promise<Checkpo
   }
   const nodes = Array.isArray(graph.node) ? (graph.node as OnnxNode[]) : [];
   const ops: Record<string, number> = {};
+  const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const gnodes: OnnxGraphNode[] = [];
+  let truncNodes = 0;
   for (const n of nodes) {
     const op = typeof n.opType === 'string' && n.opType ? n.opType : '(unknown)';
     ops[op] = (ops[op] ?? 0) + 1;
+    if (gnodes.length >= MAX_GRAPH_NODES) {
+      truncNodes += 1;
+      continue;
+    }
+    gnodes.push({
+      name: typeof n.name === 'string' ? n.name : '',
+      opType: op,
+      inputs: strList(n.input),
+      outputs: strList(n.output),
+    });
   }
+  const nameList = (v: unknown): string[] =>
+    Array.isArray(v) ? v.map((e) => (e && typeof (e as { name?: unknown }).name === 'string' ? (e as { name: string }).name : '')).filter((s) => s !== '') : [];
+  const onnxGraph: OnnxGraphData = { nodes: gnodes, inputs: nameList(graph.input), outputs: nameList(graph.output) };
+  if (truncNodes > 0) onnxGraph.truncatedNodes = truncNodes;
   const metadata: Record<string, string | number> = {};
   const producer = typeof obj.producerName === 'string' ? obj.producerName : '';
   const pver = typeof obj.producerVersion === 'string' ? obj.producerVersion : '';
@@ -302,6 +348,7 @@ export async function parseOnnx(path: string, fileSize: number): Promise<Checkpo
     metadata,
     dtypeHistogram: histogram(tensors),
     ...(Object.keys(ops).length > 0 ? { ops } : {}),
+    ...(gnodes.length > 0 ? { graph: onnxGraph } : {}),
     ...(truncated > 0 ? { truncatedTensors: truncated } : {}),
   };
 }

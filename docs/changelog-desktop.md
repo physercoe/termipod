@@ -41,6 +41,17 @@ This complements:
 
 ## Unreleased
 
+### Added
+
+- **Inspect (J3) surface — W1.** The Debug tab is rebuilt from a paste textarea
+  into a tabbed inspector (and renamed **Debug → Inspect**; the `debug` id is
+  unchanged). Ships the shell + a **CodeView** (CodeMirror 6, read-only by
+  default with an edit toggle, lazily-loaded language modes, search, fold,
+  go-to-line, soft-wrap, copy), a **stack-trace lens** (Python/Rust/Go/JS —
+  `file:line` chips jump to the source), and **run-scratch** (run a
+  python/bash/node scratch; its stderr feeds the lens). Sources: paste + local
+  file. Diff/log/model tabs open with a "coming next" placard (W2/W3/W4).
+
 ## 2026.723.247 — 2026-07-23 · Electron
 
 **Author workbench overhaul (`docs/plans/author-shell-outline-and-canvas.md`):

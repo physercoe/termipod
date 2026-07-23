@@ -381,19 +381,25 @@ test('author: a canvas board mounts on React Flow and saves as JSON Canvas', asy
   await page.getByRole('button', { name: 'Note', exact: true }).click();
   await page.getByRole('button', { name: 'Note', exact: true }).click();
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
-  // The persisted document body is JSON Canvas 1.0 (a `nodes` array), never the
-  // legacy `{cards,edges}` shape — so a reparse on remount restores the board.
-  const body = await page.evaluate(() => {
-    const raw = localStorage.getItem('termipod.documents.v1');
-    if (raw === null) return null;
-    const docs = (JSON.parse(raw) as { docs: { kind: string; body: string }[] }).docs;
-    return docs.find((d) => d.kind === 'canvas')?.body ?? null;
-  });
-  expect(body).not.toBeNull();
-  const parsed = JSON.parse(body as string) as { nodes?: unknown[]; cards?: unknown[] };
-  expect(Array.isArray(parsed.nodes)).toBe(true);
-  expect(parsed.nodes?.length).toBe(2);
-  expect(parsed.cards).toBeUndefined();
+  // The persisted document body is JSON Canvas 1.0 (a `nodes` array of length 2),
+  // never the legacy `{cards,edges}` shape — the round-trip that makes "restores
+  // on reload" true. The documents store persists on a 400ms debounce, so poll.
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const raw = localStorage.getItem('termipod.documents.v1');
+          if (raw === null) return 'no-store';
+          const docs = (JSON.parse(raw) as { docs: { kind: string; body: string }[] }).docs;
+          const canvas = docs.find((d) => d.kind === 'canvas');
+          if (canvas === undefined) return 'no-doc';
+          const parsed = JSON.parse(canvas.body) as { nodes?: unknown[]; cards?: unknown[] };
+          if (parsed.cards !== undefined) return 'legacy';
+          return Array.isArray(parsed.nodes) ? `nodes:${parsed.nodes.length}` : 'no-nodes';
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe('nodes:2');
 });
 
 // ── Web tab: real <webview> guest (read-web-tabs plan W1) ────────────────────

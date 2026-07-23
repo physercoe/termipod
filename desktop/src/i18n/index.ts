@@ -1380,6 +1380,7 @@ const en: Dict = {
   'inspect.noHub': 'Not connected to a hub — connect in Settings first.',
   'inspect.noProjects': 'No projects.',
   'inspect.noDocs': 'No documents in this project.',
+  'inspect.outline': 'Symbols',
 
   'canvas.addNote': 'Note',
   'canvas.addRef': 'Reference',
@@ -2779,6 +2780,7 @@ const zh: Dict = {
   'inspect.noHub': '未连接到 Hub — 请先在设置中连接。',
   'inspect.noProjects': '没有项目。',
   'inspect.noDocs': '此项目中没有文档。',
+  'inspect.outline': '符号',
 
   'canvas.addNote': '笔记',
   'canvas.addRef': '文献',

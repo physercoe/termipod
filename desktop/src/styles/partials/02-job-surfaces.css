@@ -1229,3 +1229,64 @@ button > .ui-icon:not(:only-child):first-child,
   padding: var(--spacing-s24) var(--spacing-s16);
   text-align: center;
 }
+
+/* Inspect code outline (ui/CodeOutline.tsx) — reuses the .mdreader-outline rail
+   chrome; only the symbol rows are bespoke. */
+.inspect-codewrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.inspect-codewrap .inspect-code {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.inspect-codewrap .code-outline {
+  flex-shrink: 0;
+}
+.code-outline-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.code-outline-item:hover {
+  background: var(--hover);
+}
+.code-outline-item.method {
+  padding-left: var(--spacing-s20);
+}
+.code-outline-kind {
+  flex-shrink: 0;
+  width: 1.1em;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.code-outline-kind.k-function {
+  color: var(--syntax-func);
+}
+.code-outline-kind.k-method {
+  color: var(--syntax-func);
+}
+.code-outline-kind.k-class {
+  color: var(--syntax-type);
+}
+.code-outline-kind.k-type {
+  color: var(--syntax-keyword);
+}
+.code-outline-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}

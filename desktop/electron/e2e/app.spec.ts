@@ -498,3 +498,26 @@ test('inspect: the Open menu launches the source picker modal', async () => {
   await page.locator('.inspect-modal .inspect-modal-head .icon-btn').click();
   await expect(page.locator('.inspect-modal')).toHaveCount(0);
 });
+
+test('inspect: the tree-sitter symbol outline lists symbols and jumps the editor', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  const editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  // Choose JavaScript (brace-based → immune to auto-indent) so the outline
+  // activates and the WASM grammar loads on demand.
+  await page.locator('.inspect-runbar .surface-select').selectOption('javascript');
+  await editor.click({ force: true });
+  await editor.focus();
+  await page.keyboard.type('function alpha(){ return 1; }\nfunction beta(){ return 2; }\nclass Gamma { m(){ return 3; } }\n');
+  // The outline rail appears with the extracted symbols (grammar wasm fetched
+  // from app:// on demand — allow generous time).
+  const outline = page.locator('.code-outline');
+  await expect(outline).toBeVisible({ timeout: 15000 });
+  await expect(outline.locator('.code-outline-name', { hasText: 'alpha' })).toBeVisible();
+  await expect(outline.locator('.code-outline-name', { hasText: 'Gamma' })).toBeVisible();
+  // Clicking a symbol jumps the editor caret to its line.
+  await outline.locator('.code-outline-item', { hasText: 'beta' }).click();
+  await expect(page.locator('.inspect-code .cm-activeLine')).toContainText('beta');
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});

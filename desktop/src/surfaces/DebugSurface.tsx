@@ -11,6 +11,8 @@ import { readSource } from '../state/inspectSources';
 import { useSession } from '../state/session';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { parseTrace, type ParsedTrace, type TraceFrame } from '../state/stackTrace';
+import { extractSymbols, SUPPORTED_LANGS, type CodeSymbol } from '../state/treeSitter';
+import { CodeOutline } from '../ui/CodeOutline';
 import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
@@ -157,6 +159,7 @@ function CodeTab({
   const codeRef = useRef<CodeViewHandle>(null);
   const [runOut, setRunOut] = useState<ScriptResult | null>(null);
   const [running, setRunning] = useState(false);
+  const [symbols, setSymbols] = useState<CodeSymbol[]>([]);
 
   // Lazily read a file-backed tab's content the first time it is shown.
   useEffect(() => {
@@ -198,6 +201,24 @@ function CodeTab({
     const fromErr = runOut?.stderr !== undefined && runOut.stderr !== '' ? parseTrace(runOut.stderr) : null;
     return fromErr ?? parseTrace(body);
   }, [body, runOut]);
+
+  // Extract the tree-sitter symbol outline for supported languages, debounced so
+  // a paste tab isn't re-parsed on every keystroke. Unsupported language → no
+  // parse (the WASM grammar never loads) and the rail hides.
+  useEffect(() => {
+    if (langId === undefined || !SUPPORTED_LANGS.has(langId)) {
+      setSymbols([]);
+      return;
+    }
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      void extractSymbols(langId, body).then((s) => !cancelled && setSymbols(s));
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [body, langId]);
 
   async function run(): Promise<void> {
     if (interp === null) return;
@@ -246,17 +267,20 @@ function CodeTab({
           )}
         </div>
       )}
-      <div className="inspect-code">
-        <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
-          <CodeView
-            ref={codeRef}
-            value={body}
-            onChange={(v) => setContent(tab.id, v)}
-            filename={tab.path !== undefined ? baseName(tab.path) : undefined}
-            lang={langId}
-            editable={tab.source === 'paste'}
-          />
-        </Suspense>
+      <div className="inspect-codewrap">
+        <div className="inspect-code">
+          <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+            <CodeView
+              ref={codeRef}
+              value={body}
+              onChange={(v) => setContent(tab.id, v)}
+              filename={tab.path !== undefined ? baseName(tab.path) : undefined}
+              lang={langId}
+              editable={tab.source === 'paste'}
+            />
+          </Suspense>
+        </div>
+        <CodeOutline symbols={symbols} onJump={(line) => codeRef.current?.revealLine(line)} />
       </div>
       {trace !== null && <TraceLens trace={trace} onOpen={(f) => onOpenFrame(f, tab)} />}
       {runOut !== null && <RunOutput res={runOut} />}

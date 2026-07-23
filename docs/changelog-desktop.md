@@ -85,8 +85,16 @@ This complements:
   honest *recipe-by-name*, not a traced forward pass), a collapsible **namespace
   tree** of tensor names with per-subtree param rollups, and a virtualized
   **tensor table** (name/dtype/shape/params, filterable). safetensors is an
-  in-house header parser; gguf uses `@huggingface/gguf`. ONNX, the Model Explorer
-  graph, and the code→graph tracer are later W4 slices.
+  in-house header parser; gguf uses `@huggingface/gguf`.
+- **Inspect models — ONNX (W4 remainder).** The checkpoint inspector now also
+  reads `.onnx` graphs. Parsed in the main process with `protobufjs` against a
+  minimal schema that **skips the embedded weight bytes** (only graph +
+  initializer metadata is decoded); files over 256 MiB with embedded weights are
+  refused with a typed error (export with external data files instead). The
+  initializers populate the tensor table and namespace tree; the node/op mix
+  shows as an **operator summary** above the card. (Also fixes a latent case
+  where a config-less safetensors could show a bogus "Unknown / Dense decoder"
+  card.) The Model Explorer graph and the code→graph tracer remain later W4 slices.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

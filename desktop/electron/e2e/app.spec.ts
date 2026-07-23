@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import http from 'node:http';
+import protobuf from 'protobufjs';
 import type { AddressInfo } from 'node:net';
 
 // The preload injects this on the renderer's `window` (see src/preload.ts). It
@@ -710,6 +711,53 @@ test('inspect: checkpoint_inspect parses a safetensors header (W4)', async () =>
     expect(info.tensorCount).toBe(2);
     expect(info.totalParams).toBe(16 + 32);
     expect(info.tensors.map((x) => x.name)).toContain('lm_head.weight');
+  } finally {
+    fs.rmSync(p, { force: true });
+  }
+});
+
+test('inspect: checkpoint_inspect parses an ONNX graph (W4 remainder)', async () => {
+  // Proves the BUNDLED main.cjs decodes ONNX: encode a ModelProto (incl. a
+  // raw_data blob the parser must skip), then round-trip it through the real IPC.
+  const enc = `
+    syntax = "proto3"; package onnx;
+    message OperatorSetIdProto { string domain = 1; int64 version = 2; }
+    message TensorProto { repeated int64 dims = 1; int32 data_type = 2; string name = 8; bytes raw_data = 9; }
+    message NodeProto { string op_type = 4; }
+    message GraphProto { repeated NodeProto node = 1; string name = 2; repeated TensorProto initializer = 5; }
+    message ModelProto { int64 ir_version = 1; string producer_name = 2; GraphProto graph = 7; repeated OperatorSetIdProto opset_import = 8; }
+  `;
+  const Model = protobuf.parse(enc).root.lookupType('onnx.ModelProto');
+  const bytes = Model.encode(
+    Model.create({
+      irVersion: 9,
+      producerName: 'pytorch',
+      opsetImport: [{ version: 18 }],
+      graph: {
+        name: 'g',
+        node: [{ opType: 'MatMul' }, { opType: 'Relu' }],
+        initializer: [
+          { name: 'model.layers.0.weight', dataType: 1, dims: [4, 4], rawData: Buffer.alloc(1024, 3) },
+          { name: 'model.layers.1.weight', dataType: 10, dims: [4, 8] },
+        ],
+      },
+    }),
+  ).finish();
+  const p = path.join(os.tmpdir(), `tp-w4onnx-${process.pid}.onnx`);
+  fs.writeFileSync(p, Buffer.from(bytes));
+  try {
+    const info = await page.evaluate(
+      (fp) =>
+        window.__ELECTRON_BRIDGE__!.invoke<{ format: string; totalParams: number; tensorCount: number; ops?: Record<string, number> }>(
+          'checkpoint_inspect',
+          { path: fp },
+        ),
+      p,
+    );
+    expect(info.format).toBe('onnx');
+    expect(info.tensorCount).toBe(2);
+    expect(info.totalParams).toBe(16 + 32);
+    expect(info.ops).toEqual({ MatMul: 1, Relu: 1 });
   } finally {
     fs.rmSync(p, { force: true });
   }

@@ -13,6 +13,7 @@
     "extract-zip": "^2.0.1",
     "jszip": "^3.10.1",
     "node-pty": "^1.0.0",
+    "protobufjs": "^8.7.1",
     "ssh2": "^1.16.0",
     "sshpk": "^1.18.0",
     "undici": "^6.27.0",

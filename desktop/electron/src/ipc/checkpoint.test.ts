@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseSafetensors, parseGguf, inspectCheckpoint } from './checkpoint.ts';
+import protobuf from 'protobufjs';
+import { parseSafetensors, parseGguf, parseOnnx, inspectCheckpoint } from './checkpoint.ts';
 
 async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ckpt-'));
@@ -76,14 +77,11 @@ test('parseSafetensors: a header longer than the file is refused', async () => {
   });
 });
 
-test('inspectCheckpoint: an unknown extension and ONNX are typed errors', async () => {
+test('inspectCheckpoint: an unknown extension is a typed error', async () => {
   await withDir(async (dir) => {
     const p = path.join(dir, 'weights.bin');
     await writeFile(p, Buffer.alloc(16));
     await assert.rejects(() => inspectCheckpoint(p), /unsupported checkpoint format/);
-    const o = path.join(dir, 'm.onnx');
-    await writeFile(o, Buffer.alloc(16));
-    await assert.rejects(() => inspectCheckpoint(o), /ONNX checkpoint inspection ships/);
   });
 });
 
@@ -130,5 +128,95 @@ test('parseGguf: maps tensor shapes, dtype labels, params and scalar metadata', 
     assert.equal(info.tensors[0].dtype, 'F32');
     assert.deepEqual(info.tensors[0].shape, [8, 4]);
     assert.deepEqual(info.dtypeHistogram, { F32: 32 });
+  });
+});
+
+// Encoder proto INCLUDING raw_data (field 9) — the real parser's minimal schema
+// omits it, so a round-trip proves the weight bytes are skipped, not materialized.
+const ONNX_ENC = `
+syntax = "proto3";
+package onnx;
+message StringStringEntryProto { string key = 1; string value = 2; }
+message OperatorSetIdProto { string domain = 1; int64 version = 2; }
+message TensorProto { repeated int64 dims = 1; int32 data_type = 2; string name = 8; bytes raw_data = 9; }
+message NodeProto { repeated string input = 1; repeated string output = 2; string name = 3; string op_type = 4; }
+message GraphProto { repeated NodeProto node = 1; string name = 2; repeated TensorProto initializer = 5; }
+message ModelProto {
+  int64 ir_version = 1; string producer_name = 2; string producer_version = 3;
+  GraphProto graph = 7; repeated OperatorSetIdProto opset_import = 8;
+  repeated StringStringEntryProto metadata_props = 14;
+}
+`;
+function makeOnnx(): Buffer {
+  const Model = protobuf.parse(ONNX_ENC).root.lookupType('onnx.ModelProto');
+  const msg = Model.create({
+    irVersion: 9,
+    producerName: 'pytorch',
+    producerVersion: '2.4',
+    opsetImport: [{ domain: '', version: 18 }],
+    metadataProps: [{ key: 'framework', value: 'onnx' }],
+    graph: {
+      name: 'main_graph',
+      node: [
+        { opType: 'MatMul', name: 'mm0' },
+        { opType: 'MatMul', name: 'mm1' },
+        { opType: 'Relu', name: 'act0' },
+      ],
+      initializer: [
+        // 2 KiB of raw_data — must be skipped, params come from dims.
+        { name: 'model.layers.0.weight', dataType: 1, dims: [4, 4], rawData: Buffer.alloc(2048, 7) },
+        { name: 'model.layers.1.weight', dataType: 10, dims: [4, 8] },
+      ],
+    },
+  });
+  return Buffer.from(Model.encode(msg).finish());
+}
+
+test('parseOnnx: initializers, op mix, opset/producer metadata; raw_data skipped', async () => {
+  await withDir(async (dir) => {
+    const p = path.join(dir, 'tiny.onnx');
+    await writeFile(p, makeOnnx());
+    const info = await parseOnnx(p, (await import('node:fs')).statSync(p).size);
+    assert.equal(info.format, 'onnx');
+    assert.equal(info.tensorCount, 2);
+    assert.equal(info.totalParams, 16 + 32);
+    assert.deepEqual(info.dtypeHistogram, { float32: 16, float16: 32 });
+    assert.equal(info.tensors[0].dtype, 'float32');
+    assert.deepEqual(info.tensors[0].shape, [4, 4]);
+    assert.deepEqual(info.ops, { MatMul: 2, Relu: 1 });
+    assert.equal(info.metadata.producer, 'pytorch 2.4');
+    assert.equal(info.metadata.opset, '18');
+    assert.equal(info.metadata.nodes, 3);
+    assert.equal(info.metadata.graph, 'main_graph');
+    assert.equal(info.metadata.framework, 'onnx');
+    assert.equal(info.metadata.ir_version, 9);
+  });
+});
+
+test('inspectCheckpoint dispatches .onnx to the ONNX parser', async () => {
+  await withDir(async (dir) => {
+    const p = path.join(dir, 'model.onnx');
+    await writeFile(p, makeOnnx());
+    const info = await inspectCheckpoint(p);
+    assert.equal(info.format, 'onnx');
+    assert.equal(info.tensorCount, 2);
+  });
+});
+
+test('parseOnnx: an oversized file is refused before reading', async () => {
+  await withDir(async (dir) => {
+    const p = path.join(dir, 'huge.onnx');
+    await writeFile(p, makeOnnx()); // tiny on disk; the cap check uses the passed size
+    await assert.rejects(() => parseOnnx(p, 300 * 1024 * 1024), /too large/);
+  });
+});
+
+test('parseOnnx: a non-protobuf file is a typed error', async () => {
+  await withDir(async (dir) => {
+    const p = path.join(dir, 'bad.onnx');
+    // tag 0x3a = field 7 (graph), wire-type 2 (length-delimited); length 5 with no
+    // bytes to follow → the reader runs off the end → decode throws.
+    await writeFile(p, Buffer.from([0x3a, 0x05]));
+    await assert.rejects(() => parseOnnx(p, 2), /not a valid ONNX file/);
   });
 });

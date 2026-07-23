@@ -1632,6 +1632,21 @@ button > .ui-icon:not(:only-child):first-child,
   background: color-mix(in srgb, var(--accent) 12%, var(--surface));
   color: var(--text);
 }
+.modelview-ops {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  flex-wrap: wrap;
+  margin: var(--spacing-s6) var(--spacing-s12) 0;
+  flex: 0 0 auto;
+}
+.modelview-op {
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
 .modelview-card {
   margin: var(--spacing-s8) var(--spacing-s12) 0;
   padding: var(--spacing-s8) var(--spacing-s12);

@@ -9,8 +9,9 @@
 /// a FileBlob (gguf) — tensor *bytes* never leave disk. The renderer receives a
 /// small JSON summary: format, params, a dtype histogram, format metadata, and a
 /// per-tensor list (name / dtype / shape / params).
-import { open, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import { gguf, GGMLQuantizationType } from '@huggingface/gguf';
+import protobuf from 'protobufjs';
 
 export interface TensorInfo {
   name: string;
@@ -20,19 +21,22 @@ export interface TensorInfo {
 }
 
 export interface CheckpointInfo {
-  format: 'safetensors' | 'gguf';
+  format: 'safetensors' | 'gguf' | 'onnx';
   path: string;
   fileSize: number;
   totalParams: number;
   tensorCount: number;
   tensors: TensorInfo[];
-  /// Format-level metadata, scalars only (safetensors `__metadata__`, gguf KV) —
-  /// array-valued gguf keys (e.g. the 100k-entry tokenizer vocab) are dropped so
-  /// the IPC payload stays small.
+  /// Format-level metadata, scalars only (safetensors `__metadata__`, gguf KV,
+  /// ONNX producer/opset/graph stats) — array-valued gguf keys (e.g. the
+  /// 100k-entry tokenizer vocab) are dropped so the IPC payload stays small.
   metadata: Record<string, string | number>;
   /// dtype -> total parameter count carried in that dtype (the summary strip's
   /// precision/quant distribution).
   dtypeHistogram: Record<string, number>;
+  /// ONNX only: op_type -> node count (the graph's operator mix). Absent for
+  /// weight-only checkpoints, which have no operator graph.
+  ops?: Record<string, number>;
   /// Set when the tensor list was capped (pathological checkpoints).
   truncatedTensors?: number;
 }
@@ -155,13 +159,159 @@ export async function parseGguf(path: string, fileSize: number): Promise<Checkpo
   };
 }
 
-/// Inspect a checkpoint by path, dispatching on extension. safetensors + gguf ship
-/// in W4 core; ONNX (needs a build-time protobuf schema) is a later slice.
+// ── ONNX ───────────────────────────────────────────────────────────────────────
+//
+// ONNX is a protobuf `ModelProto`. We decode it with a **minimal** vendored schema
+// that deliberately OMITS `raw_data` (TensorProto field 9) and the typed `*_data`
+// bulk fields, so protobufjs *skips* the embedded weight bytes rather than
+// materializing them (verified: a 2 MiB `raw_data` decodes with `has rawData? false`).
+// Field numbers are pinned to onnx.in.proto (verified 2026-07-23) — a wrong number
+// silently misreads, so they must not drift. We parse the graph + initializer
+// metadata only; tensor *bytes* never enter the payload.
+const ONNX_PROTO = `
+syntax = "proto3";
+package onnx;
+message StringStringEntryProto { string key = 1; string value = 2; }
+message OperatorSetIdProto { string domain = 1; int64 version = 2; }
+message ValueInfoProto { string name = 1; }
+message TensorProto {
+  repeated int64 dims = 1;
+  int32 data_type = 2;
+  string name = 8;
+  int32 data_location = 14;
+}
+message NodeProto {
+  repeated string input = 1;
+  repeated string output = 2;
+  string name = 3;
+  string op_type = 4;
+  string domain = 7;
+}
+message GraphProto {
+  repeated NodeProto node = 1;
+  string name = 2;
+  repeated TensorProto initializer = 5;
+  repeated ValueInfoProto input = 11;
+  repeated ValueInfoProto output = 12;
+}
+message ModelProto {
+  int64 ir_version = 1;
+  string producer_name = 2;
+  string producer_version = 3;
+  GraphProto graph = 7;
+  repeated OperatorSetIdProto opset_import = 8;
+  repeated StringStringEntryProto metadata_props = 14;
+}
+`;
+
+// Embedded-weights ONNX is loaded whole to decode; big models keep weights in
+// external data files and stay small, so cap at 256 MiB with a typed error.
+const ONNX_MAX = 256 * 1024 * 1024;
+
+// TensorProto.DataType (onnx.in.proto) -> readable label.
+const ONNX_DTYPE: Record<number, string> = {
+  0: 'undefined', 1: 'float32', 2: 'uint8', 3: 'int8', 4: 'uint16', 5: 'int16',
+  6: 'int32', 7: 'int64', 8: 'string', 9: 'bool', 10: 'float16', 11: 'float64',
+  12: 'uint32', 13: 'uint64', 14: 'complex64', 15: 'complex128', 16: 'bfloat16',
+  17: 'float8e4m3fn', 18: 'float8e4m3fnuz', 19: 'float8e5m2', 20: 'float8e5m2fnuz',
+  21: 'uint4', 22: 'int4', 23: 'float4e2m1', 24: 'float8e8m0', 25: 'uint2', 26: 'int2',
+};
+
+let onnxModelType: protobuf.Type | null = null;
+function modelProtoType(): protobuf.Type {
+  if (onnxModelType === null) onnxModelType = protobuf.parse(ONNX_PROTO).root.lookupType('onnx.ModelProto');
+  return onnxModelType;
+}
+
+interface OnnxInit { dims?: unknown; dataType?: unknown; name?: unknown }
+interface OnnxNode { opType?: unknown }
+interface OnnxKV { key?: unknown; value?: unknown }
+interface OnnxOpset { domain?: unknown; version?: unknown }
+
+/// Parse an `.onnx` graph: initializer tensors (the weights, metadata only) plus
+/// the operator mix and producer/opset stats. The weight bytes are skipped by the
+/// minimal schema above — but the whole file is still read to decode, so a large
+/// embedded-weights model is refused (see `ONNX_MAX`).
+export async function parseOnnx(path: string, fileSize: number): Promise<CheckpointInfo> {
+  if (fileSize > ONNX_MAX)
+    throw new Error(
+      `ONNX file too large to inspect (${Math.round(fileSize / 1024 / 1024)} MiB); models with embedded weights over 256 MiB are unsupported — re-export with external data files.`,
+    );
+  const buf = await readFile(path);
+  const Model = modelProtoType();
+  let obj: Record<string, unknown>;
+  try {
+    obj = Model.toObject(Model.decode(buf), { longs: Number, enums: Number, defaults: false }) as Record<string, unknown>;
+  } catch {
+    throw new Error('not a valid ONNX file (protobuf decode failed)');
+  }
+  const graph = (obj.graph ?? {}) as Record<string, unknown>;
+  const inits = Array.isArray(graph.initializer) ? (graph.initializer as OnnxInit[]) : [];
+  const tensors: TensorInfo[] = [];
+  let totalParams = 0;
+  let truncated = 0;
+  for (const it of inits) {
+    if (tensors.length >= MAX_TENSORS) {
+      truncated += 1;
+      continue;
+    }
+    const dims = Array.isArray(it.dims) ? it.dims.map((n) => Number(n)) : [];
+    const params = product(dims);
+    totalParams += params;
+    const dt = typeof it.dataType === 'number' ? it.dataType : 0;
+    tensors.push({
+      name: typeof it.name === 'string' && it.name ? it.name : '(unnamed)',
+      dtype: ONNX_DTYPE[dt] ?? `dt${dt}`,
+      shape: dims,
+      params,
+    });
+  }
+  const nodes = Array.isArray(graph.node) ? (graph.node as OnnxNode[]) : [];
+  const ops: Record<string, number> = {};
+  for (const n of nodes) {
+    const op = typeof n.opType === 'string' && n.opType ? n.opType : '(unknown)';
+    ops[op] = (ops[op] ?? 0) + 1;
+  }
+  const metadata: Record<string, string | number> = {};
+  const producer = typeof obj.producerName === 'string' ? obj.producerName : '';
+  const pver = typeof obj.producerVersion === 'string' ? obj.producerVersion : '';
+  if (producer) metadata.producer = pver ? `${producer} ${pver}` : producer;
+  if (typeof obj.irVersion === 'number') metadata.ir_version = obj.irVersion;
+  const opset = Array.isArray(obj.opsetImport)
+    ? (obj.opsetImport as OnnxOpset[])
+        .map((o) => `${typeof o.domain === 'string' && o.domain ? `${o.domain}:` : ''}${Number(o.version ?? 0)}`)
+        .join(', ')
+    : '';
+  if (opset) metadata.opset = opset;
+  if (typeof graph.name === 'string' && graph.name) metadata.graph = graph.name;
+  metadata.nodes = nodes.length;
+  const gi = Array.isArray(graph.input) ? graph.input.length : 0;
+  const go = Array.isArray(graph.output) ? graph.output.length : 0;
+  if (gi) metadata.inputs = gi;
+  if (go) metadata.outputs = go;
+  if (Array.isArray(obj.metadataProps))
+    for (const kv of obj.metadataProps as OnnxKV[])
+      if (kv && typeof kv.key === 'string' && typeof kv.value === 'string') metadata[kv.key] = kv.value;
+  return {
+    format: 'onnx',
+    path,
+    fileSize,
+    totalParams,
+    tensorCount: tensors.length + truncated,
+    tensors,
+    metadata,
+    dtypeHistogram: histogram(tensors),
+    ...(Object.keys(ops).length > 0 ? { ops } : {}),
+    ...(truncated > 0 ? { truncatedTensors: truncated } : {}),
+  };
+}
+
+/// Inspect a checkpoint by path, dispatching on extension (safetensors, gguf, onnx).
 export async function inspectCheckpoint(path: string): Promise<CheckpointInfo> {
   const st = await stat(path);
   const ext = path.toLowerCase().split('.').pop() ?? '';
   if (ext === 'safetensors') return parseSafetensors(path, st.size);
   if (ext === 'gguf') return parseGguf(path, st.size);
-  if (ext === 'onnx') throw new Error('ONNX checkpoint inspection ships in a later W4 slice.');
+  if (ext === 'onnx') return parseOnnx(path, st.size);
   throw new Error(`unsupported checkpoint format: .${ext}`);
 }

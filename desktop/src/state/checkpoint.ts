@@ -18,7 +18,7 @@ export interface TensorInfo {
 }
 
 export interface CheckpointInfo {
-  format: 'safetensors' | 'gguf';
+  format: 'safetensors' | 'gguf' | 'onnx';
   path: string;
   fileSize: number;
   totalParams: number;
@@ -26,6 +26,8 @@ export interface CheckpointInfo {
   tensors: TensorInfo[];
   metadata: Record<string, string | number>;
   dtypeHistogram: Record<string, number>;
+  /// ONNX only: op_type -> node count (the graph's operator mix).
+  ops?: Record<string, number>;
   truncatedTensors?: number;
 }
 
@@ -160,9 +162,14 @@ export function classifyArch(opts: {
   }
 
   // ── gguf metadata path ──────────────────────────────────────────────────────
+  // Only true gguf metadata carries `general.architecture`; safetensors
+  // `__metadata__` and ONNX producer stats do not, so an empty arch falls
+  // through to the tensor-name inference below rather than emitting a bogus
+  // "Unknown / Dense decoder" card.
   const md = opts.metadata;
-  if (md) {
-    const arch = typeof md['general.architecture'] === 'string' ? (md['general.architecture'] as string) : '';
+  const arch0 = md && typeof md['general.architecture'] === 'string' ? (md['general.architecture'] as string) : '';
+  if (md && arch0) {
+    const arch = arch0;
     const g = (suffix: string): number | undefined => {
       const v = md[`${arch}.${suffix}`];
       return typeof v === 'number' ? v : undefined;

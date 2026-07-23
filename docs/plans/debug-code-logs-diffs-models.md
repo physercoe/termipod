@@ -13,11 +13,11 @@
 > jumps. **W4 core:** a **checkpoint inspector** (`.safetensors`/`.gguf`,
 > header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
 > gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
-> tensor table. Tab **Debug → Inspect** renamed (§0a). **Next:** W4 remainder
-> (ONNX, Model Explorer graph, code→graph tracer, W4b). Supersedes "EMBED
-> Monaco" (§1).
+> tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
+> Tab **Debug → Inspect** renamed (§0a). **Next:** W4 remainder (Model Explorer
+> graph, code→graph tracer, W4b). Supersedes "EMBED Monaco" (§1).
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core shipped (desktop `2026.723.247`+)
+> **Last verified vs code:** W1–W3 + W4 core + ONNX shipped (desktop `2026.723.247`+)
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -257,8 +257,8 @@ summary strip (params/size/dtype histogram), the HF-`config.json`/gguf
 dense-GQA/MoE/MLA/MLA+MoE template + component chips + `config|gguf|tensors`
 provenance badge), the namespace tree (`buildTree`, per-subtree param rollups),
 and the virtualized tensor table. Local files only (remote/hub checkpoints
-deferred). **Not yet built (later W4 slices):** ONNX (needs the build-time
-protobuf schema), the Model Explorer graph view, the code→graph tracer
+deferred). **ONNX SHIPPED 2026-07-23** (see the bullet below). **Not yet built
+(later W4 slices):** the Model Explorer graph view, the code→graph tracer
 (torchview/`torch.export`), code2flow, and all of W4b (§4b: ×N repeat-collapse,
 VRAM estimator, AST code-sync, elkjs). The rest of this section is the
 still-pending design for those.
@@ -287,10 +287,23 @@ with no size cap — a multi-GB `.safetensors` would OOM the renderer):
   write it, with fixture-file unit tests.)
 - **GGUF** — **`@huggingface/gguf`** (MIT, 367 KB, actively maintained —
   v0.4.3 July 2026): typed metadata + `tensorInfos`, reads locally in Node.
-- **ONNX** — protobufjs + the current `onnx.proto3` compiled at build time via
-  `protobufjs-cli` (the `onnx-proto` npm package lags, 2022). Cap input at
-  256 MiB with a typed "weights-embedded model too large" error — big models
-  keep weights in external data files; we parse graph + initializer metadata.
+- **ONNX** — **SHIPPED 2026-07-23.** `protobufjs` (runtime `protobuf.parse`, no
+  build step) against a **minimal vendored schema** inlined in `checkpoint.ts`
+  that deliberately omits `raw_data` + the `*_data` bulk fields, so the decoder
+  *skips* embedded weight bytes (verified: a 2 MiB `raw_data` decodes with the
+  field absent). Field numbers pinned to `onnx.in.proto` (verified 2026-07-23).
+  Input capped at 256 MiB with a typed "too large — re-export with external data"
+  error (embedded-weights only; external-data models stay small). We parse the
+  graph + initializer metadata: the initializers become the tensor table, and
+  the node/op mix becomes an **operator summary** (`ops: op_type→count`, a chip
+  row above the arch card). `parseOnnx` in `ipc/checkpoint.ts`; `node --test`
+  round-trips a protobufjs-encoded fixture (incl. the skipped `raw_data`); the
+  E2E smoke round-trips through the **bundled** `main.cjs`. (Chosen over the
+  plan's original build-time `protobufjs-cli` static module: same result, no
+  generated artifact, no CI build-chain change; protobufjs stays main-side —
+  788 KB `main.cjs`, absent from the renderer bundle.) The `classifyArch` gguf
+  path was also hardened to require real `general.architecture`, so ONNX /
+  config-less safetensors no longer emit a bogus "Unknown / Dense decoder" card.
 - **PyTorch `.pt`/`.pth`** — **not round 2**: it's ZIP + pickle with no
   maintained JS parser. Recorded routes: vendor Netron's pickle VM, or a Rust
   crate → wasm-bindgen (nodejs) in main — the vault-wasm precedent

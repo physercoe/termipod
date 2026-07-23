@@ -39,6 +39,26 @@ function DtypeBar({ hist, total }: { hist: Record<string, number>; total: number
   );
 }
 
+// ONNX operator mix: op_type -> node count, as proportional chips (most-used first).
+function OpsBar({ ops }: { ops: Record<string, number> }): JSX.Element {
+  const t = useT();
+  const entries = Object.entries(ops).sort((a, b) => b[1] - a[1]);
+  const nodes = entries.reduce((a, [, c]) => a + c, 0);
+  return (
+    <div className="modelview-ops">
+      <span className="small muted">
+        {nodes.toLocaleString()} {t('model.operators')}
+      </span>
+      {entries.slice(0, 24).map(([op, c]) => (
+        <span key={op} className="modelview-op" title={`${c.toLocaleString()} ×`}>
+          {op} <span className="muted">{c.toLocaleString()}</span>
+        </span>
+      ))}
+      {entries.length > 24 && <span className="small muted">+{entries.length - 24}</span>}
+    </div>
+  );
+}
+
 function Field({ label, value }: { label: string; value: string | number | undefined }): JSX.Element | null {
   if (value === undefined || value === '') return null;
   return (
@@ -186,7 +206,7 @@ export function ModelView({ path }: { path: string }): JSX.Element {
         setInfo(ck);
         // HF layout: a config.json beside the checkpoint feeds the architecture
         // card (safetensors only — gguf carries the same fields in its metadata).
-        if (ck.format === 'safetensors') {
+        if (ck.format !== 'gguf') {
           try {
             const r = await invoke<{ content: string }>('doc_read', { path: join(dirOf(path), 'config.json') });
             if (!cancelled) setConfig(JSON.parse(r.content) as Record<string, unknown>);
@@ -247,6 +267,7 @@ export function ModelView({ path }: { path: string }): JSX.Element {
         <DtypeBar hist={info.dtypeHistogram} total={info.totalParams} />
         {info.truncatedTensors !== undefined && <span className="small muted">(+{info.truncatedTensors} {t('model.truncated')})</span>}
       </div>
+      {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}
       <div className="modelview-split">
         <div className="modelview-tree">

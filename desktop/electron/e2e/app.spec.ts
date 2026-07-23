@@ -62,6 +62,17 @@ test.afterEach(async ({}, testInfo) => {
   }
 });
 
+// The suite shares one page (no mid-suite reload). If a test hangs long enough
+// offline, the shell can pop an onboarding modal (`.palette-backdrop`) that then
+// intercepts the next test's clicks — dismiss any such overlay before starting.
+// Modal closes on Escape (ui/Modal.tsx); harmless when nothing is open.
+async function dismissOverlays(): Promise<void> {
+  for (let i = 0; i < 3 && (await page.locator('.palette-backdrop').count()) > 0; i++) {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(120);
+  }
+}
+
 test('window opens with the app title', async () => {
   expect(await page.title()).toContain('TermiPod');
 });
@@ -523,38 +534,44 @@ test('inspect: the tree-sitter symbol outline lists symbols and jumps the editor
 });
 
 test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async () => {
+  await dismissOverlays();
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   await page.getByRole('button', { name: 'New scratch' }).click();
   const editor = page.locator('.inspect-code .cm-content');
   await expect(editor).toBeVisible();
   await editor.click({ force: true });
   await editor.focus();
-  // A two-file git patch (no braces/parens → no CM auto-close interference).
+  // A two-file git patch. CRITICAL: no line may start with whitespace — a plain
+  // scratch has no language, so CM's newline command copies the previous line's
+  // leading indent; a ` context` line would then indent every following line and
+  // break `^@@`/`^diff --git` matching. Pure delete + add hunks have no
+  // leading-space lines, so the typed text round-trips verbatim.
   await page.keyboard.type(
     [
-      'diff --git a/foo.ts b/foo.ts',
-      '--- a/foo.ts',
-      '+++ b/foo.ts',
-      '@@ -1,2 +1,2 @@',
-      ' keep',
-      '-old',
-      '+new',
-      'diff --git a/bar.md b/bar.md',
+      'diff --git a/del.txt b/del.txt',
+      'deleted file mode 100644',
+      '--- a/del.txt',
+      '+++ /dev/null',
+      '@@ -1,2 +0,0 @@',
+      '-alpha',
+      '-beta',
+      'diff --git a/add.txt b/add.txt',
       'new file mode 100644',
       '--- /dev/null',
-      '+++ b/bar.md',
-      '@@ -0,0 +1,1 @@',
-      '+hello',
+      '+++ b/add.txt',
+      '@@ -0,0 +1,2 @@',
+      '+gamma',
+      '+delta',
     ].join('\n'),
   );
   // The content sniffs as a patch → the "View as diff" affordance appears.
   await page.getByRole('button', { name: 'View as diff' }).click();
   // The patch viewer renders one card per file (git-diff-view lazy chunk).
-  await expect(page.locator('.patch-file').first()).toBeVisible({ timeout: 15000 });
-  await expect(page.locator('.patch-file')).toHaveCount(2);
-  await expect(page.locator('.patch-file-path').first()).toContainText('foo.ts');
-  // The added file carries the "A" status badge.
+  await expect(page.locator('.patch-file')).toHaveCount(2, { timeout: 15000 });
+  await expect(page.locator('.patch-file-path').first()).toContainText('del.txt');
+  // Both a delete (A→D) and an add badge render.
   await expect(page.locator('.patch-status.k-add')).toBeVisible();
+  await expect(page.locator('.patch-status.k-delete')).toBeVisible();
   // "View source" flips the tab back to the editor.
   await page.getByRole('button', { name: 'View source' }).click();
   await expect(page.locator('.inspect-code .cm-content')).toBeVisible();
@@ -562,6 +579,7 @@ test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async ()
 });
 
 test('inspect: comparing two open tabs mounts the merge view (W2)', async () => {
+  await dismissOverlays();
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   // Tab A.
   await page.getByRole('button', { name: 'New scratch' }).click();

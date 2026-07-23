@@ -1,5 +1,6 @@
 import { bool, str, type Entity } from '../hub/types';
-import { callToolId, type FeedEvent } from './EventCard';
+import type { FeedEvent } from './EventCard';
+import { callToolId, isGateToolCallName, isToolCallUpdateHidden } from './toolGroups';
 
 /// The transcript "lens" — a family filter over the flat event feed, a
 /// byte-for-byte port of mobile's `FeedLens` (feed_reducer.dart:948) and its
@@ -52,7 +53,6 @@ const ALWAYS_HIDDEN_KINDS = new Set([
   'rate_limit',
   'turn.result',
   'turn.start', // turn boundary marker — pure telemetry, like turn.result
-  'tool_call_update',
   'status_line',
 ]);
 const VERBOSE_ONLY_KINDS = new Set([
@@ -64,17 +64,31 @@ const VERBOSE_ONLY_KINDS = new Set([
   'thinking',
   'reasoning',
 ]);
-// MCP permission-gate calls are prompts, not real tool work — noise in the feed.
-const GATE_TOOL_NAMES = new Set(['permission_prompt', 'request_select', 'request_approval']);
+// MCP gate names + suffix matching live in toolGroups.ts (mobile parity —
+// feed_reducer.dart:877-890 + `isGatedToolName`): permission_prompt /
+// request_select / request_decision / request_approval hide their tool_call
+// (bare name or `mcp__<server>__<name>` suffix), because the inline
+// attention/approval card already represents the same gesture.
 
 /// Whether an event is suppressed from the live feed. `verbose=true` reveals the
 /// VERBOSE_ONLY tier; ALWAYS_HIDDEN telemetry and gate prompts stay hidden.
-export function isHiddenInFeed(ev: FeedEvent, verbose: boolean): boolean {
+/// [toolNames] is the in-scope tool_call-id → name map (useToolMaps nameById);
+/// it drives the tool_call_update rule (mobile feed_reducer.dart:902-924):
+/// an update is hidden iff its toolCallId has a visible, NON-gated parent
+/// tool_call — it folds into the parent card's status pill. Updates for gated
+/// tools (whose parent is hidden by the gate rule) and orphan updates (no
+/// parent in scope) render standalone. Like mobile, this rule is
+/// verbose-INDEPENDENT: a foldable update stays hidden in verbose mode, and a
+/// standalone update shows even with verbose off.
+export function isHiddenInFeed(ev: FeedEvent, verbose: boolean, toolNames?: Map<string, string>): boolean {
   if (ev.kind.startsWith('input.')) return false; // user input always visible
   if (ALWAYS_HIDDEN_KINDS.has(ev.kind)) return true;
   if (ev.kind === 'tool_call') {
     const name = str(ev.payload, 'name');
-    if (name !== undefined && GATE_TOOL_NAMES.has(name)) return true;
+    if (name !== undefined && isGateToolCallName(name)) return true;
+  }
+  if (ev.kind === 'tool_call_update' && toolNames !== undefined && isToolCallUpdateHidden(ev.payload, toolNames)) {
+    return true;
   }
   if (!verbose && VERBOSE_ONLY_KINDS.has(ev.kind)) return true;
   return false;

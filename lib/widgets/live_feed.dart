@@ -26,6 +26,7 @@ import 'transcript/feed_misc.dart';
 import 'transcript/feed_telemetry.dart';
 import 'transcript/fold_maps.dart';
 import 'transcript/feed_reducer.dart';
+import 'transcript/tool_renderers.dart';
 import 'transcript/transcript_seek.dart';
 import 'transcript/interaction_cards.dart';
 import 'transcript/telemetry_strip.dart';
@@ -834,8 +835,8 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
     });
   }
 
-  /// Seek precisely onto the loaded row at [idx] (in the current lensed
-  /// list) identified by [seq]. A bare item-index fraction mapped straight
+  /// Seek precisely onto the loaded row at [idx] (in the current display
+  /// list — post-lens, post-grouping) identified by [seq]. A bare item-index fraction mapped straight
   /// onto a pixel offset misses badly when rows have very different heights
   /// (a one-line text card vs. a tall tool dump), so instead this
   /// binary-searches the scroll offset using the actual
@@ -1044,28 +1045,37 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
               if (agentEventMatchesLens(e, _lens, toolResults, toolUpdates))
                 e,
           ];
+    // P1 tool-call grouping (agent-transcript-redesign §6 P1, decision
+    // §7.3): a run of ≥2 consecutive tool_calls renders as ONE group
+    // card. Pure render-layer transform over the post-lens list — the
+    // lens predicates, FoldMaps, counts, and busy inference above are
+    // untouched, and a lens change regroups the filtered list
+    // naturally. Everything below (row building, seek indices,
+    // match-stepping) walks [display]; [lensed] stays the event-level
+    // source for the empty-filter check and lens counts.
+    final display = groupConsecutiveToolCalls(lensed);
     // Reset the landing engine's realized-row window for this frame's list;
     // the itemBuilder repopulates it during layout (via [_seek.recordBuiltRow])
     // and a convergent seek reads it back. Also snapshots the last frame's
     // top-built seq for the Insight position readout.
-    _seek.beginFrame(lensed.length);
+    _seek.beginFrame(display.length);
     // Consume a pending "view in context" request: now that the lens is
     // back to All (so [lensed] == [visible]), find the row's index in the
     // unfiltered list and seek to it once this frame lays out. Convergent
     // index seek (height-agnostic) so it lands exactly on the row even when
-    // it isn't currently realised.
+    // it isn't currently realised. The lookup is display-row based: a
+    // target seq INSIDE a tool-call group lands on the group row.
     if (_pendingContextSeq != null && _lens == FeedLens.all) {
       final target = _pendingContextSeq!;
       _pendingContextSeq = null;
-      var idx =
-          lensed.indexWhere((e) => (e['seq'] as num?)?.toInt() == target);
+      var idx = display.indexWhere((item) => item.containsSeq(target));
       if (idx < 0) {
         // No exact row — the anchor may be a hidden marker (e.g. an ACP
         // `turn.start`, which isn't rendered) or filtered out. Land on the
         // nearest visible row at or after it: the turn's first shown event.
         var bestSeq = 1 << 30;
-        for (var i = 0; i < lensed.length; i++) {
-          final s = (lensed[i]['seq'] as num?)?.toInt() ?? 0;
+        for (var i = 0; i < display.length; i++) {
+          final s = display[i].anchorSeq;
           if (s >= target && s < bestSeq) {
             bestSeq = s;
             idx = i;
@@ -1073,18 +1083,19 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
         }
       }
       if (idx >= 0) {
-        final landSeq = (lensed[idx]['seq'] as num?)?.toInt() ?? target;
+        final landSeq = display[idx].anchorSeq;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _seekToLoadedIndex(idx, landSeq);
         });
       }
     }
     // The lens funnel/stepper walk the loaded+lensed window. matchSeqs is the
-    // 1:1 seq list of the rendered rows; older matches join as the user scrolls
-    // up and the list grows.
+    // 1:1 anchor-seq list of the rendered display rows (a group's anchor is
+    // its first member's seq); older matches join as the user scrolls up and
+    // the list grows.
     final List<int> matchSeqs = _lens == FeedLens.all
         ? const <int>[]
-        : [for (final e in lensed) (e['seq'] as num?)?.toInt() ?? 0];
+        : [for (final item in display) item.anchorSeq];
     // 1-based position of the active match. Default to the newest when there's
     // no explicit anchor (fresh lens activation) so the pill reads N/N and the
     // steppers walk backward into history.
@@ -1186,33 +1197,49 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
               ListView.separated(
                 controller: _scroll,
                 padding: widget.padding,
-                itemCount: lensed.length,
+                itemCount: display.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
-                  final ev = lensed[i];
-                  final builtSeq = (ev['seq'] as num?)?.toInt() ?? 0;
+                  final item = display[i];
+                  final builtSeq = item.anchorSeq;
                   // Record the realized-row window for convergent seeks, and
                   // the smallest realised seq (topmost card) for the Insight
                   // position readout.
                   _seek.recordBuiltRow(i, builtSeq);
-                  final isTarget = _activeSeekSeq != null &&
-                      (ev['seq'] as num?)?.toInt() == _activeSeekSeq;
-                  Widget card = AgentEventCard(
-                    key: isTarget ? _seek.seekKey : null,
-                    event: ev,
-                    toolNames: toolNames,
-                    toolUpdates: toolUpdates,
-                    toolResults: toolResults,
-                    resolvedApprovals: resolvedApprovals,
-                    agentId: widget.agentId,
-                  );
+                  final isTarget =
+                      _activeSeekSeq != null && item.containsSeq(_activeSeekSeq!);
+                  // A tool-call GROUP renders as one card keyed by its
+                  // run's anchor seq — the key keeps the group's
+                  // collapse/row-expansion State alive across rebuilds
+                  // as new events stream in (decision §7.3: collapse is
+                  // user opt-in per group instance). Everything else is
+                  // the existing per-event card.
+                  Widget card = item.isGroup
+                      ? ToolCallGroupCard(
+                          key: isTarget
+                              ? _seek.seekKey
+                              : ValueKey('tool-group-${item.anchorSeq}'),
+                          group: item.group!,
+                          toolUpdates: toolUpdates,
+                          toolResults: toolResults,
+                        )
+                      : AgentEventCard(
+                          key: isTarget ? _seek.seekKey : null,
+                          event: item.event!,
+                          toolNames: toolNames,
+                          toolUpdates: toolUpdates,
+                          toolResults: toolResults,
+                          resolvedApprovals: resolvedApprovals,
+                          agentId: widget.agentId,
+                        );
                   // In a filtered view, give each card a "view in context"
                   // affordance: tap it to clear the filter and land on this
                   // row in the full transcript so the surrounding turns are
-                  // visible.
+                  // visible. A group jumps on its anchor seq; the All-lens
+                  // lookup matches any member, so it lands on the group.
                   if (_lens != FeedLens.all) {
-                    final seq = (ev['seq'] as num?)?.toInt();
-                    if (seq != null) {
+                    final seq = item.anchorSeq;
+                    if (seq > 0) {
                       card = Stack(
                         children: [
                           card,
@@ -1333,10 +1360,11 @@ class _LiveFeedState extends ConsumerState<LiveFeed> {
                   canNext: matchIndex >= 1 && matchIndex < matchSeqs.length,
                   onSelectLens: _setLens,
                   counts: widget.dense ? null : lensCounts,
-                  // Prev = older (one step up the lensed list); next =
+                  // Prev = older (one step up the display list); next =
                   // newer (one step down). matchIndex is 1-based. matchSeqs
-                  // is built 1:1 from the lensed list, so its index IS the
-                  // lensed-list index — land via the height-agnostic
+                  // is built 1:1 from the display rows (post-grouping), so
+                  // its index IS the display-list index — land via the
+                  // height-agnostic
                   // convergent seek ([_seekToLoadedIndex]) rather than
                   // [_seekToSeq]'s lone ensureVisible, which silently no-ops
                   // when the match row isn't currently realised (the common

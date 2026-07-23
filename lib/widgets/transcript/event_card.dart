@@ -381,28 +381,14 @@ class AgentEventCard extends StatefulWidget {
     final resultPayload = resultEvent != null && resultEvent['payload'] is Map
         ? (resultEvent['payload'] as Map).cast<String, dynamic>()
         : null;
-    final hasResult = resultPayload != null;
     final resultIsError = resultPayload?['is_error'] == true;
-    final updateStatus = (update?['status'] ?? p['status'] ?? '').toString();
-    final status = updateStatus.isNotEmpty
-        ? updateStatus
-        : (hasResult ? (resultIsError ? 'failed' : 'completed') : 'pending');
-    // ACP tool_call_update.content is a list of content blocks; pull the
-    // first text block for a compact preview. Larger outputs land in
-    // tool_result anyway so this is just for at-a-glance progress.
-    String? preview;
-    final content = update?['content'];
-    if (content is List) {
-      for (final b in content) {
-        if (b is Map && b['type'] == 'content') {
-          final inner = b['content'];
-          if (inner is Map && inner['type'] == 'text') {
-            preview = inner['text']?.toString();
-            break;
-          }
-        }
-      }
-    }
+    // The status derivation is shared with the P1 tool-call group rows
+    // (feed_reducer.toolCallDisplayStatus) so both surfaces resolve the
+    // same lineage the same way.
+    final status = toolCallDisplayStatus(p, update, resultPayload);
+    // ACP tool_call_update.content is a list of content blocks; the
+    // shared helper pulls the first text block for a compact preview.
+    final preview = toolCallUpdatePreview(update);
     return FoldableToolCall(
       // Stable identity so toggling fold state survives card rebuilds
       // when new events stream in or the parent setState fires. Without

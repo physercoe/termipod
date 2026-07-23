@@ -176,14 +176,14 @@ export function AgentCompanion({
   const visible = useMemo(
     () =>
       feed.filter((ev) => {
-        if (isHiddenInFeed(ev, false)) return false;
+        if (isHiddenInFeed(ev, false, nameById)) return false;
         if (ev.kind === 'tool_result') {
           const id = str(ev.payload, 'tool_use_id');
           if (id !== undefined && callIds.has(id)) return false;
         }
         return true;
       }),
-    [feed, callIds],
+    [feed, callIds, nameById],
   );
 
   // The most recent assistant text, for "insert into document" (Author).

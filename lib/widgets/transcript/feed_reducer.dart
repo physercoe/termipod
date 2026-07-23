@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/design_colors.dart';
+import 'fold_maps.dart' show callToolIdOf;
 
 /// True when the event payload carries the `replay: true` flag the M1
 /// driver stamps on session/update notifications streamed inside a
@@ -1015,7 +1016,9 @@ bool agentEventIsError(
     return p is Map && p['is_error'] == true;
   }
   if (kind == 'tool_call') {
-    final id = p is Map ? (p['id'] ?? p['toolCallId'] ?? '').toString() : '';
+    // callToolIdOf, not p['id'] — the log-tail claude-code mapper writes the
+    // call id as tool_use_id only, and the pairing maps key on that value.
+    final id = p is Map ? callToolIdOf(p) : '';
     if (id.isEmpty) return false;
     final res = toolResults[id];
     if (res != null) {
@@ -1248,7 +1251,17 @@ List<Map<String, dynamic>> collapseStreamingPartials(
     // (driver_acp.go handleNotification, agent_thought_chunk arm).
     // Without thought in this allowlist they stack as N redundant
     // cards each carrying the cumulative text so far.
-    if (kind != 'text' && kind != 'thought') {
+    //
+    // `plan` folds the same way (agent-transcript-redesign §6 P1, G3):
+    // every ACP plan update is a FULL snapshot of the agent's todo
+    // list, not a delta, and the hub stamps each with a stable
+    // per-turn message_id + partial:true (driver_acp.go plan arm).
+    // Folding the chain by kind+message_id turns N snapshot cards per
+    // turn into ONE checklist card that updates in place. A plan event
+    // with no message_id (or no partial chain — e.g. an engine that
+    // emits a single non-streaming plan) falls through to the append
+    // path below, so pre-stamp transcripts render unchanged.
+    if (kind != 'text' && kind != 'thought' && kind != 'plan') {
       out.add(e);
       continue;
     }
@@ -1282,6 +1295,303 @@ List<Map<String, dynamic>> collapseStreamingPartials(
     }
   }
   return out;
+}
+
+// ── Tool-call grouping (agent-transcript-redesign §6 P1) ─────────────────
+//
+// Render-layer batching for the visible feed: a run of ≥2 CONSECUTIVE
+// `tool_call` events renders as ONE group card (kimi-web's `tool-stack`
+// rule, §2.3 / decision §7.3) instead of N individually-collapsed cards.
+// This is presentation only — the reducer runs on the POST-lens,
+// POST-hide, POST-collapse list, so FoldMaps, busy inference, lens
+// predicates, counts, and the event stream itself are untouched; a lens
+// change simply regroups the filtered list.
+
+/// A run of consecutive `tool_call` events rendered as one card.
+/// Never empty — [groupConsecutiveToolCalls] only builds one for runs
+/// of ≥2 (a lone call stays a standalone card, the kimi-web
+/// `position: single` rule).
+class ToolCallGroup {
+  final List<Map<String, dynamic>> events;
+  const ToolCallGroup(this.events);
+}
+
+/// One row of the rendered feed after grouping: either a single event
+/// ([group] == null) or a [ToolCallGroup] ([event] == null). Kept as
+/// one class with nullable arms (rather than a sealed hierarchy) so the
+/// ListView itemBuilder switches without a cast ladder.
+class FeedDisplayItem {
+  final Map<String, dynamic>? event;
+  final ToolCallGroup? group;
+  const FeedDisplayItem.single(Map<String, dynamic> e)
+      : event = e,
+        group = null;
+  const FeedDisplayItem.grouped(ToolCallGroup g)
+      : group = g,
+        event = null;
+
+  bool get isGroup => group != null;
+
+  /// All events behind this row, in feed order (one for a single row).
+  Iterable<Map<String, dynamic>> get events =>
+      group?.events ?? [event!];
+
+  /// The seq this row anchors on: its own seq for a single row, the
+  /// FIRST member's seq for a group. The seek/stepper machinery maps
+  /// rows ↔ seqs through this anchor, so a jump lands on the group that
+  /// CONTAINS the target turn's activity.
+  int get anchorSeq =>
+      (events.first['seq'] as num?)?.toInt() ?? 0;
+
+  /// True when [seq] is one of the events behind this row — the
+  /// "view in context" seek must land on a group when the target seq is
+  /// any member, not just the anchor.
+  bool containsSeq(int seq) =>
+      events.any((e) => (e['seq'] as num?)?.toInt() == seq);
+}
+
+/// Reads the hub-stamped `turn_id` off an event payload (driver_acp.go
+/// `stampTurnID`; empty when the driver doesn't stamp one — e.g. hub-
+/// synthesized replay events between turns).
+String _turnIdOf(Map<String, dynamic> e) {
+  final p = e['payload'];
+  return p is Map ? (p['turn_id'] ?? '').toString() : '';
+}
+
+/// Groups runs of ≥2 consecutive `tool_call` events in the VISIBLE
+/// (post-lens, post-hide, post-collapse) list into [ToolCallGroup]
+/// display items. A run breaks at:
+///   - any non-`tool_call` visible row (assistant prose flows BETWEEN
+///     groups — the kimi-web turn-rendering shape), and
+///   - a `turn_id` change, but only when BOTH neighbours carry a
+///     non-empty stamp: engines that never stamp turn_id keep pure
+///     adjacency grouping, and a stamped event adjacent to an
+///     unstamped one (replay seams) still groups instead of
+///     fragmenting into singletons.
+/// Pure: same input → same output, no widget or State dependency.
+List<FeedDisplayItem> groupConsecutiveToolCalls(
+    List<Map<String, dynamic>> visible) {
+  final out = <FeedDisplayItem>[];
+  var run = <Map<String, dynamic>>[];
+  void flush() {
+    if (run.length >= 2) {
+      out.add(FeedDisplayItem.grouped(
+          ToolCallGroup(List<Map<String, dynamic>>.unmodifiable(run))));
+    } else if (run.length == 1) {
+      // A lone call renders standalone — a one-card "group" is just
+      // the existing card with extra chrome.
+      out.add(FeedDisplayItem.single(run.first));
+    }
+    run = <Map<String, dynamic>>[];
+  }
+
+  for (final e in visible) {
+    if ((e['kind'] ?? '').toString() != 'tool_call') {
+      flush();
+      out.add(FeedDisplayItem.single(e));
+      continue;
+    }
+    if (run.isNotEmpty) {
+      final prevTurn = _turnIdOf(run.last);
+      final thisTurn = _turnIdOf(e);
+      if (prevTurn.isNotEmpty && thisTurn.isNotEmpty && prevTurn != thisTurn) {
+        flush();
+      }
+    }
+    run.add(e);
+  }
+  flush();
+  return out;
+}
+
+/// The display status of one `tool_call` card, resolved from its fold
+/// lineage — the SAME derivation the standalone card uses
+/// (`AgentEventCard._toolCallBody`), extracted so the group card's
+/// rows and aggregate state can't drift from it: a streaming
+/// `tool_call_update` status wins over the creation-frame status; a
+/// paired `tool_result` resolves to completed/failed by `is_error`
+/// (covers drivers that emit no updates); nothing yet → pending.
+String toolCallDisplayStatus(
+  Map<String, dynamic> callPayload,
+  Map<String, dynamic>? updatePayload,
+  Map<String, dynamic>? resultPayload,
+) {
+  final updateStatus =
+      (updatePayload?['status'] ?? callPayload['status'] ?? '').toString();
+  if (updateStatus.isNotEmpty) return updateStatus;
+  if (resultPayload != null) {
+    return resultPayload['is_error'] == true ? 'failed' : 'completed';
+  }
+  return 'pending';
+}
+
+/// Aggregate state of a tool-call group, kimi-web precedence
+/// (§2.3, decision §7.3): **running > error > done** — a group still
+/// waiting on any call reads running even if a sibling already failed;
+/// only once nothing is in flight does a failure define the group.
+enum ToolGroupState { running, error, done }
+
+/// Per-row state behind [toolCallGroupState] / the group card's row
+/// glyph. A call counts as error when its resolved status says so OR
+/// its paired result/update does ([agentEventIsError] — the same
+/// failure classification the Errors lens paints with); a non-terminal
+/// status (pending / in_progress / driver-specific) reads running.
+ToolGroupState toolCallRowState(
+  Map<String, dynamic> callEvent,
+  Map<String, Map<String, dynamic>> toolResults,
+  Map<String, Map<String, dynamic>> toolUpdates,
+) {
+  if (agentEventIsError(callEvent, toolResults, toolUpdates)) {
+    return ToolGroupState.error;
+  }
+  final p = callEvent['payload'];
+  final payload = p is Map ? p.cast<String, dynamic>() : <String, dynamic>{};
+  final id = callToolIdOf(payload);
+  final resEvent = id.isNotEmpty ? toolResults[id] : null;
+  final rp = resEvent != null && resEvent['payload'] is Map
+      ? (resEvent['payload'] as Map).cast<String, dynamic>()
+      : null;
+  final status = toolCallDisplayStatus(
+      payload, id.isNotEmpty ? toolUpdates[id] : null, rp);
+  if (status == 'failed' || status == 'error') return ToolGroupState.error;
+  if (status == 'completed') return ToolGroupState.done;
+  return ToolGroupState.running;
+}
+
+/// Aggregate state for the group header: running if ANY row is still
+/// in flight (short-circuits — the top precedence), else error if any
+/// row failed, else done.
+ToolGroupState toolCallGroupState(
+  ToolCallGroup group,
+  Map<String, Map<String, dynamic>> toolResults,
+  Map<String, Map<String, dynamic>> toolUpdates,
+) {
+  var anyError = false;
+  for (final e in group.events) {
+    switch (toolCallRowState(e, toolResults, toolUpdates)) {
+      case ToolGroupState.running:
+        return ToolGroupState.running;
+      case ToolGroupState.error:
+        anyError = true;
+      case ToolGroupState.done:
+        break;
+    }
+  }
+  return anyError ? ToolGroupState.error : ToolGroupState.done;
+}
+
+/// Failed-row count for the group header's `· N failed` suffix — errors
+/// surface in the header even while the aggregate reads running.
+int toolCallGroupErrorCount(
+  ToolCallGroup group,
+  Map<String, Map<String, dynamic>> toolResults,
+  Map<String, Map<String, dynamic>> toolUpdates,
+) {
+  var n = 0;
+  for (final e in group.events) {
+    if (toolCallRowState(e, toolResults, toolUpdates) == ToolGroupState.error) {
+      n++;
+    }
+  }
+  return n;
+}
+
+/// The compact progress preview a tool_call card pulls from its latest
+/// `tool_call_update` — the first text content block of the ACP
+/// update's content list. Shared by the standalone card and the group
+/// rows so both render the same lineage. Larger outputs land in
+/// tool_result anyway; this is just for at-a-glance progress.
+String? toolCallUpdatePreview(Map<String, dynamic>? updatePayload) {
+  final content = updatePayload?['content'];
+  if (content is List) {
+    for (final b in content) {
+      if (b is Map && b['type'] == 'content') {
+        final inner = b['content'];
+        if (inner is Map && inner['type'] == 'text') {
+          return inner['text']?.toString();
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/// The one-line "key argument" a group row shows next to the tool verb
+/// (kimi-web ToolRow shape): the command for Bash, the path for file
+/// tools, the pattern for search tools. Empty when the input doesn't
+/// carry a recognizable key — the row just shows the verb.
+String toolCallKeyArg(String name, Object? input) {
+  if (input is! Map) return '';
+  String pick(List<String> keys) {
+    for (final k in keys) {
+      final v = input[k];
+      if (v is String && v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  switch (name) {
+    case 'Bash':
+      return pick(['command']);
+    case 'Read':
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'NotebookEdit':
+    case 'NotebookRead':
+      return pick(['file_path', 'notebook_path', 'path']);
+    case 'Glob':
+    case 'Grep':
+      return pick(['pattern']);
+    case 'WebFetch':
+      return pick(['url']);
+    case 'WebSearch':
+      return pick(['query']);
+    case 'Task':
+      return pick(['description', 'prompt']);
+  }
+  // Unknown / engine-specific tools: probe the common argument keys so
+  // e.g. kimi's Bash-alikes still get a one-liner; otherwise nothing.
+  return pick(['command', 'file_path', 'path', 'pattern', 'query', 'url']);
+}
+
+/// Diffstat for the group row (`+N −M`), or null when the call carries
+/// no measurable change. An explicit payload `diffstat` string wins
+/// (kimi's `display` hints can carry one verbatim); otherwise computed
+/// from the edit inputs — old vs new string line counts for
+/// Edit/MultiEdit, content lines for Write. Line-count deltas only:
+/// cheap, deterministic, and honest (no LCS).
+String? toolCallDiffstat(String name, Map<String, dynamic> payload) {
+  final explicit = (payload['diffstat'] ?? '').toString();
+  if (explicit.isNotEmpty) return explicit;
+  final input = payload['input'];
+  if (input is! Map) return null;
+  int linesOf(Object? s) =>
+      s is String && s.isNotEmpty ? '\n'.allMatches(s).length + 1 : 0;
+  switch (name) {
+    case 'Edit':
+      final adds = linesOf(input['new_string']);
+      final dels = linesOf(input['old_string']);
+      if (adds == 0 && dels == 0) return null;
+      return '+$adds −$dels';
+    case 'MultiEdit':
+      var adds = 0, dels = 0;
+      final edits = input['edits'];
+      if (edits is List) {
+        for (final e in edits) {
+          if (e is! Map) continue;
+          adds += linesOf(e['new_string']);
+          dels += linesOf(e['old_string']);
+        }
+      }
+      if (adds == 0 && dels == 0) return null;
+      return '+$adds −$dels';
+    case 'Write':
+      final adds = linesOf(input['content']);
+      if (adds == 0) return null;
+      return '+$adds';
+  }
+  return null;
 }
 
 /// Plan P2 (agent-run-analysis-mode) — the monotonic "event N of M" log

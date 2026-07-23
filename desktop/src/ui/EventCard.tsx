@@ -3,6 +3,11 @@ import { Icon, type IconName } from './Icon';
 import { Markdown } from './Markdown';
 import { useT, type TLookup } from '../i18n';
 import { arr, bool, num, obj, str, type Entity } from '../hub/types';
+import { callToolId } from './toolGroups';
+
+// Re-exported from its new home in toolGroups.ts (the P1 tool-lineage
+// substrate) so existing importers keep working.
+export { callToolId };
 
 /// Rich transcript rendering (parity Phase 1a; visual redesign #332). The hub
 /// emits FLAT events, one row per content block:
@@ -45,14 +50,6 @@ export function toFeedEvent(e: Entity, fallbackIdx: number): FeedEvent {
     ts: str(e, 'ts'),
     payload: obj(e, 'payload') ?? {},
   };
-}
-
-/// tool_use_id for a tool_call: prefer `tool_use_id` (what the claude-code
-/// mapper actually writes, mapper.go:369), then `id`/`toolCallId` for ACP
-/// drivers. NB the mobile call side reads only `p['id']` — a latent bug that
-/// makes claude-code pairing silently fail; we deliberately do not copy it.
-export function callToolId(p: Entity): string | undefined {
-  return str(p, 'tool_use_id') ?? str(p, 'id') ?? str(p, 'toolCallId');
 }
 
 /// Visual tone — the redesign (#332) collapses the old 9-colour per-kind spine
@@ -197,7 +194,9 @@ function isFoldable(s: string): boolean {
 /// search → the pattern). The full JSON hides behind a single disclosure — this
 /// one change removes most of the feed's visual noise. `verbKey` is a t-key for
 /// known tools; unknown tools fall back to the raw tool name + first argument.
-function toolMeta(name: string, input: unknown): { icon: IconName; verbKey?: string; verb: string; arg?: string } {
+/// Exported for the P1 tool-group rows (ToolGroupCard.tsx), which render the
+/// same icon + verb + arg one-liner per call.
+export function toolMeta(name: string, input: unknown): { icon: IconName; verbKey?: string; verb: string; arg?: string } {
   const p = (input !== null && typeof input === 'object' ? input : {}) as Entity;
   const pick = (...keys: string[]): string | undefined => {
     for (const k of keys) {
@@ -248,7 +247,11 @@ function ToolResultBody({ result }: { result: Entity }): JSX.Element {
   );
 }
 
-function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Element {
+/// The standalone tool_call card body — icon + verb + key-arg head, the
+/// Arguments disclosure, and the folded-in tool_result. Exported so the P1
+/// tool-group card (ToolGroupCard.tsx) reuses it verbatim as a row's lazy
+/// detail.
+export function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Element {
   const t = useT();
   const name = str(p, 'name') ?? 'tool';
   const input = p['input'];
@@ -389,6 +392,35 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
       return <ThoughtBody p={p} />;
     case 'tool_call':
       return <ToolCallBody p={p} result={result} />;
+    case 'tool_call_update': {
+      // Standalone update — only reachable when the parent is gated or missing
+      // (feedLens folds the rest into the parent card). Mobile parity
+      // (_toolCallUpdateBody): tool + status kv line and the first text block
+      // of the ACP content array as a preview.
+      const title = str(p, 'title') ?? str(p, 'name') ?? 'tool';
+      const status = str(p, 'status');
+      let preview: string | undefined;
+      for (const b of arr(p, 'content')) {
+        if (b === null || typeof b !== 'object') continue;
+        const blk = b as Entity;
+        if (str(blk, 'type') !== 'content') continue;
+        const inner = obj(blk, 'content');
+        if (inner !== undefined && str(inner, 'type') === 'text') {
+          preview = str(inner, 'text');
+          break;
+        }
+      }
+      return (
+        <div className="ev-tool">
+          <div className="ev-tool-head">
+            <Icon name="wrench" size={15} className="ev-tool-ico" />
+            <span className="ev-tool-verb">{title}</span>
+            {status !== undefined && <span className="muted small">· {status}</span>}
+          </div>
+          {preview !== undefined && preview !== '' && <div className="ev-line muted">{firstLine(preview)}</div>}
+        </div>
+      );
+    }
     case 'tool_result':
       return (
         <div className="ev-tool">

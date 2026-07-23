@@ -11,6 +11,9 @@ import { ConfirmButton } from '../ui/ConfirmButton';
 import { Icon } from '../ui/Icon';
 import { callToolId, EventCard, toFeedEvent, type FeedEvent } from '../ui/EventCard';
 import { agentIsBusy, errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, matchesLens, type FeedLens } from '../ui/feedLens';
+import { collapseStreamingPartials } from '../ui/streamingPartials';
+import { groupToolCalls, toolCallUpdateParentId, type FeedRow } from '../ui/toolGroups';
+import { ToolGroupCard } from '../ui/ToolGroupCard';
 import { RunReport } from '../ui/RunReport';
 import { AgentInfo, latestStatusLine, mergeSessionInit } from '../ui/AgentInfo';
 
@@ -87,22 +90,31 @@ function rowCoord(ev: FeedEvent): number {
 }
 
 /// Build the tool-pairing maps over the flat event feed: a tool_call folds its
-/// matching tool_result inline (joined on `tool_use_id`), and a standalone
+/// matching tool_result inline (joined on `tool_use_id`) and its latest
+/// tool_call_update (joined on `toolCallId`, mobile FoldMaps), and a standalone
 /// tool_result borrows its tool name back. `callIds` lets us hide the results
-/// that were folded so they don't also render on their own.
+/// that were folded so they don't also render on their own; `nameById` doubles
+/// as the mobile `toolNames` map the feed-noise model reads (feedLens.ts).
 function useToolMaps(feed: FeedEvent[]): {
   resultById: Map<string, Entity>;
+  updateById: Map<string, Entity>;
   nameById: Map<string, string>;
   callIds: Set<string>;
 } {
   return useMemo(() => {
     const resultById = new Map<string, Entity>();
+    const updateById = new Map<string, Entity>();
     const nameById = new Map<string, string>();
     const callIds = new Set<string>();
     for (const ev of feed) {
       if (ev.kind === 'tool_result') {
         const id = str(ev.payload, 'tool_use_id');
         if (id !== undefined) resultById.set(id, ev.payload);
+      } else if (ev.kind === 'tool_call_update') {
+        // Latest update wins (forward scan overwrites) — the folded status
+        // pill / group row reads only the end state (mobile fold_maps.dart:55).
+        const id = toolCallUpdateParentId(ev.payload);
+        if (id !== undefined) updateById.set(id, ev.payload);
       } else if (ev.kind === 'tool_call') {
         const id = callToolId(ev.payload);
         if (id !== undefined) {
@@ -112,7 +124,7 @@ function useToolMaps(feed: FeedEvent[]): {
         }
       }
     }
-    return { resultById, nameById, callIds };
+    return { resultById, updateById, nameById, callIds };
   }, [feed]);
 }
 
@@ -344,7 +356,22 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   }, []);
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
-  const { resultById, nameById, callIds } = useToolMaps(feed);
+  const { resultById, updateById, nameById, callIds } = useToolMaps(feed);
+  // P1 tool-group collapse state (kimi-web parity — plan §7 decision 3):
+  // groups are EXPANDED by default and never auto-collapse; the header click
+  // is the only toggle, opt-in per group instance. Keyed by the group's
+  // stable row key (`grp:<first-call-id>`), which survives the group growing
+  // as new calls join its run AND virtual-list recycling (unlike per-card
+  // component state, which unmounts off-screen).
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
+  const toggleGroup = useCallback((key: string): void => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
   // Feed-derived session config for the Info tab: the merged `session.init`
   // frame (engine, model, workdir, tools, …) + the latest `status_line` (live
   // effort / thinking / fast-mode). Computed here because these live in the
@@ -436,23 +463,72 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     );
   }
 
-  // Live-mode filtering: first drop feed noise (mobile verbose model), then
-  // apply the lens (mobile `lensed`), then drop folded tool_results so the list
-  // data is exactly the rows that render. Tool folding still runs over the FULL
-  // feed above, so a hidden telemetry row never orphans a paired result.
-  const visible = useMemo(() => feed.filter((ev) => !isHiddenInFeed(ev, verbose)), [feed, verbose]);
+  // One virtual-list ROW in the live feed: a standalone event renders exactly
+  // like before; a group row (≥2 consecutive tool_calls) renders the P1 group
+  // card. The row key is stable (`grp:<first-call-id>`) so toggling collapse
+  // only re-renders this item — and Virtuoso's per-item ResizeObserver picks
+  // up the height change and re-measures it (firing totalListHeightChanged,
+  // which the settle/pin logic already handles).
+  function feedRow(row: FeedRow): JSX.Element {
+    if (row.events.length === 1) return feedItem(row.events[0]);
+    const first = row.events[0];
+    const showJump = mode === 'live' && lens !== 'all';
+    return (
+      <div className={first.id === flashId ? 'feed-item ev-flash' : 'feed-item'}>
+        <div className="feed-measure">
+          {showJump && (
+            <button
+              className="feed-jump"
+              title={t('tx.viewInContext')}
+              aria-label={t('tx.viewInContext')}
+              onClick={() => jumpToContext(rowCoord(first))}
+            >
+              <Icon name="crosshair" size={13} />
+            </button>
+          )}
+          <ToolGroupCard
+            events={row.events}
+            resultById={resultById}
+            updateById={updateById}
+            collapsed={collapsedGroups.has(row.key)}
+            onToggle={() => toggleGroup(row.key)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Live-mode filtering, in mobile's exact call order (live_feed.dart:1029-1046):
+  // drop feed noise (hide), then collapse streaming partials by message_id
+  // (P1 port — codex/gemini text/thought chains and the hub-stamped plan chain
+  // become one row that updates in place), then the lens, then drop folded
+  // tool_results so the list data is exactly the rows that render. Tool
+  // folding still runs over the FULL feed above, so a hidden telemetry row
+  // never orphans a paired result.
+  const visible = useMemo(
+    () => feed.filter((ev) => !isHiddenInFeed(ev, verbose, nameById)),
+    [feed, verbose, nameById],
+  );
+  const foldedStream = useMemo(() => collapseStreamingPartials(visible), [visible]);
   const shown = useMemo(
-    () => (lens === 'all' ? visible : visible.filter((ev) => matchesLens(ev, lens, resultById))),
-    [visible, lens, resultById],
+    () => (lens === 'all' ? foldedStream : foldedStream.filter((ev) => matchesLens(ev, lens, resultById))),
+    [foldedStream, lens, resultById],
   );
   const liveData = useMemo(() => shown.filter((ev) => !isFolded(ev)), [shown, callIds]);
+  // P1 tool-group cards (kimi-web tool-stack rule): consecutive tool_call rows
+  // in the visible list render as ONE group card. Render-layer only — the
+  // virtual list gets ROWS (single event or group); every reducer above
+  // (busy, lens, matchCoords, unread) keeps the raw events.
+  const liveRows = useMemo(() => groupToolCalls(liveData), [liveData]);
   // Insight applies the SAME feed-noise filter as live (mobile parity —
   // insight_transcript.dart:1377): turn.start / turn.result / usage / lifecycle
   // ("started M2") etc. are telemetry, hidden unless Details (verbose) is on.
-  // Without this the sealed view showed rows the live feed hides.
+  // Without this the sealed view showed rows the live feed hides. It also runs
+  // the same streaming-partial fold (insight_transcript.dart:1378). Grouping
+  // stays live-only — the sealed view keeps flat rows for exact seq targeting.
   const insightData = useMemo(
-    () => feed.filter((ev) => !isFolded(ev) && !isHiddenInFeed(ev, verbose)),
-    [feed, callIds, verbose],
+    () => collapseStreamingPartials(feed.filter((ev) => !isFolded(ev) && !isHiddenInFeed(ev, verbose, nameById))),
+    [feed, callIds, verbose, nameById],
   );
   const matchCoords = useMemo(() => liveData.map((ev) => rowCoord(ev)), [liveData]);
 
@@ -466,7 +542,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // until the feed reveals. `liveLenRef` feeds the current tail length in
   // without making the pin logic a render dependency.
   const liveLenRef = useRef(0);
-  liveLenRef.current = liveData.length;
+  // Row count, not event count: the live virtual list's data is `liveRows`
+  // (P1 groups), so tail-pinning scrolls to the last ROW.
+  liveLenRef.current = liveRows.length;
   const stickBottomRef = useRef(true);
   /// Open at the last page with ZERO visible scrolling (#331). The re-pin loop
   /// lands the bottom, but on WebKit each correction during hydration (markdown,
@@ -564,13 +642,13 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   function jumpToLatest(): void {
     stickBottomRef.current = true;
     setUnread(0);
-    const n = liveData.length;
+    const n = liveRows.length;
     if (n > 0) virtuosoRef.current?.scrollToIndex({ index: n - 1, align: 'end', behavior: 'smooth' });
   }
   // How many low-signal rows the verbose toggle would reveal (for its badge).
   const verboseHidden = useMemo(
-    () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false) && !isHiddenInFeed(ev, true)).length),
-    [feed, verbose],
+    () => (verbose ? 0 : feed.filter((ev) => isHiddenInFeed(ev, false, nameById) && !isHiddenInFeed(ev, true, nameById)).length),
+    [feed, verbose, nameById],
   );
 
   // Insight error list — dedupe folded tool_results so an error appears once.
@@ -689,27 +767,51 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
         return;
       }
     }
-    const list = mode === 'insight' ? insightData : liveData;
-    let index = list.findIndex((ev) => rowCoord(ev) === target);
-    if (index < 0) {
-      // No exact row — a turn's start anchor is a turn.start marker
-      // (ALWAYS_HIDDEN, so never a visible row) or an event outside the filtered
-      // set. Land on the nearest visible row AT OR AFTER the target, i.e. the
-      // turn's first rendered event (mobile parity — insight_transcript.dart:1404).
-      // Without this fallback every turn resolved to -1 and the view never moved
-      // ("jumps to the same position").
-      let best = Infinity;
-      for (let i = 0; i < list.length; i++) {
-        const c = rowCoord(list[i]);
-        if (c >= target && c < best) {
-          best = c;
-          index = i;
+    // Resolve the coordinate to a row index in the active list. Live mode's
+    // list is `liveRows` (P1): a group row SPANS the coords of its calls, so a
+    // target inside a group lands on the group; insight keeps flat events.
+    let index = -1;
+    let landedId: string | undefined;
+    if (mode === 'insight') {
+      index = insightData.findIndex((ev) => rowCoord(ev) === target);
+      if (index < 0) {
+        // No exact row — a turn's start anchor is a turn.start marker
+        // (ALWAYS_HIDDEN, so never a visible row) or an event outside the filtered
+        // set. Land on the nearest visible row AT OR AFTER the target, i.e. the
+        // turn's first rendered event (mobile parity — insight_transcript.dart:1404).
+        // Without this fallback every turn resolved to -1 and the view never moved
+        // ("jumps to the same position").
+        let best = Infinity;
+        for (let i = 0; i < insightData.length; i++) {
+          const c = rowCoord(insightData[i]);
+          if (c >= target && c < best) {
+            best = c;
+            index = i;
+          }
         }
+        // Nothing at or after (target past the tail) — fall back to the last row.
+        if (index < 0 && insightData.length > 0) index = insightData.length - 1;
       }
-      // Nothing at or after (target past the tail) — fall back to the last row.
-      if (index < 0 && list.length > 0) index = list.length - 1;
+      if (index >= 0) landedId = insightData[index].id;
+    } else {
+      const rowStart = (row: FeedRow): number => rowCoord(row.events[0]);
+      const rowEnd = (row: FeedRow): number => rowCoord(row.events[row.events.length - 1]);
+      index = liveRows.findIndex((row) => target >= rowStart(row) && target <= rowEnd(row));
+      if (index < 0) {
+        // Same nearest-at-or-after fallback as insight, over row STARTS.
+        let best = Infinity;
+        for (let i = 0; i < liveRows.length; i++) {
+          const c = rowStart(liveRows[i]);
+          if (c >= target && c < best) {
+            best = c;
+            index = i;
+          }
+        }
+        if (index < 0 && liveRows.length > 0) index = liveRows.length - 1;
+      }
+      if (index >= 0) landedId = liveRows[index].events[0].id;
     }
-    if (index < 0) return;
+    if (index < 0 || landedId === undefined) return;
     // An explicit jump means "hold here" — release the bottom pin so a late
     // height change doesn't yank the view back down off the target.
     stickBottomRef.current = false;
@@ -725,8 +827,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     /// orientation the smooth animation was providing.
     virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' });
     // Flash the row we actually landed on (may differ from the requested target),
-    // keyed on its stable id (seq collides across a resumed session).
-    const landedId = list[index].id;
+    // keyed on its stable id (seq collides across a resumed session). For a
+    // group row this is the group's first call — the flash class lights the
+    // whole card.
     setFlashId(landedId);
     window.setTimeout(() => setFlashId((s) => (s === landedId ? null : s)), 1400);
   }
@@ -756,18 +859,20 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // top before the prepend, so the newly-inserted older rows grow upward without
   // yanking the view (mobile does a post-frame `jumpTo` height-delta; here the
   // row's stable index + `align:'start'` is the Virtuoso-idiomatic equivalent).
-  // useLayoutEffect so the re-anchor lands before paint. Runs on `liveData` change
+  // useLayoutEffect so the re-anchor lands before paint. Runs on `liveRows` change
   // so it fires exactly when the page merges in.
   useLayoutEffect(() => {
     const anchorId = prependAnchorRef.current;
     if (anchorId === null) return;
-    const idx = liveData.findIndex((ev) => ev.id === anchorId);
+    // The anchor id is an EVENT id (captured from liveData[0]); the list
+    // renders ROWS, so find the row containing it (a group contains its calls).
+    const idx = liveRows.findIndex((row) => row.events.some((ev) => ev.id === anchorId));
     if (idx > 0) virtuosoRef.current?.scrollToIndex({ index: idx, align: 'start' });
     prependAnchorRef.current = null;
     loadingOlderRef.current = false;
     setLoadingOlder(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveData]);
+  }, [liveRows]);
 
   // Jump from a filtered match to its position in the FULL log (mobile
   // ContextJumpButton → `_jumpToContext`): clear the lens to `all`, then once the
@@ -999,10 +1104,14 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
                 ref={virtuosoRef}
                 className="feed-virt"
                 style={settled ? undefined : { visibility: 'hidden' }}
-                data={liveData}
+                data={liveRows}
                 scrollerRef={(el) => setFeedScroller(el instanceof HTMLElement ? el : null)}
-                computeItemKey={(_i, ev) => ev.id}
-                initialTopMostItemIndex={{ index: Math.max(0, liveData.length - 1), align: 'end' }}
+                // One ROW per item (P1): a standalone event keys on its own id,
+                // a tool-call group on `grp:<first-call-id>` — stable as the
+                // group grows, so expand/collapse re-renders a single item and
+                // Virtuoso's ResizeObserver re-measures it.
+                computeItemKey={(_i, row) => row.key}
+                initialTopMostItemIndex={{ index: Math.max(0, liveRows.length - 1), align: 'end' }}
                 defaultItemHeight={120}
                 alignToBottom
                 followOutput={(bottom) => (bottom ? 'auto' : false)}
@@ -1015,7 +1124,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
                 }}
                 startReached={() => void loadOlder()}
                 totalListHeightChanged={pinBottom}
-                itemContent={(_i, ev) => feedItem(ev)}
+                itemContent={(_i, row) => feedRow(row)}
                 components={{
                   Header: () =>
                     loadingOlder ? (

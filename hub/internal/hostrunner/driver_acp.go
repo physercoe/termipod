@@ -221,11 +221,21 @@ type ACPDriver struct {
 	// folds them into one bubble that grows. message_ids are turn-
 	// local: regenerated at every Input("text"/"attach") entry so
 	// turn N+1's chunks don't merge into turn N's bubble.
+	//
+	// turnPlanMsgID is the same chain-root trick for `plan` updates
+	// (agent-transcript-redesign §6 P1): each ACP plan notification is a
+	// full snapshot of the todo list, so there is nothing to accumulate
+	// hub-side — but the clients' fold-in-place reducer still needs a
+	// stable per-turn message_id to collapse the N snapshots of a turn
+	// into one card that updates. We mint one lazily on the turn's first
+	// plan update and stamp it (plus partial:true) on every plan event
+	// of that turn.
 	turnMu           sync.Mutex
 	turnTextBuf      []byte
 	turnTextMsgID    string
 	turnThoughtBuf   []byte
 	turnThoughtMsgID string
+	turnPlanMsgID    string
 
 	// currentTurnID is the turn_id the driver mints at each prompt-dispatch
 	// boundary (ADR-038 §3). turn.start carries it; the tool events and the
@@ -1080,6 +1090,7 @@ func (d *ACPDriver) resetTurn() {
 	d.turnTextMsgID = ""
 	d.turnThoughtBuf = nil
 	d.turnThoughtMsgID = ""
+	d.turnPlanMsgID = ""
 	d.turnMu.Unlock()
 }
 
@@ -1537,7 +1548,24 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 		}
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", d.tagIfReplay(d.stampTurnID(u)))
 	case "plan":
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "plan", "agent", d.tagIfReplay(u))
+		// Each ACP plan update is a full snapshot of the agent's todo
+		// list, not a delta — so without a stable chain id the clients
+		// render N snapshot cards per turn. Stamp a per-turn message_id
+		// (minted lazily on the turn's first plan update, cleared by
+		// resetTurn) + partial:true so the clients' fold-in-place
+		// reducer collapses the chain into one card that updates
+		// (agent-transcript-redesign §6 P1). We overwrite any
+		// pre-existing message_id in u — ACP plan updates don't carry
+		// one, and if a future agent ever sends one the hub-owned chain
+		// root still wins so live and replay fold identically.
+		d.turnMu.Lock()
+		if d.turnPlanMsgID == "" {
+			d.turnPlanMsgID = newMessageID()
+		}
+		u["message_id"] = d.turnPlanMsgID
+		d.turnMu.Unlock()
+		u["partial"] = true
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "plan", "agent", d.tagIfReplay(d.stampTurnID(u)))
 	case "diff":
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "diff", "agent", d.tagIfReplay(u))
 	case "user_message_chunk":

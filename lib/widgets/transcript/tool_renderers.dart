@@ -1,19 +1,23 @@
-// AgentFeed tool-call renderers — the foldable tool_call card and its
-// inline tool_result body.
+// AgentFeed tool-call renderers — the foldable tool_call card, its
+// inline tool_result body, and the P1 tool-call GROUP card.
 //
 // Cluster wedge of the agent_feed split (docs/plans/agent-feed-split.md,
-// W4). Only `FoldableToolCall` is referenced cross-library (by the event
-// card), so it alone is public; the result-inline body, the kv line, the
-// status pill, and the tool-icon map are tool-call-only and stay private.
-// `_toolIconFor` was a static on `AgentEventCard` whose sole caller lived
-// here — it moves in rather than forcing a back-import of the container.
+// W4). `FoldableToolCall` and `ToolCallGroupCard` are referenced
+// cross-library (by the event card / the live feed), so they alone are
+// public; the result-inline body, the kv line, the status pill, and the
+// tool-icon map stay private. `_toolIconFor` was a static on
+// `AgentEventCard` whose sole caller lived here — it moves in rather
+// than forcing a back-import of the container.
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import '../app_chip.dart';
+import 'feed_reducer.dart';
 import 'feed_render.dart';
+import 'fold_maps.dart' show callToolIdOf;
 
 // Tool-name → glyph map for the tool_call card header strip. Keeps the
 // transcript scannable: a wall of identical "tool_call" labels reads
@@ -119,7 +123,6 @@ class _FoldableToolCallState extends State<FoldableToolCall> {
     final fg = isDark
         ? DesignColors.textPrimary
         : DesignColors.textPrimaryLight;
-    final hasResult = widget.resultPayload != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -157,28 +160,400 @@ class _FoldableToolCallState extends State<FoldableToolCall> {
             ],
           ),
         ),
-        if (_expanded) ...[
-          if (widget.toolId.isNotEmpty)
-            _ToolKvLine(label: 'id', value: widget.toolId),
-          if (widget.input != null)
-            CollapsibleMono(text: feedJsonPretty(widget.input)),
-          if (widget.preview != null && widget.preview!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: CollapsibleMono(text: widget.preview!),
-            ),
-          if (hasResult)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: _ToolResultInline(
-                payload: widget.resultPayload!,
-                isError: widget.resultIsError,
-              ),
-            ),
-        ],
+        if (_expanded)
+          _ToolCallDetail(
+            toolId: widget.toolId,
+            input: widget.input,
+            preview: widget.preview,
+            resultPayload: widget.resultPayload,
+            resultIsError: widget.resultIsError,
+          ),
       ],
     );
   }
+}
+
+/// The expanded body of a tool_call — id, input, streaming preview,
+/// inline result. Extracted from [_FoldableToolCallState] so the P1
+/// tool-group rows (agent-transcript-redesign §6 P1) expand into the
+/// SAME detail the standalone card shows; one body, two fold controls.
+class _ToolCallDetail extends StatelessWidget {
+  final String toolId;
+  final Object? input;
+  final String? preview;
+  final Map<String, dynamic>? resultPayload;
+  final bool resultIsError;
+  const _ToolCallDetail({
+    required this.toolId,
+    required this.input,
+    required this.preview,
+    required this.resultPayload,
+    required this.resultIsError,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (toolId.isNotEmpty) _ToolKvLine(label: 'id', value: toolId),
+        if (input != null) CollapsibleMono(text: feedJsonPretty(input)),
+        if (preview != null && preview!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: CollapsibleMono(text: preview!),
+          ),
+        if (resultPayload != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: _ToolResultInline(
+              payload: resultPayload!,
+              isError: resultIsError,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The P1 tool-call GROUP card (agent-transcript-redesign §6 P1,
+/// decision §7.3 — kimi-web `ToolGroup.vue` behavior as written): one
+/// card for a run of ≥2 consecutive tool calls. Header
+/// `● N tool calls · <state>` with aggregate state **running > error >
+/// done** (the pure math lives in feed_reducer.dart —
+/// [toolCallGroupState]); rows are icon + localized verb + key argument
+/// + diffstat + status glyph, with per-row lazy detail (tap a row to
+/// expand the SAME [_ToolCallDetail] body the standalone card shows).
+///
+/// Groups are EXPANDED BY DEFAULT and NEVER auto-collapse — the header
+/// tap is a user opt-in collapse, remembered per group instance (the
+/// live feed keys the card by its run's anchor seq, so this State
+/// survives rebuilds as new events stream in). Error rows auto-expand
+/// their detail and are counted in the header (`· N failed`).
+class ToolCallGroupCard extends StatefulWidget {
+  final ToolCallGroup group;
+  // The SAME FoldMaps lineage the standalone cards render from — a
+  // call's status/glyph resolves identically in and out of a group.
+  final Map<String, Map<String, dynamic>> toolUpdates;
+  final Map<String, Map<String, dynamic>> toolResults;
+  const ToolCallGroupCard({
+    super.key,
+    required this.group,
+    required this.toolUpdates,
+    required this.toolResults,
+  });
+
+  @override
+  State<ToolCallGroupCard> createState() => _ToolCallGroupCardState();
+}
+
+class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
+  // User opt-in collapse (see the class doc). Default EXPANDED — the
+  // group's whole point is glanceable rows without a first tap.
+  // Persisted in the route's PageStorage bucket: widget-local State is
+  // disposed when the ListView recycles the row off-screen, which would
+  // silently re-expand a collapsed group on scroll-back. Desktop hoists
+  // the same state for the same reason (AgentTranscript
+  // `collapsedGroups`, keyed `grp:<first-call-id>`).
+  bool _collapsed = false;
+
+  // Stable per-group storage identity — the run's anchor seq, the same
+  // value the list keys the card by (`tool-group-<anchorSeq>`).
+  String get _storageId =>
+      'tool-group-collapsed-${(widget.group.events.first['seq'] as num?)?.toInt() ?? 0}';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final saved =
+        PageStorage.maybeOf(context)?.readState(context, identifier: _storageId);
+    if (saved is bool) _collapsed = saved;
+  }
+
+  void _toggleCollapsed() {
+    setState(() => _collapsed = !_collapsed);
+    PageStorage.maybeOf(context)
+        ?.writeState(context, _collapsed, identifier: _storageId);
+  }
+
+  // Per-row expansion overrides keyed by tool id (or a positional
+  // fallback for id-less calls). A missing entry means "default":
+  // error rows expanded, everything else one line. An explicit entry
+  // always wins, so a user collapse sticks even if the row later
+  // flips to error — and a row that errors after being fine expands
+  // on its own (the default recomputes from the new state).
+  final Map<String, bool> _rowExpanded = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final fg = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    final bg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    final l10n = AppLocalizations.of(context)!;
+
+    final state =
+        toolCallGroupState(widget.group, widget.toolResults, widget.toolUpdates);
+    final errorCount = toolCallGroupErrorCount(
+        widget.group, widget.toolResults, widget.toolUpdates);
+    final stateColor = switch (state) {
+      ToolGroupState.running => DesignColors.terminalCyan,
+      ToolGroupState.error => DesignColors.error,
+      ToolGroupState.done => DesignColors.success,
+    };
+    final stateLabel = switch (state) {
+      ToolGroupState.running => l10n.toolGroupStateRunning,
+      ToolGroupState.error => l10n.toolGroupFailedCount(errorCount),
+      ToolGroupState.done => l10n.toolGroupStateDone,
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      padding:
+          const EdgeInsets.fromLTRB(Spacing.s8, 8, Spacing.s8, Spacing.s8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header — the only fold control for the whole group. InkWell
+          // so the tap target is the entire strip (kimi-web pins scroll
+          // on toggle; our ListView keeps position by key instead).
+          InkWell(
+            onTap: _toggleCollapsed,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: stateColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      l10n.toolGroupHeader(widget.group.events.length),
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: fg,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    '· $stateLabel',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: FontSizes.label,
+                      fontWeight: FontWeight.w700,
+                      color: stateColor,
+                    ),
+                  ),
+                  // Errors must surface in the header even while the
+                  // aggregate reads running (a sibling call is still in
+                  // flight) — otherwise a mid-group failure hides until
+                  // the turn wraps.
+                  if (state != ToolGroupState.error && errorCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(left: Spacing.s8),
+                      child: Text(
+                        '· ${l10n.toolGroupFailedCount(errorCount)}',
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: FontSizes.label,
+                          fontWeight: FontWeight.w700,
+                          color: DesignColors.error,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _collapsed ? Icons.expand_more : Icons.expand_less,
+                    size: 16,
+                    color: muted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!_collapsed) ...[
+            for (var i = 0; i < widget.group.events.length; i++)
+              _buildRow(context, i, muted: muted, fg: fg, border: border),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRow(
+    BuildContext context,
+    int index, {
+    required Color muted,
+    required Color fg,
+    required Color border,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final e = widget.group.events[index];
+    final p = e['payload'] is Map
+        ? (e['payload'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    final name = (p['name'] ?? p['tool'] ?? '?').toString();
+    final id = callToolIdOf(p);
+    final input = p['input'];
+    final update = id.isNotEmpty ? widget.toolUpdates[id] : null;
+    final resEvent = id.isNotEmpty ? widget.toolResults[id] : null;
+    final resultPayload = resEvent != null && resEvent['payload'] is Map
+        ? (resEvent['payload'] as Map).cast<String, dynamic>()
+        : null;
+    final resultIsError = resultPayload?['is_error'] == true;
+    final rowState =
+        toolCallRowState(e, widget.toolResults, widget.toolUpdates);
+    final keyArg = toolCallKeyArg(name, input);
+    final diffstat = toolCallDiffstat(name, p);
+    final rowKey = id.isNotEmpty ? id : 'row-$index';
+    final expanded =
+        _rowExpanded[rowKey] ?? (rowState == ToolGroupState.error);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (index > 0) Divider(height: 1, thickness: 1, color: border),
+        InkWell(
+          onTap: () =>
+              setState(() => _rowExpanded[rowKey] = !expanded),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: Spacing.s4),
+            child: Row(
+              children: [
+                Icon(_toolIconFor(name), size: 14, color: muted),
+                const SizedBox(width: 6),
+                Text(
+                  toolVerbFor(l10n, name),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                ),
+                if (keyArg.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      keyArg,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: FontSizes.label,
+                        color: muted,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ] else
+                  const Spacer(),
+                if (diffstat != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    diffstat,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: FontSizes.label,
+                      color: muted,
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 6),
+                _rowGlyph(rowState),
+              ],
+            ),
+          ),
+        ),
+        if (expanded)
+          Padding(
+            // Indent = icon (14) + row gap (6): the detail body aligns
+            // under the row's verb text. Token-composed (16+4) so the
+            // lint sees no off-grid literal (ADR-047).
+            padding: const EdgeInsets.only(
+                left: Spacing.s16 + Spacing.s4, bottom: Spacing.s4),
+            child: _ToolCallDetail(
+              toolId: id,
+              input: input,
+              preview: toolCallUpdatePreview(update),
+              resultPayload: resultPayload,
+              resultIsError: resultIsError,
+            ),
+          ),
+      ],
+    );
+  }
+
+  // The row's status glyph — one glanceable shape per row state (the
+  // standalone card's pill would blow the row to two lines): a live
+  // spinner while running, check / error glyphs once resolved. Colors
+  // mirror `_statusPill`.
+  Widget _rowGlyph(ToolGroupState state) {
+    switch (state) {
+      case ToolGroupState.error:
+        return Icon(Icons.error_outline, size: 14, color: DesignColors.error);
+      case ToolGroupState.done:
+        return Icon(Icons.check_circle_outline,
+            size: 14, color: DesignColors.success);
+      case ToolGroupState.running:
+        return SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.5,
+            color: DesignColors.terminalCyan,
+          ),
+        );
+    }
+  }
+}
+
+/// Localized one-word verb for a tool row (kimi-web ToolRow shape) —
+/// the group row reads "Edit  lib/foo.dart" instead of repeating the
+/// raw engine name. Unknown / engine-specific / MCP tools fall back to
+/// their raw name, which is already self-describing. kimi's ACP titles
+/// reuse the claude-style names where they overlap (`TodoList` is the
+/// kimi spelling of claude's `TodoWrite`).
+String toolVerbFor(AppLocalizations l10n, String name) {
+  switch (name) {
+    case 'Bash':
+      return l10n.toolVerbBash;
+    case 'Read':
+      return l10n.toolVerbRead;
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return l10n.toolVerbEdit;
+    case 'Write':
+      return l10n.toolVerbWrite;
+    case 'Glob':
+      return l10n.toolVerbGlob;
+    case 'Grep':
+      return l10n.toolVerbGrep;
+    case 'WebFetch':
+      return l10n.toolVerbWebFetch;
+    case 'WebSearch':
+      return l10n.toolVerbWebSearch;
+    case 'Task':
+      return l10n.toolVerbTask;
+    case 'TodoWrite':
+    case 'TodoList':
+      return l10n.toolVerbTodo;
+  }
+  return name;
 }
 
 /// A single label:value line for the foldable tool-call header. Mirrors

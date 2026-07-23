@@ -511,6 +511,122 @@
 .ev-result.err .ev-mono {
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
+
+/* ---- P1 tool-call group card (agent-transcript-redesign §6 P1) ----
+   kimi-web ToolGroup.vue parity: a run of ≥2 consecutive tool calls renders as
+   ONE card. The header carries the aggregate state (running > error > done)
+   and the error count; rows reuse the standalone card's icon + verb + key-arg
+   one-liner (ev-tool-*) plus a status glyph, with per-row lazy detail. Groups
+   default expanded and never auto-collapse — the header is the only toggle.
+   Hairline + tint only (the #332 token stance): no new shadows, no per-kind
+   chrome. The head/row-head are <button>s, so the global button chrome
+   (raised box + shadow + lift) is explicitly reset to the flat row look. */
+.tg {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8) var(--spacing-s12);
+}
+.tg--error {
+  border-left-color: var(--danger);
+}
+.tg-head,
+.tg-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6, 6px);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text);
+  text-align: left;
+}
+.tg-head:hover,
+.tg-row-head:hover {
+  background: none;
+  border: none;
+  box-shadow: none;
+  transform: none;
+}
+.tg-count {
+  font-weight: 600;
+  color: var(--text);
+}
+.tg-head:hover .tg-count {
+  color: var(--accent-text);
+}
+.tg-state {
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.tg-state.running {
+  color: var(--ok);
+}
+.tg-state.error {
+  color: var(--danger);
+}
+.tg-errors {
+  line-height: 1;
+  font-size: var(--font-size-label);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-stadium);
+  padding: 3px 7px;
+}
+.tg-chevron {
+  color: var(--text-muted);
+}
+.tg-rows {
+  margin-top: var(--spacing-s6, 6px);
+  padding-top: var(--spacing-s2, 2px);
+  border-top: 1px solid var(--border);
+}
+.tg-row {
+  min-width: 0;
+}
+.tg-row-head {
+  padding: var(--spacing-s4) 0;
+}
+.tg-row-head:hover .ev-tool-verb {
+  color: var(--accent-text);
+}
+.tg-diff {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label);
+  white-space: nowrap;
+}
+.tg-diff .d-add {
+  color: var(--ok);
+}
+.tg-diff .d-del {
+  color: var(--danger);
+}
+.tg-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.tg-status.st-running {
+  color: var(--accent);
+}
+.tg-status.st-error {
+  color: var(--danger);
+}
+.tg-status.st-done {
+  color: var(--ok);
+}
+.tg-detail {
+  margin-bottom: var(--spacing-s4);
+  padding-top: var(--spacing-s2, 2px);
+  border-top: 1px dashed var(--border);
+}
 .ev-diff-path {
   font-family: var(--font-mono, monospace);
   color: var(--text-secondary);

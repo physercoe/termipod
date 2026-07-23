@@ -221,6 +221,20 @@ jobs:
               echo "signing: $v is set"
             fi
           done
+          # electron-builder skips macOS code signing when
+          # CSC_IDENTITY_AUTO_DISCOVERY=false EVEN with a cert imported via
+          # CSC_LINK (observed: "skipped macOS application code signing …
+          # CSC_IDENTITY_AUTO_DISCOVERY=false" — the identity is in the temp
+          # keychain but never used). So enable discovery when the macOS cert is
+          # present, and keep it OFF otherwise (a headless runner with no cert
+          # hangs on the keychain identity probe — the reason it defaulted false).
+          if [ -n "$CSC_LINK" ]; then
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+            echo "signing: macOS identity discovery enabled"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "signing: no macOS cert — identity discovery disabled"
+          fi
 
       # Publishing is done by the `release` job below (gh CLI on the pushed
       # tag), NEVER by electron-builder — its GitHub publisher would create a
@@ -231,12 +245,13 @@ jobs:
         env:
           # Verbose so a hang leaves a diagnostic trail before the job timeout.
           DEBUG: electron-builder
-          # Without a cert, DON'T let electron-builder probe the macOS keychain
-          # for a signing identity — that probe hangs on a headless CI runner.
-          # When CSC_LINK is set (a real cert), auto-discovery is irrelevant.
-          # The CSC_*/APPLE_* secrets arrive via $GITHUB_ENV from the step above,
-          # set only when non-empty (empty CSC_LINK breaks the mac/win packager).
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # NOTE: CSC_IDENTITY_AUTO_DISCOVERY is NOT set here on purpose — it is
+          # exported via $GITHUB_ENV by the "Configure signing" step above (true
+          # when a macOS cert is present so signing actually runs, false when
+          # absent so the keychain probe can't hang). A hardcoded value here would
+          # override that (step env wins over $GITHUB_ENV). The CSC_*/APPLE_*
+          # secrets likewise arrive via $GITHUB_ENV, set only when non-empty
+          # (empty CSC_LINK breaks the mac/win packager).
 
       - name: Upload installers as run artifacts
         uses: actions/upload-artifact@v4

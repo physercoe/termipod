@@ -1655,6 +1655,94 @@ button > .ui-icon:not(:only-child):first-child,
   background: var(--surface);
   flex: 0 0 auto;
 }
+.modelview-vram {
+  margin: var(--spacing-s8) var(--spacing-s12) 0;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s6);
+}
+.modelview-vram-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
+}
+.modelview-vram-approx {
+  font-style: italic;
+}
+.modelview-vram-total {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--text);
+}
+.modelview-vram-bar {
+  display: flex;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--surface-sunken, var(--bg));
+}
+.modelview-vram-seg {
+  height: 100%;
+  min-width: 0;
+}
+.modelview-vram-seg.weights,
+.modelview-vram-dot.weights {
+  background: var(--accent);
+}
+.modelview-vram-seg.kv,
+.modelview-vram-dot.kv {
+  background: color-mix(in srgb, var(--accent) 55%, var(--surface));
+}
+.modelview-vram-seg.act,
+.modelview-vram-dot.act {
+  background: color-mix(in srgb, var(--accent) 25%, var(--surface));
+}
+.modelview-vram-legend {
+  display: flex;
+  gap: var(--spacing-s12);
+  flex-wrap: wrap;
+}
+.modelview-vram-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.modelview-vram-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  display: inline-block;
+}
+.modelview-vram-ctrls {
+  display: flex;
+  gap: var(--spacing-s12);
+  flex-wrap: wrap;
+}
+.modelview-vram-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex-wrap: wrap;
+}
+.modelview-vram-btn {
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.modelview-vram-btn.on {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  border-color: var(--accent);
+  color: var(--text);
+}
 .modelview-card-head {
   display: flex;
   align-items: baseline;

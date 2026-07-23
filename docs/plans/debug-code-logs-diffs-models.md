@@ -422,11 +422,16 @@ issue-vs-plan reconciliation:
   `verified` (parsed from checkpoint/AST) or `approximate` (inferred from
   config) — the config card's "recipe, not truth" caveat promoted to per-value
   UI, from day one.
-- **Adopted — VRAM estimator**: pure-TS arithmetic from `config.json` per
-  family (weights × dtype + KV cache — where the **MLA templates matter**, MLA
-  compresses KV — + activation estimate), with live batch/context chips.
-  Answers "will it fit on this host?" in-app; a per-host GPU-memory hint can
-  come from the connections store later.
+- **Adopted — VRAM estimator** — **SHIPPED 2026-07-23.** Pure-TS arithmetic
+  (`state/vram.ts`, `node --test` against Llama-3-8B GQA + DeepSeek-V2 MLA):
+  weights (params × serving precision) + KV cache + a rough activation term,
+  with live precision/batch/context chips (`VramCard` in `ui/ModelView.tsx`).
+  The KV term is family-aware — GQA uses the KV-head count; **MLA** uses the
+  compressed latent (`kv_lora_rank` + `qk_rope_head_dim`), a large reduction —
+  and it declines to size MLA when the rank is unknown rather than fall back to
+  the dense formula (which would massively overestimate). Labelled approximate
+  (framework overhead/fragmentation on top). A per-host GPU-memory hint from the
+  connections store is a later add.
 - **Adopted (scoped) — AST worker for code sync**: a stdlib-only Python
   worker (same **interpreter-preset venues** as the tracer — its open Q1)
   parses the modeling file's AST for the class hierarchy + **source spans**,

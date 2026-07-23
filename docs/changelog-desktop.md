@@ -95,6 +95,15 @@ This complements:
   shows as an **operator summary** above the card. (Also fixes a latent case
   where a config-less safetensors could show a bogus "Unknown / Dense decoder"
   card.) The Model Explorer graph and the code→graph tracer remain later W4 slices.
+- **Inspect models — VRAM estimator (W4b).** The model view now answers "will it
+  fit on this host?" with a live estimate: **weights** (exact, params × serving
+  precision), **KV cache**, and a rough **activation** term, driven by
+  precision / batch / context chips. The KV term is architecture-aware — GQA uses
+  the KV-head count, and **MLA** (DeepSeek-family) uses the compressed latent
+  (`kv_lora_rank` + rope), which is dramatically smaller; when the latent rank is
+  unknown it declines to guess rather than overestimate. Honestly labelled
+  approximate (framework overhead/fragmentation are on top). Pure TypeScript;
+  the arithmetic is unit-tested against Llama-3-8B (GQA) and DeepSeek-V2 (MLA).
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

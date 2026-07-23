@@ -14,6 +14,7 @@ import {
   type TensorInfo,
   type TreeNode,
 } from '../state/checkpoint';
+import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram } from '../state/vram';
 
 function dirOf(p: string): string {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
@@ -103,6 +104,101 @@ function ArchCardView({ card }: { card: ArchCard }): JSX.Element {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Precision options as bytes-per-weight (the only thing that matters for the
+// weights term); fp16/bf16 collapse to one 2-byte button.
+const PRECISIONS: Array<{ label: string; bytes: number }> = [
+  { label: '16-bit', bytes: 2 },
+  { label: 'fp8', bytes: 1 },
+  { label: 'int4', bytes: 0.5 },
+  { label: 'fp32', bytes: 4 },
+];
+const BATCHES = [1, 2, 4, 8, 16, 32];
+const CONTEXTS = [2048, 4096, 8192, 16384, 32768, 131072];
+const ctxLabel = (n: number): string => (n >= 1024 ? `${n / 1024}K` : String(n));
+
+/// VRAM estimator (plan §4b): weights (exact from params × serving precision) +
+/// KV cache (GQA or the compressed MLA latent) + a rough activation term, live on
+/// batch/context/precision. An approximation — real runtimes add framework
+/// overhead and fragmentation on top.
+function VramCard({ info, card, config }: { info: CheckpointInfo; card: ArchCard | null; config: Record<string, unknown> | null }): JSX.Element {
+  const t = useT();
+  const [bytes, setBytes] = useState<number>(() => DTYPE_BYTES[defaultServingDtype(info.dtypeHistogram)]);
+  const [batch, setBatch] = useState(1);
+  const [context, setContext] = useState(8192);
+
+  const est = useMemo(() => {
+    const inputs = deriveVramInputs({
+      totalParams: info.totalParams,
+      weightBytes: bytes,
+      template: card?.template ?? 'unknown',
+      card,
+      config,
+      metadata: info.metadata,
+    });
+    return estimateVram(inputs, { batch, context, kvBytes: 2 });
+  }, [info, card, config, bytes, batch, context]);
+
+  const total = est.totalBytes;
+  const seg = (v: number): string => (total > 0 ? `${(v / total) * 100}%` : '0%');
+
+  return (
+    <div className="modelview-vram">
+      <div className="modelview-vram-head">
+        <span className="modelview-vram-title small muted">{t('vram.title')}</span>
+        <span className="modelview-vram-approx small muted" title={t('vram.approxNote')}>
+          {t('vram.approximate')}
+        </span>
+        <span className="spacer" />
+        <span className="modelview-vram-total">{humanBytes(total)}</span>
+      </div>
+      <div className="modelview-vram-bar" role="img" aria-label={t('vram.total')}>
+        <span className="modelview-vram-seg weights" style={{ width: seg(est.weightsBytes) }} title={`${t('vram.weights')} ${humanBytes(est.weightsBytes)}`} />
+        <span className="modelview-vram-seg kv" style={{ width: seg(est.kvBytes) }} title={`${t('vram.kvCache')} ${humanBytes(est.kvBytes)}`} />
+        <span className="modelview-vram-seg act" style={{ width: seg(est.activationBytes) }} title={`${t('vram.activation')} ${humanBytes(est.activationBytes)}`} />
+      </div>
+      <div className="modelview-vram-legend small muted">
+        <span><span className="modelview-vram-dot weights" /> {t('vram.weights')} {humanBytes(est.weightsBytes)}</span>
+        {est.kvComputable ? (
+          <>
+            <span><span className="modelview-vram-dot kv" /> {t('vram.kvCache')} {humanBytes(est.kvBytes)}</span>
+            <span><span className="modelview-vram-dot act" /> {t('vram.activation')} {humanBytes(est.activationBytes)}</span>
+          </>
+        ) : (
+          <span>{t('vram.kvUnknown')}</span>
+        )}
+      </div>
+      <div className="modelview-vram-ctrls">
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.precision')}</span>
+          {PRECISIONS.map((p) => (
+            <button key={p.label} className={`modelview-vram-btn${bytes === p.bytes ? ' on' : ''}`} onClick={() => setBytes(p.bytes)}>
+              {p.label}
+            </button>
+          ))}
+        </span>
+      </div>
+      <div className="modelview-vram-ctrls">
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.batch')}</span>
+          {BATCHES.map((b) => (
+            <button key={b} className={`modelview-vram-btn${batch === b ? ' on' : ''}`} onClick={() => setBatch(b)}>
+              {b}
+            </button>
+          ))}
+        </span>
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.context')}</span>
+          {CONTEXTS.map((c) => (
+            <button key={c} className={`modelview-vram-btn${context === c ? ' on' : ''}`} onClick={() => setContext(c)}>
+              {ctxLabel(c)}
+            </button>
+          ))}
+        </span>
+      </div>
     </div>
   );
 }
@@ -269,6 +365,7 @@ export function ModelView({ path }: { path: string }): JSX.Element {
       </div>
       {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}
+      <VramCard info={info} card={card} config={config} />
       <div className="modelview-split">
         <div className="modelview-tree">
           <div className="modelview-pane-head small muted">{t('model.namespace')}</div>

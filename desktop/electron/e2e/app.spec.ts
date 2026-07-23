@@ -62,15 +62,18 @@ test.afterEach(async ({}, testInfo) => {
   }
 });
 
-// The suite shares one page (no mid-suite reload). If a test hangs long enough
-// offline, the shell can pop an onboarding modal (`.palette-backdrop`) that then
-// intercepts the next test's clicks — dismiss any such overlay before starting.
-// Modal closes on Escape (ui/Modal.tsx); harmless when nothing is open.
-async function dismissOverlays(): Promise<void> {
-  for (let i = 0; i < 3 && (await page.locator('.palette-backdrop').count()) > 0; i++) {
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(120);
-  }
+// The "Add a hub" connect modal auto-opens once when `init()` settles offline
+// (AppShell.tsx) — at a non-deterministic time, so it can pop up during any late
+// test and its backdrop then blocks clicks. Dismiss it by CLICKING its close
+// button (Escape is unreliable through the focus trap) in a `toPass` loop that
+// absorbs the open/animation race; a no-op when the modal is absent (count 0).
+// Same pattern as the excalidraw smoke below.
+async function dismissConnectModal(): Promise<void> {
+  await expect(async () => {
+    const closeBtn = page.locator('.connect .connect-head button');
+    if ((await closeBtn.count()) > 0) await closeBtn.click({ timeout: 2000 });
+    await expect(page.locator('.connect')).toHaveCount(0);
+  }).toPass({ timeout: 15_000 });
 }
 
 test('window opens with the app title', async () => {
@@ -534,7 +537,7 @@ test('inspect: the tree-sitter symbol outline lists symbols and jumps the editor
 });
 
 test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async () => {
-  await dismissOverlays();
+  await dismissConnectModal();
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   await page.getByRole('button', { name: 'New scratch' }).click();
   const editor = page.locator('.inspect-code .cm-content');
@@ -579,7 +582,7 @@ test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async ()
 });
 
 test('inspect: comparing two open tabs mounts the merge view (W2)', async () => {
-  await dismissOverlays();
+  await dismissConnectModal();
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   // Tab A.
   await page.getByRole('button', { name: 'New scratch' }).click();
@@ -595,8 +598,10 @@ test('inspect: comparing two open tabs mounts the merge view (W2)', async () => 
   await editor.click({ force: true });
   await editor.focus();
   await page.keyboard.type('alpha\nBETA\ngamma');
-  // Compare ▾ → the first "open tab" entry is the other scratch.
-  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  // Compare ▾ → the first "open tab" entry is the other scratch. Scope to the
+  // surface (`main`): "Compare" also names the J5 activity-bar tab in the nav,
+  // so an unscoped role query is a strict-mode collision.
+  await page.getByRole('main').getByRole('button', { name: 'Compare', exact: true }).click();
   await expect(page.locator('.inspect-menu')).toBeVisible();
   await page.locator('.inspect-menu-item').first().click();
   // The @codemirror/merge view mounts (its own lazy chunk).

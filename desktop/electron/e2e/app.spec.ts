@@ -550,6 +550,10 @@ test('kimiweb guest: loopback loads, external navigation is blocked, unknown par
     }, `http://127.0.0.1:${port}/`);
     expect(denied).toBe(false);
   } finally {
+    // The guest's keep-alive sockets to the stand-in server would keep
+    // the close callback (and with it the whole suite) pending forever —
+    // destroy them before awaiting close.
+    server.closeAllConnections();
     await new Promise<void>((r) => server.close(() => r()));
   }
 });

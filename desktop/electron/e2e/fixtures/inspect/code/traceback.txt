@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "sample.py", line 31, in <module>
+    main()
+  File "sample.py", line 27, in main
+    print(f"batch {i}: normalized={normalize(batch)}")
+                                   ^^^^^^^^^^^^^^^^
+  File "sample.py", line 16, in normalize
+    m = mean(values)
+        ^^^^^^^^^^^^
+  File "sample.py", line 11, in mean
+    return sum(values) / len(values)
+           ~~~~~~~~~~~~^~~~~~~~~~~~~
+ZeroDivisionError: division by zero

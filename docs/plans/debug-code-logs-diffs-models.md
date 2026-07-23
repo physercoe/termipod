@@ -10,14 +10,14 @@
 > (`@codemirror/merge`), both lazy. **W3:** a **virtualized ANSI log viewer**
 > (react-virtuoso + anser) over a **main-process line index** (`log_*` — fd reads,
 > never whole-file): follow/tail, warn-filter, regex search + hit rail, marker
-> jumps. **W4 core:** a **checkpoint inspector** (`.safetensors`/`.gguf`,
-> header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
-> gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
-> tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
-> Tab renamed (§0a). Graph views: tracer T1+T2 (torch.export→ME), code2flow, ONNX→graph,
-> Model Explorer, W4b module graph. **W4 + Tier 2 COMPLETE** — WebGL/RF/torch device-test.
+> jumps. **W4 core:** a **checkpoint inspector** (`.safetensors`/`.gguf`, header-only
+> `checkpoint_inspect` in main — never tensor bytes) → summary + HF/gguf **architecture
+> card** (dense-GQA/MoE/MLA) + tree + tensor table; **ONNX** too (protobufjs, op-mix).
+> Tab renamed (§0a). Graphs: tracer T1+T2 (torch.export→ME), code2flow, ONNX→graph, Model
+> Explorer, W4b module graph — **W4 + Tier 2 COMPLETE** (WebGL/RF/torch device-test);
+> **§7a fixtures SHIPPED** (stdlib gens; unit tests pin them — e2e wiring pending).
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core/ONNX + tracer T1/T2 + call-graph + graphs + ME + W4b
+> **Last verified vs code:** W1–W3 + W4 core/ONNX + tracer T1/T2 + call-graph + graphs + ME + W4b + §7a fixtures
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -618,20 +618,22 @@ generator script, never a committed blob):
   `step N`/`epoch N` markers, a WARN and a Python traceback mid-file) checked
   in; `gen-train-log.py <MB>` generator (stdlib-only) to synthesize the
   100 MB+ case on device for the virtualization/search/index gates.
-- **model/** — `tiny.safetensors` (~10 KB, a handful of tensors with
+- **model/** — `tiny.safetensors` (~20 KB, a handful of tensors with
   `model.layers.{0,1}.…` namespacing so the tree/×N grouping shows) — plus
-  `gen-fixtures.py` (stdlib-only, writes the safetensors by hand — the format
-  is 8-byte header-len + JSON; no torch needed) that also emits `tiny.gguf`
-  and `tiny.onnx` where those need a lib (`gguf`, `onnx` pips; committed
-  outputs stay if <50 KB each); `config-llama.json`, `config-deepseek.json`
+  `gen-fixtures.py` (stdlib-only for ALL THREE formats: safetensors is 8-byte
+  header-len + JSON, GGUF v3 is a documented LE header, and ONNX is hand-encoded
+  protobuf wire format — no torch, no pips; committed outputs stay, each
+  <50 KB); `config-llama.json`, `config-deepseek.json`
   (MLA+MoE) — the two card templates + VRAM-estimator families;
   `truncated.safetensors` (header cut mid-JSON) and `not-a-model.bin` for the
   typed-error paths; `toy_model.py` (self-contained `nn.Module`, no external
   imports) as the tracer's entry-expression demo on a torch venue.
 
-The e2e smokes open these same files, so device testing and CI pin identical
-inputs; the unit tests for `checkpoint.ts`/`logfile.ts` reuse the binary
-fixtures directly (`node --test` reads them from the same folder).
+The unit tests reuse the binary fixtures directly (`fixtures.test.ts` runs the
+`checkpoint.ts` + `logindex.ts` parsers over the committed files under
+`node --test`), so device testing and CI pin identical inputs. The e2e smokes
+still paste content inline — pointing them at these files needs native
+file-dialog mocking, a follow-up when an e2e touches the open-by-path flow.
 
 ## 8. Open questions
 

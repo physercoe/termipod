@@ -1,0 +1,11 @@
+Training configuration (baseline)
+=================================
+epochs: 3
+batch_size: 32
+learning_rate: 3.0e-4
+optimizer: adamw
+warmup_steps: 100
+gradient_clipping: none
+checkpoint_every: 500
+eval_every: 1000
+notes: baseline run, no augmentation

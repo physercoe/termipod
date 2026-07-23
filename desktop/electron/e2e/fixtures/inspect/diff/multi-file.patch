@@ -1,0 +1,62 @@
+diff --git a/README.md b/README.md
+index 3f2a1c8..9be74d2 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,7 @@
+ # trainer
+
+-Toy training pipeline used by the Inspect device-test fixtures.
++Toy training pipeline used by the Inspect device-test fixtures (plan §7a).
++Now with a normalization guard for empty batches.
+
+ ## Usage
+
+@@ -12,4 +13,4 @@ python -m trainer.run --epochs 3
+
+ ## License
+
+-MIT
++MIT (see LICENSE)
+diff --git a/src/new_util.py b/src/new_util.py
+new file mode 100644
+index 0000000..b7a41e6
+--- /dev/null
++++ b/src/new_util.py
+@@ -0,0 +1,9 @@
++"""Guarded helpers extracted from sample.py."""
++
++
++def safe_mean(values):
++    return sum(values) / len(values) if values else 0.0
++
++
++def normalize(values):
++    m = safe_mean(values)
++    return [v / m for v in values] if m else []
+diff --git a/old_config.yaml b/old_config.yaml
+deleted file mode 100644
+index 5c1f0e4..0000000
+--- a/old_config.yaml
++++ /dev/null
+@@ -1,5 +0,0 @@
+-epochs: 3
+-batch_size: 32
+-lr: 3.0e-4
+-optimizer: adamw
+-warmup_steps: 100
+diff --git a/lib/old_name.py b/lib/new_name.py
+similarity index 87%
+rename from lib/old_name.py
+rename to lib/new_name.py
+index 2d8f0aa..7e93c11 100644
+--- a/lib/old_name.py
++++ b/lib/new_name.py
+@@ -1,4 +1,4 @@
+-"""Legacy module name."""
++"""Renamed module (was lib/old_name.py)."""
+
+
+ def entry():
+diff --git a/assets/logo.png b/assets/logo.png
+index 88cfa1d..4c11ae2 100644
+Binary files a/assets/logo.png and b/assets/logo.png differ

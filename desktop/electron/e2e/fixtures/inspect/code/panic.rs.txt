@@ -1,0 +1,18 @@
+thread 'main' panicked at src/trainer.rs:42:17:
+index out of bounds: the len is 3 but the index is 3
+stack backtrace:
+   0: rust_begin_unwind
+             at /rustc/aedd173a2c086e558c2b66d3743b344f292f3a58/library/std/src/panicking.rs:665:5
+   1: core::panicking::panic_fmt
+             at /rustc/aedd173a2c086e558c2b66d3743b344f292f3a58/library/core/src/panicking.rs:76:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/aedd173a2c086e558c2b66d3743b344f292f3a58/library/core/src/panicking.rs:275:5
+   3: trainer::batch::next_batch
+             at src/batch.rs:17:9
+   4: trainer::preprocess
+             at sample.py:16
+   5: trainer::main
+             at src/trainer.rs:42:17
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/aedd173a2c086e558c2b66d3743b344f292f3a58/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

@@ -1,0 +1,12 @@
+Training configuration (tuned)
+==============================
+epochs: 5
+batch_size: 32
+learning_rate: 1.0e-4
+optimizer: adamw
+warmup_steps: 250
+gradient_clipping: 1.0
+checkpoint_every: 500
+eval_every: 500
+mixed_precision: bf16
+notes: tuned run with augmentation enabled

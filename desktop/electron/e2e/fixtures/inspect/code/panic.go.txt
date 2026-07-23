@@ -1,0 +1,10 @@
+panic: runtime error: index out of range [3] with length 3
+
+goroutine 1 [running]:
+main.nextBatch(...)
+	/app/trainer/batch.go:17
+main.preprocess({0xc000010018, 0x3, 0x3})
+	/app/trainer/preprocess.go:29 +0x1d
+main.main()
+	/app/trainer/main.go:42 +0x9c
+exit status 2

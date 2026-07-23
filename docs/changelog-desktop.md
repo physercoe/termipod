@@ -169,6 +169,16 @@ This complements:
   per-op shapes, module namespaces) in the interactive Model Explorer. Same venue /
   interpreter picker; Detect probes torch only. (The export runs on the chosen torch
   venue; the render is device-verified.)
+- **Inspect device-test fixtures (plan §7a).** `e2e/fixtures/inspect/` ships the
+  two-click smoke set: buggy `sample.py` + its captured traceback and Rust/Go/JS
+  stack fixtures (the four lens parsers), a multi-file patch + two-blob pair, an
+  ANSI training log (+ stdlib `gen-train-log.py` for the 100 MB device gates), and
+  hand-written `tiny.{safetensors,gguf,onnx}` + malformed cases + family configs +
+  `toy_model.py` (stdlib `gen-fixtures.py` regenerates all three formats — no
+  torch, no pips). `fixtures.test.ts` runs the real parsers over the committed
+  files, so CI pins the same bytes a device tester opens. Also: `log_slice` now
+  clamps its line count like `log_search`, and `kimi_k2` joins the architecture-
+  card family names.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

@@ -5,6 +5,7 @@ import { isShell } from '../platform';
 import { VoiceSession } from '../voice/session';
 import { Icon } from './Icon';
 import { checkAddable, classify, compose, stage, type Pending } from './attach';
+import { activeSlashMatch, type SlashMatch } from './slashCommands';
 
 function mmss(total: number): string {
   const m = Math.floor(total / 60);
@@ -31,6 +32,7 @@ function humanSize(bytes: number): string {
 export function Composer({
   onSend,
   mention,
+  slashCommands,
   draftKey,
   generating,
   onStop,
@@ -40,6 +42,11 @@ export function Composer({
   /// When set, typing `@` opens a file picker over `items`; a pick inserts
   /// `@value` and calls `onPick` (the consumer attaches the file as context).
   mention?: { items: MentionItem[]; onPick: (item: MentionItem) => void };
+  /// The session's ACP command catalog (merged `session.init.slash_commands`,
+  /// P3). When set and non-empty, typing `/` opens the slash-command picker;
+  /// a pick inserts `/name ` as raw text (mobile `_applySuggestion` — no
+  /// client-side interpretation, no auto-send). Omit/empty disables it.
+  slashCommands?: string[];
   /// When set, the draft text persists per-key across remounts / tab switches
   /// (localStorage), so switching agents/surfaces doesn't lose an in-progress
   /// message. Omit for an ephemeral composer.
@@ -65,6 +72,8 @@ export function Composer({
   const [atOpen, setAtOpen] = useState(false);
   const [atQuery, setAtQuery] = useState('');
   const [atIdx, setAtIdx] = useState(0);
+  const [slash, setSlash] = useState<SlashMatch | null>(null);
+  const [slIdx, setSlIdx] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const voiceRef = useRef<VoiceSession | null>(null);
@@ -138,6 +147,17 @@ export function Composer({
 
   function onDraftChange(value: string, caret: number): void {
     setDraft(value);
+    // A `/` token and an `@` token can never both be active — only one token
+    // ends at the caret and its lead picks the pool. Slash wins the check so
+    // the mention picker doesn't linger when a slash token is active.
+    const sm =
+      slashCommands === undefined ? null : activeSlashMatch(value, caret, slashCommands);
+    setSlash(sm);
+    setSlIdx(0);
+    if (sm !== null) {
+      setAtOpen(false);
+      return;
+    }
     if (mention === undefined) return;
     const m = AT_RE.exec(value.slice(0, caret));
     if (m !== null) {
@@ -147,6 +167,26 @@ export function Composer({
     } else {
       setAtOpen(false);
     }
+  }
+
+  /// Accept a slash-command pick. Mirrors mobile `_applySuggestion`
+  /// (agent_compose.dart:235-247) exactly: the token is replaced with
+  /// `/name ` and the caret lands after the trailing space — it does NOT
+  /// send, so the director can still append args; the raw send happens later
+  /// in `_send` via `isSlashCommandBody` (no client-side interpretation).
+  function pickSlash(cmd: string): void {
+    if (slash === null) return;
+    const el = textRef.current;
+    const insert = `/${cmd} `;
+    setDraft(draft.slice(0, slash.tokenStart) + insert + draft.slice(slash.tokenEnd));
+    setSlash(null);
+    const pos = slash.tokenStart + insert.length;
+    requestAnimationFrame(() => {
+      if (el !== null) {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+    });
   }
 
   function pickMention(it: MentionItem): void {
@@ -330,6 +370,29 @@ export function Composer({
             ))}
           </div>
         )}
+        {slash !== null && (
+          // Same floating-pop idiom as the @ picker (.mention-pop); rows are
+          // the command name only — the ACP catalog carries no descriptions
+          // (mobile parity). Names render mono with the lead, kimi-web
+          // SlashMenu style.
+          <div className="mention-pop" role="listbox" aria-label={t('composer.slashMenu')}>
+            {slash.matches.map((cmd, i) => (
+              <button
+                key={cmd}
+                role="option"
+                aria-selected={i === slIdx}
+                className={i === slIdx ? 'mention-item active' : 'mention-item'}
+                // mousedown (not click) so the pick lands before the input blurs.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickSlash(cmd);
+                }}
+              >
+                <span className="slash-name">/{cmd}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textRef}
           className="composer-input"
@@ -338,6 +401,28 @@ export function Composer({
           placeholder={t('tx.sendPlaceholder')}
           onChange={(e) => onDraftChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
           onKeyDown={(e) => {
+            if (slash !== null) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSlIdx((n) => Math.min(slash.matches.length - 1, n + 1));
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSlIdx((n) => Math.max(0, n - 1));
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                pickSlash(slash.matches[slIdx]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setSlash(null);
+                return;
+              }
+            }
             if (atOpen && atMatches.length > 0) {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();

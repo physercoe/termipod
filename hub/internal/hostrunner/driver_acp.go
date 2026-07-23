@@ -1441,6 +1441,30 @@ func (d *ACPDriver) shouldSuppressCancelledTurnResult() bool {
 	return time.Now().Before(d.suppressCancelledUntil)
 }
 
+// slashCommandNames flattens ACP's availableCommands list — entries are
+// {name, description, input?} objects with a bare name (no leading
+// slash) — into the name list the session.init `slash_commands` shape
+// uses. Non-map entries and empty names are skipped; order is preserved
+// and duplicates dropped. Nil/non-list input yields nil.
+func slashCommandNames(v any) []string {
+	list, _ := v.([]any)
+	var out []string
+	seen := map[string]struct{}{}
+	for _, item := range list {
+		m, _ := item.(map[string]any)
+		name, _ := m["name"].(string)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
 // handleNotification is the translation hot path. session/update carries
 // the structured content chunks we care about; everything else falls
 // through to a raw event so no information is lost.
@@ -1571,20 +1595,63 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 	case "user_message_chunk":
 		// Our own input being echoed back — drop to avoid a loop.
 		return
-	case "available_commands_update", "current_mode_update", "current_model_update", "config_option_update":
+	case "available_commands_update":
+		// Lift the slash-command catalog into the synthesized session
+		// state so both clients' existing session.init consumers can
+		// drive a slash-command picker (agent-transcript-redesign §6
+		// P3). Engine-neutral: kimi-code, kimi-code-ts and gemini all
+		// emit this notification. ACP carries the catalog as a list of
+		// {name, description, input?} objects; the claude-code
+		// frame-profile precedent (driver_stdio.go:309) flattens it to
+		// bare names under `slash_commands`, and both clients MERGE
+		// session.init payloads (mobile latestSessionInitPayload,
+		// desktop mergeSessionInit), so this second, catalog-only
+		// frame adds the key without shadowing the Start-time
+		// session.init. The original update is NOT also forwarded on
+		// the system/system path — the synthesized state event is the
+		// catalog's single home ("lift ... into the synthesized
+		// session state").
+		//
+		// Busy-parity: session.init is a terminal idle short-circuit on
+		// BOTH clients' busy walks (mobile feed_reducer.dart agentIsBusy,
+		// desktop feedLens.ts) — NOT a skipped no-signal kind — so a
+		// synthesized frame landing mid-turn would flip Stop→Send while
+		// the engine is still generating. ACP allows the catalog to
+		// change at any time (skill-mutating commands like /sub-skill
+		// can plausibly re-announce it mid-turn), so the synthesis is
+		// gated on getTurnID() == "" — empty exactly between turns AND
+		// during session/load replay, where synthesis must still fire.
+		// A mid-turn catalog takes the verbatim system/system forward
+		// below instead (the pre-P3 path): the picker misses that one
+		// rare refresh, the busy signal stays intact.
+		if names := slashCommandNames(u["availableCommands"]); len(names) > 0 && d.getTurnID() == "" {
+			payload := map[string]any{"slash_commands": names}
+			d.mu.Lock()
+			if d.sessionID != "" {
+				payload["session_id"] = d.sessionID
+			}
+			d.mu.Unlock()
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "session.init", "agent", d.tagIfReplay(payload))
+		} else {
+			// Empty/malformed catalog (don't synthesize an empty
+			// slash_commands key — it would wipe the clients' merged
+			// picker state) or a mid-turn arrival (see busy-parity
+			// above); fall back to the verbatim forward.
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system", u)
+		}
+	case "current_mode_update", "current_model_update", "config_option_update":
 		// Capability-state announcements gemini emits after session/new
-		// (slash-command catalog, current approval mode, current model).
-		// They're informational, not turn activity — mobile's
-		// _isAgentBusy() walks events newest-first and treats anything
-		// from producer=agent that isn't on its skip list as
-		// "turn in progress", which trips the cancel-button overlay
-		// even though the agent is idle waiting for the user's prompt.
-		// Tagging these as kind=system + producer=system folds them
-		// into the same skip path mobile already has for lifecycle and
-		// pings, AND keeps them hidden from the feed unless verbose.
-		// Payload is preserved verbatim so a future slash-command
-		// picker / mode pill on mobile can lift fields from it without
-		// a hub-side schema change.
+		// (current approval mode, current model). They're informational,
+		// not turn activity — mobile's _isAgentBusy() walks events
+		// newest-first and treats anything from producer=agent that
+		// isn't on its skip list as "turn in progress", which trips the
+		// cancel-button overlay even though the agent is idle waiting
+		// for the user's prompt. Tagging these as kind=system +
+		// producer=system folds them into the same skip path mobile
+		// already has for lifecycle and pings, AND keeps them hidden
+		// from the feed unless verbose. Payload is preserved verbatim
+		// so a future mode pill on mobile can lift fields from it
+		// without a hub-side schema change.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system", u)
 	default:
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", d.tagIfReplay(u))

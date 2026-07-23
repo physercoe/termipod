@@ -282,8 +282,9 @@ type (`replay:true` → renderer dedupe) or a payload field (`images`
   scrolling to top.
 - A 391-era mobile sees Phase 2's mode picker source events but
   has no widget to render the picker — same as today's
-  `available_commands_update` (system-kind, hidden in non-verbose
-  mode).
+  `available_commands_update` (synthesized into
+  `session.init.slash_commands` by the hub, inert without a picker
+  UI; pre-P3 it was system-kind, hidden in non-verbose mode).
 - A 391-era mobile cannot generate Phase 4's image-input shape, but
   text-only prompts continue to work unchanged.
 

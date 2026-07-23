@@ -2208,14 +2208,17 @@ func TestACPDriver_StringIDResponseDelivers(t *testing.T) {
 }
 
 // TestACPDriver_CapabilityNotificationsAreSystemKind pins v1.0.403:
-// gemini emits available_commands_update, current_mode_update, and
-// current_model_update after session/new as one-shot capability
+// gemini emits current_mode_update, current_model_update, and
+// config_option_update after session/new as one-shot capability
 // announcements. They MUST land as kind=system, not the previous
 // kind=raw — mobile's _isAgentBusy() walks events newest-first and
 // treats any non-skipped agent-produced kind as "turn in progress",
 // so kind=raw was tripping the cancel-button overlay even when the
 // agent was idle. kind=system is on the skip list AND hidden from the
 // feed unless verbose, which is what we want for these.
+// (available_commands_update used to share this path; §6 P3 lifts it
+// into a synthesized session.init — see
+// TestACPDriver_AvailableCommandsSynthesizeSessionInit.)
 func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 	hostInR, hostInW := io.Pipe()
 	hostOutR, hostOutW := io.Pipe()
@@ -2238,18 +2241,9 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 	defer drv.Stop()
 	<-fake.initCh
 
-	// Each of the three capability announcements gemini sends after
-	// session/new, with payload shapes that mirror the real wire
-	// format from gemini-cli@0.41.2.
-	fake.notify("session/update", map[string]any{
-		"sessionId": "sess-caps",
-		"update": map[string]any{
-			"sessionUpdate": "available_commands_update",
-			"availableCommands": []any{
-				map[string]any{"name": "memory", "description": "Manage memory."},
-			},
-		},
-	})
+	// Each of the three capability announcements that stay on the
+	// verbatim system/system path, with payload shapes that mirror the
+	// real wire format from gemini-cli@0.41.2 / kimi-code-ts.
 	fake.notify("session/update", map[string]any{
 		"sessionId": "sess-caps",
 		"update": map[string]any{
@@ -2264,6 +2258,15 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 			"currentModelId": "auto-gemini-3",
 		},
 	})
+	fake.notify("session/update", map[string]any{
+		"sessionId": "sess-caps",
+		"update": map[string]any{
+			"sessionUpdate": "config_option_update",
+			"configOptions": []any{
+				map[string]any{"id": "approval-mode", "currentValue": "default"},
+			},
+		},
+	})
 
 	// Wait: lifecycle.started + session.init + 3 translated events.
 	poster.wait(t, 5, 2*time.Second)
@@ -2273,9 +2276,9 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 	// are the capability events.
 	caps := evs[2:5]
 	wantUpdates := []string{
-		"available_commands_update",
 		"current_mode_update",
 		"current_model_update",
+		"config_option_update",
 	}
 	for i, want := range wantUpdates {
 		if caps[i].Kind != "system" {
@@ -2286,13 +2289,292 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 		if caps[i].Producer != "system" {
 			t.Errorf("%s: producer = %q; want system", want, caps[i].Producer)
 		}
-		// Payload preserved verbatim — the slash command catalog needs
+		// Payload preserved verbatim — the mode/model pill state needs
 		// to be lift-able from this without a hub-side schema change.
 		got, _ := caps[i].Payload["sessionUpdate"].(string)
 		if got != want {
 			t.Errorf("%s: payload.sessionUpdate = %q; want %q (full update preserved)",
 				want, got, want)
 		}
+	}
+}
+
+// TestACPDriver_AvailableCommandsSynthesizeSessionInit pins §6 P3 of
+// agent-transcript-redesign: an ACP available_commands_update
+// notification (slash-command catalog, engine-neutral across kimi-code,
+// kimi-code-ts and gemini) is lifted into a synthesized session.init
+// event — producer=agent, `slash_commands` name list, session_id
+// stamped — instead of the old verbatim system/system forward. Both
+// clients merge session.init payloads, so this catalog-only frame adds
+// the picker source without shadowing the Start-time session.init.
+// An empty or malformed catalog must NOT synthesize (that would wipe
+// the clients' merged picker state) and falls back to the verbatim
+// system/system forward.
+func TestACPDriver_AvailableCommandsSynthesizeSessionInit(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-slash")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-slash",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// Catalog with a duplicate name, a non-map entry and an empty name
+	// mixed in — the synthesis must flatten to bare names, preserve
+	// order and dedupe.
+	fake.notify("session/update", map[string]any{
+		"sessionId": "sess-slash",
+		"update": map[string]any{
+			"sessionUpdate": "available_commands_update",
+			"availableCommands": []any{
+				map[string]any{"name": "goal", "description": "Run goal mode."},
+				map[string]any{"name": "compact", "description": "Compact context.", "input": map[string]any{"hint": "instructions"}},
+				"not-a-map",
+				map[string]any{"description": "nameless"},
+				map[string]any{"name": "goal"}, // duplicate — dropped
+				map[string]any{"name": "help"},
+			},
+		},
+	})
+
+	// lifecycle.started + session.init (Start) + session.init (catalog).
+	evs := poster.wait(t, 3, 2*time.Second)
+	cat := evs[2]
+	if cat.Kind != "session.init" {
+		t.Fatalf("catalog event kind = %q; want session.init (kinds=%v)", cat.Kind, eventKinds(evs))
+	}
+	if cat.Producer != "agent" {
+		t.Errorf("catalog session.init producer = %q; want agent (capture path + client merge filter on this)",
+			cat.Producer)
+	}
+	if cat.Payload["session_id"] != "sess-slash" {
+		t.Errorf("catalog session.init session_id = %v; want sess-slash", cat.Payload["session_id"])
+	}
+	names, ok := cat.Payload["slash_commands"].([]string)
+	if !ok {
+		t.Fatalf("slash_commands = %T(%v); want []string", cat.Payload["slash_commands"], cat.Payload["slash_commands"])
+	}
+	wantNames := []string{"goal", "compact", "help"}
+	if len(names) != len(wantNames) {
+		t.Fatalf("slash_commands = %v; want %v (flattened, ordered, deduped)", names, wantNames)
+	}
+	for i, w := range wantNames {
+		if names[i] != w {
+			t.Errorf("slash_commands[%d] = %q; want %q", i, names[i], w)
+		}
+	}
+	// The original update must NOT also land on the system/system
+	// path — the synthesized state event is the catalog's single home.
+	for _, e := range evs {
+		if e.Kind == "system" {
+			if su, _ := e.Payload["sessionUpdate"].(string); su == "available_commands_update" {
+				t.Errorf("available_commands_update also forwarded as system/system; want only the session.init synthesis")
+			}
+		}
+	}
+
+	// Malformed / empty catalogs: no new session.init, verbatim
+	// system/system fallback instead.
+	for _, update := range []map[string]any{
+		{"sessionUpdate": "available_commands_update", "availableCommands": []any{}},
+		{"sessionUpdate": "available_commands_update", "availableCommands": []any{map[string]any{"description": "no name"}}},
+		{"sessionUpdate": "available_commands_update"}, // key absent
+	} {
+		fake.notify("session/update", map[string]any{
+			"sessionId": "sess-slash",
+			"update":    update,
+		})
+	}
+	evs = poster.wait(t, 6, 2*time.Second)
+	fallbacks := 0
+	sessionInits := 0
+	for _, e := range evs {
+		switch e.Kind {
+		case "session.init":
+			sessionInits++
+		case "system":
+			if su, _ := e.Payload["sessionUpdate"].(string); su == "available_commands_update" {
+				fallbacks++
+			}
+		}
+	}
+	if fallbacks != 3 {
+		t.Errorf("system/system fallbacks = %d; want 3 (one per malformed/empty catalog)", fallbacks)
+	}
+	if sessionInits != 2 {
+		t.Errorf("session.init events = %d; want 2 (Start + first good catalog) — malformed catalogs must not synthesize",
+			sessionInits)
+	}
+}
+
+// TestACPDriver_AvailableCommandsSynthesizeSessionInitOnReplay — the
+// same §6 P3 synthesis must fire during session/load replay: engines
+// re-emit the catalog in the historical notification stream, and the
+// arm flows through the same handleNotification switch, so the
+// synthesized session.init arrives tagged replay:true. The replay
+// frames stream BEFORE the session/load response sets d.sessionID, so
+// this also pins the session_id-omitted-when-unset edge.
+func TestACPDriver_AvailableCommandsSynthesizeSessionInitOnReplay(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-slash-replay")
+	fake.advertiseLoadSession = true
+	fake.loadReplayFrames = []map[string]any{
+		{
+			"sessionId": "engine-uuid-slash-replay",
+			"update": map[string]any{
+				"sessionUpdate": "available_commands_update",
+				"availableCommands": []any{
+					map[string]any{"name": "goal", "description": "Run goal mode."},
+					map[string]any{"name": "review", "description": "Review a PR."},
+				},
+			},
+		},
+	}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-slash-replay",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		ResumeSessionID:  "engine-uuid-slash-replay",
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// catalog session.init (during load) + lifecycle.started +
+	// session.init (Start) — ordering of the first two vs lifecycle is
+	// not asserted, just presence.
+	evs := poster.wait(t, 3, 2*time.Second)
+	var cat *postedEvent
+	for i := range evs {
+		if evs[i].Kind != "session.init" {
+			continue
+		}
+		if _, has := evs[i].Payload["slash_commands"]; has {
+			cat = &evs[i]
+		}
+	}
+	if cat == nil {
+		t.Fatalf("no catalog session.init synthesized during replay; kinds=%v", eventKinds(evs))
+	}
+	if cat.Producer != "agent" {
+		t.Errorf("replay catalog session.init producer = %q; want agent", cat.Producer)
+	}
+	if got, _ := cat.Payload["replay"].(bool); !got {
+		t.Errorf("replay catalog session.init missing replay:true; payload=%+v", cat.Payload)
+	}
+	if sid, has := cat.Payload["session_id"]; has {
+		t.Errorf("replay catalog session.init session_id = %v; want key omitted (d.sessionID unset until the load response lands)",
+			sid)
+	}
+	names, ok := cat.Payload["slash_commands"].([]string)
+	if !ok || len(names) != 2 || names[0] != "goal" || names[1] != "review" {
+		t.Errorf("replay slash_commands = %v; want [goal review]", cat.Payload["slash_commands"])
+	}
+}
+
+// TestACPDriver_AvailableCommandsMidTurnFallBackToSystem — the §6 P3
+// busy-parity anchor: session.init is a terminal idle short-circuit on
+// BOTH clients' busy walks (mobile agentIsBusy, desktop feedLens), NOT
+// a skipped no-signal kind, so a synthesized catalog frame landing
+// mid-turn would flip Stop→Send while the engine is still generating.
+// ACP allows the catalog to change at any time (skill-mutating commands
+// can re-announce it), so while a turn_id is active the driver must
+// route the update to the verbatim system/system forward instead; once
+// the turn ends, synthesis resumes.
+func TestACPDriver_AvailableCommandsMidTurnFallBackToSystem(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-midturn")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-midturn",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	catalog := map[string]any{
+		"sessionId": "sess-midturn",
+		"update": map[string]any{
+			"sessionUpdate": "available_commands_update",
+			"availableCommands": []any{
+				map[string]any{"name": "goal", "description": "Run goal mode."},
+			},
+		},
+	}
+
+	// Open a turn (as Input("text") does at the prompt-dispatch
+	// boundary) — the catalog must NOT synthesize while it is active.
+	drv.beginTurn(context.Background())
+	fake.notify("session/update", catalog)
+
+	// lifecycle.started + session.init (Start) + turn.start + fallback.
+	evs := poster.wait(t, 4, 2*time.Second)
+	for _, e := range evs {
+		if e.Kind == "session.init" {
+			if _, has := e.Payload["slash_commands"]; has {
+				t.Fatalf("catalog synthesized session.init mid-turn — busy walks would flip idle; kinds=%v", eventKinds(evs))
+			}
+		}
+	}
+	sawFallback := false
+	for _, e := range evs {
+		if e.Kind == "system" && e.Producer == "system" {
+			if su, _ := e.Payload["sessionUpdate"].(string); su == "available_commands_update" {
+				sawFallback = true
+			}
+		}
+	}
+	if !sawFallback {
+		t.Fatalf("mid-turn catalog not forwarded system/system; kinds=%v", eventKinds(evs))
+	}
+
+	// Turn over — synthesis resumes.
+	drv.endTurn()
+	fake.notify("session/update", catalog)
+	evs = poster.wait(t, 5, 2*time.Second)
+	sawSynth := false
+	for _, e := range evs {
+		if e.Kind == "session.init" {
+			if _, has := e.Payload["slash_commands"]; has {
+				sawSynth = true
+			}
+		}
+	}
+	if !sawSynth {
+		t.Fatalf("post-turn catalog did not synthesize session.init; kinds=%v", eventKinds(evs))
 	}
 }
 

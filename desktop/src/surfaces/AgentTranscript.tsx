@@ -22,6 +22,7 @@ import { deriveStateDock } from '../ui/stateDock';
 import { StateDock } from '../ui/StateDock.tsx';
 import { RunReport } from '../ui/RunReport';
 import { AgentInfo, latestStatusLine, mergeSessionInit } from '../ui/AgentInfo';
+import { isSlashCommandBody } from '../ui/slashCommands';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -393,6 +394,14 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // event stream, not the agent record. Session-scoped, so a resumed session's
   // config survives across the respawn boundary the same way its transcript does.
   const sessionInit = useMemo(() => mergeSessionInit(events), [events]);
+  // The session's ACP command catalog (P3) feeds the composer's `/` picker.
+  // Absent from the merged init → empty list → the picker stays disabled,
+  // mirroring mobile (agent_compose W-UI-4: drivers that don't surface
+  // `slash_commands` just don't get the picker).
+  const slashCommands = useMemo(() => {
+    const v = sessionInit?.['slash_commands'];
+    return Array.isArray(v) ? v.map((x) => String(x)) : [];
+  }, [sessionInit]);
   const statusLine = useMemo(() => latestStatusLine(events), [events]);
   // The composer's Stop-vs-Send signal is whether the agent is mid-turn (derived
   // from the feed), NOT the lifecycle status (a live-but-idle agent is still
@@ -930,7 +939,16 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
 
   async function send(body: string, att: InputAttachments): Promise<void> {
     if (client === null) return;
-    await client.postAgentInput(agentId, body, att);
+    // Slash-command bodies bypass the principal-directive envelope (mobile
+    // v1.0.707, agent_compose `_send`): raw only for a bare slash-command body
+    // with no attachments — a slash command with an image makes no sense and
+    // the heuristic excludes that case implicitly.
+    const hasAtt =
+      (att.images?.length ?? 0) > 0 ||
+      (att.pdfs?.length ?? 0) > 0 ||
+      (att.audios?.length ?? 0) > 0 ||
+      (att.videos?.length ?? 0) > 0;
+    await client.postAgentInput(agentId, body, att, !hasAtt && isSlashCommandBody(body));
   }
 
   /// Interrupt the in-flight turn (composer Stop) — a `cancel` INPUT the driver
@@ -1184,6 +1202,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
             generating={generating}
             onStop={() => void cancelTurn()}
             inject={quoteSignal}
+            slashCommands={slashCommands}
           />
         </>
       )}

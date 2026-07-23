@@ -260,9 +260,16 @@ export class HubClient {
    * `{kind:'text', body, images?, pdfs?, audios?, videos?}` per the hub
    * (handlers_agent_input.go). Each attachment's `data` is RAW base64 (no
    * `data:` prefix); the hub base64-decodes it to enforce size caps. Modalities
-   * an engine doesn't support are strip-and-warned hub-side, not rejected. */
-  postAgentInput(id: string, body: string, att?: InputAttachments): Promise<unknown> {
-    return this.transport.post(this.transport.team(`/agents/${id}/input`), { kind: 'text', body, ...att });
+   * an engine doesn't support are strip-and-warned hub-side, not rejected.
+   * `raw: true` (mobile v1.0.707) marks a slash-command body so the hub skips
+   * the principal-directive envelope and the engine receives it verbatim. */
+  postAgentInput(id: string, body: string, att?: InputAttachments, raw?: boolean): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), {
+      kind: 'text',
+      body,
+      ...att,
+      ...(raw === true ? { raw: true } : {}),
+    });
   }
   /** Interrupt the agent's current turn (parity — mobile agents_api `_cancel`:
    * `postAgentInput(kind:'cancel')`). Lands in agent_events as a `producer:'user'`

@@ -1,28 +1,18 @@
 # Inspect tab (né Debug) — code, logs, diffs & model inspectors (J3 round 2)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-23) — **W1 shipped**: the inspector shell
-> (tabbed, metadata-only tab persistence in `termipod.debug.tabs`) + the
-> **CodeView** (CodeMirror 6, read-only-by-default, lazy `@codemirror/language-data`
-> modes, search / fold / go-to-line / soft-wrap / copy, `revealLine`) + the
-> **stack-trace lens** (`state/stackTrace.ts` — Python/Rust/Go/JS pure parsers,
-> `file:line` chips resolve → open a CodeView tab at the line) + **run-scratch**
-> (`script_run` for python/bash/node paste tabs; stderr feeds the lens). Tab
-> **Debug → Inspect** renamed (label only; `debug` JobId kept — §0a). Sources
-> live in W1: `paste` + `local` (native `debug_open` dialog). **W1 follow-on
-> sources shipped** (`97a42b56`): **workspace** (searchable file list), **remote
-> SFTP** (saved connection → directory browser; `connectSaved` reuses
-> ConnectForm's credential resolution, one cached session per host), **hub**
-> (project → doc list → `getProjectDocText`) — an "Open ▾" menu + per-source
-> picker modal (`surfaces/InspectOpen.tsx`), content read lazily on activate.
-> **Still deferred:** the tree-sitter **symbol outline** (`CodeOutline`, needs
-> WASM asset-sync). diff / log / model tabs open but show a wedge placard until
-> **W2 / W3 / W4**. Supersedes the "EMBED Monaco" posture for J3 (§1).
-> Deep-research findings (licenses/embeddability verified against npm + upstream
-> repos 2026-07-23) are inlined per wedge.
+> **Status:** In progress (2026-07-23) — **W1 + all follow-on sources + the
+> tree-sitter symbol outline SHIPPED** (`895ac48e`). J3 is now a tabbed
+> inspector: shell (metadata-only tabs) + **CodeView** (CM6, lazy language
+> modes, search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace lens**
+> (Python/Rust/Go/JS `file:line` jumps) + **run-scratch** + a right-hand
+> **tree-sitter symbol outline** (12 langs). Sources: paste · local · workspace
+> · remote SFTP · hub (Open ▾ menu + `InspectOpen` picker). Tab **Debug →
+> Inspect** renamed (label only; `debug` JobId kept — §0a). **Next:** W2 diffs /
+> W3 logs / W4 model inspector — those tabs open with a wedge placard until then.
+> Supersedes the "EMBED Monaco" posture for J3 (§1); research inlined per wedge.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1 + follow-on sources @ `97a42b56` (desktop
-> `2026.723.247`+)
+> **Last verified vs code:** W1 + follow-on @ `895ac48e` (desktop `2026.723.247`+)
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab

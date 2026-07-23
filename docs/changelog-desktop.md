@@ -55,6 +55,9 @@ This complements:
   from the Author workspace, a remote host over **SFTP** (pick a saved
   connection → browse directories), and a **hub project's docs** (pick a
   project → doc), alongside the local-file picker.
+- **Inspect symbol outline.** A code tab gains a right-hand **outline** rail of
+  its functions/classes/methods/types (tree-sitter, 12 languages); clicking a
+  symbol jumps the editor to its line. Grammars load on demand, fully offline.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

@@ -1111,3 +1111,121 @@ button > .ui-icon:not(:only-child):first-child,
   font-size: var(--font-size-body-small);
   z-index: var(--z-toast);
 }
+
+/* Inspect — "Open ▾" menu + the workspace/remote/hub picker modal (W1 follow-on) */
+.inspect-openwrap {
+  position: relative;
+  display: inline-flex;
+}
+.inspect-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+}
+.inspect-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-3);
+  padding: var(--spacing-s4);
+  z-index: var(--z-menu);
+}
+.inspect-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: var(--spacing-s6) var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.inspect-menu-item:hover {
+  background: var(--hover);
+}
+.inspect-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-menu);
+}
+.inspect-modal {
+  width: min(560px, 92vw);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--sh-3);
+  overflow: hidden;
+}
+.inspect-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12) var(--spacing-s16);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-modal-title {
+  font-weight: 600;
+}
+.inspect-modal-search {
+  margin: var(--spacing-s8) var(--spacing-s16) 0;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+}
+.inspect-modal-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s16) 0;
+}
+.inspect-modal-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-s8);
+}
+.inspect-modal-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: var(--spacing-s6) var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.inspect-modal-row:hover {
+  background: var(--hover);
+}
+.inspect-modal-row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inspect-modal-empty {
+  padding: var(--spacing-s24) var(--spacing-s16);
+  text-align: center;
+}

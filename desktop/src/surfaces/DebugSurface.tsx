@@ -7,9 +7,11 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectTab } from '../state/inspect';
 import { useWorkspace } from '../state/workspace';
-import { readWorkspaceFile } from '../state/workspaceFiles';
+import { readSource } from '../state/inspectSources';
+import { useSession } from '../state/session';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { parseTrace, type ParsedTrace, type TraceFrame } from '../state/stackTrace';
+import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
@@ -78,22 +80,6 @@ function kindIcon(kind: InspectKind): IconName {
       return 'sliders';
     default:
       return 'code';
-  }
-}
-
-// Read a file-backed tab's content on activate (metadata-only restore). W1
-// resolves `local` (native dialog) and `workspace`; remote/hub are the follow-on.
-async function readSource(tab: InspectTab): Promise<string> {
-  if (!isShell()) throw new Error('opening files requires the desktop app');
-  switch (tab.source) {
-    case 'local': {
-      const r = await invoke<{ path: string; content: string }>('doc_read', { path: tab.path });
-      return r.content;
-    }
-    case 'workspace':
-      return readWorkspaceFile(tab.path ?? '');
-    default:
-      throw new Error(`inspect: source '${tab.source}' is not yet supported`);
   }
 }
 
@@ -299,8 +285,11 @@ export function DebugSurface(): JSX.Element {
   const closeTab = useInspect((s) => s.close);
   const setActive = useInspect((s) => s.setActive);
   const folder = useWorkspace((s) => s.folder);
+  const client = useSession((s) => s.client);
   const [reveal, setReveal] = useState<Record<string, number>>({});
   const [notFound, setNotFound] = useState<string | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [dialog, setDialog] = useState<OpenMode | null>(null);
   const active = tabs.find((tb) => tb.id === activeId);
 
   function newScratch(): void {
@@ -313,6 +302,13 @@ export function DebugSurface(): JSX.Element {
     if (r === null) return;
     const kind = kindForInspectFile(extOf(r.path), r.content);
     openTab({ kind, source: 'local', title: baseName(r.path), path: r.path }, kind === 'model' ? undefined : r.content);
+  }
+
+  // A picker (workspace / remote / hub) chose a file — open it as a metadata-only
+  // tab; its content is read lazily on activate via readSource.
+  function pick(r: PickResult): void {
+    openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId });
+    setDialog(null);
   }
 
   async function resolveFrame(frame: TraceFrame, from: InspectTab): Promise<void> {
@@ -345,11 +341,38 @@ export function DebugSurface(): JSX.Element {
           <button className="import-btn" onClick={newScratch}>
             <Icon name="plus" size={14} /> {t('inspect.newScratch')}
           </button>
-          {isShell() && (
-            <button className="import-btn" onClick={() => void openLocal()}>
-              <Icon name="folder" size={14} /> {t('inspect.openFile')}
+          <div className="inspect-openwrap">
+            <button className="import-btn" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
+              <Icon name="folder" size={14} /> {t('inspect.open')} <Icon name="chevron-down" size={12} />
             </button>
-          )}
+            {menu && (
+              <>
+                <div className="inspect-menu-scrim" onClick={() => setMenu(false)} />
+                <div className="inspect-menu" role="menu">
+                  {isShell() && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), void openLocal())}>
+                      <Icon name="file-text" size={14} /> {t('inspect.openFile')}
+                    </button>
+                  )}
+                  {isShell() && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setDialog('workspace'))}>
+                      <Icon name="sidebar" size={14} /> {t('inspect.fromWorkspace')}
+                    </button>
+                  )}
+                  {isShell() && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setDialog('remote'))}>
+                      <Icon name="terminal" size={14} /> {t('inspect.fromRemote')}
+                    </button>
+                  )}
+                  {client !== null && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setDialog('hub'))}>
+                      <Icon name="cloud" size={14} /> {t('inspect.fromHub')}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </>
       }
     >
@@ -412,6 +435,7 @@ export function DebugSurface(): JSX.Element {
             {t('inspect.notFound')}: {baseName(notFound)}
           </div>
         )}
+        {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => setDialog(null)} onPick={pick} />}
       </div>
     </WorkbenchSurface>
   );

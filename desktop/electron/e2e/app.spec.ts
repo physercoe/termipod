@@ -484,3 +484,17 @@ test('inspect: New scratch opens a code tab on CodeMirror and the trace lens jum
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
   await expect(page.locator('.inspect-empty')).toBeVisible();
 });
+
+test('inspect: the Open menu launches the source picker modal', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  // The Open ▾ menu lists the source affordances.
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('.inspect-menu')).toBeVisible();
+  // From workspace… opens the picker modal (its contents depend on whether a
+  // workspace folder is set — assert the modal itself, backend-free).
+  await page.getByRole('menuitem', { name: 'From workspace…' }).click();
+  await expect(page.locator('.inspect-modal')).toBeVisible();
+  // The × in the modal header closes it.
+  await page.locator('.inspect-modal .inspect-modal-head .icon-btn').click();
+  await expect(page.locator('.inspect-modal')).toHaveCount(0);
+});

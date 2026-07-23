@@ -340,26 +340,20 @@ test('author: the New ▾ menu creates a document and the workspace pane folds',
 // it lists the document's headings and that a click jumps the source editor to
 // the heading's line.
 test('author: the markdown outline lists headings and jumps the source editor', async () => {
-  // Seed a two-heading document deterministically (typing into the CodeMirror
-  // contenteditable is flaky under xvfb), then boot into it in split mode.
-  await page.evaluate(() => {
-    localStorage.setItem('termipod.author.viewMode', 'split');
-    localStorage.setItem(
-      'termipod.documents.v1',
-      JSON.stringify({
-        docs: [{ id: 'e2e-out', kind: 'markdown', title: 'Outline', body: '# First heading\n\nalpha\n\n## Second heading\n\nbeta\n', updatedAt: 1 }],
-        activeId: 'e2e-out',
-      }),
-    );
-  });
-  await page.reload();
-  // The "Add a hub" modal auto-opens on boot; dismiss it deterministically.
-  await expect(async () => {
-    const closeBtn = page.locator('.connect .connect-head button');
-    if ((await closeBtn.count()) > 0) await closeBtn.click({ timeout: 2000 });
-    await expect(page.locator('.connect')).toHaveCount(0);
-  }).toPass({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Author', exact: true }).click();
+  // A fresh Document from the New ▾ menu.
+  await page.locator('.author-newcaret').click();
+  await page.getByRole('menuitem', { name: 'New', exact: true }).click();
+  // Split mode keeps both the editor and preview live.
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  // Type a two-heading document into the editor. `force` skips the actionability
+  // retry loop — a plain click on the CodeMirror contenteditable hangs under
+  // xvfb (the pointer-stability check never settles).
+  const editor = page.locator('.md-editor .cm-content').last();
+  await editor.click({ force: true });
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('# First heading\n\nalpha\n\n## Second heading\n\nbeta\n');
   // The outline rail appears on the right listing both headings (it hides at
   // ≤ 1 heading, so its presence also proves the recompute ran).
   const outline = page.locator('.mdreader-outline.side-right');

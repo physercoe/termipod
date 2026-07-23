@@ -135,9 +135,9 @@ func (t *Tailer) loop(ctx context.Context, f *os.File, out chan<- Line) {
 			continue
 		case err == io.EOF:
 			// Partial line OR fully at EOF. Stash any partial bytes
-			// (copied — ReadBytes' return aliases bufio's buffer),
-			// sleep, then continue; the completed line is emitted
-			// whole once its newline lands.
+			// (note: ReadBytes' return shares bufio's backing
+			// buffer), sleep, then continue; the completed line is
+			// emitted whole once its newline lands.
 			if len(line) > 0 {
 				pending = append(pending, line...)
 			}

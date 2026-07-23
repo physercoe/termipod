@@ -10,7 +10,8 @@
 // Unlike the claude-code / antigravity M4 arms (which fail the agent on
 // error), this path is a strict UPGRADE over PaneDriver, so the runner
 // keeps the PaneDriver fallback: any error here happens BEFORE the
-// pane is spawned, and runner.go falls through to the legacy M4 block.
+// pane is spawned, and runner.go falls through to the PaneDriver M4
+// block.
 // That covers older kimi builds without the wire store (the Python
 // kimi-cli line writes ~/.kimi, not ~/.kimi-code), hosts where kimi has
 // never run, and wire protocol drift (the metadata gate — a prior

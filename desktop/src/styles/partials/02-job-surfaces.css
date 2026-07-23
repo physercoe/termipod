@@ -1180,6 +1180,12 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .trace-body {
   padding: var(--spacing-s12) var(--spacing-s16) var(--spacing-s16);
+  /* flex:1 + min-height:0 so the body actually SCROLLS within the modal's
+     max-height/overflow:hidden — without min-height:0 a flex column child won't
+     shrink below its content height, so overflow-y:auto never engages and a tall
+     form (e.g. the Tier selector added) gets clipped instead of scrolled. */
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

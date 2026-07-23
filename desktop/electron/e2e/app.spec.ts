@@ -689,13 +689,19 @@ test('inspect: the Trace model graph form opens and Detect round-trips the inter
   // The runner has python3 but not torch → the probe round-trips to an error;
   // either outcome (ok/err) proves the trace_run IPC path works end-to-end.
   await page.getByRole('button', { name: 'Detect', exact: true }).click();
-  await expect(page.locator('.trace-ok, .trace-err')).toBeVisible({ timeout: 25000 });
+  const detected1 = page.locator('.trace-ok, .trace-err').first();
+  await detected1.waitFor({ state: 'attached', timeout: 25000 });
+  await detected1.scrollIntoViewIfNeeded(); // the result sits low in the scrollable modal body
+  await expect(detected1).toBeVisible();
   // Tier 2 (Traced ops / torch.export) shares the venue plumbing but probes torch
   // only. The first select in the modal body is the Graph tier; switching it and
   // re-detecting round-trips detectTorch → trace_run → python3 (no torch → err).
   await page.locator('.trace-modal .surface-select').first().selectOption('traced');
   await page.getByRole('button', { name: 'Detect', exact: true }).click();
-  await expect(page.locator('.trace-ok, .trace-err')).toBeVisible({ timeout: 25000 });
+  const detected2 = page.locator('.trace-ok, .trace-err').first();
+  await detected2.waitFor({ state: 'attached', timeout: 25000 });
+  await detected2.scrollIntoViewIfNeeded();
+  await expect(detected2).toBeVisible();
   // Close the modal (backdrop click) and the tab.
   await page.locator('.inspect-modal-backdrop').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('.trace-modal')).toHaveCount(0);
@@ -716,7 +722,10 @@ test('inspect: the Call graph form opens and Detect round-trips the interpreter'
   // The runner has python3 but not code2flow → the probe round-trips to an error;
   // either outcome (ok/err) proves the reused trace_run IPC path works end-to-end.
   await page.getByRole('button', { name: 'Detect', exact: true }).click();
-  await expect(page.locator('.trace-ok, .trace-err')).toBeVisible({ timeout: 25000 });
+  const cgDetected = page.locator('.trace-ok, .trace-err').first();
+  await cgDetected.waitFor({ state: 'attached', timeout: 25000 });
+  await cgDetected.scrollIntoViewIfNeeded();
+  await expect(cgDetected).toBeVisible();
   await page.locator('.inspect-modal-backdrop').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('.trace-modal')).toHaveCount(0);
   await page.locator('.inspect-tab .inspect-tab-close').last().click();

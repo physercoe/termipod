@@ -1250,15 +1250,37 @@
 
 /* ---- project board (kanban) ---- */
 
+/* Master-detail: board stretches, detail panel pinned right (≥1100px, set in
+   TasksTab via useMinWidth); below that the board is full-width and the detail
+   opens as a modal. */
+.kanban-split {
+  display: flex;
+  gap: var(--spacing-s12);
+  align-items: flex-start;
+  min-width: 0;
+}
+.kanban-split .kanban {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-panel {
+  flex: 0 0 360px;
+  align-self: stretch;
+  border-left: 1px solid var(--border);
+  padding-left: var(--spacing-s12);
+  min-width: 0;
+}
+
 .kanban {
   display: flex;
   gap: var(--spacing-s8);
   padding: var(--spacing-s12);
   align-items: flex-start;
-  min-width: min-content;
 }
+/* Stretchy columns — fill the region, no fixed 220px dead space on widescreen. */
 .kanban-col {
-  flex: 0 0 220px;
+  flex: 1 1 200px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s8);
@@ -1278,20 +1300,129 @@
   border-radius: var(--radius-sm);
   padding: var(--spacing-s8);
   box-shadow: var(--sh-1);
+  cursor: pointer;
   transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease), transform 0.13s var(--ease);
+}
+.kanban-card:hover {
+  border-color: var(--border-strong);
+}
+.kanban-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.kanban-card.blocked {
+  border-left: 2px solid var(--danger);
+}
+.kanban-card.cancelled .kanban-card-title {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.kanban-card-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
 }
 .kanban-card-title {
   font-size: var(--font-size-body-small);
+  min-width: 0;
 }
-.kanban-card-meta {
+.kanban-card-body {
+  margin-top: var(--spacing-s4);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kanban-card-result {
   margin-top: var(--spacing-s4);
   font-size: var(--font-size-label);
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kanban-card-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s8);
+  font-size: var(--font-size-label);
+  color: var(--text-muted);
+}
+.kanban-card-assignee {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kanban-card-age {
+  flex: 0 0 auto;
 }
 .kanban-empty {
   color: var(--text-muted);
   font-size: var(--font-size-label);
   padding: var(--spacing-s4);
+}
+
+/* Priority dot — urgent/high/med/low. */
+.prio-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--text-muted);
+}
+.prio-dot.prio-urgent {
+  background: var(--danger);
+}
+.prio-dot.prio-high {
+  background: var(--warn);
+}
+.prio-dot.prio-med {
+  background: var(--accent);
+}
+.prio-dot.prio-low {
+  background: var(--text-muted);
+}
+
+/* Live-assignee pip — running/pending/failed/idle. */
+.pip {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.pip-live {
+  background: var(--success);
+}
+.pip-bad {
+  background: var(--danger);
+}
+.pip-wait {
+  background: var(--warn);
+}
+.pip-idle {
+  background: var(--text-muted);
+}
+
+/* Rich task-detail rows (shared by modal + panel). */
+.task-assignee {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.task-result-row span {
+  color: var(--text-secondary);
+}
+.task-times {
+  display: flex;
+  gap: var(--spacing-s12);
 }
 
 /* ---- admin & governance cockpit ---- */

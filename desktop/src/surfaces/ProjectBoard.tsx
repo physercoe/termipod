@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useHubAction } from '../hub/action';
 import { num, str, type Entity } from '../hub/types';
@@ -11,7 +11,7 @@ import { ProjectHero } from './ProjectHero';
 import { PhaseSummary } from './PhaseSummary';
 import { PlanDetail } from './PlanDetail';
 import { RunDetail } from './RunDetail';
-import { TaskDetail } from './TaskDetail';
+import { TaskDetail, TaskDetailBody, firstLine, pipClass, relTime } from './TaskDetail';
 
 const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
@@ -534,11 +534,77 @@ function PlansTab({ projectId }: { projectId: string }): JSX.Element {
   );
 }
 
+/// True while the viewport is at least `px` wide; drives the master-detail
+/// breakpoint (board + inline panel ≥1100px, modal below). matchMedia is live
+/// in the Electron renderer, so this reflows on window resize.
+function useMinWidth(px: number): boolean {
+  const [wide, setWide] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(`(min-width:${px}px)`).matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width:${px}px)`);
+    const on = (): void => setWide(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [px]);
+  return wide;
+}
+
+/// One task card — the mobile tile's content at desktop density: priority dot,
+/// title, one-line body snippet, result summary when present, live assignee
+/// pip + handle, relative age. Cancelled reads struck-through; blocked is
+/// flagged. `selected` highlights the card whose detail the panel is showing.
+function TaskCard({
+  task,
+  selected,
+  onOpen,
+}: {
+  task: Entity;
+  selected: boolean;
+  onOpen: () => void;
+}): JSX.Element {
+  const status = str(task, 'status') ?? 'todo';
+  const priority = str(task, 'priority') ?? 'med';
+  const assignee = str(task, 'assignee_handle');
+  const snippet = firstLine(str(task, 'body_md'));
+  const result = str(task, 'result_summary');
+  const age = relTime(str(task, 'completed_at') ?? str(task, 'started_at') ?? str(task, 'updated_at'));
+  const cls =
+    'kanban-card' +
+    (selected ? ' selected' : '') +
+    (status === 'cancelled' ? ' cancelled' : '') +
+    (status === 'blocked' ? ' blocked' : '');
+  return (
+    <div className={cls} role="button" onClick={onOpen}>
+      <div className="kanban-card-top">
+        <span className={`prio-dot prio-${priority}`} title={priority} />
+        <div className="kanban-card-title">{str(task, 'title') ?? str(task, 'summary') ?? str(task, 'id')}</div>
+      </div>
+      {snippet !== '' && <div className="kanban-card-body">{snippet}</div>}
+      {result !== undefined && result !== '' && <div className="kanban-card-result">{result}</div>}
+      {(assignee !== undefined || age !== '') && (
+        <div className="kanban-card-foot">
+          {assignee !== undefined && (
+            <span className="kanban-card-assignee">
+              <span className={pipClass(str(task, 'assignee_status'))} />
+              {assignee}
+            </span>
+          )}
+          <span className="spacer" />
+          {age !== '' && <span className="kanban-card-age">{age}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [open, setOpen] = useState<Entity | null>(null);
   const [creating, setCreating] = useState(false);
+  const wide = useMinWidth(1100);
   const tasksQ = useQuery({
     queryKey: ['tasks', projectId],
     enabled: client !== null,
@@ -551,6 +617,32 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 
   const tasks = tasksQ.data ?? [];
   const inColumn = (status: string): Entity[] => tasks.filter((task) => (str(task, 'status') ?? 'todo') === status);
+  const selectedId = open !== null ? str(open, 'id') : null;
+  const showPanel = wide && open !== null;
+
+  const board = (
+    <div className="kanban">
+      {COLUMNS.map((status) => {
+        const items = inColumn(status);
+        return (
+          <div key={status} className="kanban-col">
+            <div className="kanban-head">
+              {t(`kanban.${status}`)} <span className="pill">{items.length}</span>
+            </div>
+            {items.map((task) => (
+              <TaskCard
+                key={str(task, 'id')}
+                task={task}
+                selected={str(task, 'id') === selectedId}
+                onOpen={() => setOpen(task)}
+              />
+            ))}
+            {items.length === 0 && <div className="kanban-empty">—</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
@@ -558,35 +650,17 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
         <span className="spacer" />
         <button onClick={() => setCreating(true)}>+ {t('task.new')}</button>
       </div>
-      <div className="kanban">
-        {COLUMNS.map((status) => {
-          const items = inColumn(status);
-          return (
-            <div key={status} className="kanban-col">
-              <div className="kanban-head">
-                {t(`kanban.${status}`)} <span className="pill">{items.length}</span>
-              </div>
-              {items.map((task) => (
-                <div
-                  key={str(task, 'id')}
-                  className="kanban-card"
-                  role="button"
-                  onClick={() => setOpen(task)}
-                >
-                  <div className="kanban-card-title">
-                    {str(task, 'title') ?? str(task, 'summary') ?? str(task, 'id')}
-                  </div>
-                  {str(task, 'assignee_handle') !== undefined && (
-                    <div className="kanban-card-meta">{str(task, 'assignee_handle')}</div>
-                  )}
-                </div>
-              ))}
-              {items.length === 0 && <div className="kanban-empty">—</div>}
-            </div>
-          );
-        })}
-      </div>
-      {open !== null && <TaskDetail projectId={projectId} task={open} onClose={() => setOpen(null)} />}
+      {showPanel ? (
+        <div className="kanban-split">
+          {board}
+          <aside className="task-panel">
+            <TaskDetailBody projectId={projectId} task={open!} onClose={() => setOpen(null)} />
+          </aside>
+        </div>
+      ) : (
+        board
+      )}
+      {open !== null && !wide && <TaskDetail projectId={projectId} task={open} onClose={() => setOpen(null)} />}
       {creating && <NewTaskForm projectId={projectId} onDone={() => setCreating(false)} />}
     </>
   );

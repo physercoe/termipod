@@ -2,22 +2,22 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-07-23) — **W1 (+ sources + tree-sitter outline),
-> W2 (diffs) and W3 (logs) SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6,
+> W2 (diffs), W3 (logs) and W4 core (checkpoint inspector) SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6,
 > lazy modes, search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace
 > lens** (Python/Rust/Go/JS `file:line` jumps) + **run-scratch** + a right-hand
-> **tree-sitter symbol outline** (12 langs). Sources: paste · local · workspace ·
-> remote SFTP · hub (Open ▾ + `InspectOpen` picker). **W2:** a **patch viewer**
-> (`.patch`/`.diff` + pasted patches → GitHub-style per-file cards,
-> `@git-diff-view/react`) and **two-blob compare** (Compare ▾ against a tab or any
-> source → `@codemirror/merge`), both lazy chunks. **W3:** a **virtualized ANSI
-> log viewer** (react-virtuoso + anser) over a **main-process line index**
-> (`log_open`/`slice`/`search`/`stat`/`close` — fd reads, never whole-file) with
-> follow/tail, warn-filter, regex search + hit rail, and a step/epoch jump list.
-> Tab **Debug → Inspect** renamed (label only; `debug` JobId kept — §0a).
-> **Next:** W4 model inspector (still a wedge placard). Supersedes the "EMBED
-> Monaco" posture (§1); research inlined per wedge.
+> **tree-sitter symbol outline** (12 langs). Sources: paste/local/workspace/SFTP/
+> hub. **W2:** a **patch viewer** (`@git-diff-view/react`) + **two-blob compare**
+> (`@codemirror/merge`), both lazy. **W3:** a **virtualized ANSI log viewer**
+> (react-virtuoso + anser) over a **main-process line index** (`log_*` — fd reads,
+> never whole-file): follow/tail, warn-filter, regex search + hit rail, marker
+> jumps. **W4 core:** a **checkpoint inspector** (`.safetensors`/`.gguf`,
+> header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
+> gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
+> tensor table. Tab **Debug → Inspect** renamed (§0a). **Next:** W4 remainder
+> (ONNX, Model Explorer graph, code→graph tracer, W4b). Supersedes "EMBED
+> Monaco" (§1).
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 shipped (desktop `2026.723.247`+)
+> **Last verified vs code:** W1–W3 + W4 core shipped (desktop `2026.723.247`+)
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -247,6 +247,21 @@ scrollback fight random access + search UX) is right. The winning pattern:
   interactive case today — open question 4).
 
 ## 5. W4 — Model & architecture inspector
+
+**W4 core SHIPPED 2026-07-23.** Delivered: header-only checkpoint parsing in the
+main process (`ipc/checkpoint.ts` pure parsers — safetensors hand-parser +
+`@huggingface/gguf`, `node --test`; `ipc/checkpointfile.ts` `checkpoint_inspect`
+handler — **never `localfs_read`**), and `ui/ModelView.tsx` (lazy chunk):
+summary strip (params/size/dtype histogram), the HF-`config.json`/gguf
+**architecture card** (`state/checkpoint.ts` `classifyArch` → family +
+dense-GQA/MoE/MLA/MLA+MoE template + component chips + `config|gguf|tensors`
+provenance badge), the namespace tree (`buildTree`, per-subtree param rollups),
+and the virtualized tensor table. Local files only (remote/hub checkpoints
+deferred). **Not yet built (later W4 slices):** ONNX (needs the build-time
+protobuf schema), the Model Explorer graph view, the code→graph tracer
+(torchview/`torch.export`), code2flow, and all of W4b (§4b: ×N repeat-collapse,
+VRAM estimator, AST code-sync, elkjs). The rest of this section is the
+still-pending design for those.
 
 The research gap this plan fills. Two findings frame it: **(a)** the `netron`
 npm package is an **unrelated abandoned project** — a supply-chain-style trap;

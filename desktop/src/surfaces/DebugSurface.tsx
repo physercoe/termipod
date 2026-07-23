@@ -28,6 +28,9 @@ const TwoBlobCompare = lazy(() => import('../ui/TwoBlobCompare').then((m) => ({ 
 // W3 — the virtualized log viewer (react-virtuoso + anser) rides its own lazy
 // chunk, loaded the first time a log tab renders.
 const LogView = lazy(() => import('../ui/LogView').then((m) => ({ default: m.LogView })));
+// W4 — the checkpoint inspector (@huggingface/gguf runs main-side; this chunk is
+// the UI) is loaded the first time a model tab renders.
+const ModelView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ModelView })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -463,16 +466,24 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
   );
 }
 
-function WedgePlaceholder({ kind }: { kind: InspectKind }): JSX.Element {
+// ── model tab (W4) ────────────────────────────────────────────────────────────
+// A checkpoint (`.safetensors`/`.gguf`) is parsed **header-only in the main
+// process** (`checkpoint_inspect` by path — the bytes never leave disk, plan §5).
+// W4 core reads a **local** file (the native picker); remote/hub checkpoints are a
+// follow-on (they'd need an SFTP header-fetch), so those show an honest note.
+function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
-  const key = kind === 'diff' ? 'inspect.wedgeDiff' : kind === 'log' ? 'inspect.wedgeLog' : 'inspect.wedgeModel';
+  if (!isShell() || tab.source !== 'local' || tab.path === undefined) {
+    return (
+      <div className="surface-placeholder region-pad">
+        <div className="surface-posture">{t('model.localOnly')}</div>
+      </div>
+    );
+  }
   return (
-    <div className="surface-placeholder region-pad">
-      <div className="surface-posture">{t(key)}</div>
-      <ul className="surface-todo">
-        <li>{t('inspect.wedgeNote')}</li>
-      </ul>
-    </div>
+    <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+      <ModelView path={tab.path} />
+    </Suspense>
   );
 }
 
@@ -725,7 +736,7 @@ export function DebugSurface(): JSX.Element {
           ) : active.kind === 'log' ? (
             <LogTab key={active.id} tab={active} />
           ) : (
-            <WedgePlaceholder kind={active.kind} />
+            <ModelTab key={active.id} tab={active} />
           )}
         </div>
         {cmpBase !== null && (

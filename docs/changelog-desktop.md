@@ -74,8 +74,19 @@ This complements:
   hub slice renders from memory through the same UI. Features: **follow/tail**
   mode, an **error/warn quick-filter**, **regex search** with a hit rail +
   prev/next, and a **step/epoch marker** jump list. ANSI colours re-map onto the
-  theme's terminal tokens (256-palette/truecolour pass through). Model tabs still
-  show a "coming next" placard (W4).
+  theme's terminal tokens (256-palette/truecolour pass through).
+- **Inspect models — W4 core.** A **checkpoint inspector** for `.safetensors` and
+  `.gguf`, parsed **header-only in the main process** (`checkpoint_inspect` —
+  never the tensor bytes; a multi-GB checkpoint is safe). A local model file opens
+  to a summary strip (format, total params, file size, dtype histogram), an
+  **architecture card** — family + block template (dense-GQA / MoE / MLA / MLA+MoE)
+  + component chips (GQA/MLA/MoE/RoPE/RMSNorm/SwiGLU…) with a provenance badge —
+  read from an HF `config.json` sidecar (safetensors) or the gguf metadata (an
+  honest *recipe-by-name*, not a traced forward pass), a collapsible **namespace
+  tree** of tensor names with per-subtree param rollups, and a virtualized
+  **tensor table** (name/dtype/shape/params, filterable). safetensors is an
+  in-house header parser; gguf uses `@huggingface/gguf`. ONNX, the Model Explorer
+  graph, and the code→graph tracer are later W4 slices.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

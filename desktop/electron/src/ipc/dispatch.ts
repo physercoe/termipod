@@ -16,6 +16,7 @@ import { platformHandlers } from './platform';
 import { migrationHandlers } from './migration';
 import { docfileHandlers } from './docfile';
 import { logfileHandlers } from './logfile';
+import { checkpointHandlers } from './checkpointfile';
 import { localfsHandlers } from './localfs';
 import { workspaceHandlers } from './workspace';
 import { storageHandlers } from './storage';
@@ -46,6 +47,7 @@ const handlers: Record<string, Handler> = {
   ...migrationHandlers,
   ...docfileHandlers,
   ...logfileHandlers,
+  ...checkpointHandlers,
   ...localfsHandlers,
   ...workspaceHandlers,
   ...storageHandlers,

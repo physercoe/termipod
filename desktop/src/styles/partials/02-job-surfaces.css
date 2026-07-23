@@ -1590,3 +1590,215 @@ button > .ui-icon:not(:only-child):first-child,
   cursor: pointer;
   background: color-mix(in srgb, var(--accent) 70%, transparent);
 }
+
+/* Model / checkpoint inspector (ui/ModelView.tsx, W4) */
+.modelview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.modelview-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.modelview-fmt {
+  text-transform: uppercase;
+  letter-spacing: var(--track-body);
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.modelview-stat-v {
+  font-weight: 600;
+}
+.modelview-dtypes {
+  display: inline-flex;
+  gap: var(--spacing-s6);
+  flex-wrap: wrap;
+}
+.modelview-dtype {
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+}
+.modelview-card {
+  margin: var(--spacing-s8) var(--spacing-s12) 0;
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  flex: 0 0 auto;
+}
+.modelview-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
+}
+.modelview-family {
+  font-weight: 600;
+  font-size: var(--font-size-body-large);
+}
+.modelview-template {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+}
+.modelview-prov {
+  font-size: var(--font-size-caption);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.modelview-prov.config {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+.modelview-prov.tensors {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+}
+.modelview-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8) var(--spacing-s20);
+  margin-top: var(--spacing-s8);
+}
+.modelview-field {
+  display: flex;
+  flex-direction: column;
+}
+.modelview-field-v {
+  font-variant-numeric: tabular-nums;
+}
+.modelview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s6);
+  margin-top: var(--spacing-s8);
+}
+.modelview-chip {
+  font-size: var(--font-size-caption);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+}
+.modelview-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  margin-top: var(--spacing-s8);
+}
+.modelview-tree,
+.modelview-table {
+  background: var(--bg);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.modelview-tree {
+  flex: 0 0 42%;
+}
+.modelview-table {
+  flex: 1 1 auto;
+}
+.modelview-pane-head,
+.modelview-table-bar {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.modelview-table-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+}
+.modelview-filter {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  font-size: var(--font-size-body-small);
+}
+.modelview-tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.modelview-tnode {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 1px var(--spacing-s8) 1px 0;
+  cursor: default;
+  white-space: nowrap;
+}
+.modelview-tnode[role='button'] {
+  cursor: pointer;
+}
+.modelview-tnode[role='button']:hover {
+  background: var(--surface);
+}
+.modelview-tnode-dot {
+  width: 12px;
+  display: inline-block;
+}
+.modelview-tnode-key {
+  font-size: var(--font-size-body-small);
+}
+.modelview-tnode-params {
+  font-variant-numeric: tabular-nums;
+}
+.modelview-thead,
+.modelview-trow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 1px var(--spacing-s8);
+}
+.modelview-thead {
+  border-bottom: 1px solid var(--border);
+  padding-top: var(--spacing-s4);
+  padding-bottom: var(--spacing-s4);
+  flex: 0 0 auto;
+}
+.modelview-tbody {
+  flex: 1;
+  min-height: 0;
+}
+.modelview-tname {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-body-small);
+}
+.modelview-tdtype {
+  flex: 0 0 5rem;
+}
+.modelview-tshape {
+  flex: 0 0 8rem;
+  font-size: var(--font-size-body-small);
+}
+.modelview-tparams {
+  flex: 0 0 4.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

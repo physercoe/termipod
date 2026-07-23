@@ -683,3 +683,34 @@ test('inspect: the log index commands slice + search a file without slurping it 
     fs.rmSync(p, { force: true });
   }
 });
+
+test('inspect: checkpoint_inspect parses a safetensors header (W4)', async () => {
+  // A safetensors file = u64 LE header length + JSON header + tensor bytes. The
+  // parser reads only the header, so zero-padded data suffices.
+  const header = {
+    __metadata__: { format: 'pt' },
+    'model.layers.0.attn.weight': { dtype: 'F16', shape: [4, 4], data_offsets: [0, 32] },
+    'lm_head.weight': { dtype: 'F32', shape: [8, 4], data_offsets: [32, 160] },
+  };
+  const json = Buffer.from(JSON.stringify(header), 'utf8');
+  const len = Buffer.alloc(8);
+  len.writeBigUInt64LE(BigInt(json.length));
+  const p = path.join(os.tmpdir(), `tp-w4-${process.pid}.safetensors`);
+  fs.writeFileSync(p, Buffer.concat([len, json, Buffer.alloc(160)]));
+  try {
+    const info = await page.evaluate(
+      (fp) =>
+        window.__ELECTRON_BRIDGE__!.invoke<{ format: string; totalParams: number; tensorCount: number; tensors: Array<{ name: string }> }>(
+          'checkpoint_inspect',
+          { path: fp },
+        ),
+      p,
+    );
+    expect(info.format).toBe('safetensors');
+    expect(info.tensorCount).toBe(2);
+    expect(info.totalParams).toBe(16 + 32);
+    expect(info.tensors.map((x) => x.name)).toContain('lm_head.weight');
+  } finally {
+    fs.rmSync(p, { force: true });
+  }
+});

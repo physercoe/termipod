@@ -7,7 +7,7 @@ import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
 import { Modal } from '../ui/Modal';
 
-const STATUSES = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
+const STATUSES = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
 
 function msg(err: unknown): string {
@@ -108,6 +108,24 @@ export function TaskDetailBody({
     }
   }
 
+  // W2 review lifecycle: from in_review a human accepts (→done) or sends the
+  // work back to the assignee (→in_progress to re-engage). A one-click patch —
+  // no Save round-trip. (The send-back note into the assignee session is W5.)
+  async function review(target: string): Promise<void> {
+    if (client === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.patchTask(projectId, taskId, { status: target });
+      await qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+      onClose();
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <div className="admin-tabs">
@@ -117,6 +135,17 @@ export function TaskDetailBody({
       </div>
       <div className="admin-body">
         <div className="task-title">{str(task, 'title') ?? str(task, 'summary') ?? taskId}</div>
+
+        {(str(task, 'status') ?? 'todo') === 'in_review' && (
+          <div className="task-review-actions">
+            <button className="primary" disabled={busy} onClick={() => void review('done')}>
+              {t('task.accept')}
+            </button>
+            <button disabled={busy} onClick={() => void review('in_progress')}>
+              {t('task.sendBack')}
+            </button>
+          </div>
+        )}
 
         <div className="setting-row">
           <label>{t('task.assignee')}</label>

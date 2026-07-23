@@ -296,6 +296,7 @@ class _StateRow extends StatelessWidget {
     'todo',
     'in_progress',
     'blocked',
+    'in_review',
     'done',
     'cancelled',
   ];

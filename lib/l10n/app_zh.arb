@@ -1105,6 +1105,7 @@
   "taskStatusTodo": "待办",
   "taskStatusInProgress": "进行中",
   "taskStatusBlocked": "受阻",
+  "taskStatusInReview": "待评审",
   "taskStatusDone": "已完成",
   "taskPriorityLow": "低",
   "taskPriorityMed": "中",

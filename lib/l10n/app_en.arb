@@ -1295,6 +1295,7 @@
   "taskStatusTodo": "todo",
   "taskStatusInProgress": "in progress",
   "taskStatusBlocked": "blocked",
+  "taskStatusInReview": "in review",
   "taskStatusDone": "done",
   "taskPriorityLow": "low",
   "taskPriorityMed": "med",

@@ -1438,6 +1438,13 @@
   background: var(--text-muted);
 }
 
+/* W2 review actions — accept / send-back, shown when a task is in_review. */
+.task-review-actions {
+  display: flex;
+  gap: var(--spacing-s8);
+  margin: var(--spacing-s8) 0;
+}
+
 /* Rich task-detail rows (shared by modal + panel). */
 .task-assignee {
   display: flex;

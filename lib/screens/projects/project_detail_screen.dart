@@ -375,6 +375,7 @@ class _TasksViewState extends ConsumerState<_TasksView> {
     'todo',
     'in_progress',
     'blocked',
+    'in_review',
     'done',
     // #61: cancelled tasks are loaded under "All" but were neither grouped
     // nor filterable, so the count (all) and the list (cancelled hidden)
@@ -533,14 +534,30 @@ class _TasksViewState extends ConsumerState<_TasksView> {
     // #61: include 'cancelled' so every loaded task lands in a group — the
     // grouped list and the loaded set agree (no "4 loaded, 1 shown" gap).
     // Cancelled trails the active statuses; _TaskTile renders it struck-through.
-    const order = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
+    const order = [
+      'todo',
+      'in_progress',
+      'blocked',
+      'in_review',
+      'done',
+      'cancelled',
+    ];
     final byStatus = <String, List<Map<String, dynamic>>>{};
     for (final t in _tasks) {
       final s = (t['status'] ?? 'todo').toString();
       byStatus.putIfAbsent(s, () => []).add(t);
     }
+    // Known lifecycle order first, then any unknown status the hub emits that
+    // this build predates — appended so a task never drops out of the grouped
+    // list (the count-vs-list gap #61, now closed for every status, not just
+    // cancelled). During the W2 rollout an older app renders a hub's
+    // `in_review` tasks under their own trailing section instead of hiding them.
+    final renderOrder = <String>[
+      ...order,
+      ...byStatus.keys.where((s) => !order.contains(s)),
+    ];
     final children = <Widget>[];
-    for (final st in order) {
+    for (final st in renderOrder) {
       final group = byStatus[st];
       if (group == null || group.isEmpty) continue;
       children.add(_StatusSectionHeader(status: st, count: group.length));

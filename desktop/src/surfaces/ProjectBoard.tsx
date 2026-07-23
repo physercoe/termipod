@@ -15,7 +15,10 @@ import { PlanDetail } from './PlanDetail';
 import { RunDetail } from './RunDetail';
 import { TaskDetail, TaskDetailBody, firstLine, pipClass, relTime } from './TaskDetail';
 
-const COLUMNS = ['todo', 'in_progress', 'blocked', 'done', 'cancelled'];
+// W2: in_review sits between blocked and done — a worker hands off completed
+// work here (auto-derived on agent terminate with a result_summary); a human
+// then accepts → done or sends back → in_progress.
+const COLUMNS = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
 type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans' | 'criteria' | 'documents' | 'files' | 'activity';
 
@@ -624,6 +627,17 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 
   const tasks = tasksQ.data ?? [];
   const inColumn = (status: string): Entity[] => tasks.filter((task) => (str(task, 'status') ?? 'todo') === status);
+  // Unknown-status fallback: any status the client doesn't know (a hub that
+  // ships a new lifecycle state before this build does) gets its own trailing
+  // column instead of silently vanishing from the board — killing the
+  // count-vs-list drop class (#61) for good. During the W2 rollout this is what
+  // lets a hub already emitting `in_review` degrade gracefully on an older app.
+  const known = new Set(COLUMNS);
+  const extraStatuses = [
+    ...new Set(tasks.map((task) => str(task, 'status') ?? 'todo').filter((sv) => !known.has(sv))),
+  ];
+  const columns = [...COLUMNS, ...extraStatuses];
+  const columnLabel = (status: string): string => (known.has(status) ? t(`kanban.${status}`) : status);
   const selectedId = open !== null ? str(open, 'id') : null;
   // Render the detail from the freshest copy of the task: `open` is the
   // click-time snapshot, but tasksQ polls (8s) and the persistent panel must
@@ -636,12 +650,12 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 
   const board = (
     <div className="kanban">
-      {COLUMNS.map((status) => {
+      {columns.map((status) => {
         const items = inColumn(status);
         return (
           <div key={status} className="kanban-col">
             <div className="kanban-head">
-              {t(`kanban.${status}`)} <span className="pill">{items.length}</span>
+              {columnLabel(status)} <span className="pill">{items.length}</span>
             </div>
             {items.map((task) => (
               <TaskCard

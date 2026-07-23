@@ -337,6 +337,9 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
   const [{ nodes: initNodes, edges: initEdges }] = useState(() => boardToRf(initial));
   const [nodes, setNodes] = useState<RFNode[]>(initNodes);
   const [edges, setEdges] = useState<RFEdge[]>(initEdges);
+  // Top-level fields beyond nodes/edges (a future spec version's extras) ride
+  // along so every serialize writes them back — same policy as per-node `raw`.
+  const rootRef = useRef(initial.rawRoot);
 
   // Refs are the source of truth inside callbacks (no stale closures); state
   // drives the render.
@@ -356,12 +359,15 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
     return m;
   }, [references]);
 
-  const snapshot = useCallback((): string => serializeCanvas(rfToBoard(nodesRef.current, edgesRef.current)), []);
+  const snapshot = useCallback(
+    (): string => serializeCanvas({ ...rfToBoard(nodesRef.current, edgesRef.current), rawRoot: rootRef.current }),
+    [],
+  );
   const pushHistory = useCallback((): void => history.current.push(snapshot()), [snapshot]);
   const emit = useCallback(
     (ns: RFNode[], es: RFEdge[]): void => {
       if (readOnly) return;
-      onChangeRef.current(serializeCanvas(rfToBoard(ns, es)));
+      onChangeRef.current(serializeCanvas({ ...rfToBoard(ns, es), rawRoot: rootRef.current }));
     },
     [readOnly],
   );
@@ -383,16 +389,36 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
     [emit],
   );
 
+  // A change worth persisting: not a mere selection, and not a measurement-only
+  // `dimensions` event — React Flow measures every node's DOM after mount and
+  // reports it as a dimensions change with neither `setAttributes` nor
+  // `resizing`; emitting on those would rewrite (and dirty, #315-class) the body
+  // of every file-backed board on open. A real NodeResizer resize carries
+  // `resizing` (true while dragging, false at the end) and/or `setAttributes`.
+  const persistable = (c: NodeChange<RFNode>): boolean => {
+    if (c.type === 'select') return false;
+    if (c.type === 'dimensions' && c.setAttributes === undefined && c.resizing === undefined) return false;
+    return true;
+  };
+  // True while a NodeResizer drag is in flight — its start is the undoable step.
+  const resizingRef = useRef(false);
   const onNodesChange = useCallback(
     (changes: NodeChange<RFNode>[]): void => {
-      // A removal (delete-key / control) is a discrete undoable step.
+      // A removal (delete-key / control) is a discrete undoable step; so is the
+      // START of a resize drag (snapshot the pre-resize board once, not per tick).
       if (changes.some((c) => c.type === 'remove')) pushHistory();
+      for (const c of changes) {
+        if (c.type !== 'dimensions') continue;
+        if (c.resizing === true && !resizingRef.current) {
+          pushHistory();
+          resizingRef.current = true;
+        }
+        if (c.resizing === false) resizingRef.current = false;
+      }
       const next = applyNodeChanges(changes, nodesRef.current);
       nodesRef.current = next;
       setNodes(next);
-      // Selection isn't part of the serialized board — don't re-save (and dirty a
-      // file-backed doc) on a mere click.
-      if (changes.some((c) => c.type !== 'select')) emit(next, edgesRef.current);
+      if (changes.some(persistable)) emit(next, edgesRef.current);
     },
     [emit, pushHistory],
   );
@@ -531,7 +557,9 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
 
   const applyBoardString = useCallback(
     (s: string): void => {
-      const rfb = boardToRf(parseCanvas(s));
+      const b = parseCanvas(s);
+      rootRef.current = b.rawRoot; // undo/redo snapshots carry the extras too
+      const rfb = boardToRf(b);
       nodesRef.current = rfb.nodes;
       edgesRef.current = rfb.edges;
       setNodes(rfb.nodes);
@@ -600,7 +628,15 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
         <span className="spacer" />
         {readOnly && <span className="canvas-readonly muted small">{t('canvas.readOnlyNotice')}</span>}
         {nodes.length > 0 && !readOnly && (
-          <ConfirmButton danger label={t('canvas.clear')} onConfirm={() => applyBoardString(serializeCanvas({ nodes: [], edges: [] }))} />
+          <ConfirmButton
+            danger
+            label={t('canvas.clear')}
+            onConfirm={() => {
+              // Snapshot first — Clear is destructive and must be one undo away.
+              pushHistory();
+              applyBoardString(serializeCanvas({ nodes: [], edges: [], rawRoot: rootRef.current }));
+            }}
+          />
         )}
       </div>
 
@@ -646,7 +682,13 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
               onSetColor={setColor}
               onSetNote={setNoteText}
               onRemove={() => removeNode(selectedNode.id)}
-              onSelect={(id) => commitNodes(nodesRef.current.map((n) => ({ ...n, selected: n.id === id })))}
+              onSelect={(id) => {
+                // Selection is view state, not board content — update locally
+                // without emitting (an emit would rewrite + dirty the body).
+                const ns = nodesRef.current.map((n) => ({ ...n, selected: n.id === id }));
+                nodesRef.current = ns;
+                setNodes(ns);
+              }}
             />
           </aside>
         )}

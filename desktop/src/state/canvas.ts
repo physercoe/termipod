@@ -85,6 +85,10 @@ export interface Board {
   edges: CanvasEdge[];
   /// An unrecognized body opens read-only (never serialized back).
   readOnly?: boolean;
+  /// The parsed top-level object of a JSON Canvas body, so top-level fields
+  /// beyond `nodes`/`edges` (a future spec version, another app's extras)
+  /// survive a save the same way per-node/edge unknowns do via `raw`.
+  rawRoot?: Record<string, unknown>;
 }
 
 export const emptyBoard = (): Board => ({ nodes: [], edges: [] });
@@ -222,7 +226,7 @@ export function parseCanvas(body: string): Board {
     const edges = Array.isArray(data.edges)
       ? data.edges.filter(isObj).map(parseEdge).filter((e): e is CanvasEdge => e !== null)
       : [];
-    return { nodes, edges };
+    return { nodes, edges, rawRoot: data };
   }
   if (Array.isArray(data.cards)) return convertLegacy(data);
   return { nodes: [], edges: [], readOnly: true };
@@ -273,7 +277,9 @@ function serializeEdge(e: CanvasEdge): Record<string, unknown> {
 /// Canvas, so a legacy body or an Obsidian `.canvas` upgrades on first save;
 /// unknown fields/nodes carried in `raw` survive untouched.
 export function serializeCanvas(b: Board): string {
-  return JSON.stringify({ nodes: b.nodes.map(serializeNode), edges: b.edges.map(serializeEdge) });
+  // Spreading `rawRoot` first keeps unknown top-level fields; re-assigning
+  // `nodes`/`edges` after preserves their original key positions.
+  return JSON.stringify({ ...(b.rawRoot ?? {}), nodes: b.nodes.map(serializeNode), edges: b.edges.map(serializeEdge) });
 }
 
 /// A bounded undo/redo snapshot stack over serialized board strings — the editor

@@ -80,6 +80,20 @@ This complements:
   across restarts (localStorage).
 
 ### Fixed
+- **Canvas: opening a board no longer marks it dirty**: React Flow reports a
+  measurement-only `dimensions` change for every node right after mount; the
+  editor serialized on it, rewriting the body of any file-backed `.canvas` the
+  moment it opened (dirty ● with no edit — the Excalidraw #315-class bug).
+  Measurement events (and inspector backlink selection, which also re-emitted)
+  no longer persist; only real mutations do.
+- **Canvas: top-level JSON Canvas fields survive a round-trip**: unknown fields
+  *inside* nodes/edges were preserved, but unknown fields at the document's top
+  level (a future spec version's extras) were dropped by parse→serialize. The
+  parsed root object now rides along and every save writes it back.
+- **Canvas: resize and Clear are undoable**: a NodeResizer drag never pushed an
+  undo snapshot (Cmd/Ctrl+Z skipped straight past it), and Clear bypassed
+  history entirely — undo after Clear restored a stale board, losing the edits
+  since the last snapshotted mutation. Both now snapshot before mutating.
 - **Discover results survive a tab switch**: the Discover pane unmounts when you
   switch to Library mode or open a reader/web tab, which cleared the last search.
   The query + results now live in a module store, so returning to Discover

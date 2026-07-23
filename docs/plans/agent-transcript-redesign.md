@@ -57,7 +57,7 @@ types:
 | `agent_message_chunk`, `agent_thought_chunk` | ✓ text/thought, fold-in-place via `message_id` |
 | `tool_call`, `tool_call_update` | ✓ rows; desktop *hides* all updates (`feedLens.ts:50-57`) |
 | `plan` (todo entries + status) | ✓ mapped (`driver_acp.go:1539`) but renders as a **new snapshot card per update** |
-| `available_commands_update` | forwarded, tagged hidden system (`driver_acp.go:1546-1560`, comment reserves it "for a future slash-command picker") |
+| `available_commands_update` | synthesized into `session.init.slash_commands` as of P3 (#370); was forwarded, tagged hidden system |
 | `session/request_permission` (fired even under `--yolo`) | ✓ approval_request flow |
 | **NOT emitted:** usage/quota, subagent inner activity, background-task state | nothing to render |
 

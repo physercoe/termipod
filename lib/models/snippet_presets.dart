@@ -339,6 +339,44 @@ class SnippetPresets {
       Snippet(id: 'preset-cx-feedback', name: '/feedback', content: '/feedback', category: 'codex', sendImmediately: true),
       Snippet(id: 'preset-cx-logout', name: '/logout', content: '/logout', category: 'codex', sendImmediately: true),
     ],
+
+    // -----------------------------------------------------------------------
+    // Kimi Code — reference: live ACP available_commands_update catalog
+    // (kimi-code 0.28.1, probed 2026-07-23). The no-catalog fallback: when
+    // the engine streams its catalog the dynamic '/' strip wins (P3);
+    // these cover pane-spawned (M4) and pre-catalog sessions.
+    // -----------------------------------------------------------------------
+    ActionBarPresets.kimiCodeId: const [
+      // Conversation lifecycle
+      Snippet(
+        id: 'preset-kc-compact',
+        name: '/compact',
+        content: '/compact {{focus}}',
+        category: 'kimi-code',
+        sendImmediately: true,
+        variables: [
+          SnippetVariable(name: 'focus', hint: 'custom summarization instructions (optional)', optional: true),
+        ],
+      ),
+      Snippet(id: 'preset-kc-help', name: '/help', content: '/help', category: 'kimi-code', sendImmediately: true),
+
+      // Session state
+      Snippet(id: 'preset-kc-status', name: '/status', content: '/status', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-usage', name: '/usage', content: '/usage', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-tasks', name: '/tasks', content: '/tasks', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-mcp', name: '/mcp', content: '/mcp', category: 'kimi-code', sendImmediately: true),
+
+      // Skills surfaced as commands (kimi-code 0.28.1 catalog)
+      Snippet(id: 'preset-kc-update-config', name: '/update-config', content: '/update-config', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-mcp-config', name: '/mcp-config', content: '/mcp-config', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-write-goal', name: '/write-goal', content: '/write-goal', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-custom-theme', name: '/custom-theme', content: '/custom-theme', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-import', name: '/import-from-cc-codex', content: '/import-from-cc-codex', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-check-docs', name: '/check-kimi-code-docs', content: '/check-kimi-code-docs', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-sub-skill', name: '/sub-skill', content: '/sub-skill', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-sub-skill-review', name: '/sub-skill.review', content: '/sub-skill.review', category: 'kimi-code', sendImmediately: true),
+      Snippet(id: 'preset-kc-sub-skill-consolidate', name: '/sub-skill.consolidate', content: '/sub-skill.consolidate', category: 'kimi-code', sendImmediately: true),
+    ],
   };
 
   /// Human-readable category label for display.
@@ -346,6 +384,7 @@ class SnippetPresets {
     return switch (category) {
       'claude-code' => 'Claude Code',
       'codex' => 'Codex',
+      'kimi-code' => 'Kimi Code',
       'steward' => 'Steward',
       'general' => 'General',
       'tmux' => 'Tmux',

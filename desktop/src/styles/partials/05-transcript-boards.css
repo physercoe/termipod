@@ -910,6 +910,13 @@
 .mention-item:hover {
   background: var(--accent-tint);
 }
+/* P3 slash-command picker — reuses .mention-pop/.mention-item (same floating
+   pop idiom as the @ picker); the command name renders mono, kimi-web
+   SlashMenu style. No new chrome: hairline border + surface come from the
+   shared classes. */
+.slash-name {
+  font-family: var(--font-mono);
+}
 .companion-mentions {
   display: flex;
   flex-wrap: wrap;

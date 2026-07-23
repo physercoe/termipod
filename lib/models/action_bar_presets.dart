@@ -6,6 +6,7 @@ class ActionBarPresets {
 
   static const String claudeCodeId = 'claude-code';
   static const String codexId = 'codex';
+  static const String kimiCodeId = 'kimi-code';
   static const String generalTerminalId = 'general-terminal';
   static const String tmuxId = 'tmux';
   static const String vimId = 'vim';
@@ -18,6 +19,7 @@ class ActionBarPresets {
   static List<ActionBarProfile> get all => [
         claudeCode,
         codex,
+        kimiCode,
         generalTerminal,
         tmux,
         vim,
@@ -74,6 +76,7 @@ class ActionBarPresets {
     final cmd = currentCommand.toLowerCase();
     if (cmd.contains('claude')) return claudeCodeId;
     if (cmd.contains('codex')) return codexId;
+    if (cmd.contains('kimi')) return kimiCodeId;
     if (cmd == 'vi' || cmd == 'vim' || cmd == 'nvim' || cmd == 'neovim') {
       return vimId;
     }
@@ -162,6 +165,43 @@ class ActionBarPresets {
         ActionBarButton(id: 'cx-senter', label: 'S-Ent', type: ActionBarButtonType.shiftCombo, value: 'S-Enter'),
         ActionBarButton(id: 'cx-pgup', label: 'PgUp', type: ActionBarButtonType.specialKey, value: 'PPage'),
         ActionBarButton(id: 'cx-pgdn', label: 'PgDn', type: ActionBarButtonType.specialKey, value: 'NPage'),
+      ]),
+    ],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Kimi Code
+  // ---------------------------------------------------------------------------
+
+  static const kimiCode = ActionBarProfile(
+    id: kimiCodeId,
+    name: 'Kimi Code',
+    isBuiltIn: false,
+    groups: [
+      ActionBarGroup(id: 'kc-quick', name: 'Quick', buttons: [
+        ActionBarButton(id: 'kc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
+        ActionBarButton(id: 'kc-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape', longPressValue: 'Escape Escape'),
+        ActionBarButton(id: 'kc-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
+        ActionBarButton(id: 'kc-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
+        ActionBarButton(id: 'kc-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
+        ActionBarButton(id: 'kc-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
+      ]),
+      ActionBarGroup(id: 'kc-nav', name: 'Navigate', buttons: [
+        ActionBarButton(id: 'kc-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
+        ActionBarButton(id: 'kc-up', label: '↑', type: ActionBarButtonType.specialKey, value: 'Up', iconName: 'arrow_drop_up'),
+        ActionBarButton(id: 'kc-down', label: '↓', type: ActionBarButtonType.specialKey, value: 'Down', iconName: 'arrow_drop_down'),
+        ActionBarButton(id: 'kc-right', label: '→', type: ActionBarButtonType.specialKey, value: 'Right', iconName: 'arrow_right'),
+      ]),
+      ActionBarGroup(id: 'kc-ctrl', name: 'Ctrl', buttons: [
+        ActionBarButton(id: 'kc-cd', label: 'C-D', type: ActionBarButtonType.ctrlCombo, value: 'C-d'),
+        ActionBarButton(id: 'kc-cl', label: 'C-L', type: ActionBarButtonType.ctrlCombo, value: 'C-l'),
+        ActionBarButton(id: 'kc-ctrl-mod', label: 'CTRL', type: ActionBarButtonType.modifier, value: 'ctrl'),
+        ActionBarButton(id: 'kc-alt-mod', label: 'ALT', type: ActionBarButtonType.modifier, value: 'alt'),
+      ]),
+      ActionBarGroup(id: 'kc-edit', name: 'Edit', buttons: [
+        ActionBarButton(id: 'kc-senter', label: 'S-Ent', type: ActionBarButtonType.shiftCombo, value: 'S-Enter'),
+        ActionBarButton(id: 'kc-pgup', label: 'PgUp', type: ActionBarButtonType.specialKey, value: 'PPage'),
+        ActionBarButton(id: 'kc-pgdn', label: 'PgDn', type: ActionBarButtonType.specialKey, value: 'NPage'),
       ]),
     ],
   );

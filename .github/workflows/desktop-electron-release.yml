@@ -104,9 +104,15 @@ jobs:
             label: windows
             builder-flag: --win
     runs-on: ${{ matrix.platform }}
-    # A hung electron-builder (e.g. macOS signing-identity keychain probe) must
-    # fail fast with logs, not burn an hour.
-    timeout-minutes: 30
+    # 60 min: a signed+notarized macOS build is legitimately slow. osx-sign
+    # passes `--timestamp` to codesign for EVERY file in the bundle (required for
+    # notarization; sign.js:230-234), so each of ~150+ files makes a serial
+    # network round-trip to Apple's timestamp server, which throttles the shared
+    # runner IPs — signing alone ran ~25 min and blew the old 30-min cap before
+    # notarization even started. Linux/Windows still finish in minutes; the cap
+    # is only a ceiling. (An actual hang, e.g. a no-cert keychain probe, is
+    # guarded separately by CSC_IDENTITY_AUTO_DISCOVERY.)
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -244,7 +250,11 @@ jobs:
         run: npx electron-builder ${{ matrix.builder-flag }} --publish never
         env:
           # Verbose so a hang leaves a diagnostic trail before the job timeout.
-          DEBUG: electron-builder
+          # Include the electron-osx-sign namespace so per-file codesign +
+          # notarytool progress is visible (osx-sign logs under its own `debug`
+          # namespace — with only `electron-builder` the signing phase looks
+          # silent even while it churns through per-file timestamp calls).
+          DEBUG: electron-builder,electron-osx-sign
           # NOTE: CSC_IDENTITY_AUTO_DISCOVERY is NOT set here on purpose — it is
           # exported via $GITHUB_ENV by the "Configure signing" step above (true
           # when a macOS cert is present so signing actually runs, false when

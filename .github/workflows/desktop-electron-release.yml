@@ -129,9 +129,16 @@ jobs:
           path: desktop/vault-wasm/pkg
 
       # Frontend build (the app:// payload — extraResource under Resources/dist).
+      # NODE_OPTIONS raises V8's old-space cap: the macos-latest arm64 runner has
+      # only ~7 GB RAM, so Node auto-sizes the heap to ~2 GB and `vite build`
+      # OOMs (exit 134) — the 16 GB Linux runner auto-sizes to ~4 GB and clears
+      # it. Set on the CI step, NOT the repo build script (which stays default so
+      # low-RAM dev hosts opt in explicitly).
       - name: Build frontend
         working-directory: desktop
         run: npm ci && npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
 
       # Electron shell: install (WITH the electron binary — packaging needs it),
       # esbuild main+preload, then package. electron-builder ABI-rebuilds the

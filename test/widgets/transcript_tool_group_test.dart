@@ -18,6 +18,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:termipod/widgets/live_feed.dart';
+import 'package:termipod/widgets/transcript/fold_maps.dart';
 
 Map<String, dynamic> _ev(String kind,
         {Map<String, dynamic>? payload, int? seq}) =>
@@ -338,6 +339,54 @@ void main() {
 
     test('no lineage at all reads pending', () {
       expect(toolCallDisplayStatus({'id': 't1'}, null, null), 'pending');
+    });
+  });
+
+  group('log-tail claude-code shape — call id under tool_use_id only', () {
+    // The local-log-tail claude-code mapper writes the call id as
+    // `tool_use_id` with NO `id` key (mapper.go `tool_use` arm), while
+    // results key on the same value. Pairing must go through
+    // `callToolIdOf` (fold_maps.dart) — reading `payload['id']` alone
+    // leaves every such group row "running" forever. Desktop parity:
+    // toolGroups.ts `callToolId`.
+    Map<String, dynamic> logTailCall(String id, {int? seq}) =>
+        _ev('tool_call',
+            seq: seq, payload: {'tool_use_id': id, 'name': 'Bash'});
+    ToolCallGroup groupOf(List<Map<String, dynamic>> events) =>
+        ToolCallGroup(events);
+
+    test('a resolved result reads done, not running-forever', () {
+      final results = _results('toolu_1', {'is_error': false});
+      expect(
+          toolCallRowState(logTailCall('toolu_1'), results, noUpdates),
+          ToolGroupState.done);
+    });
+
+    test('an error result classifies the row error', () {
+      final results = _results('toolu_1', {'is_error': true});
+      expect(
+          toolCallRowState(logTailCall('toolu_1'), results, noUpdates),
+          ToolGroupState.error);
+    });
+
+    test('the group aggregate resolves once every log-tail call pairs',
+        () {
+      final results = {
+        ..._results('toolu_1', {'is_error': false}),
+        ..._results('toolu_2', {'is_error': false}),
+      };
+      final group = groupOf([
+        logTailCall('toolu_1', seq: 1),
+        logTailCall('toolu_2', seq: 2),
+      ]);
+      expect(toolCallGroupState(group, results, noUpdates),
+          ToolGroupState.done);
+    });
+
+    test('FoldMaps names a log-tail call so the update hide-rule pairs',
+        () {
+      final maps = FoldMaps.fromEvents([logTailCall('toolu_1')]);
+      expect(maps.toolNames['toolu_1'], 'Bash');
     });
   });
 }

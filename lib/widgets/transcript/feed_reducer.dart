@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/design_colors.dart';
+import 'fold_maps.dart' show callToolIdOf;
 
 /// True when the event payload carries the `replay: true` flag the M1
 /// driver stamps on session/update notifications streamed inside a
@@ -1015,7 +1016,9 @@ bool agentEventIsError(
     return p is Map && p['is_error'] == true;
   }
   if (kind == 'tool_call') {
-    final id = p is Map ? (p['id'] ?? p['toolCallId'] ?? '').toString() : '';
+    // callToolIdOf, not p['id'] — the log-tail claude-code mapper writes the
+    // call id as tool_use_id only, and the pairing maps key on that value.
+    final id = p is Map ? callToolIdOf(p) : '';
     if (id.isEmpty) return false;
     final res = toolResults[id];
     if (res != null) {
@@ -1443,7 +1446,7 @@ ToolGroupState toolCallRowState(
   }
   final p = callEvent['payload'];
   final payload = p is Map ? p.cast<String, dynamic>() : <String, dynamic>{};
-  final id = (payload['id'] ?? payload['toolCallId'] ?? '').toString();
+  final id = callToolIdOf(payload);
   final resEvent = id.isNotEmpty ? toolResults[id] : null;
   final rp = resEvent != null && resEvent['payload'] is Map
       ? (resEvent['payload'] as Map).cast<String, dynamic>()

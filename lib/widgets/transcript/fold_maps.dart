@@ -8,6 +8,17 @@
 /// `_events`); the behaviour is byte-identical, only its home changed.
 library;
 
+/// The call-side tool id of a `tool_call` payload: prefer `tool_use_id`
+/// (what the claude-code log-tail mapper writes — mapper.go `tool_use` arm),
+/// then `id` (the live stdio / ACP drivers), then `toolCallId`. Desktop
+/// parity: toolGroups.ts `callToolId`. Results key on `tool_use_id` and
+/// updates on `toolCallId` — the SAME underlying id under different names —
+/// so without the first arm a log-tailed claude-code session never pairs its
+/// calls: names, folded status, error classification and group rows all miss.
+String callToolIdOf(Map<dynamic, dynamic> payload) =>
+    (payload['tool_use_id'] ?? payload['id'] ?? payload['toolCallId'] ?? '')
+        .toString();
+
 class FoldMaps {
   /// tool_call `id` → tool name, so a tool_result card can show
   /// "tool: git_log" in its header instead of a bare id. Only `tool_call`
@@ -49,7 +60,7 @@ class FoldMaps {
       final p = e['payload'];
       if (p is! Map) continue;
       if (kind == 'tool_call') {
-        final id = p['id']?.toString() ?? '';
+        final id = callToolIdOf(p);
         final name = p['name']?.toString() ?? '';
         if (id.isNotEmpty && name.isNotEmpty) toolNames[id] = name;
       } else if (kind == 'tool_call_update') {

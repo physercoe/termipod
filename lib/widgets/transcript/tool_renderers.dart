@@ -17,6 +17,7 @@ import '../../theme/tokens.dart';
 import '../app_chip.dart';
 import 'feed_reducer.dart';
 import 'feed_render.dart';
+import 'fold_maps.dart' show callToolIdOf;
 
 // Tool-name → glyph map for the tool_call card header strip. Keeps the
 // transcript scannable: a wall of identical "tool_call" labels reads
@@ -249,7 +250,31 @@ class ToolCallGroupCard extends StatefulWidget {
 class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
   // User opt-in collapse (see the class doc). Default EXPANDED — the
   // group's whole point is glanceable rows without a first tap.
+  // Persisted in the route's PageStorage bucket: widget-local State is
+  // disposed when the ListView recycles the row off-screen, which would
+  // silently re-expand a collapsed group on scroll-back. Desktop hoists
+  // the same state for the same reason (AgentTranscript
+  // `collapsedGroups`, keyed `grp:<first-call-id>`).
   bool _collapsed = false;
+
+  // Stable per-group storage identity — the run's anchor seq, the same
+  // value the list keys the card by (`tool-group-<anchorSeq>`).
+  String get _storageId =>
+      'tool-group-collapsed-${(widget.group.events.first['seq'] as num?)?.toInt() ?? 0}';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final saved =
+        PageStorage.maybeOf(context)?.readState(context, identifier: _storageId);
+    if (saved is bool) _collapsed = saved;
+  }
+
+  void _toggleCollapsed() {
+    setState(() => _collapsed = !_collapsed);
+    PageStorage.maybeOf(context)
+        ?.writeState(context, _collapsed, identifier: _storageId);
+  }
 
   // Per-row expansion overrides keyed by tool id (or a positional
   // fallback for id-less calls). A missing entry means "default":
@@ -306,7 +331,7 @@ class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
           // so the tap target is the entire strip (kimi-web pins scroll
           // on toggle; our ListView keeps position by key instead).
           InkWell(
-            onTap: () => setState(() => _collapsed = !_collapsed),
+            onTap: _toggleCollapsed,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(
@@ -387,7 +412,7 @@ class _ToolCallGroupCardState extends State<ToolCallGroupCard> {
         ? (e['payload'] as Map).cast<String, dynamic>()
         : <String, dynamic>{};
     final name = (p['name'] ?? p['tool'] ?? '?').toString();
-    final id = (p['id'] ?? '').toString();
+    final id = callToolIdOf(p);
     final input = p['input'];
     final update = id.isNotEmpty ? widget.toolUpdates[id] : null;
     final resEvent = id.isNotEmpty ? widget.toolResults[id] : null;

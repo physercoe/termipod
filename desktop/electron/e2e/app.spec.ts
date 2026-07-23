@@ -673,6 +673,29 @@ test('inspect: a pasted DOT graph renders to SVG via the wasm engine (graph)', a
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
 
+test('inspect: the Trace model graph form opens and Detect round-trips the interpreter', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  const editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  // Make it a Python tab so the "Trace model graph" affordance appears.
+  await page.locator('.inspect-runbar .surface-select').selectOption('python');
+  await editor.click({ force: true });
+  await page.keyboard.type('class Model:\n    pass');
+  // Open the trace form.
+  await page.getByRole('button', { name: 'Trace model graph' }).click();
+  await expect(page.locator('.trace-modal')).toBeVisible();
+  // The interpreter defaults to python3; Detect probes it for torch/torchview.
+  // The runner has python3 but not torch → the probe round-trips to an error;
+  // either outcome (ok/err) proves the trace_run IPC path works end-to-end.
+  await page.getByRole('button', { name: 'Detect', exact: true }).click();
+  await expect(page.locator('.trace-ok, .trace-err')).toBeVisible({ timeout: 25000 });
+  // Close the modal (backdrop click) and the tab.
+  await page.locator('.inspect-modal-backdrop').click({ position: { x: 5, y: 5 } });
+  await expect(page.locator('.trace-modal')).toHaveCount(0);
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});
+
 test('inspect: the log index commands slice + search a file without slurping it (W3)', async () => {
   // Exercise the main-process line index directly through the bridge — the
   // no-whole-file-read path LogView's IndexedLogModel drives.

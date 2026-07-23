@@ -48,7 +48,7 @@ Posture column is from [research-tooling-landscape.md](../discussions/research-t
 |---|---|---|---|
 | **J1 Read** | EMBED | dual-pane: hub `Document` (or pasted Markdown) rendered ↔ device-local notes keyed by source | EMBED Semantic Reader / PaperCraft (real PDF/HTML paper reading + annotation) |
 | **J2 Author** | EMBED | split Markdown editor + live preview (KaTeX + highlight.js, offline) | EMBED BlockNote (block editor + Yjs collab) + INTEGRATE Quarto/Typst export |
-| **J3 Debug** | EMBED | paste code/logs → syntax-highlighted view + line count | EMBED Monaco (+ MonacoDiffEditor, `file:line` jumps, fast huge-log scroll) |
+| **J3 Debug** | EMBED | paste code/logs → syntax-highlighted view + line count | EMBED CodeMirror 6 (CodeView + `@codemirror/merge` diffs, `file:line` jumps, indexed huge-log viewer) — Monaco superseded by [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md) §1 |
 | **J4 Canvas** | BUILD | **native** pan/zoom canvas: note & reference cards (wired to the J1 library), typed edges, inspector with backlinks | richer selection/routing, board persistence to the hub; optional tldraw embed if the native surface hits a ceiling |
 | **J5 Compare** | **BUILD** | project → multi-select runs → per-metric overlay charts + final-value table, live-polled | + config-diff panel; EMBED optuna-dashboard sweep panel |
 | **J6 Record** | BUILD | ADR-shaped capture (title/context/decision/consequences) → Markdown, device-local log | link records to the runs that justify them (provenance on hub `Deliverable`); share J2 editor |
@@ -99,7 +99,8 @@ shippable wedge and install-feedback round:
    references and the dependency is heavy; the native surface is ~10 kB and
    frontend-only. A tldraw embed stays a fallback only if the native canvas hits
    a ceiling (freehand ink, complex routing).
-4. **J3 Debug** — EMBED Monaco + MonacoDiffEditor.
+4. **J3 Debug** — ~~EMBED Monaco + MonacoDiffEditor~~ superseded: the Inspect
+   rebuild shipped CM6-only ([debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md) §1).
 5. **J6 provenance** — link records to runs; share the J2 editor.
 
 Each dep-adding round is isolated so a single `cargo`/`vite` regression can't

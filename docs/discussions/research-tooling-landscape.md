@@ -67,7 +67,7 @@ today, and our default posture. Stages are simultaneous in practice, not linear.
 | 7 | **Run / compute** training + eval | dispatch | Slurm, Ray, dstack, Modal, SkyPilot | INTEGRATE (adapters) |
 | 8 | **Track / observe** metrics live | J5 | W&B, MLflow, Aim, TensorBoard | BUILD (on hub data) |
 | 9 | **Compare** runs / sweeps | J5 | W&B comparison view, optuna-dashboard | **BUILD** (+ EMBED sweep panel) |
-| 10 | **Debug** code + models (NaNs, spikes) | J3 | Monaco/CodeMirror, Perfetto | EMBED |
+| 10 | **Debug** code + models (NaNs, spikes) | J3 | CodeMirror 6 (Monaco superseded — [debug plan](../plans/debug-code-logs-diffs-models.md) §1), Perfetto | EMBED |
 | 11 | **Visualize** figures / dashboards | J5, J2 | Plotly, Vega-Lite, ECharts, Observable | EMBED |
 | 12 | **Trace / audit** agent sessions | J7 | Phoenix, Langfuse, Grafana/Tempo (OTLP) | INTEGRATE + BUILD |
 | 13 | **Write / synthesize** reports, slides | J2 | Tiptap/BlockNote, Quarto, Typst, Slidev | EMBED + INTEGRATE |
@@ -119,8 +119,8 @@ canvas (no embeddable product exists) is **built on tldraw**.
 
 | Component | OSS | Emb? | Use | Posture |
 |---|---|---|---|---|
-| **Monaco** (MIT) | yes | ✓ | primary code + diff pane (`MonacoDiffEditor` free) | **EMBED** |
-| **CodeMirror 6 + Lezer** (MIT) | yes | ✓ | lightweight read-only highlight, log annotation (~50 kB) | **EMBED** |
+| **Monaco** (MIT) | yes | ✓ | primary code + diff pane (`MonacoDiffEditor` free) | ~~EMBED~~ **DROPPED** — J3 shipped CM6-only ([debug plan](../plans/debug-code-logs-diffs-models.md) §1) |
+| **CodeMirror 6 + Lezer** (MIT) | yes | ✓ | the J3 code/diff/merge pane AND lightweight highlight (~50 kB core) | **EMBED** |
 | **git-diff-view** (MIT) | yes | ✓ | GitHub-style patch rendering, off-thread for big diffs | **EMBED** |
 | **xterm.js** (MIT) | yes | ✓ | terminal / log stream (already in stack) | **EMBED** |
 | **marimo** (Apache-2) | yes | ✓ (WASM export) | reactive `.py` notebook; session-replay artifact | **EMBED/INTEROP** |
@@ -132,7 +132,10 @@ canvas (no embeddable product exists) is **built on tldraw**.
 
 **Findings.** (a) **Monaco + CodeMirror is the decisive pairing** — Monaco for
 the primary code/diff pane (IntelliSense, built-in diff), CodeMirror6 for
-lightweight read surfaces (log lines, event-card snippets, mobile-safe). (b)
+lightweight read surfaces (log lines, event-card snippets, mobile-safe).
+*(Update 2026-07: superseded — the J3 Inspect rebuild is CM6-only; a read-first
+inspector never needs IntelliSense, and one editor stack beats two. See
+[debug plan](../plans/debug-code-logs-diffs-models.md) §1.)* (b)
 Diff, terminal, and huge-log rendering are all solved components — embed, don't
 build. (c) The **reactive-notebook shift** (marimo DAG, Observable) is the right
 model for the "record of a directed session": emit a marimo `.py` per closed run
@@ -301,7 +304,7 @@ The whole lifecycle, one table — what to do per capability.
 | Reference management | **INTEGRATE** | Zotero REST API v3 as the store |
 | Grounded doc Q&A | **BUILD** | over our agents/corpus (NotebookLM pattern), cite-back to References tile |
 | Ideation canvas | **BUILD** | on **tldraw** (papers/notes as typed-edge cards; backlink resurfacing) |
-| Code / diff pane | **EMBED** | **Monaco** (+ `MonacoDiffEditor`) |
+| Code / diff pane | **EMBED** | **CodeMirror 6** (+ `@codemirror/merge`, `@git-diff-view`; Monaco superseded — [debug plan](../plans/debug-code-logs-diffs-models.md) §1) |
 | Log / snippet highlight | **EMBED** | **CodeMirror 6 + Lezer**; git-diff-view; xterm.js |
 | Session-replay artifact | **EMBED** | **marimo** WASM export per closed run |
 | Coding agents | **INTEROP** | MCP/spawn (Claude Code already in use) |

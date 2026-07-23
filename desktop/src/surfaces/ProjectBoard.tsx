@@ -618,7 +618,12 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const tasks = tasksQ.data ?? [];
   const inColumn = (status: string): Entity[] => tasks.filter((task) => (str(task, 'status') ?? 'todo') === status);
   const selectedId = open !== null ? str(open, 'id') : null;
-  const showPanel = wide && open !== null;
+  // Render the detail from the freshest copy of the task: `open` is the
+  // click-time snapshot, but tasksQ polls (8s) and the persistent panel must
+  // track live assignee status / result_summary like the cards do. Snapshot
+  // stays as a fallback so the panel survives the task dropping off the list.
+  const selected = open !== null ? tasks.find((task) => str(task, 'id') === selectedId) ?? open : null;
+  const showPanel = wide && selected !== null;
 
   const board = (
     <div className="kanban">
@@ -654,13 +659,21 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
         <div className="kanban-split">
           {board}
           <aside className="task-panel">
-            <TaskDetailBody projectId={projectId} task={open!} onClose={() => setOpen(null)} />
+            {/* key: the panel swaps tasks in place (no unmount, unlike the
+                modal), and TaskDetailBody seeds picker state from props — a
+                remount per task keeps task A's edits from saving onto task B. */}
+            <TaskDetailBody
+              key={selectedId ?? undefined}
+              projectId={projectId}
+              task={selected!}
+              onClose={() => setOpen(null)}
+            />
           </aside>
         </div>
       ) : (
         board
       )}
-      {open !== null && !wide && <TaskDetail projectId={projectId} task={open} onClose={() => setOpen(null)} />}
+      {selected !== null && !wide && <TaskDetail projectId={projectId} task={selected} onClose={() => setOpen(null)} />}
       {creating && <NewTaskForm projectId={projectId} onDone={() => setCreating(false)} />}
     </>
   );

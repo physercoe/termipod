@@ -195,7 +195,9 @@ unchanged.
 - **W1 — Desktop master-detail + rich cards + stretchy columns.** Surfaces:
   `ProjectBoard.tsx` (TasksTab split), `TaskDetail.tsx` (panel-ize + full
   content), `05-transcript-boards.css` (column flex, card styles). The
-  visible widescreen win. Desktop-only; no hub change.
+  visible widescreen win. Desktop-only; no hub change. SHIPPED `0e4085fa`
+  with a fixed 360px panel — decision 6.4 (user-resizable split, tri-pane
+  ≥1600px) is DEFERRED to a follow-up wedge (maintainer, 2026-07-23).
 - **W2 — `in_review` lifecycle end-to-end.** Hub — there is **no schema
   migration**: task status has no CHECK constraint (`handlers_tasks.go:24`);
   the vocabulary lives in handlers, and W2's real hub surface is:

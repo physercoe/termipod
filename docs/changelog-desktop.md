@@ -66,6 +66,16 @@ This complements:
   active tab against another open tab or any file (workspace / SFTP / hub /
   local) in an editor-grade side-by-side merge with collapsed unchanged regions
   and bounded-cost diffing (`@codemirror/merge`).
+- **Inspect logs — W3.** A **virtualized ANSI log viewer** built for 100 MB+
+  training/CI logs (its own lazy chunk — react-virtuoso + anser). A local `.log`
+  file is read through a **main-process line index** (`log_open`/`slice`/`search`
+  /`stat`/`close`) that does fd reads and never slurps the whole file over IPC;
+  a pasted log (a scratch that sniffs as one offers **View as log**) or a remote/
+  hub slice renders from memory through the same UI. Features: **follow/tail**
+  mode, an **error/warn quick-filter**, **regex search** with a hit rail +
+  prev/next, and a **step/epoch marker** jump list. ANSI colours re-map onto the
+  theme's terminal tokens (256-palette/truecolour pass through). Model tabs still
+  show a "coming next" placard (W4).
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

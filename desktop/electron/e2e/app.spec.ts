@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -607,4 +609,77 @@ test('inspect: comparing two open tabs mounts the merge view (W2)', async () => 
   // The @codemirror/merge view mounts (its own lazy chunk).
   await expect(page.locator('.compare-host .cm-mergeView')).toBeVisible({ timeout: 15000 });
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});
+
+test('inspect: a pasted log renders the virtualized log viewer, filters and searches (W3)', async () => {
+  await dismissConnectModal();
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  const editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  await editor.click({ force: true });
+  await editor.focus();
+  // A log-shaped paste (level words + step/epoch markers) so `looksLikeLog` fires
+  // and "View as log" appears. NO line starts with whitespace — a plain scratch's
+  // newline command copies the previous line's indent (the W2 auto-indent trap).
+  await page.keyboard.type(
+    [
+      '2026-07-23 10:00:00 INFO starting run',
+      'epoch 1 step 100 loss=2.30',
+      'epoch 1 step 200 loss=1.90',
+      'WARN gpu memory high',
+      'epoch 2 step 300 loss=1.20',
+      'ERROR nan encountered',
+      'done',
+    ].join('\n'),
+  );
+  // The content sniffs as a log → the "View as log" affordance appears.
+  await page.getByRole('button', { name: 'View as log' }).click();
+  // The virtualized viewer mounts (its own lazy chunk — react-virtuoso + anser).
+  await expect(page.locator('.logview')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.logview-row').first()).toBeVisible();
+  await expect(page.locator('.logview-count')).toContainText('7');
+
+  // Regex search over the whole log: three lines carry "epoch".
+  await page.locator('.logview-input').fill('epoch');
+  await expect(page.locator('.logview-hitn')).toContainText('1/3');
+  await page.locator('.logview-input').fill('');
+
+  // Error/warn quick-filter narrows the view to the WARN + ERROR lines (2).
+  await page.locator('.logview-btn', { hasText: 'Warn/Err' }).click();
+  await expect(page.locator('.logview-count')).toContainText('matching');
+  await expect(page.locator('.logview-count')).toContainText('2');
+
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});
+
+test('inspect: the log index commands slice + search a file without slurping it (W3)', async () => {
+  // Exercise the main-process line index directly through the bridge — the
+  // no-whole-file-read path LogView's IndexedLogModel drives.
+  const p = path.join(os.tmpdir(), `tp-w3-${process.pid}.log`);
+  fs.writeFileSync(p, 'boot\nWARN low disk\ninfo tick\nERROR boom\nbye\n');
+  try {
+    const opened = await page.evaluate(
+      (fp) => window.__ELECTRON_BRIDGE__!.invoke<{ id: string; size: number; lines: number }>('log_open', { path: fp }),
+      p,
+    );
+    expect(opened.lines).toBe(5);
+    expect(opened.id).toMatch(/^log\d+$/);
+
+    const sl = await page.evaluate(
+      (id) => window.__ELECTRON_BRIDGE__!.invoke<{ lines: string[] }>('log_slice', { id, from: 1, count: 1 }),
+      opened.id,
+    );
+    expect(sl.lines).toEqual(['WARN low disk']);
+
+    const se = await page.evaluate(
+      (id) => window.__ELECTRON_BRIDGE__!.invoke<{ hits: Array<{ line: number }> }>('log_search', { id, pattern: 'WARN|ERROR', flags: 'i', max: 10 }),
+      opened.id,
+    );
+    expect(se.hits.map((h) => h.line)).toEqual([1, 3]);
+
+    await page.evaluate((id) => window.__ELECTRON_BRIDGE__!.invoke('log_close', { id }), opened.id);
+  } finally {
+    fs.rmSync(p, { force: true });
+  }
 });

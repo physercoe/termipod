@@ -1453,3 +1453,140 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s12);
 }
+
+/* Log viewer (ui/LogView.tsx, W3) — virtualized ANSI log over a windowed cache */
+.inspect-logwrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.logview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.logview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.logview-count {
+  white-space: nowrap;
+}
+.logview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  font-size: var(--font-size-body-small);
+  cursor: pointer;
+}
+.logview-btn.on {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.logview-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--spacing-s6);
+  background: var(--surface);
+}
+.logview-input {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) 0;
+  width: 14ch;
+  outline: none;
+}
+.logview-hitn {
+  white-space: nowrap;
+}
+.logview-markwrap {
+  position: relative;
+  display: inline-flex;
+}
+.logview-markmenu {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.logview-mark-ln {
+  display: inline-block;
+  min-width: 5ch;
+  text-align: right;
+  margin-right: var(--spacing-s6);
+  font-variant-numeric: tabular-nums;
+}
+.logview-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.logview-list {
+  flex: 1;
+  min-height: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-small);
+  line-height: 1.5;
+}
+.logview-row {
+  display: flex;
+  gap: var(--spacing-s8);
+  padding: 0 var(--spacing-s8);
+  white-space: pre;
+}
+.logview-row.wrap .logview-txt {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.logview-row.hit {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.logview-ln {
+  flex: 0 0 auto;
+  min-width: 5ch;
+  text-align: right;
+  color: var(--text-muted);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.logview-txt {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.logview-pending {
+  color: var(--text-muted);
+}
+.logview-rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+}
+.logview-tick {
+  position: absolute;
+  right: 1px;
+  width: 8px;
+  height: 2px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}

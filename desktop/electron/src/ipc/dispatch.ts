@@ -15,6 +15,7 @@ import type { BrowserWindow, WebContents } from 'electron';
 import { platformHandlers } from './platform';
 import { migrationHandlers } from './migration';
 import { docfileHandlers } from './docfile';
+import { logfileHandlers } from './logfile';
 import { localfsHandlers } from './localfs';
 import { workspaceHandlers } from './workspace';
 import { storageHandlers } from './storage';
@@ -44,6 +45,7 @@ const handlers: Record<string, Handler> = {
   ...platformHandlers,
   ...migrationHandlers,
   ...docfileHandlers,
+  ...logfileHandlers,
   ...localfsHandlers,
   ...workspaceHandlers,
   ...storageHandlers,

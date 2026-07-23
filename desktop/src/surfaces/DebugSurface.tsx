@@ -12,8 +12,10 @@ import { useSession } from '../state/session';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { parseTrace, type ParsedTrace, type TraceFrame } from '../state/stackTrace';
 import { looksLikePatch } from '../state/patch';
+import { looksLikeLog } from '../state/ansi';
 import { extractSymbols, SUPPORTED_LANGS, type CodeSymbol } from '../state/treeSitter';
 import { CodeOutline } from '../ui/CodeOutline';
+import type { LogSource } from '../ui/LogView';
 import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
@@ -23,6 +25,9 @@ const CodeView = lazy(() => import('../ui/CodeView').then((m) => ({ default: m.C
 // never touch the boot bundle), loaded the first time a diff / compare tab shows.
 const PatchDiffView = lazy(() => import('../ui/PatchDiffView').then((m) => ({ default: m.PatchDiffView })));
 const TwoBlobCompare = lazy(() => import('../ui/TwoBlobCompare').then((m) => ({ default: m.TwoBlobCompare })));
+// W3 — the virtualized log viewer (react-virtuoso + anser) rides its own lazy
+// chunk, loaded the first time a log tab renders.
+const LogView = lazy(() => import('../ui/LogView').then((m) => ({ default: m.LogView })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -248,7 +253,8 @@ function CodeTab({
     );
 
   const isPatch = looksLikePatch(body);
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch;
+  const isLog = !isPatch && looksLikeLog(body);
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -270,6 +276,11 @@ function CodeTab({
           {isPatch && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'diff')}>
               <Icon name="git-compare" size={14} /> {t('inspect.viewAsDiff')}
+            </button>
+          )}
+          {isLog && (
+            <button className="import-btn" onClick={() => setKind(tab.id, 'log')}>
+              <Icon name="list-ordered" size={14} /> {t('inspect.viewAsLog')}
             </button>
           )}
           {interp !== null && (
@@ -384,6 +395,71 @@ function DiffTab({ tab }: { tab: InspectTab }): JSX.Element {
     <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
       <PatchDiffView patch={content ?? ''} onViewSource={tab.source === 'paste' ? () => setKind(tab.id, 'code') : undefined} />
     </Suspense>
+  );
+}
+
+// ── log tab (W3) ──────────────────────────────────────────────────────────────
+// A **local** file is read through the main-process line index (never slurped
+// into the store — the plan's IPC discipline); every other source (paste /
+// workspace / remote / hub) renders from an in-memory string via `readSource`,
+// mirroring the code tab's lazy read.
+function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const loading = useInspect((s) => s.loading[tab.id]);
+  const error = useInspect((s) => s.error[tab.id]);
+  const setContent = useInspect((s) => s.setContent);
+  const setLoading = useInspect((s) => s.setLoading);
+  const setError = useInspect((s) => s.setError);
+  const setKind = useInspect((s) => s.setKind);
+  const indexMode = isShell() && tab.source === 'local' && tab.path !== undefined;
+
+  useEffect(() => {
+    if (indexMode || tab.source === 'paste' || content !== undefined || loading === true) return;
+    let cancelled = false;
+    setLoading(tab.id, true);
+    setError(tab.id, undefined);
+    void (async () => {
+      try {
+        const body = await readSource(tab);
+        if (!cancelled) setContent(tab.id, body);
+      } catch (e) {
+        if (!cancelled) setError(tab.id, e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(tab.id, false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  if (error !== undefined)
+    return (
+      <div className="inspect-error region-pad">
+        <Icon name="alert" size={16} /> {error}
+      </div>
+    );
+  if (!indexMode && content === undefined && tab.source !== 'paste') return <div className="muted region-pad">{t('inspect.loading')}</div>;
+
+  const source: LogSource = indexMode ? { kind: 'index', path: tab.path! } : { kind: 'memory', text: content ?? '' };
+  return (
+    <div className="inspect-tabbody">
+      {tab.source === 'paste' && (
+        <div className="inspect-runbar">
+          <span className="spacer" />
+          <button className="import-btn" onClick={() => setKind(tab.id, 'code')}>
+            <Icon name="code" size={14} /> {t('inspect.viewSource')}
+          </button>
+        </div>
+      )}
+      <div className="inspect-logwrap">
+        <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+          <LogView source={source} />
+        </Suspense>
+      </div>
+    </div>
   );
 }
 
@@ -646,6 +722,8 @@ export function DebugSurface(): JSX.Element {
             />
           ) : active.kind === 'diff' ? (
             <DiffTab key={active.id} tab={active} />
+          ) : active.kind === 'log' ? (
+            <LogTab key={active.id} tab={active} />
           ) : (
             <WedgePlaceholder kind={active.kind} />
           )}

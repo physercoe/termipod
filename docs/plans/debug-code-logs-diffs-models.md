@@ -1,20 +1,23 @@
 # Inspect tab (né Debug) — code, logs, diffs & model inspectors (J3 round 2)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-23) — **W1 (+ sources + tree-sitter outline)
-> and W2 (diffs) SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6,
+> **Status:** In progress (2026-07-23) — **W1 (+ sources + tree-sitter outline),
+> W2 (diffs) and W3 (logs) SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6,
 > lazy modes, search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace
 > lens** (Python/Rust/Go/JS `file:line` jumps) + **run-scratch** + a right-hand
 > **tree-sitter symbol outline** (12 langs). Sources: paste · local · workspace ·
 > remote SFTP · hub (Open ▾ + `InspectOpen` picker). **W2:** a **patch viewer**
 > (`.patch`/`.diff` + pasted patches → GitHub-style per-file cards,
 > `@git-diff-view/react`) and **two-blob compare** (Compare ▾ against a tab or any
-> source → `@codemirror/merge`), both lazy chunks. Tab **Debug → Inspect** renamed
-> (label only; `debug` JobId kept — §0a). **Next:** W3 logs / W4 model inspector —
-> those tabs still open with a wedge placard.
-> Supersedes the "EMBED Monaco" posture for J3 (§1); research inlined per wedge.
+> source → `@codemirror/merge`), both lazy chunks. **W3:** a **virtualized ANSI
+> log viewer** (react-virtuoso + anser) over a **main-process line index**
+> (`log_open`/`slice`/`search`/`stat`/`close` — fd reads, never whole-file) with
+> follow/tail, warn-filter, regex search + hit rail, and a step/epoch jump list.
+> Tab **Debug → Inspect** renamed (label only; `debug` JobId kept — §0a).
+> **Next:** W4 model inspector (still a wedge placard). Supersedes the "EMBED
+> Monaco" posture (§1); research inlined per wedge.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W2 shipped (desktop `2026.723.247`+)
+> **Last verified vs code:** W1–W3 shipped (desktop `2026.723.247`+)
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -204,6 +207,20 @@ landscape's "plan-step↔diff-hunk linkage" J3 differentiator
 is where that linkage will eventually render.
 
 ## 4. W3 — Logs at scale
+
+**Shipped 2026-07-23.** Built as specified below: a main-process line index
+(`ipc/logfile.ts` + the pure `ipc/logindex.ts`, `node --test`) exposing
+`log_open`/`log_slice`/`log_search`/`log_stat`/`log_close`; `ui/LogView.tsx` on
+react-virtuoso + anser over a windowed line cache (a local file uses the index —
+`state/logModel.ts` `IndexedLogModel`; paste/remote/hub render from an in-memory
+`MemoryLogModel`); follow/tail, error-warn quick-filter, regex search with a hit
+rail + prev/next, step/epoch marker jump list. ANSI colours re-map onto the
+`--color-terminal-*` tokens (`state/ansiSpans.ts`, kept out of the boot bundle;
+256-palette/truecolour pass through). **Deferred:** remote *live* tail (a hidden
+PTY — the Terminal tab covers the interactive case, open question 4); indexing
+remote/workspace files (only local files use the fd index today — remote/hub
+slices render in memory); the checked-in `fixtures/inspect/log/` device-test
+files (the E2E writes its own temp log).
 
 **Build, don't buy** (the buy option, `@melloware/react-logviewer`, is MPL-2.0
 and validates the same architecture — kept as fallback only). The substrate

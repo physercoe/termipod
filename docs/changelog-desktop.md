@@ -58,6 +58,14 @@ This complements:
 - **Inspect symbol outline.** A code tab gains a right-hand **outline** rail of
   its functions/classes/methods/types (tree-sitter, 12 languages); clicking a
   symbol jumps the editor to its line. Grammars load on demand, fully offline.
+- **Inspect diffs — W2.** Two diff viewers, each a lazy chunk. **Patch review**:
+  a `.patch`/`.diff` file (or a pasted patch — a scratch that sniffs as a patch
+  offers **View as diff**) renders GitHub-style, one collapsible card per file
+  with split/unified + wrap toggles and add/delete/rename/binary status
+  (`@git-diff-view/react`). **Two-blob compare**: a **Compare ▾** action pits the
+  active tab against another open tab or any file (workspace / SFTP / hub /
+  local) in an editor-grade side-by-side merge with collapsed unchanged regions
+  and bounded-cost diffing (`@codemirror/merge`).
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

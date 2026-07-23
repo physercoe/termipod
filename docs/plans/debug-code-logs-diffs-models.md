@@ -1,18 +1,20 @@
 # Inspect tab (né Debug) — code, logs, diffs & model inspectors (J3 round 2)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-23) — **W1 + all follow-on sources + the
-> tree-sitter symbol outline SHIPPED** (`895ac48e`). J3 is now a tabbed
-> inspector: shell (metadata-only tabs) + **CodeView** (CM6, lazy language
-> modes, search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace lens**
-> (Python/Rust/Go/JS `file:line` jumps) + **run-scratch** + a right-hand
-> **tree-sitter symbol outline** (12 langs). Sources: paste · local · workspace
-> · remote SFTP · hub (Open ▾ menu + `InspectOpen` picker). Tab **Debug →
-> Inspect** renamed (label only; `debug` JobId kept — §0a). **Next:** W2 diffs /
-> W3 logs / W4 model inspector — those tabs open with a wedge placard until then.
+> **Status:** In progress (2026-07-23) — **W1 (+ sources + tree-sitter outline)
+> and W2 (diffs) SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6,
+> lazy modes, search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace
+> lens** (Python/Rust/Go/JS `file:line` jumps) + **run-scratch** + a right-hand
+> **tree-sitter symbol outline** (12 langs). Sources: paste · local · workspace ·
+> remote SFTP · hub (Open ▾ + `InspectOpen` picker). **W2:** a **patch viewer**
+> (`.patch`/`.diff` + pasted patches → GitHub-style per-file cards,
+> `@git-diff-view/react`) and **two-blob compare** (Compare ▾ against a tab or any
+> source → `@codemirror/merge`), both lazy chunks. Tab **Debug → Inspect** renamed
+> (label only; `debug` JobId kept — §0a). **Next:** W3 logs / W4 model inspector —
+> those tabs still open with a wedge placard.
 > Supersedes the "EMBED Monaco" posture for J3 (§1); research inlined per wedge.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1 + follow-on @ `895ac48e` (desktop `2026.723.247`+)
+> **Last verified vs code:** W1–W2 shipped (desktop `2026.723.247`+)
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -167,6 +169,16 @@ pane). Output renders below the editor; stderr feeds the stack-trace lens, so
 new execution infrastructure. Desktop-only.
 
 ## 3. W2 — Diffs
+
+**Shipped 2026-07-23** (desktop `2026.723.247`+): both tiers below. Patch
+splitting is `state/patch.ts` (git + bare-unified + `Index:`, one `<DiffView>`
+per file); the viewers are `ui/PatchDiffView.tsx` (+ `@git-diff-view` vendor CSS
+mapped to our `--diff-*--` tokens) and `ui/TwoBlobCompare.tsx` (sharing
+CodeView's theme via the new `ui/codeTheme.ts`). A scratch that sniffs as a
+patch offers **View as diff** / **View source**; **Compare ▾** compares the
+active tab against another open tab or any source. The cheap "Diff workspace"
+follow-on (`git diff` via `script_run`) and the hub linkage below are **not**
+built (deferred / blocked on hub schema).
 
 Two tiers (they solve different jobs):
 

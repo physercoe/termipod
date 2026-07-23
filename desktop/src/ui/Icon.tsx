@@ -57,6 +57,7 @@ export type IconName =
   | 'pen'
   | 'cloud'
   | 'split-h'
+  | 'git-compare'
   | 'split-v'
   | 'dock-bottom'
   | 'dock-right'
@@ -347,6 +348,15 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   cloud: <path d="M6.5 19a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 9.5 4.25 4.25 0 0 1 17.5 18H6.5z" />,
+  // git-compare — two endpoints (branches) linked by arcs: compare A↔B.
+  'git-compare': (
+    <>
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M18 9v6a3 3 0 0 1-3 3H9" />
+      <path d="M6 15V9a3 3 0 0 1 3-3h6" />
+    </>
+  ),
   // split-h — two panes side by side (a vertical divider): split right
   'split-h': (
     <>

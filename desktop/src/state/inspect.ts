@@ -21,6 +21,19 @@ import { create } from 'zustand';
 export type InspectKind = 'code' | 'diff' | 'log' | 'model';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub';
 
+/// A reference to one readable source — the two sides of a two-blob compare
+/// tab (W2, tier 2). Mirrors the file-locating fields of a tab; `body` carries an
+/// inline snapshot for a `paste`/scratch side that has no re-readable path.
+export interface InspectRef {
+  source: InspectSource;
+  title: string;
+  path?: string;
+  hostId?: string;
+  projectId?: string;
+  lang?: string;
+  body?: string;
+}
+
 export interface InspectTab {
   id: string;
   kind: InspectKind;
@@ -34,6 +47,11 @@ export interface InspectTab {
   projectId?: string;
   /// A language-mode override (else inferred from the path / content).
   lang?: string;
+  /// For a two-blob **compare** tab (kind `diff`): the two sides. When both are
+  /// set the diff viewer renders `@codemirror/merge` instead of the patch
+  /// viewer; the tab's own `source`/content are then unused.
+  left?: InspectRef;
+  right?: InspectRef;
 }
 
 // Extension → kind dispatch, mirroring `documents.ts kindForFile` in spirit. A

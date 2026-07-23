@@ -521,3 +521,67 @@ test('inspect: the tree-sitter symbol outline lists symbols and jumps the editor
   await expect(page.locator('.inspect-code .cm-activeLine')).toContainText('beta');
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
+
+test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  const editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  await editor.click({ force: true });
+  await editor.focus();
+  // A two-file git patch (no braces/parens → no CM auto-close interference).
+  await page.keyboard.type(
+    [
+      'diff --git a/foo.ts b/foo.ts',
+      '--- a/foo.ts',
+      '+++ b/foo.ts',
+      '@@ -1,2 +1,2 @@',
+      ' keep',
+      '-old',
+      '+new',
+      'diff --git a/bar.md b/bar.md',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/bar.md',
+      '@@ -0,0 +1,1 @@',
+      '+hello',
+    ].join('\n'),
+  );
+  // The content sniffs as a patch → the "View as diff" affordance appears.
+  await page.getByRole('button', { name: 'View as diff' }).click();
+  // The patch viewer renders one card per file (git-diff-view lazy chunk).
+  await expect(page.locator('.patch-file').first()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.patch-file')).toHaveCount(2);
+  await expect(page.locator('.patch-file-path').first()).toContainText('foo.ts');
+  // The added file carries the "A" status badge.
+  await expect(page.locator('.patch-status.k-add')).toBeVisible();
+  // "View source" flips the tab back to the editor.
+  await page.getByRole('button', { name: 'View source' }).click();
+  await expect(page.locator('.inspect-code .cm-content')).toBeVisible();
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});
+
+test('inspect: comparing two open tabs mounts the merge view (W2)', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  // Tab A.
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  let editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  await editor.click({ force: true });
+  await editor.focus();
+  await page.keyboard.type('alpha\nbeta\ngamma');
+  // Tab B (becomes active).
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  await editor.click({ force: true });
+  await editor.focus();
+  await page.keyboard.type('alpha\nBETA\ngamma');
+  // Compare ▾ → the first "open tab" entry is the other scratch.
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.locator('.inspect-menu')).toBeVisible();
+  await page.locator('.inspect-menu-item').first().click();
+  // The @codemirror/merge view mounts (its own lazy chunk).
+  await expect(page.locator('.compare-host .cm-mergeView')).toBeVisible({ timeout: 15000 });
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+});

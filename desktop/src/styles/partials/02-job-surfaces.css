@@ -1290,3 +1290,166 @@ button > .ui-icon:not(:only-child):first-child,
   white-space: nowrap;
   font-family: var(--font-mono);
 }
+
+/* Inspect — diff viewer (W2): compare-menu labels + segmented view toggle */
+.inspect-menu-label {
+  padding: var(--spacing-s4) var(--spacing-s8) var(--spacing-s2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.seg-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  font-size: var(--font-size-body-small);
+  cursor: pointer;
+}
+.seg-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.seg-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-left: none;
+}
+.seg-btn.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  color: var(--text);
+}
+.patch-modes {
+  display: inline-flex;
+}
+
+/* Patch (multi-file) viewer */
+.patch-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.patch-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.patch-files {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--spacing-s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+}
+.patch-file {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.patch-file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  padding: var(--spacing-s6) var(--spacing-s12);
+  background: var(--raised);
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.patch-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-body-small);
+}
+.patch-status {
+  flex: 0 0 auto;
+  width: 1.4em;
+  text-align: center;
+  font-weight: 700;
+  font-size: var(--font-size-caption);
+  border-radius: var(--radius-sm);
+}
+.patch-status.k-add {
+  color: var(--success);
+}
+.patch-status.k-delete {
+  color: var(--danger);
+}
+.patch-status.k-rename {
+  color: var(--accent-text);
+}
+.patch-status.k-binary,
+.patch-status.k-modify {
+  color: var(--text-muted);
+}
+.patch-add {
+  color: var(--success);
+  font-variant-numeric: tabular-nums;
+}
+.patch-del {
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+.patch-binary {
+  padding: var(--spacing-s12);
+}
+/* Map @git-diff-view's themeable vars onto our tokens (both light + dark). */
+.patch-diffview {
+  --diff-border--: var(--border);
+  --diff-plain-content--: transparent;
+  --diff-empty-content--: color-mix(in srgb, var(--border) 22%, transparent);
+  --diff-add-content--: color-mix(in srgb, var(--success) 12%, transparent);
+  --diff-add-content-highlight--: color-mix(in srgb, var(--success) 26%, transparent);
+  --diff-del-content--: color-mix(in srgb, var(--danger) 12%, transparent);
+  --diff-del-content-highlight--: color-mix(in srgb, var(--danger) 28%, transparent);
+  --diff-hunk-content--: color-mix(in srgb, var(--accent) 8%, transparent);
+  --diff-hunk-content-color--: var(--text-muted);
+  --diff-expand-content--: var(--surface);
+  --diff-add-widget--: color-mix(in srgb, var(--accent) 30%, transparent);
+  --diff-add-widget-color--: var(--text);
+  font-size: var(--font-size-body-small);
+}
+
+/* Two-blob compare (@codemirror/merge) */
+.compare-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.compare-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.compare-side {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.compare-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.compare-host .cm-mergeView,
+.compare-host .cm-mergeViewEditors {
+  height: 100%;
+}
+.compare-host .cm-mergeView .cm-editor {
+  height: 100%;
+}
+.inspect-toast.cmp {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+}

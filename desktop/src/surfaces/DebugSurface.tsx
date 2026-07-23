@@ -5,12 +5,13 @@ import { invoke } from '../bridge';
 import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
-import { kindForInspectFile, useInspect, type InspectKind, type InspectTab } from '../state/inspect';
+import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
 import { useWorkspace } from '../state/workspace';
-import { readSource } from '../state/inspectSources';
+import { readRef, readSource } from '../state/inspectSources';
 import { useSession } from '../state/session';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { parseTrace, type ParsedTrace, type TraceFrame } from '../state/stackTrace';
+import { looksLikePatch } from '../state/patch';
 import { extractSymbols, SUPPORTED_LANGS, type CodeSymbol } from '../state/treeSitter';
 import { CodeOutline } from '../ui/CodeOutline';
 import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen';
@@ -18,6 +19,10 @@ import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
 const CodeView = lazy(() => import('../ui/CodeView').then((m) => ({ default: m.CodeView })));
+// W2 diff viewers — each its own lazy chunk (git-diff-view + @codemirror/merge
+// never touch the boot bundle), loaded the first time a diff / compare tab shows.
+const PatchDiffView = lazy(() => import('../ui/PatchDiffView').then((m) => ({ default: m.PatchDiffView })));
+const TwoBlobCompare = lazy(() => import('../ui/TwoBlobCompare').then((m) => ({ default: m.TwoBlobCompare })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -155,6 +160,7 @@ function CodeTab({
   const setLoading = useInspect((s) => s.setLoading);
   const setError = useInspect((s) => s.setError);
   const setLang = useInspect((s) => s.setLang);
+  const setKind = useInspect((s) => s.setKind);
   const folder = useWorkspace((s) => s.folder);
   const codeRef = useRef<CodeViewHandle>(null);
   const [runOut, setRunOut] = useState<ScriptResult | null>(null);
@@ -241,7 +247,8 @@ function CodeTab({
       </div>
     );
 
-  const showRunBar = tab.source === 'paste' || interp !== null;
+  const isPatch = looksLikePatch(body);
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -260,6 +267,11 @@ function CodeTab({
             </select>
           )}
           <span className="spacer" />
+          {isPatch && (
+            <button className="import-btn" onClick={() => setKind(tab.id, 'diff')}>
+              <Icon name="git-compare" size={14} /> {t('inspect.viewAsDiff')}
+            </button>
+          )}
           {interp !== null && (
             <button className="import-btn" disabled={running} onClick={() => void run()}>
               <Icon name="play" size={14} /> {running ? t('inspect.running') : t('inspect.run')}
@@ -288,6 +300,93 @@ function CodeTab({
   );
 }
 
+// ── diff tab (W2) ─────────────────────────────────────────────────────────────
+// Two shapes share the `diff` kind: a **patch** tab (a `.patch`/`.diff` file or
+// pasted patch → GitHub-style multi-file render) and a **compare** tab (two
+// sources → editor-grade side-by-side merge). `tab.left`/`tab.right` select the
+// second shape.
+function DiffTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const loading = useInspect((s) => s.loading[tab.id]);
+  const error = useInspect((s) => s.error[tab.id]);
+  const setContent = useInspect((s) => s.setContent);
+  const setLoading = useInspect((s) => s.setLoading);
+  const setError = useInspect((s) => s.setError);
+  const setKind = useInspect((s) => s.setKind);
+  const isCompare = tab.left !== undefined && tab.right !== undefined;
+  const [sides, setSides] = useState<{ a: string; b: string } | null>(null);
+
+  // Compare tab: read both sides once.
+  useEffect(() => {
+    if (!isCompare) return;
+    let cancelled = false;
+    setLoading(tab.id, true);
+    setError(tab.id, undefined);
+    void (async () => {
+      try {
+        const [a, b] = await Promise.all([readRef(tab.left!, `insp-${tab.id}-a`), readRef(tab.right!, `insp-${tab.id}-b`)]);
+        if (!cancelled) setSides({ a, b });
+      } catch (e) {
+        if (!cancelled) setError(tab.id, e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(tab.id, false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  // Patch tab (file-backed): lazily read its content once (paste patches keep
+  // their body authoritative in the store, mirroring the code tab).
+  useEffect(() => {
+    if (isCompare || tab.source === 'paste' || content !== undefined || loading === true) return;
+    let cancelled = false;
+    setLoading(tab.id, true);
+    setError(tab.id, undefined);
+    void (async () => {
+      try {
+        const body = await readSource(tab);
+        if (!cancelled) setContent(tab.id, body);
+      } catch (e) {
+        if (!cancelled) setError(tab.id, e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(tab.id, false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  if (loading === true) return <div className="muted region-pad">{t('inspect.loading')}</div>;
+  if (error !== undefined)
+    return (
+      <div className="inspect-error region-pad">
+        <Icon name="alert" size={16} /> {error}
+      </div>
+    );
+
+  if (isCompare) {
+    if (sides === null) return <div className="muted region-pad">{t('inspect.loading')}</div>;
+    const fname = tab.left?.path !== undefined ? baseName(tab.left.path) : tab.right?.path !== undefined ? baseName(tab.right.path) : undefined;
+    const lang = tab.lang ?? tab.left?.lang ?? tab.right?.lang;
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+        <TwoBlobCompare a={sides.a} b={sides.b} aTitle={tab.left?.title} bTitle={tab.right?.title} filename={fname} lang={lang} />
+      </Suspense>
+    );
+  }
+  return (
+    <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+      <PatchDiffView patch={content ?? ''} onViewSource={tab.source === 'paste' ? () => setKind(tab.id, 'code') : undefined} />
+    </Suspense>
+  );
+}
+
 function WedgePlaceholder({ kind }: { kind: InspectKind }): JSX.Element {
   const t = useT();
   const key = kind === 'diff' ? 'inspect.wedgeDiff' : kind === 'log' ? 'inspect.wedgeLog' : 'inspect.wedgeModel';
@@ -313,24 +412,78 @@ export function DebugSurface(): JSX.Element {
   const [reveal, setReveal] = useState<Record<string, number>>({});
   const [notFound, setNotFound] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  const [cmpMenu, setCmpMenu] = useState(false);
   const [dialog, setDialog] = useState<OpenMode | null>(null);
+  // When set, the next file/tab the user picks becomes side B of a compare tab
+  // whose side A is this base tab (W2 tier 2).
+  const [cmpBase, setCmpBase] = useState<InspectTab | null>(null);
   const active = tabs.find((tb) => tb.id === activeId);
+  // A tab is comparable if we can read its content: any tab except an existing
+  // compare tab (comparing a compare makes no sense).
+  const canCompare = active !== undefined && !(active.left !== undefined && active.right !== undefined);
+  const otherTabs = tabs.filter((tb) => tb.id !== active?.id && !(tb.left !== undefined && tb.right !== undefined));
 
   function newScratch(): void {
     openTab({ kind: 'code', source: 'paste', title: t('inspect.scratch') }, '');
+  }
+
+  // Snapshot a tab as a compare side. A paste/scratch side carries its current
+  // body inline (nothing to re-read); a file-backed side re-reads on activate.
+  function refOfTab(tb: InspectTab): InspectRef {
+    return {
+      source: tb.source,
+      title: tb.title,
+      path: tb.path,
+      hostId: tb.hostId,
+      projectId: tb.projectId,
+      lang: tb.lang ?? langFromPath(tb.path),
+      body: tb.source === 'paste' ? (useInspect.getState().content[tb.id] ?? '') : undefined,
+    };
+  }
+
+  function makeCompare(right: InspectRef): void {
+    if (cmpBase === null) return;
+    const left = refOfTab(cmpBase);
+    openTab({
+      kind: 'diff',
+      source: 'paste', // nominal — a compare tab reads its two refs, not its own source
+      title: `${left.title} ↔ ${right.title}`,
+      lang: left.lang ?? right.lang,
+      left,
+      right,
+    });
+    setCmpBase(null);
+    setCmpMenu(false);
+    setDialog(null);
+  }
+
+  function beginCompare(): void {
+    if (active === undefined || !canCompare) return;
+    setCmpBase(active);
+    setMenu(false);
+    setCmpMenu(true);
   }
 
   async function openLocal(): Promise<void> {
     if (!isShell()) return;
     const r = await invoke<{ path: string; content: string } | null>('debug_open', {});
     if (r === null) return;
+    if (cmpBase !== null) {
+      makeCompare({ source: 'local', title: baseName(r.path), path: r.path, lang: langFromPath(r.path) });
+      return;
+    }
     const kind = kindForInspectFile(extOf(r.path), r.content);
     openTab({ kind, source: 'local', title: baseName(r.path), path: r.path }, kind === 'model' ? undefined : r.content);
   }
 
-  // A picker (workspace / remote / hub) chose a file — open it as a metadata-only
-  // tab; its content is read lazily on activate via readSource.
+  // A picker (workspace / remote / hub) chose a file — either open it as a
+  // metadata-only tab (read lazily on activate) or, in compare mode, make it
+  // side B of a compare against the base tab.
   function pick(r: PickResult): void {
+    if (cmpBase !== null) {
+      makeCompare({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, lang: langFromPath(r.path) });
+      return;
+    }
     openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId });
     setDialog(null);
   }
@@ -397,6 +550,47 @@ export function DebugSurface(): JSX.Element {
               </>
             )}
           </div>
+          {canCompare && (
+            <div className="inspect-openwrap">
+              <button className="import-btn" aria-haspopup="menu" aria-expanded={cmpMenu} onClick={beginCompare}>
+                <Icon name="git-compare" size={14} /> {t('inspect.compare')} <Icon name="chevron-down" size={12} />
+              </button>
+              {cmpMenu && (
+                <>
+                  <div className="inspect-menu-scrim" onClick={() => (setCmpMenu(false), setCmpBase(null))} />
+                  <div className="inspect-menu" role="menu">
+                    {otherTabs.length > 0 && <div className="inspect-menu-label small muted">{t('inspect.compareWithTab')}</div>}
+                    {otherTabs.map((tb) => (
+                      <button key={tb.id} className="inspect-menu-item" role="menuitem" onClick={() => makeCompare(refOfTab(tb))}>
+                        <Icon name={kindIcon(tb.kind)} size={14} /> {tb.title}
+                      </button>
+                    ))}
+                    <div className="inspect-menu-label small muted">{t('inspect.compareWithFile')}</div>
+                    {isShell() && (
+                      <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), void openLocal())}>
+                        <Icon name="file-text" size={14} /> {t('inspect.openFile')}
+                      </button>
+                    )}
+                    {isShell() && (
+                      <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), setDialog('workspace'))}>
+                        <Icon name="sidebar" size={14} /> {t('inspect.fromWorkspace')}
+                      </button>
+                    )}
+                    {isShell() && (
+                      <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), setDialog('remote'))}>
+                        <Icon name="terminal" size={14} /> {t('inspect.fromRemote')}
+                      </button>
+                    )}
+                    {client !== null && (
+                      <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), setDialog('hub'))}>
+                        <Icon name="cloud" size={14} /> {t('inspect.fromHub')}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </>
       }
     >
@@ -450,16 +644,26 @@ export function DebugSurface(): JSX.Element {
               }
               onOpenFrame={(f, from) => void resolveFrame(f, from)}
             />
+          ) : active.kind === 'diff' ? (
+            <DiffTab key={active.id} tab={active} />
           ) : (
             <WedgePlaceholder kind={active.kind} />
           )}
         </div>
+        {cmpBase !== null && (
+          <div className="inspect-toast cmp">
+            {t('inspect.comparing').replace('{name}', cmpBase.title)}
+            <button className="link-btn small" onClick={() => (setCmpBase(null), setCmpMenu(false), setDialog(null))}>
+              {t('inspect.cancel')}
+            </button>
+          </div>
+        )}
         {notFound !== null && (
           <div className="inspect-toast">
             {t('inspect.notFound')}: {baseName(notFound)}
           </div>
         )}
-        {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => setDialog(null)} onPick={pick} />}
+        {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} />}
       </div>
     </WorkbenchSurface>
   );

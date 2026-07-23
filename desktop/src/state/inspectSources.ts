@@ -4,7 +4,7 @@ import { sftpList, sftpRead, sshClose, sshConnect, type SftpEntry } from '../ssh
 import { readWorkspaceFile } from './workspaceFiles';
 import { useSession } from './session';
 import { isShell } from '../platform';
-import type { InspectTab } from './inspect';
+import type { InspectRef, InspectSource, InspectTab } from './inspect';
 
 /// Source-reading for the Inspect (J3) surface — the W1 follow-on that adds the
 /// `workspace`, `remote` (SFTP) and `hub` sources on top of W1's `paste` +
@@ -68,27 +68,46 @@ export async function closeSftpSession(connId: string): Promise<void> {
   }
 }
 
-/// Read a tab's current content from its source. `paste` tabs never reach here
-/// (their body is authoritative in the store); the four file-backed sources do.
-export async function readSource(tab: InspectTab): Promise<string> {
-  const native = tab.source === 'local' || tab.source === 'workspace' || tab.source === 'remote';
+// The shared read core for a file-backed source. `transferId` scopes the SFTP
+// byte transfer (unique per reader so concurrent reads don't collide).
+async function readFrom(loc: {
+  source: InspectSource;
+  path?: string;
+  hostId?: string;
+  projectId?: string;
+  transferId: string;
+}): Promise<string> {
+  const native = loc.source === 'local' || loc.source === 'workspace' || loc.source === 'remote';
   if (native && !isShell()) throw new Error('opening files requires the desktop app');
-  switch (tab.source) {
+  switch (loc.source) {
     case 'local':
     case 'workspace':
       // Both are local absolute paths → the strict-UTF-8 `doc_read` bridge.
-      return readWorkspaceFile(tab.path ?? '');
+      return readWorkspaceFile(loc.path ?? '');
     case 'remote': {
-      const sid = await sftpSessionFor(tab.hostId ?? '');
-      const bytes = await sftpRead(sid, tab.path ?? '', `insp-${tab.id}`);
+      const sid = await sftpSessionFor(loc.hostId ?? '');
+      const bytes = await sftpRead(sid, loc.path ?? '', loc.transferId);
       return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     }
     case 'hub': {
       const client = useSession.getState().client;
       if (client === null) throw new Error('not connected to a hub');
-      return client.getProjectDocText(tab.projectId ?? '', tab.path ?? '');
+      return client.getProjectDocText(loc.projectId ?? '', loc.path ?? '');
     }
     default:
-      throw new Error(`inspect: source '${tab.source}' is unsupported`);
+      throw new Error(`inspect: source '${loc.source}' is unsupported`);
   }
+}
+
+/// Read a tab's current content from its source. `paste` tabs never reach here
+/// (their body is authoritative in the store); the four file-backed sources do.
+export async function readSource(tab: InspectTab): Promise<string> {
+  return readFrom({ source: tab.source, path: tab.path, hostId: tab.hostId, projectId: tab.projectId, transferId: `insp-${tab.id}` });
+}
+
+/// Read one side of a two-blob compare. A `paste`/scratch side carries its body
+/// inline (`ref.body`); the file-backed sides go through the same read core.
+export async function readRef(ref: InspectRef, transferId: string): Promise<string> {
+  if (ref.body !== undefined) return ref.body;
+  return readFrom({ source: ref.source, path: ref.path, hostId: ref.hostId, projectId: ref.projectId, transferId });
 }

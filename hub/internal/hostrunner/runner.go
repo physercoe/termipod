@@ -725,6 +725,38 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			}
 			pane = res.PaneID
 			drv = res.Driver
+		case "kimi-code", "kimi-code-ts":
+			// P4 (agent-transcript-redesign §6 P4, ticket #372): kimi
+			// M4 spawns try the wire-tail LocalLogTail adapter first —
+			// structured events from kimi's session wire store instead
+			// of raw pane text. On any failure we FALL THROUGH to the
+			// PaneDriver path below (drv stays nil): every fallible
+			// step in launchM4KimiWireTail runs before the pane is
+			// spawned, so the fallback can't double-launch. That's the
+			// inverse of the claude/agy arms — kimi's PaneDriver is a
+			// working degraded mode, so an upgrade-path failure (older
+			// kimi without the wire store, Python kimi-cli, protocol
+			// drift caught by the metadata gate) should degrade, not
+			// fail the spawn.
+			hubURLForAgent := a.Client.BaseURL
+			if a.egressProxy != nil {
+				hubURLForAgent = a.egressProxy.LocalURL
+			}
+			res, lerr := launchM4KimiWireTail(ctx, M4LocalLogTailLaunchConfig{
+				Spawn:    sp,
+				Launcher: a.Launcher,
+				Client:   a.agentPoster,
+				HubURL:   hubURLForAgent,
+				Log:      a.Log,
+				Team:     a.Client.Team,
+			})
+			if lerr != nil {
+				a.Log.Warn("M4 kimi wire-tail launch failed; falling back to PaneDriver",
+					"handle", sp.Handle, "err", lerr)
+				break
+			}
+			pane = res.PaneID
+			drv = res.Driver
 		}
 	}
 	if mode == "M4" && drv == nil {

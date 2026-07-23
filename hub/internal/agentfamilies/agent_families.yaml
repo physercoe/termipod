@@ -898,6 +898,16 @@ families:
     # consult per-engine frame_profiles. Future polish (e.g. promoting
     # SearchWeb tool calls to a typed `web_search` kind) would land a
     # profile here; deferred per docs/plans/kimi-code-engine.md §W6.
+    #
+    # M4 wire-tail (agent-transcript-redesign §6 P4, ticket #372):
+    # runner.go's M4 dispatch routes kimi-code spawns through
+    # launchM4KimiWireTail, which tails kimi's session wire store via
+    # the kimi_code LocalLogTail adapter instead of scraping raw pane
+    # bytes. The adapter engages only when the TS build's store
+    # (~/.kimi-code) is present — the Python kimi-cli line writes
+    # ~/.kimi and has no wire.jsonl, so a genuine Python-kimi spawn
+    # fails the launch pre-flight and falls back to PaneDriver (the
+    # pre-flight runs before the pane is spawned; no double-launch).
 
   - family: kimi-code-ts
     bin: kimi
@@ -954,6 +964,15 @@ families:
       M4: false
     # No frame_profile / frame_translator — M1 ACPDriver speaks ACP
     # natively (driver_acp.go), same as the Python kimi-code family.
+    #
+    # M4 wire-tail (agent-transcript-redesign §6 P4, ticket #372): this
+    # is the build the kimi_code LocalLogTail adapter was built for —
+    # it tails ~/.kimi-code/sessions/<wd>/<session>/agents/*/wire.jsonl
+    # (protocol v1.x, gated on the metadata event) and emits structured
+    # tool_call / plan / usage / approval_result / subagent-tagged
+    # events. launchM4KimiWireTail gates on the store being present +
+    # the sniffed protocol version and falls back to PaneDriver
+    # pre-spawn on mismatch.
     #
     # MCP injection needs NO argv here: the TS build removed
     # --mcp-config-file and instead auto-discovers

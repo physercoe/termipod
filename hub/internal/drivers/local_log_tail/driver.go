@@ -2,9 +2,10 @@
 // structured on-disk session log (ADR-027). The driver owns lifecycle +
 // state machine + input dispatch; per-engine specifics (path resolver,
 // JSONL parser, hook payload mapping, send-keys vocabulary) plug in
-// behind the Adapter interface. MVP wires only the claude-code adapter
-// (sibling package claude_code); gemini / codex / kimi adapters land in
-// Phase 2/3.
+// behind the Adapter interface. Three adapters are wired today:
+// claude_code (ADR-027 W2), antigravity (ADR-035), and kimi_code
+// (agent-transcript-redesign §6 P4, ticket #372 — kimi's wire.jsonl
+// session store); gemini / codex adapters remain open.
 //
 // Structural typing keeps this package free of any hub/internal/hostrunner
 // import: Driver satisfies hostrunner.Driver + hostrunner.Inputter

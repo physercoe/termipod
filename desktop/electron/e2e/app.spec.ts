@@ -459,3 +459,28 @@ test('web tab: a <webview> guest loads, isolates the bridge, and cannot reach ap
     await new Promise<void>((r) => server.close(() => r()));
   }
 });
+
+test('inspect: New scratch opens a code tab on CodeMirror and the trace lens jumps', async () => {
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  // Empty state until a tab is opened.
+  await expect(page.locator('.inspect-empty')).toBeVisible();
+  // New scratch → a code tab + a CodeMirror editor mount.
+  await page.getByRole('button', { name: 'New scratch' }).click();
+  await expect(page.locator('.inspect-tab').last()).toBeVisible();
+  const editor = page.locator('.inspect-code .cm-content');
+  await expect(editor).toBeVisible();
+  // Type a Python traceback into the scratch. The editor is contenteditable —
+  // force-click + focus, never a plain click (which hangs under xvfb).
+  await editor.click({ force: true });
+  await editor.focus();
+  await page.keyboard.type(
+    'Traceback (most recent call last):\n  File "app.py", line 7, in main\n    raise ValueError("boom")\nValueError: boom',
+  );
+  // The trace lens detects the traceback and lists the frame; the file chip
+  // carries the base name.
+  await expect(page.locator('.inspect-trace')).toBeVisible();
+  await expect(page.locator('.inspect-frame .frame-file').first()).toHaveText('app.py');
+  // Closing the tab returns to the empty state.
+  await page.locator('.inspect-tab .inspect-tab-close').last().click();
+  await expect(page.locator('.inspect-empty')).toBeVisible();
+});

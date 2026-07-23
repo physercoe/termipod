@@ -79,7 +79,9 @@ export type IconName =
   | 'wrench'
   | 'alert'
   | 'crosshair'
-  | 'circle-half';
+  | 'circle-half'
+  | 'play'
+  | 'wrap';
 
 const PATHS: Record<IconName, JSX.Element> = {
   // sidebar — a panel with a left column, for the nav fold toggle
@@ -498,6 +500,15 @@ const PATHS: Record<IconName, JSX.Element> = {
       <circle cx="12" cy="12" r="7" />
       <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
       <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // play — run-scratch / trace actions (a filled triangle reads as "run").
+  play: <path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none" />,
+  // wrap — soft-wrap toggle (a line that returns with a hooked arrow).
+  wrap: (
+    <>
+      <path d="M4 7h16M4 17h6" />
+      <path d="M4 12h13a3 3 0 0 1 0 6h-3l2-2m-2 2 2 2" />
     </>
   ),
 };

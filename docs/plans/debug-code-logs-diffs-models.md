@@ -1,14 +1,23 @@
 # Inspect tab (né Debug) — code, logs, diffs & model inspectors (J3 round 2)
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-23) — replaces the J3 round-1 paste box with a
-> multi-source inspector suite, and **renames the tab Debug → Inspect**
-> (director decision; see §0a). Supersedes the "EMBED Monaco" posture for J3
-> (see §1 — the 2026 evidence points the other way). Deep-research findings
-> (licenses/embeddability verified against npm + upstream repos 2026-07-23)
-> are inlined per wedge.
+> **Status:** In progress (2026-07-23) — **W1 shipped**: the inspector shell
+> (tabbed, metadata-only tab persistence in `termipod.debug.tabs`) + the
+> **CodeView** (CodeMirror 6, read-only-by-default, lazy `@codemirror/language-data`
+> modes, search / fold / go-to-line / soft-wrap / copy, `revealLine`) + the
+> **stack-trace lens** (`state/stackTrace.ts` — Python/Rust/Go/JS pure parsers,
+> `file:line` chips resolve → open a CodeView tab at the line) + **run-scratch**
+> (`script_run` for python/bash/node paste tabs; stderr feeds the lens). Tab
+> **Debug → Inspect** renamed (label only; `debug` JobId kept — §0a). Sources
+> live in W1: `paste` + `local` (native `debug_open` dialog). **W1 follow-on**
+> (store already models them): workspace-tree / SFTP / hub-doc sources + the
+> tree-sitter **symbol outline** (`CodeOutline`, needs WASM asset-sync). diff /
+> log / model tabs open but show a wedge placard until **W2 / W3 / W4**.
+> Supersedes the "EMBED Monaco" posture for J3 (§1). Deep-research findings
+> (licenses/embeddability verified against npm + upstream repos 2026-07-23) are
+> inlined per wedge.
 > **Audience:** principal · contributors
-> **Last verified vs code:** desktop 2026.722.1327 @ `e734a2c0`
+> **Last verified vs code:** W1 landed on desktop `2026.723.247` @ `db017912`+
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab

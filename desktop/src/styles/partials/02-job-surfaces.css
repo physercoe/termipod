@@ -892,3 +892,222 @@ button > .ui-icon:not(:only-child):first-child,
   font-weight: 600;
   margin-bottom: var(--spacing-s8);
 }
+
+/* ── Inspect (J3) — tabbed inspector shell + CodeView (round-2 plan W1) ─────── */
+.inspect-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+}
+.inspect-tabs {
+  display: flex;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s4) var(--spacing-s8) 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.inspect-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.inspect-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.inspect-tab.active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+.inspect-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body-small);
+}
+.inspect-tab-close {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+.inspect-tab-close:hover {
+  color: var(--text);
+  background: var(--raised);
+}
+.inspect-active {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inspect-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s4);
+  text-align: center;
+}
+.inspect-tabbody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inspect-runbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-code {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* CodeView (ui/CodeView.tsx) */
+.code-view-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.code-view-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.code-view-lang {
+  text-transform: lowercase;
+  letter-spacing: var(--track-body);
+}
+.code-view-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Trace lens */
+.inspect-trace {
+  border-top: 1px solid var(--border);
+  background: var(--canvas);
+  max-height: 34%;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.inspect-trace-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  color: var(--warn);
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+}
+.inspect-frames {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--spacing-s8) var(--spacing-s8);
+}
+.inspect-frames li.lib .inspect-frame {
+  opacity: 0.62;
+}
+.inspect-frame {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.inspect-frame:hover {
+  background: var(--accent-tint);
+}
+.inspect-frame .frame-file {
+  color: var(--accent-text);
+}
+.inspect-frame .frame-line {
+  color: var(--text-secondary);
+}
+.inspect-frame .frame-func {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Run-scratch output */
+.inspect-runout {
+  border-top: 1px solid var(--border);
+  background: var(--input);
+  max-height: 40%;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.inspect-runout-head {
+  padding: var(--spacing-s4) var(--spacing-s12);
+  position: sticky;
+  top: 0;
+  background: var(--input);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-out {
+  margin: 0;
+  padding: var(--spacing-s6) var(--spacing-s12);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-size-body-small);
+  color: var(--text);
+}
+.inspect-out.err {
+  color: var(--danger);
+}
+.inspect-error {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  color: var(--danger);
+}
+.inspect-toast {
+  position: absolute;
+  bottom: var(--spacing-s16);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: var(--spacing-s6) var(--spacing-s16);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sh-3);
+  font-size: var(--font-size-body-small);
+  z-index: var(--z-toast);
+}

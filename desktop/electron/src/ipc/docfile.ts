@@ -32,6 +32,38 @@ export const docfileHandlers: Record<string, Handler> = {
     return { path: p, content: await readTextStrict(p) };
   },
 
+  // Inspect (J3) file open — same OpenedDoc shape as doc_open but with
+  // code/diff/log/model filters instead of the document ones. A model checkpoint
+  // is binary (its parser is W4's header-only main-process reader, not a UTF-8
+  // slurp), so a failed strict read degrades to empty content rather than
+  // throwing — the renderer sniffs the kind from the extension and shows the
+  // right viewer/placard regardless.
+  debug_open: async (_args, ctx: Ctx): Promise<OpenedDoc | null> => {
+    const res = await openDialog(ctx.win, {
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Code',
+          extensions: [
+            'py', 'js', 'ts', 'tsx', 'jsx', 'go', 'rs', 'c', 'h', 'cc', 'cpp', 'hpp', 'java', 'kt', 'rb', 'php', 'swift',
+            'sh', 'bash', 'zsh', 'json', 'yaml', 'yml', 'toml', 'md', 'txt', 'sql', 'css', 'scss', 'html', 'xml',
+          ],
+        },
+        { name: 'Diffs', extensions: ['diff', 'patch'] },
+        { name: 'Logs', extensions: ['log'] },
+        { name: 'Models', extensions: ['safetensors', 'gguf', 'onnx'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    const p = res.filePaths[0];
+    try {
+      return { path: p, content: await readTextStrict(p) };
+    } catch {
+      return { path: p, content: '' };
+    }
+  },
+
   doc_save: async (args, ctx: Ctx): Promise<string | null> => {
     const content = String(args.content ?? '');
     const defaultName = String(args.defaultName ?? '');

@@ -41,6 +41,18 @@
   --ok: var(--color-success);
   --warn: var(--color-warning);
   --danger: var(--color-error);
+  /* Code syntax palette — the Inspect (J3) CodeView maps lezer highlight tags
+   * to these aliases, so code highlighting stays theme-aware and on-token (no
+   * per-editor hex). Restrained: accent for keywords, one hue each for
+   * string/number/type/func, muted for comments. Light theme darkens the bright
+   * hues below for contrast on white. */
+  --syntax-keyword: var(--accent-strong);
+  --syntax-string: var(--color-terminal-green);
+  --syntax-number: var(--color-terminal-magenta);
+  --syntax-comment: var(--text-muted);
+  --syntax-name: var(--text);
+  --syntax-type: var(--color-terminal-cyan);
+  --syntax-func: var(--color-terminal-blue);
   /* Elevation — hairline-first: cards carry NO shadow (Linear "resists drop
    * shadows on dark almost entirely"). Shadow is reserved for things that truly
    * float: --sh-2 for raised affordances, --sh-3 for overlays / popovers. */
@@ -120,6 +132,12 @@
   --ok: var(--color-success-on-light);
   --warn: var(--color-on-warning-container-light);
   --danger: var(--color-error);
+  /* Darken the bright syntax hues for contrast on white (keyword/comment/name
+   * inherit the theme-aware aliases above). */
+  --syntax-string: color-mix(in srgb, var(--color-terminal-green) 55%, var(--text));
+  --syntax-number: color-mix(in srgb, var(--color-terminal-magenta) 68%, var(--text));
+  --syntax-type: color-mix(in srgb, var(--color-terminal-cyan) 52%, var(--text));
+  --syntax-func: color-mix(in srgb, var(--color-terminal-blue) 68%, var(--text));
   --sh-1: none;
   --sh-2: 0 6px 20px rgba(16, 24, 40, 0.10);
   --sh-3: 0 20px 48px rgba(16, 24, 40, 0.16), 0 2px 8px rgba(16, 24, 40, 0.08);

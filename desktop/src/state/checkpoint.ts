@@ -229,6 +229,12 @@ export interface TreeNode {
   params: number;
   children: TreeNode[];
   leaf?: TensorInfo;
+  /// Set on a synthetic node that stands in for `count` structurally-identical
+  /// numeric-indexed siblings (e.g. the 61 decoder layers). Its `params` is the
+  /// AGGREGATE across all members; its children are one member's per-member
+  /// structure (so the usual "parent = sum(children)" rollup does NOT hold here —
+  /// the `× count` badge is what reconciles them). See [[collapseRepeats]].
+  repeat?: { count: number; from: number; to: number };
 }
 
 /// Build a collapsible namespace tree from tensor names, rolling up param counts
@@ -261,4 +267,57 @@ export function buildTree(tensors: TensorInfo[]): TreeNode {
   };
   sortRec(root);
   return root;
+}
+
+const NUMERIC = /^\d+$/;
+
+/// A canonical string of a subtree's *shape* — its descendant key structure and
+/// leaf dtype/shape, with numeric keys normalised to `#` so that two decoder
+/// layers (whose expert indices differ) still match. Two nodes with the same
+/// signature are structurally identical and safe to collapse.
+function structureSignature(n: TreeNode): string {
+  if (n.leaf) return `L:${n.leaf.dtype}:${n.leaf.shape.join('x')}`;
+  const kids = n.children.map((c) => `${NUMERIC.test(c.key) ? '#' : c.key}(${structureSignature(c)})`).sort();
+  return `{${kids.join(',')}}`;
+}
+
+/// Collapse runs of structurally-identical numeric-indexed siblings into a single
+/// synthetic `× N` node (plan §4b) — so a 61-layer model shows `layers → [0–60]
+/// ×61` instead of 61 near-identical subtrees. Recurses first, so nested repeats
+/// (MoE `experts.0…N` inside a layer) collapse too. Groups by structural
+/// signature, so a heterogeneous stack (e.g. a few dense layers then MoE layers)
+/// splits into separate groups rather than force-merging. Pure — returns a new
+/// tree; the caller keeps the raw tree for the "expand all" view.
+export function collapseRepeats(node: TreeNode, minRun = 3): TreeNode {
+  const processed = node.children.map((c) => collapseRepeats(c, minRun));
+  const others = processed.filter((c) => !NUMERIC.test(c.key));
+  const numeric = processed.filter((c) => NUMERIC.test(c.key));
+
+  const bySig = new Map<string, TreeNode[]>();
+  for (const c of numeric) {
+    const sig = structureSignature(c);
+    const arr = bySig.get(sig);
+    if (arr) arr.push(c);
+    else bySig.set(sig, [c]);
+  }
+
+  const newChildren: TreeNode[] = [...others];
+  for (const group of bySig.values()) {
+    if (group.length >= minRun) {
+      const sorted = [...group].sort((a, b) => Number(a.key) - Number(b.key));
+      const from = Number(sorted[0].key);
+      const to = Number(sorted[sorted.length - 1].key);
+      newChildren.push({
+        key: `[${from}–${to}]`,
+        path: `${node.path === '' ? '' : `${node.path}.`}<repeat:${from}-${to}>`,
+        params: group.reduce((a, g) => a + g.params, 0),
+        children: sorted[0].children, // one member's per-member structure (aggregate is on the header)
+        repeat: { count: group.length, from, to },
+      });
+    } else {
+      newChildren.push(...group);
+    }
+  }
+  newChildren.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+  return { ...node, children: newChildren };
 }

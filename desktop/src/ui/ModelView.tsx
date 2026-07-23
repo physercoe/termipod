@@ -6,6 +6,7 @@ import { Icon } from '../ui/Icon';
 import {
   buildTree,
   classifyArch,
+  collapseRepeats,
   humanBytes,
   humanCount,
   TEMPLATE_LABEL,
@@ -269,6 +270,7 @@ function TreeRows({
       >
         {hasKids ? <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} /> : <span className="modelview-tnode-dot" />}
         <span className="modelview-tnode-key mono">{node.key}</span>
+        {node.repeat && <span className="modelview-tnode-x">×{node.repeat.count}</span>}
         {node.leaf && <span className="modelview-tnode-dtype small muted">{node.leaf.dtype}</span>}
         <span className="spacer" />
         <span className="modelview-tnode-params small muted">{humanCount(node.params)}</span>
@@ -319,7 +321,10 @@ export function ModelView({ path }: { path: string }): JSX.Element {
     };
   }, [path]);
 
-  const tree = useMemo(() => (info ? buildTree(info.tensors) : null), [info]);
+  const rawTree = useMemo(() => (info ? buildTree(info.tensors) : null), [info]);
+  const [collapseReps, setCollapseReps] = useState(true);
+  // ×N repeat-collapse (plan §4b): fold identical indexed layers into one group.
+  const tree = useMemo(() => (rawTree ? (collapseReps ? collapseRepeats(rawTree) : rawTree) : null), [rawTree, collapseReps]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Default-expand the top level so the layer namespace is one click away.
   useEffect(() => {
@@ -368,7 +373,14 @@ export function ModelView({ path }: { path: string }): JSX.Element {
       <VramCard info={info} card={card} config={config} />
       <div className="modelview-split">
         <div className="modelview-tree">
-          <div className="modelview-pane-head small muted">{t('model.namespace')}</div>
+          <div className="modelview-pane-head small muted">
+            {t('model.namespace')}
+            <span className="spacer" />
+            <label className="modelview-collapse-toggle" title={t('model.collapseRepeatsHint')}>
+              <input type="checkbox" checked={collapseReps} onChange={(e) => setCollapseReps(e.target.checked)} />
+              {t('model.collapseRepeats')}
+            </label>
+          </div>
           <div className="modelview-tree-body">
             {tree.children.map((c) => (
               <TreeRows key={c.path} node={c} depth={0} expanded={expanded} toggle={toggle} />

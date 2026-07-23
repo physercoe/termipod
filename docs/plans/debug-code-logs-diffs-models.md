@@ -413,11 +413,16 @@ inside the Inspect tab's `model` kind. Sequenced **after W4 core** (checkpoint
 tables + config card ship first; W4b builds on both). What it adds, and the
 issue-vs-plan reconciliation:
 
-- **Adopted — ×N repeat-collapse**: N identical decoder layers render as ONE
-  framed card (`× 61`, aggregate param badge) with drill-down as stacked
-  floating child cards. This becomes the default rendering for the
-  **templated-family view** — Model Explorer's namespace collapsing can't do
-  it (it renders `layers.0…layers.N` as siblings).
+- **Adopted — ×N repeat-collapse** — **SHIPPED 2026-07-23** (namespace-tree
+  form). Structurally-identical numeric-indexed siblings fold into one `× N`
+  node with the aggregate param count on the header; expand shows one member's
+  structure (`state/checkpoint.ts` `collapseRepeats`, grouped by a structural
+  signature, recursive so MoE `experts.0…N` collapse too; a "Collapse repeats"
+  toggle in `ui/ModelView.tsx`, default on; `node --test`). Because it groups by
+  signature, a heterogeneous stack (a few dense layers then MoE layers) splits
+  into separate groups rather than force-merging — surfacing the architecture.
+  The richer "stacked floating child cards" drill-down is the graph/canvas
+  view's job (W4b elkjs), not the tree's.
 - **Adopted — provenance badges**: every displayed number carries
   `verified` (parsed from checkpoint/AST) or `approximate` (inferred from
   config) — the config card's "recipe, not truth" caveat promoted to per-value

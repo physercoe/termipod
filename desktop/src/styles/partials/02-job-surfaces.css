@@ -1865,8 +1865,28 @@ button > .ui-icon:not(:only-child):first-child,
 .modelview-tnode-key {
   font-size: var(--font-size-body-small);
 }
+.modelview-tnode-x {
+  font-size: var(--font-size-body-small);
+  font-weight: 600;
+  color: var(--accent);
+  padding: 0 var(--spacing-s4);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
 .modelview-tnode-params {
   font-variant-numeric: tabular-nums;
+}
+.modelview-pane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+}
+.modelview-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  cursor: pointer;
+  user-select: none;
 }
 .modelview-thead,
 .modelview-trow {

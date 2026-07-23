@@ -1539,6 +1539,27 @@ button > .ui-icon:not(:only-child):first-child,
   min-height: 0;
   display: flex;
 }
+/* Interactive Model Explorer WebGL graph — fills the tab body; the custom element
+   is appended into .me-graph-host and sizes to it. */
+.me-graphwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.me-graph-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.me-graph-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
 .dotgraph {
   flex: 1;
   min-height: 0;

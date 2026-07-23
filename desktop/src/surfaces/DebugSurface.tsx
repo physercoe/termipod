@@ -36,6 +36,9 @@ const LogView = lazy(() => import('../ui/LogView').then((m) => ({ default: m.Log
 const ModelView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ModelView })));
 // The Graphviz DOT viewer — the wasm engine loads on first render (its own chunk).
 const DotGraphView = lazy(() => import('../ui/DotGraphView').then((m) => ({ default: m.DotGraphView })));
+// The interactive Model Explorer WebGL graph — the 2.5 MB element + worker load on
+// first render (its own chunk; the runtime is self-hosted, never in the boot bundle).
+const ModelExplorerView = lazy(() => import('../ui/ModelExplorerView').then((m) => ({ default: m.ModelExplorerView })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -104,6 +107,10 @@ function kindIcon(kind: InspectKind): IconName {
       return 'list-ordered';
     case 'model':
       return 'sliders';
+    case 'graph':
+      return 'diagram';
+    case 'megraph':
+      return 'canvas';
     default:
       return 'code';
   }
@@ -604,6 +611,26 @@ function GraphTab({ tab }: { tab: InspectTab }): JSX.Element {
   );
 }
 
+// ── interactive model-explorer graph tab (Model Explorer WebGL) ───────────────
+// A `megraph` tab re-inspects its checkpoint (local, header-only — like a model
+// tab) and renders the interactive Model Explorer graph. Local-only: the WebGL
+// element + worker need the file's header via `checkpoint_inspect`.
+function MEGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  if (!isShell() || tab.source !== 'local' || tab.path === undefined) {
+    return (
+      <div className="surface-placeholder region-pad">
+        <div className="surface-posture">{t('model.localOnly')}</div>
+      </div>
+    );
+  }
+  return (
+    <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
+      <ModelExplorerView path={tab.path} />
+    </Suspense>
+  );
+}
+
 export function DebugSurface(): JSX.Element {
   const t = useT();
   const tabs = useInspect((s) => s.tabs);
@@ -854,6 +881,8 @@ export function DebugSurface(): JSX.Element {
             <LogTab key={active.id} tab={active} />
           ) : active.kind === 'graph' ? (
             <GraphTab key={active.id} tab={active} />
+          ) : active.kind === 'megraph' ? (
+            <MEGraphTab key={active.id} tab={active} />
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}

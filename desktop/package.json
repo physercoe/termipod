@@ -5,13 +5,14 @@
   "type": "module",
   "description": "TermiPod desktop control plane — the unified web-tech client shell (WS2 of docs/plans/desktop-control-plane.md). Browser-target build; the Electron shell (desktop/electron) packages it (ADR-055).",
   "scripts": {
-    "dev": "npm run sync:tokens && npm run sync:excalidraw && npm run sync:treesitter && vite",
-    "build": "npm run sync:tokens && npm run sync:excalidraw && npm run sync:treesitter && tsc --noEmit && vite build",
+    "dev": "npm run sync:tokens && npm run sync:excalidraw && npm run sync:treesitter && npm run sync:modelexplorer && vite",
+    "build": "npm run sync:tokens && npm run sync:excalidraw && npm run sync:treesitter && npm run sync:modelexplorer && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "sync:tokens": "node ../design-tokens/build.mjs && cp ../design-tokens/build/tokens.css src/styles/tokens.css",
     "sync:excalidraw": "node scripts/sync-excalidraw-assets.mjs",
-    "sync:treesitter": "node scripts/sync-treesitter-assets.mjs"
+    "sync:treesitter": "node scripts/sync-treesitter-assets.mjs",
+    "sync:modelexplorer": "node scripts/sync-model-explorer-assets.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -66,6 +67,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^4.3.2",
+    "ai-edge-model-explorer-visualizer": "^0.1.2",
     "typescript": "^5.6.2",
     "vite": "^5.4.8"
   }

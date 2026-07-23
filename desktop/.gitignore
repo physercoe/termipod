@@ -5,3 +5,4 @@ dist/
 src/styles/tokens.css
 public/excalidraw-assets/
 public/tree-sitter/
+public/model-explorer/

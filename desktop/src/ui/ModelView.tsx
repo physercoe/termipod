@@ -373,21 +373,26 @@ export function ModelView({ path }: { path: string }): JSX.Element {
         </span>
         <DtypeBar hist={info.dtypeHistogram} total={info.totalParams} />
         {info.truncatedTensors !== undefined && <span className="small muted">(+{info.truncatedTensors} {t('model.truncated')})</span>}
+        <span className="spacer" />
         {info.graph !== undefined && info.graph.nodes.length > 0 && (
-          <>
-            <span className="spacer" />
-            <button
-              className="import-btn modelview-graph-btn"
-              onClick={() => {
-                const gc = onnxToGraphCollection(info.graph!, new Set(info.tensors.map((x) => x.name)), baseOf(path) || 'onnx');
-                useInspect.getState().open({ kind: 'graph', source: 'paste', title: `graph: ${baseOf(path)}` }, graphCollectionToDot(gc));
-              }}
-            >
-              <Icon name="diagram" size={13} /> {t('model.viewGraph')}
-              {info.graph.truncatedNodes !== undefined && <span className="small muted"> (+{info.graph.truncatedNodes})</span>}
-            </button>
-          </>
+          <button
+            className="import-btn modelview-graph-btn"
+            onClick={() => {
+              const gc = onnxToGraphCollection(info.graph!, new Set(info.tensors.map((x) => x.name)), baseOf(path) || 'onnx');
+              useInspect.getState().open({ kind: 'graph', source: 'paste', title: `graph: ${baseOf(path)}` }, graphCollectionToDot(gc));
+            }}
+          >
+            <Icon name="diagram" size={13} /> {t('model.viewGraph')}
+            {info.graph.truncatedNodes !== undefined && <span className="small muted"> (+{info.graph.truncatedNodes})</span>}
+          </button>
         )}
+        <button
+          className="import-btn modelview-graph-btn"
+          title={t('model.interactiveGraphHint')}
+          onClick={() => useInspect.getState().open({ kind: 'megraph', source: 'local', path, title: `graph: ${baseOf(path)}` })}
+        >
+          <Icon name="canvas" size={13} /> {t('model.interactiveGraph')}
+        </button>
       </div>
       {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}

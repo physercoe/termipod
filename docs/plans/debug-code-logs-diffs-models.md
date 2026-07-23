@@ -14,10 +14,10 @@
 > header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
 > gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
 > tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
-> Tab renamed (§0a). **Tracer (Tier 1)** + **code2flow calls** + **ONNX→graph**
-> (`GraphCollection`+DOT) feed the graph viewer. **Next:** Model Explorer element, W4b.
+> Tab renamed (§0a). **Tracer** + **code2flow** + **ONNX→graph** + **Model Explorer**
+> (self-hosted WebGL element; device-test pending) feed the graph views. **Next:** W4b.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core + ONNX + tracer + call-graph + onnx-graph
+> **Last verified vs code:** W1–W3 + W4 core + ONNX + tracer + call-graph + graphs + ME
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -362,13 +362,25 @@ and a `graphCollectionToDot` bridge renders it **now** in the existing DOT viewe
 exact input the WebGL element will consume, so that element becomes a pure renderer
 swap.
 
-**Still TODO — the Model Explorer WebGL element** (`ai-edge-model-explorer-visualizer`,
-7.1 MB): a lazy chunk fed (a) the synthesized namespace hierarchy for
-safetensors/GGUF, (b) the ONNX `GraphCollection` above. Needs **asset self-hosting**
-(`main_browser.js` + `worker.js` + `static_files/*` via a `sync:` script), a custom
-element + `assetFilesBaseUrl`/`workerScriptPath` globals under the strict CSP, and
-**device/xvfb-WebGL verification** — the heavy, on-device part deferred past the
-headlessly-verifiable adapter.
+**Model Explorer WebGL element WIRED 2026-07-23** (device-test pending). The
+`<model-explorer-visualizer>` custom element (`ai-edge-model-explorer-visualizer`
+v0.1.2) is **self-hosted** — `scripts/sync-model-explorer-assets.mjs` copies
+`main_browser.js` + `worker.js` + `static_files/*` → `public/model-explorer/`
+(gitignored, per-build; tree-sitter precedent), wired into `dev`/`build`.
+`state/modelExplorer.ts` injects the IIFE script once and points its globals
+(`window.modelExplorer.workerScriptPath` = `/model-explorer/worker.js`,
+`assetFilesBaseUrl` = `/model-explorer/static_files`) — set **after** the script runs,
+since the IIFE resets `window.modelExplorer = {}` last. `ui/ModelExplorerView.tsx`
+(lazy chunk — the 2.5 MB element is NEVER in the boot bundle) re-inspects the
+checkpoint, builds the `GraphCollection` (ONNX op graph via `onnxToGraphCollection`,
+else the weight namespace hierarchy via `checkpointToGraphCollection`), and mounts the
+element. A new **`megraph`** inspect-tab kind (local-only, carries the checkpoint path)
++ an **Interactive graph** button on the model tab. **CSP needs no change** —
+`script-src 'self' 'unsafe-eval'` + `worker-src 'self' blob:` + `img-src 'self'` (font
+PNGs) already cover same-origin `app://` assets. **On-device verification pending**
+(WebGL + the layout web worker render only in a real renderer): confirm the worker
+loads same-origin under `app://`, WASM-in-worker isn't blocked by CSP, and the font
+textures resolve — the parts a headless build can't exercise.
 
 **Inspect from code — PyTorch `model.py` → graph (director's ask).**
 **Tier 1 SHIPPED 2026-07-23** (the trace itself needs a torch venue; the plumbing

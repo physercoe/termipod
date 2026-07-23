@@ -4,8 +4,8 @@
 /// `node --test src/state/modelGraph.test.ts`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { graphCollectionToDot, onnxNamespace, onnxToGraphCollection } from './modelGraph.ts';
-import type { OnnxGraphData } from './checkpoint.ts';
+import { checkpointNamespace, checkpointToGraphCollection, graphCollectionToDot, onnxNamespace, onnxToGraphCollection } from './modelGraph.ts';
+import type { OnnxGraphData, TensorInfo } from './checkpoint.ts';
 
 // A tiny linear graph: input x + weight W → MatMul → Relu → output y.
 const G: OnnxGraphData = {
@@ -68,6 +68,33 @@ test('graphCollectionToDot: emits nodes + de-duplicated edges', () => {
 
 test('graphCollectionToDot: an empty graph is a valid empty digraph', () => {
   assert.equal(graphCollectionToDot({ label: 'x', graphs: [] }), 'digraph G {\n}\n');
+});
+
+test('checkpointNamespace: dotted weight path minus the leaf, re-joined with /', () => {
+  // Every dot is a level (so layers→0 nest, matching buildTree + ×N collapse).
+  assert.equal(checkpointNamespace('model.layers.0.q_proj.weight'), 'model/layers/0/q_proj');
+  assert.equal(checkpointNamespace('lm_head.weight'), 'lm_head');
+  assert.equal(checkpointNamespace('embedding'), '');
+});
+
+test('checkpointToGraphCollection: each tensor is a namespaced leaf node, no edges', () => {
+  const tensors: TensorInfo[] = [
+    { name: 'model.layers.0.q_proj.weight', dtype: 'bf16', shape: [4096, 4096], params: 16777216 },
+    { name: 'lm_head.weight', dtype: 'bf16', shape: [128, 4096], params: 524288 },
+  ];
+  const gc = checkpointToGraphCollection(tensors, 'm');
+  assert.equal(gc.label, 'm');
+  const [n0, n1] = gc.graphs[0].nodes;
+  assert.equal(n0.id, 't0');
+  assert.equal(n0.label, 'weight');
+  assert.equal(n0.namespace, 'model/layers/0/q_proj');
+  assert.equal(n0.incomingEdges, undefined);
+  assert.deepEqual(n0.attrs, [
+    { key: 'dtype', value: 'bf16' },
+    { key: 'shape', value: '[4096, 4096]' },
+    { key: 'params', value: '16777216' },
+  ]);
+  assert.equal(n1.namespace, 'lm_head');
 });
 
 test('graphCollectionToDot: labels with quotes/backslashes are escaped', () => {

@@ -19,7 +19,7 @@ import { looksLikeDot } from './dotGraph';
 /// activate (open question 1's proposed answer), so a huge log or checkpoint is
 /// never copied into `localStorage`.
 
-export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph';
+export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub';
 
 /// A reference to one readable source — the two sides of a two-blob compare
@@ -172,7 +172,7 @@ export const useInspect = create<InspectState>((set, get) => ({
     // Focus an already-open file-backed tab instead of duplicating it.
     if (tab.source !== 'paste') {
       const existing = get().tabs.find(
-        (t) => t.source === tab.source && t.path === tab.path && t.hostId === tab.hostId && t.projectId === tab.projectId,
+        (t) => t.kind === tab.kind && t.source === tab.source && t.path === tab.path && t.hostId === tab.hostId && t.projectId === tab.projectId,
       );
       if (existing) {
         set({ activeId: existing.id });

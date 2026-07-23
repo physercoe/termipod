@@ -143,7 +143,17 @@ This complements:
   a consumer's input; weight/initializer inputs are marked constant, not edges).
   Under the hood the graph is built as a **Model Explorer `GraphCollection`** — the
   schema pinned verbatim to `ai-edge-model-explorer-visualizer` — so the richer
-  WebGL graph element (a later, on-device slice) will be a drop-in renderer swap.
+  WebGL graph element is a drop-in renderer swap.
+- **Inspect models — interactive Model Explorer graph (W4).** An **Interactive
+  graph** button on the model tab opens the model in Google's **Model Explorer**
+  WebGL visualizer (`<model-explorer-visualizer>`) — hierarchical, collapsible,
+  GPU-rendered, fed the ONNX operator graph (real nodes + edges) or, for
+  safetensors/GGUF, the weight namespace hierarchy. The 2.5 MB element + its layout
+  web worker + font textures are **self-hosted** (`/model-explorer/*`, a per-build
+  sync script; never in the boot bundle — loaded on first open) and served
+  same-origin under the `app://` scheme, so it works fully offline with no CSP
+  change. A new `megraph` inspect-tab kind carries it. (The WebGL render is
+  device-verified.)
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

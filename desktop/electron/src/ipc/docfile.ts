@@ -51,6 +51,7 @@ export const docfileHandlers: Record<string, Handler> = {
         },
         { name: 'Diffs', extensions: ['diff', 'patch'] },
         { name: 'Logs', extensions: ['log'] },
+        { name: 'Graphs', extensions: ['dot', 'gv'] },
         { name: 'Models', extensions: ['safetensors', 'gguf', 'onnx'] },
         { name: 'All files', extensions: ['*'] },
       ],

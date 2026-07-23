@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
+import { looksLikeDot } from '../state/dotGraph';
 import { useWorkspace } from '../state/workspace';
 import { readRef, readSource } from '../state/inspectSources';
 import { useSession } from '../state/session';
@@ -31,6 +32,8 @@ const LogView = lazy(() => import('../ui/LogView').then((m) => ({ default: m.Log
 // W4 — the checkpoint inspector (@huggingface/gguf runs main-side; this chunk is
 // the UI) is loaded the first time a model tab renders.
 const ModelView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ModelView })));
+// The Graphviz DOT viewer — the wasm engine loads on first render (its own chunk).
+const DotGraphView = lazy(() => import('../ui/DotGraphView').then((m) => ({ default: m.DotGraphView })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -256,8 +259,9 @@ function CodeTab({
     );
 
   const isPatch = looksLikePatch(body);
-  const isLog = !isPatch && looksLikeLog(body);
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog;
+  const isDot = !isPatch && looksLikeDot(body);
+  const isLog = !isPatch && !isDot && looksLikeLog(body);
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -284,6 +288,11 @@ function CodeTab({
           {isLog && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'log')}>
               <Icon name="list-ordered" size={14} /> {t('inspect.viewAsLog')}
+            </button>
+          )}
+          {isDot && (
+            <button className="import-btn" onClick={() => setKind(tab.id, 'graph')}>
+              <Icon name="diagram" size={14} /> {t('inspect.viewAsGraph')}
             </button>
           )}
           {interp !== null && (
@@ -484,6 +493,69 @@ function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
     <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
       <ModelView path={tab.path} />
     </Suspense>
+  );
+}
+
+// ── graph tab (Graphviz DOT) ──────────────────────────────────────────────────
+// Renders a `.dot`/`.gv` file (or a pasted `digraph {…}` scratch that sniffs as
+// DOT) as a pan/zoomable SVG via the wasm-graphviz engine (plan §5). This is the
+// render path the code2flow call-graph and torchview tracer will emit into; those
+// producers (which need a Python venue) are later slices.
+function GraphTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const loading = useInspect((s) => s.loading[tab.id]);
+  const error = useInspect((s) => s.error[tab.id]);
+  const setContent = useInspect((s) => s.setContent);
+  const setLoading = useInspect((s) => s.setLoading);
+  const setError = useInspect((s) => s.setError);
+  const setKind = useInspect((s) => s.setKind);
+
+  useEffect(() => {
+    if (tab.source === 'paste' || content !== undefined || loading === true) return;
+    let cancelled = false;
+    setLoading(tab.id, true);
+    setError(tab.id, undefined);
+    void (async () => {
+      try {
+        const body = await readSource(tab);
+        if (!cancelled) setContent(tab.id, body);
+      } catch (e) {
+        if (!cancelled) setError(tab.id, e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(tab.id, false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  if (error !== undefined)
+    return (
+      <div className="inspect-error region-pad">
+        <Icon name="alert" size={16} /> {error}
+      </div>
+    );
+  if (content === undefined && tab.source !== 'paste') return <div className="muted region-pad">{t('inspect.loading')}</div>;
+
+  return (
+    <div className="inspect-tabbody">
+      {tab.source === 'paste' && (
+        <div className="inspect-runbar">
+          <span className="spacer" />
+          <button className="import-btn" onClick={() => setKind(tab.id, 'code')}>
+            <Icon name="code" size={14} /> {t('inspect.viewSource')}
+          </button>
+        </div>
+      )}
+      <div className="inspect-graphwrap">
+        <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
+          <DotGraphView dot={content ?? ''} />
+        </Suspense>
+      </div>
+    </div>
   );
 }
 
@@ -735,6 +807,8 @@ export function DebugSurface(): JSX.Element {
             <DiffTab key={active.id} tab={active} />
           ) : active.kind === 'log' ? (
             <LogTab key={active.id} tab={active} />
+          ) : active.kind === 'graph' ? (
+            <GraphTab key={active.id} tab={active} />
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}

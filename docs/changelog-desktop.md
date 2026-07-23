@@ -104,6 +104,19 @@ This complements:
   unknown it declines to guess rather than overestimate. Honestly labelled
   approximate (framework overhead/fragmentation are on top). Pure TypeScript;
   the arithmetic is unit-tested against Llama-3-8B (GQA) and DeepSeek-V2 (MLA).
+- **Inspect models — layer collapse (W4b).** The namespace tree now folds
+  structurally-identical indexed layers into a single **× N** group (aggregate
+  params on the header; expand to see one member), so a 61-layer model reads as
+  `layers → [0–60] ×61` instead of 61 near-identical subtrees. A "Collapse
+  repeats" toggle turns it off. Grouping is by structural signature, so a
+  heterogeneous stack (e.g. a few dense layers then MoE layers) splits into
+  separate groups, and nested repeats (MoE experts) collapse too.
+- **Inspect graphs — Graphviz DOT viewer (W4).** A new **graph** tab kind renders
+  Graphviz **DOT** as a pan/zoomable SVG via a WebAssembly Graphviz engine
+  (`@hpcc-js/wasm-graphviz`, fully offline). Open a `.dot`/`.gv` file (a DVC dag,
+  a saved graph), or paste a `digraph {…}` scratch and hit **View as graph**;
+  zoom (wheel/±), pan (drag), fit, copy SVG. This is the shared render substrate
+  the forthcoming code2flow call-graph and torchview model-tracer will emit into.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

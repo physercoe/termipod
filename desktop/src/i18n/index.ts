@@ -1397,6 +1397,10 @@ const en: Dict = {
   'inspect.cancel': 'Cancel',
   'inspect.viewAsDiff': 'View as diff',
   'inspect.viewAsLog': 'View as log',
+  'inspect.viewAsGraph': 'View as graph',
+  'graph.rendering': 'Rendering graph…',
+  'graph.reset': 'Fit',
+  'graph.copySvg': 'Copy SVG',
   'inspect.viewSource': 'View source',
 
   // Log viewer (W3)
@@ -1423,6 +1427,8 @@ const en: Dict = {
   'model.operators': 'operators',
   'model.truncated': 'more not shown',
   'model.namespace': 'Namespace',
+  'model.collapseRepeats': 'Collapse repeats',
+  'model.collapseRepeatsHint': 'Fold identical indexed layers into one × N group (aggregate params on the header; expand to see one member).',
   'model.filterTensors': 'Filter tensors…',
   'model.name': 'Name',
   'model.dtype': 'Dtype',
@@ -2869,6 +2875,10 @@ const zh: Dict = {
   'inspect.cancel': '取消',
   'inspect.viewAsDiff': '以差异查看',
   'inspect.viewAsLog': '以日志查看',
+  'inspect.viewAsGraph': '以图查看',
+  'graph.rendering': '正在渲染图…',
+  'graph.reset': '适配',
+  'graph.copySvg': '复制 SVG',
   'inspect.viewSource': '查看源码',
 
   // 日志查看器（W3）
@@ -2895,6 +2905,8 @@ const zh: Dict = {
   'model.operators': '算子',
   'model.truncated': '项未显示',
   'model.namespace': '命名空间',
+  'model.collapseRepeats': '折叠重复',
+  'model.collapseRepeatsHint': '将相同的索引层折叠为一个 × N 分组（表头显示汇总参数量；展开查看单个成员）。',
   'model.filterTensors': '筛选张量…',
   'model.name': '名称',
   'model.dtype': '数据类型',

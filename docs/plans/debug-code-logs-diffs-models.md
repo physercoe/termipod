@@ -334,6 +334,16 @@ custom forward code, patched attention, or adapters are invisible to it; the
 code→graph tracer below is the ground-truth path. (GGUF needs no sidecar —
 its own metadata carries the same fields.)
 
+**DOT render substrate — SHIPPED 2026-07-23.** The WASM-graphviz render path
+that both producers below target is built and standalone-useful: a new **graph**
+tab kind (`state/dotGraph.ts` `renderDot` via `@hpcc-js/wasm-graphviz` — the wasm
+is inlined in the package, so no asset self-hosting, just the CSP's existing
+`wasm-unsafe-eval`; `ui/DotGraphView.tsx` pan/zoom SVG, lazy chunk) renders any
+`.dot`/`.gv` file or pasted `digraph {…}` (sniffed by `looksLikeDot`, **View as
+graph**). `node --test` covers the sniff + a real DOT→SVG render. The code2flow
+call-graph and the torchview tracer (both needing a Python venue) now only have
+to *produce* DOT and hand it here.
+
 **Graph view**: the Model Explorer custom element as a lazy chunk, fed
 (a) the synthesized namespace hierarchy for safetensors/GGUF (its JSON format
 is namespace-hierarchical — exactly this shape), (b) the real node/edge graph
@@ -413,11 +423,16 @@ inside the Inspect tab's `model` kind. Sequenced **after W4 core** (checkpoint
 tables + config card ship first; W4b builds on both). What it adds, and the
 issue-vs-plan reconciliation:
 
-- **Adopted — ×N repeat-collapse**: N identical decoder layers render as ONE
-  framed card (`× 61`, aggregate param badge) with drill-down as stacked
-  floating child cards. This becomes the default rendering for the
-  **templated-family view** — Model Explorer's namespace collapsing can't do
-  it (it renders `layers.0…layers.N` as siblings).
+- **Adopted — ×N repeat-collapse** — **SHIPPED 2026-07-23** (namespace-tree
+  form). Structurally-identical numeric-indexed siblings fold into one `× N`
+  node with the aggregate param count on the header; expand shows one member's
+  structure (`state/checkpoint.ts` `collapseRepeats`, grouped by a structural
+  signature, recursive so MoE `experts.0…N` collapse too; a "Collapse repeats"
+  toggle in `ui/ModelView.tsx`, default on; `node --test`). Because it groups by
+  signature, a heterogeneous stack (a few dense layers then MoE layers) splits
+  into separate groups rather than force-merging — surfacing the architecture.
+  The richer "stacked floating child cards" drill-down is the graph/canvas
+  view's job (W4b elkjs), not the tree's.
 - **Adopted — provenance badges**: every displayed number carries
   `verified` (parsed from checkpoint/AST) or `approximate` (inferred from
   config) — the config card's "recipe, not truth" caveat promoted to per-value

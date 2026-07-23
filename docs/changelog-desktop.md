@@ -51,6 +51,10 @@ This complements:
   `file:line` chips jump to the source), and **run-scratch** (run a
   python/bash/node scratch; its stderr feeds the lens). Sources: paste + local
   file. Diff/log/model tabs open with a "coming next" placard (W2/W3/W4).
+- **Inspect sources — workspace / SFTP / hub.** An **Open ▾** menu opens files
+  from the Author workspace, a remote host over **SFTP** (pick a saved
+  connection → browse directories), and a **hub project's docs** (pick a
+  project → doc), alongside the local-file picker.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

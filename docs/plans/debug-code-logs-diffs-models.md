@@ -9,15 +9,20 @@
 > `file:line` chips resolve → open a CodeView tab at the line) + **run-scratch**
 > (`script_run` for python/bash/node paste tabs; stderr feeds the lens). Tab
 > **Debug → Inspect** renamed (label only; `debug` JobId kept — §0a). Sources
-> live in W1: `paste` + `local` (native `debug_open` dialog). **W1 follow-on**
-> (store already models them): workspace-tree / SFTP / hub-doc sources + the
-> tree-sitter **symbol outline** (`CodeOutline`, needs WASM asset-sync). diff /
-> log / model tabs open but show a wedge placard until **W2 / W3 / W4**.
-> Supersedes the "EMBED Monaco" posture for J3 (§1). Deep-research findings
-> (licenses/embeddability verified against npm + upstream repos 2026-07-23) are
-> inlined per wedge.
+> live in W1: `paste` + `local` (native `debug_open` dialog). **W1 follow-on
+> sources shipped** (`97a42b56`): **workspace** (searchable file list), **remote
+> SFTP** (saved connection → directory browser; `connectSaved` reuses
+> ConnectForm's credential resolution, one cached session per host), **hub**
+> (project → doc list → `getProjectDocText`) — an "Open ▾" menu + per-source
+> picker modal (`surfaces/InspectOpen.tsx`), content read lazily on activate.
+> **Still deferred:** the tree-sitter **symbol outline** (`CodeOutline`, needs
+> WASM asset-sync). diff / log / model tabs open but show a wedge placard until
+> **W2 / W3 / W4**. Supersedes the "EMBED Monaco" posture for J3 (§1).
+> Deep-research findings (licenses/embeddability verified against npm + upstream
+> repos 2026-07-23) are inlined per wedge.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1 landed on desktop `2026.723.247` @ `db017912`+
+> **Last verified vs code:** W1 + follow-on sources @ `97a42b56` (desktop
+> `2026.723.247`+)
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab

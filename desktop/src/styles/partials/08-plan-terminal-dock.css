@@ -928,6 +928,64 @@
   display: flex;
 }
 
+/* session web panel (P0: embedded agent web UIs, e.g. kimi web — the third
+   sub-view next to terminal / files). Token stance: semantic vars + hairlines,
+   no shadows — the guest paints its own UI. */
+.web-panel-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.web-panel-wrap.hidden {
+  display: none;
+}
+.web-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The "external UI — parallel, not a data path" affordance (plan caveat (b)):
+   a permanent, low-contrast strip so the guest is never mistaken for a native
+   transcript surface. */
+.web-panel-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.web-panel-guest {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--bg);
+}
+.web-panel-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  text-align: center;
+}
+.web-panel-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+
 /* xterm screen + OSC 133 command navigator. Chrome FLOATS over the screen — the
    find bar (top-right, Ctrl/Cmd+F) and the command-block HUD (bottom-right) — so
    nothing steals a persistent horizontal strip of vertical space (the old bar,

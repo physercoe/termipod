@@ -22,6 +22,7 @@ import { dispatch, isAllowed } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
 import { disposeAllPtys } from './ipc/pty';
 import { disposeAllSsh } from './ipc/ssh';
+import { disposeKimiWeb } from './kimiweb';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) it resolves to
@@ -148,6 +149,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     disposeAllPtys();
     disposeAllSsh();
+    disposeKimiWeb();
   });
 
   app.on('window-all-closed', () => {

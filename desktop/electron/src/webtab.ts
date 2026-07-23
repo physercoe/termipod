@@ -11,25 +11,34 @@
 ///
 /// Everything security-relevant is enforced HERE, in the authority process, not
 /// in renderer markup a compromised renderer could forge:
-///   - guests run in an isolated, persistent `persist:webtab` partition — none
-///     of the `app://`/`drawio://` scheme handlers or the hub-CORS bearer
+///   - guests run only in allowlisted isolated partitions (webtab_policy.ts) —
+///     none of the `app://`/`drawio://` scheme handlers or the hub-CORS bearer
 ///     injection (installed on `defaultSession` only) is reachable, and no
 ///     preload is attached, so `__ELECTRON_BRIDGE__` never exists in a guest;
 ///   - `will-attach-webview` strips any preload + forces
 ///     nodeIntegration:false/contextIsolation:true and rejects any partition
-///     other than `persist:webtab`;
-///   - popups are denied (a safe http(s) `target=_blank` becomes an in-tab
-///     navigation; anything else goes to the OS browser);
-///   - navigation is http(s)-only; permission requests are denied except
-///     fullscreen; downloads land through a save dialog until W2b wires them to
-///     the managed-attachment flow.
+///     outside the allowlist;
+///   - per-partition policy (webtab_policy.ts): `persist:webtab` allows any
+///     http(s) origin and routes a safe http(s) `target=_blank` in-tab;
+///     `kimiweb` pins top-frame navigation to loopback origins and never opens
+///     popups in-tab (safe schemes go to the OS browser);
+///   - permission requests are denied (except fullscreen on webtab); downloads
+///     land through a save dialog until W2b wires them to the
+///     managed-attachment flow.
 import { app, session, shell } from 'electron';
 import path from 'node:path';
 import type { Handler } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
 import { emit } from './events';
-
-const WEBTAB_PARTITION = 'persist:webtab';
+import {
+  KIMIWEB_PARTITION,
+  PARTITION_POLICIES,
+  WEBTAB_PARTITION,
+  isHttpUrl,
+  isLoopbackHttpUrl,
+  partitionPolicy,
+  type PartitionPolicy,
+} from './webtab_policy';
 
 // Downloads paused in `will-download`, awaiting the Read surface's chooser
 // decision (W2b). Keyed by an id echoed back through `webtab_download_decide`.
@@ -38,6 +47,18 @@ let downloadSeq = 0;
 
 function webtabSession(): Electron.Session {
   return session.fromPartition(WEBTAB_PARTITION);
+}
+
+/// The allowlist policy for a guest webContents, identified by its session
+/// (`session.fromPartition` is memoized per partition string, so identity
+/// comparison works). `null` = not an allowlisted guest partition — the
+/// `will-attach-webview` guard already refused the attach, so this is only a
+/// defensive fallback that blocks everything.
+function policyForGuest(wc: Electron.WebContents): PartitionPolicy | null {
+  for (const p of PARTITION_POLICIES) {
+    if (wc.session === session.fromPartition(p.partition)) return p;
+  }
+  return null;
 }
 
 /// The stock-Chrome user agent Electron derives from — with the `Electron/x.y`
@@ -116,6 +137,18 @@ export function setupWebtab(): void {
     });
   });
 
+  // The kimiweb partition (P0 embedded agent web UIs): NON-persistent — the
+  // bearer token rides the URL hash (`#token=…`) and a persistent partition
+  // would keep it in guest history on disk; the token is re-captured at each
+  // spawn anyway. All permissions denied, and the loopback-only top-frame
+  // policy is enforced at the request layer for the same reason as above
+  // (`will-navigate` misses programmatic loads + redirects).
+  const kimi = session.fromPartition(KIMIWEB_PARTITION);
+  kimi.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
+  kimi.webRequest.onBeforeRequest((details, cb) => {
+    cb({ cancel: details.resourceType === 'mainFrame' && !isLoopbackHttpUrl(details.url) });
+  });
+
   app.on('web-contents-created', (_e, wc) => {
     // The embedder (main window) attaching a webview: lock the guest's
     // webPreferences down no matter what the renderer markup asked for.
@@ -124,23 +157,29 @@ export function setupWebtab(): void {
       webPreferences.nodeIntegration = false;
       webPreferences.contextIsolation = true;
       webPreferences.sandbox = true;
-      // A guest may only ever run in the isolated persistent partition — never
+      // A guest may only ever run in an allowlisted isolated partition — never
       // the default session (where the scheme handlers + hub CORS live).
-      if (params.partition !== WEBTAB_PARTITION) evt.preventDefault();
+      if (params.partition === undefined || partitionPolicy(params.partition) === null) {
+        evt.preventDefault();
+      }
     });
 
-    // The guest itself: popup + navigation policy. `getType()` is 'webview' for
-    // a guest; leave the app's own top frame (handled in main.ts) untouched.
+    // The guest itself: popup + navigation policy, looked up from the guest's
+    // own partition. `getType()` is 'webview' for a guest; leave the app's own
+    // top frame (handled in main.ts) untouched.
     if (wc.getType() === 'webview') {
+      const policy = policyForGuest(wc);
       wc.setWindowOpenHandler(({ url }) => {
-        // A safe http(s) `target=_blank` stays in-tab (reading flow); a mailto:
-        // (or other safe scheme) goes to the OS; everything else is dropped.
-        if (/^https?:\/\//i.test(url)) void wc.loadURL(url);
+        // webtab ('inline'): a safe http(s) `target=_blank` stays in-tab (the
+        // reading flow). kimiweb ('external'): nothing opens in-tab — the nav
+        // policy would block a non-loopback load anyway, so safe schemes go
+        // straight to the OS browser. Everything else is dropped.
+        if (policy?.windowOpen === 'inline' && isHttpUrl(url)) void wc.loadURL(url);
         else if (isSafeExternal(url)) void shell.openExternal(url);
         return { action: 'deny' };
       });
       wc.on('will-navigate', (e, url) => {
-        if (!/^https?:\/\//i.test(url)) e.preventDefault();
+        if (policy === null || !policy.allowTopFrame(url)) e.preventDefault();
       });
     }
   });

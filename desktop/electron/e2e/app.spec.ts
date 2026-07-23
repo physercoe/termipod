@@ -477,6 +477,83 @@ test('web tab: a <webview> guest loads, isolates the bridge, and cannot reach ap
   }
 });
 
+// ── Session web panel: the kimiweb guest partition (agent-transcript-redesign P0) ──
+// The embedded `kimi web` panel runs its guest in the NON-persistent `kimiweb`
+// partition, whose top-frame navigation is pinned to loopback (webtab_policy.ts)
+// — the bearer token rides the URL hash, so the guest must never load an
+// external origin. This pins the policy end-to-end without the kimi binary:
+// a stand-in loopback server plays the SPA.
+test('kimiweb guest: loopback loads, external navigation is blocked, unknown partition is refused', async () => {
+  const server = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end('<!doctype html><html><head><title>E2E Kimiweb OK</title></head><body>kimi stand-in</body></html>');
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const { port } = server.address() as AddressInfo;
+  const guestUrl = `http://127.0.0.1:${port}/#token=e2e-token`;
+  try {
+    const result = await page.evaluate(async (url) => {
+      const wv = document.createElement('webview') as HTMLElement & {
+        getTitle(): string;
+        getURL(): string;
+        loadURL(u: string): Promise<void>;
+        executeJavaScript(code: string): Promise<unknown>;
+      };
+      wv.setAttribute('src', url);
+      wv.setAttribute('partition', 'kimiweb');
+      wv.style.width = '400px';
+      wv.style.height = '300px';
+      document.body.appendChild(wv);
+      await new Promise<void>((resolve, reject) => {
+        const to = setTimeout(() => reject(new Error('webview load timeout')), 15_000);
+        wv.addEventListener('did-finish-load', () => { clearTimeout(to); resolve(); }, { once: true });
+        wv.addEventListener('did-fail-load', (e) => {
+          if ((e as unknown as { isMainFrame?: boolean }).isMainFrame === false) return;
+          clearTimeout(to);
+          reject(new Error('did-fail-load ' + String((e as unknown as { errorCode?: number }).errorCode)));
+        });
+      });
+      const title = wv.getTitle();
+      const hasBridge = await wv.executeJavaScript('typeof window.__ELECTRON_BRIDGE__');
+      // A programmatic top-frame load to an external origin must be cancelled
+      // by the partition's onBeforeRequest guard (`.invalid` so nothing
+      // resolves even if the policy regressed — the loadURL rejection is what
+      // proves the block).
+      const external = await wv.loadURL('http://kimiweb-e2e.invalid/').then(
+        () => 'loaded',
+        () => 'blocked',
+      );
+      const stayedUrl = wv.getURL();
+      wv.remove();
+      return { title, hasBridge, external, stayedUrl };
+    }, guestUrl);
+    expect(result.title).toBe('E2E Kimiweb OK');
+    // No preload → the bridge never exists in the guest.
+    expect(result.hasBridge).toBe('undefined');
+    expect(result.external).toBe('blocked');
+    // …and the guest is still on the loopback embed URL (token hash intact).
+    expect(result.stayedUrl).toBe(guestUrl);
+
+    // A partition outside the allowlist must not host a guest at all.
+    const denied = await page.evaluate(async (url) => {
+      const wv = document.createElement('webview') as HTMLElement & { loadURL(u: string): Promise<void> };
+      wv.setAttribute('src', url);
+      wv.setAttribute('partition', 'persist:not-allowlisted');
+      document.body.appendChild(wv);
+      let loaded = false;
+      wv.addEventListener('did-finish-load', () => {
+        loaded = true;
+      });
+      await new Promise((r) => setTimeout(r, 2000));
+      wv.remove();
+      return loaded;
+    }, `http://127.0.0.1:${port}/`);
+    expect(denied).toBe(false);
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+});
+
 test('inspect: New scratch opens a code tab on CodeMirror and the trace lens jumps', async () => {
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   // Empty state until a tab is opened.

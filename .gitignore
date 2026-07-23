@@ -8,6 +8,8 @@
 # Miscellaneous
 *.class
 *.log
+# …but the Inspect device-test log fixture is a deliberate committed file (plan §7a)
+!desktop/electron/e2e/fixtures/inspect/log/*.log
 *.pyc
 *.swp
 .DS_Store

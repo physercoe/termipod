@@ -1222,6 +1222,11 @@ button > .ui-icon:not(:only-child):first-child,
   width: 4.5em;
   flex: 0 0 auto;
 }
+.trace-targets {
+  resize: vertical;
+  min-height: 3.5em;
+  line-height: 1.5;
+}
 .trace-ok {
   color: var(--success);
 }

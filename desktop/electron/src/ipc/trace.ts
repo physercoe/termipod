@@ -1,12 +1,13 @@
-/// Model-graph tracer runner (plan §5, W4 code→graph tracer) — runs a vendored
-/// Python helper on a **local** interpreter, piping the helper to the process's
+/// Vendored-Python-helper runner (plan §5, W4) — engine-agnostic: it runs any
+/// vendored helper on a **local** interpreter, piping the helper to the process's
 /// **stdin** (never a temp file) so a multi-word interpreter preset works
 /// uniformly: `python3`, `/opt/venv/bin/python`, `conda run -n rl python`,
 /// `docker exec -i box python`, `uv run python`. The trace parameters ride in as
-/// environment variables (`TRACE_ENTRY` / `TRACE_INPUT` / …), never interpolated
-/// into a command string, so there is no injection surface the author didn't
-/// already have on their own machine. Remote (SSH) venues go a different route
-/// (`ssh_exec` with the helper base64-embedded) — this handler is local only.
+/// environment variables (`TRACE_*` for the tracer, `C2F_*` for the call-graph
+/// slice — [[callGraph]]), never interpolated into a command string, so there is no
+/// injection surface the author didn't already have on their own machine. Remote
+/// (SSH) venues go a different route (`ssh_exec` with the helper base64-embedded) —
+/// this handler is local only.
 ///
 /// One-shot, wall-clock capped, captured output — the same shape as `script.ts`.
 import { spawn } from 'node:child_process';

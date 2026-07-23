@@ -14,10 +14,10 @@
 > header-only `checkpoint_inspect` in main — never tensor bytes) → summary + HF/
 > gguf **architecture card** (dense-GQA/MoE/MLA templates) + namespace tree +
 > tensor table; **ONNX** parses too (protobufjs, weight bytes skipped; op-mix).
-> Tab **Debug → Inspect** renamed (§0a). **Next:** W4 remainder (Model Explorer
-> graph, code→graph tracer, W4b). Supersedes "EMBED Monaco" (§1).
+> Tab renamed (§0a). The **code→graph tracer (Tier 1)** + **code2flow call graph**
+> now produce DOT into the graph viewer. **Next:** Model Explorer graph, W4b.
 > **Audience:** principal · contributors
-> **Last verified vs code:** W1–W3 + W4 core + ONNX shipped (desktop `2026.723.247`+)
+> **Last verified vs code:** W1–W3 + W4 core + ONNX + tracer + call-graph shipped
 
 **TL;DR.** J3 Debug today is a paste-textarea piped through the Markdown
 highlighter (`surfaces/DebugSurface.tsx`, 57 lines). The director's ask: the tab
@@ -414,10 +414,18 @@ flow — verified).
 
 **Algorithm code → call graph (non-NN)**: **code2flow** (MIT, active,
 Python/JS/Ruby/PHP, zero extra Python deps) emits DOT statically — same
-WASM-graphviz render path, as a "Call graph" action on code tabs, gracefully
-erroring if the CLI isn't installed on the chosen venue. pyan3 is GPL-2.0 —
-not bundled; staticfg/py2cfg (per-function CFGs, Apache-2.0) are dormant —
-skip.
+WASM-graphviz render path. **SHIPPED 2026-07-23** (the code2flow run needs a
+venue with the package; the plumbing is verified). A py/js/rb/php tab's **Call
+graph** action opens a form (targets, language/auto-detect) + the **same venue
+picker + interpreter preset + Detect** the tracer uses. The vendored helper
+(`state/callGraphCore.ts` `CODE2FLOW_HELPER`) writes DOT to a temp `.gv` (no `dot`
+binary), reads it back, and prints it wrapped in the tracer's DOT sentinels; it is
+piped to the **reused generic `trace_run` IPC** locally (params via `C2F_*` env,
+never interpolated) or `ssh_exec` remotely. `state/callGraphCore.ts` (helper +
+remote-command assembly, sharing `traceCore.ts`'s `base64ShellCommand`) is
+`node --test`-verified; it gracefully errors when code2flow isn't installed on the
+chosen venue. pyan3 is GPL-2.0 — not bundled; staticfg/py2cfg (per-function CFGs,
+Apache-2.0) are dormant — skip.
 
 **Architecture *design*** — the research verdict is that this space is dead
 open-source (ENNUI/Fabrik/PlotNeuralNet dead or GPL; no 2025–26 entrant).

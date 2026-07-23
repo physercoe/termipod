@@ -58,6 +58,7 @@ export type IconName =
   | 'cloud'
   | 'split-h'
   | 'git-compare'
+  | 'git-branch'
   | 'split-v'
   | 'dock-bottom'
   | 'dock-right'
@@ -355,6 +356,15 @@ const PATHS: Record<IconName, JSX.Element> = {
       <circle cx="18" cy="6" r="3" />
       <path d="M18 9v6a3 3 0 0 1-3 3H9" />
       <path d="M6 15V9a3 3 0 0 1 3-3h6" />
+    </>
+  ),
+  // git-branch — a trunk with a node branching off: a call graph / branch.
+  'git-branch': (
+    <>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
     </>
   ),
   // split-h — two panes side by side (a vertical divider): split right

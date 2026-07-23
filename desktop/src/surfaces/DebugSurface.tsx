@@ -8,6 +8,7 @@ import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
 import { looksLikeDot } from '../state/dotGraph';
 import { TraceModal } from '../ui/TraceModal';
+import { CallGraphModal } from '../ui/CallGraphModal';
 import { useWorkspace } from '../state/workspace';
 import { readRef, readSource } from '../state/inspectSources';
 import { useSession } from '../state/session';
@@ -75,6 +76,12 @@ function joinPath(dir: string, rel: string): string {
 // runnable via the existing `script_run`).
 const LANGS = ['text', 'python', 'javascript', 'typescript', 'go', 'rust', 'bash', 'json', 'yaml', 'markdown', 'c', 'c++', 'html', 'css', 'sql'];
 const RUN_INTERP: Record<string, string> = { python: 'python3', bash: 'bash', shell: 'bash', javascript: 'node' };
+
+// Sources code2flow can build a static call graph for (plan §5 W4). `langId` covers
+// py/js (mapped by langFromPath); ruby/php have no highlight mode so we also sniff
+// the extension directly.
+const CALLGRAPH_LANGS = new Set(['python', 'javascript']);
+const CALLGRAPH_EXTS = new Set(['py', 'js', 'mjs', 'cjs', 'rb', 'php']);
 
 // File extension → a coarse language id (for run-scratch + mode hinting on a
 // file tab, where CodeView also self-detects from the filename).
@@ -179,6 +186,7 @@ function CodeTab({
   const [runOut, setRunOut] = useState<ScriptResult | null>(null);
   const [running, setRunning] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [cgOpen, setCgOpen] = useState(false);
   const [symbols, setSymbols] = useState<CodeSymbol[]>([]);
 
   // Lazily read a file-backed tab's content the first time it is shown.
@@ -266,7 +274,9 @@ function CodeTab({
   const isLog = !isPatch && !isDot && looksLikeLog(body);
   // A Python tab can be traced into a model graph (needs a local/SSH venue).
   const isPython = isShell() && (langId === 'python' || (tab.path?.toLowerCase().endsWith('.py') ?? false));
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython;
+  // A py/js/ruby/php source can be turned into a static call graph via code2flow.
+  const isCallable = isShell() && ((langId !== undefined && CALLGRAPH_LANGS.has(langId)) || CALLGRAPH_EXTS.has(extOf(tab.path ?? '').toLowerCase()));
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -305,6 +315,11 @@ function CodeTab({
               <Icon name="diagram" size={14} /> {t('trace.action')}
             </button>
           )}
+          {isCallable && (
+            <button className="import-btn" onClick={() => setCgOpen(true)}>
+              <Icon name="git-branch" size={14} /> {t('callgraph.action')}
+            </button>
+          )}
           {interp !== null && (
             <button className="import-btn" disabled={running} onClick={() => void run()}>
               <Icon name="play" size={14} /> {running ? t('inspect.running') : t('inspect.run')}
@@ -319,6 +334,16 @@ function CodeTab({
           onGraph={(dot, title) => {
             openTab({ kind: 'graph', source: 'paste', title }, dot);
             setTraceOpen(false);
+          }}
+        />
+      )}
+      {cgOpen && (
+        <CallGraphModal
+          tab={tab}
+          onClose={() => setCgOpen(false)}
+          onGraph={(dot, title) => {
+            openTab({ kind: 'graph', source: 'paste', title }, dot);
+            setCgOpen(false);
           }}
         />
       )}

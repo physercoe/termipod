@@ -4,7 +4,7 @@
 /// `electron/src/ipc/trace.test.ts`. Run locally: `node --test src/state/traceCore.test.ts`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractDot, remoteTraceCommand, remoteProbeCommand, TORCHVIEW_HELPER, type TraceParams } from './traceCore.ts';
+import { base64ShellCommand, extractDot, remoteTraceCommand, remoteProbeCommand, TORCHVIEW_HELPER, type TraceParams } from './traceCore.ts';
 
 test('extractDot: pulls the DOT out of warning-polluted output', () => {
   const out = [
@@ -62,6 +62,15 @@ test('remoteProbeCommand: decodes the probe helper', () => {
   const b64 = /printf %s '([A-Za-z0-9+/=]+)'/.exec(cmd)?.[1] ?? '';
   assert.match(Buffer.from(b64, 'base64').toString('utf8'), /import torch, torchview/);
   assert.ok(cmd.trimEnd().endsWith('python3'));
+});
+
+test('base64ShellCommand: generic assembly — cd, base64 helper, quoted env, command', () => {
+  const cmd = base64ShellCommand('print(1)', { A: 'x', B: "y'z" }, 'python3', '/r');
+  assert.equal(cmd, "cd '/r' && printf %s 'cHJpbnQoMSk=' | base64 -d | A='x' B='y'\\''z' python3");
+});
+
+test('base64ShellCommand: empty env and no cwd → bare pipe into the command', () => {
+  assert.equal(base64ShellCommand('p', {}, 'python3'), "printf %s 'cA==' | base64 -d | python3");
 });
 
 test('TORCHVIEW_HELPER is ASCII (base64-safe with btoa) and self-delimiting', () => {

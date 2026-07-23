@@ -94,7 +94,7 @@ This complements:
   initializers populate the tensor table and namespace tree; the node/op mix
   shows as an **operator summary** above the card. (Also fixes a latent case
   where a config-less safetensors could show a bogus "Unknown / Dense decoder"
-  card.) The Model Explorer graph and the code→graph tracer remain later W4 slices.
+  card.) The Model Explorer graph remains a later W4 slice.
 - **Inspect models — VRAM estimator (W4b).** The model view now answers "will it
   fit on this host?" with a live estimate: **weights** (exact, params × serving
   precision), **KV cache**, and a rough **activation** term, driven by
@@ -116,7 +116,7 @@ This complements:
   (`@hpcc-js/wasm-graphviz`, fully offline). Open a `.dot`/`.gv` file (a DVC dag,
   a saved graph), or paste a `digraph {…}` scratch and hit **View as graph**;
   zoom (wheel/±), pan (drag), fit, copy SVG. This is the shared render substrate
-  the forthcoming code2flow call-graph and torchview model-tracer will emit into.
+  the code2flow call-graph and torchview model-tracer emit into.
 - **Inspect — trace a model graph (W4 Tier 1).** A Python tab gains a **Trace
   model graph** action: a form (entry expression, input shape, depth) + a **venue
   picker** — local Python or a saved SSH host — with a free-text interpreter
@@ -127,6 +127,14 @@ This complements:
   (torchview — no weights, memory, or GPU), returning a DOT graph rendered in the
   new graph viewer. Requires torch + torchview on the chosen venue (the model
   file's repo must be importable there).
+- **Inspect — static call graph (W4).** A **py/js/rb/php** tab gains a **Call
+  graph** action: a form (target files/dirs, language or auto-detect) reusing the
+  tracer's **venue picker + interpreter preset + Detect** probe. On run, a vendored
+  **code2flow** helper (piped over the same `trace_run` IPC locally, `ssh_exec`
+  remotely) emits a static call graph — functions as nodes, calls as edges — as
+  DOT rendered in the graph viewer. Requires code2flow on the chosen venue (plus
+  Acorn / the Parser gem / PHP-Parser for JS / Ruby / PHP; Python needs nothing
+  extra); it errors gracefully if the package isn't found.
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

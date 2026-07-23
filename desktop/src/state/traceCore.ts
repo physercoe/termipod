@@ -85,6 +85,20 @@ function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+/// Assemble a remote one-liner that feeds a vendored helper to an interpreter over
+/// stdin: `cd <cwd> && printf %s '<b64>' | base64 -d | K=v … <command>`. The helper
+/// is base64-embedded (never interpolated) and the params ride as shell-quoted env
+/// vars, so there is no injection surface. Shared by the tracer and the call-graph
+/// slice — both pipe a Python helper to a free-text interpreter preset on a venue.
+export function base64ShellCommand(helper: string, env: Record<string, string>, command: string, cwd?: string): string {
+  const envStr = Object.entries(env)
+    .map(([k, v]) => `${k}=${shq(v)}`)
+    .join(' ');
+  const envPart = envStr !== '' ? `${envStr} ` : '';
+  const cd = cwd !== undefined && cwd.trim() !== '' ? `cd ${shq(cwd)} && ` : '';
+  return `${cd}printf %s ${shq(btoa(helper))} | base64 -d | ${envPart}${command}`;
+}
+
 export interface TraceParams {
   entry: string;
   shape: string;
@@ -100,18 +114,15 @@ export interface TraceParams {
 /// Build the remote one-liner: cd into the repo, decode the base64 helper, feed it
 /// to the interpreter on stdin with the trace params as environment variables.
 export function remoteTraceCommand(p: TraceParams, helper: string = TORCHVIEW_HELPER): string {
-  const b64 = btoa(helper);
-  const env = [
-    `TRACE_ENTRY=${shq(p.entry)}`,
-    `TRACE_INPUT=${shq(p.shape)}`,
-    `TRACE_DEPTH=${shq(String(p.depth))}`,
-    `TRACE_FILE=${shq(p.filePath)}`,
-  ].join(' ');
-  const cd = p.repoRoot.trim() !== '' ? `cd ${shq(p.repoRoot)} && ` : '';
-  return `${cd}printf %s ${shq(b64)} | base64 -d | ${env} ${p.command}`;
+  return base64ShellCommand(
+    helper,
+    { TRACE_ENTRY: p.entry, TRACE_INPUT: p.shape, TRACE_DEPTH: String(p.depth), TRACE_FILE: p.filePath },
+    p.command,
+    p.repoRoot,
+  );
 }
 
 /// Build the remote probe one-liner for the Detect action.
 export function remoteProbeCommand(command: string): string {
-  return `printf %s ${shq(btoa(PROBE_HELPER))} | base64 -d | ${command}`;
+  return base64ShellCommand(PROBE_HELPER, {}, command);
 }

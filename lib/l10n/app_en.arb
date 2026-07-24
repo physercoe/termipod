@@ -995,6 +995,7 @@
   "taskUpdatedPairs": "Task updated · {pairs}",
   "@taskUpdatedPairs": { "placeholders": { "pairs": { "type": "String" } } },
   "taskNotification": "Task notification",
+  "taskProgress": "Task in progress",
   "taskMessage": "Task: {message}",
   "@taskMessage": { "placeholders": { "message": { "type": "String" } } },
   "toolGroupHeader": "{count} tool calls",

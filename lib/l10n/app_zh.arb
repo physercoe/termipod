@@ -869,6 +869,7 @@
   "taskUpdated": "任务已更新",
   "taskUpdatedPairs": "任务已更新 · {pairs}",
   "taskNotification": "任务通知",
+  "taskProgress": "任务进行中",
   "taskMessage": "任务：{message}",
   "toolGroupHeader": "{count} 次工具调用",
   "toolGroupStateRunning": "运行中",

@@ -250,6 +250,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   // every rebuild. Cleared whenever _refreshKindFor starts a new fetch.
   String? _currentDrivingMode;
   String? _currentModel;
+  // Driving-mode picker (#378): the modes the selected template may
+  // run (driving_mode ∪ fallback_modes) and the operator's override.
+  // Null override = Auto — the spawn omits `mode` and the template's
+  // driving_mode resolves hub-side.
+  List<String> _availableModes = const [];
+  String? _modeOverride;
 
   Future<void> _refreshKindFor(String templateName) async {
     final client = ref.read(hubProvider.notifier).client;
@@ -264,11 +270,19 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       final kind = _parseBackendKind(yaml) ?? 'claude-code';
       final mode = _parseDrivingMode(yaml);
       final model = _parseBackendModel(yaml);
+      final modes = templateRunnableModes(yaml);
       if (!mounted) return;
       setState(() {
         _currentKind = kind;
         _currentDrivingMode = mode;
         _currentModel = model;
+        _availableModes = modes;
+        // A mode picked for the previous template that this one can't
+        // run snaps back to Auto rather than failing the spawn with a
+        // 400 from the family-supports gate.
+        if (_modeOverride != null && !modes.contains(_modeOverride)) {
+          _modeOverride = null;
+        }
         _kindLoading = false;
       });
     } catch (_) {
@@ -341,6 +355,8 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         personaSeed: _personaCtrl.text,
         permissionMode: _permissionMode,
         sessionId: widget.sessionId,
+        // Null = Auto: the hub resolves the template's driving_mode.
+        mode: _modeOverride,
         // Atomic spawn-with-session for the fresh-spawn path. The swap
         // path (sessionId != null) updates the named session in-tx
         // server-side; auto_open_session is ignored there.
@@ -587,6 +603,19 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   model: _currentModel,
                   loading: _kindLoading,
                 ),
+                // Driving-mode picker (#378): only worth the row when
+                // the template can run more than one mode — a single-
+                // mode template reads as Auto already.
+                if (_availableModes.length > 1) ...[
+                  const SizedBox(height: 12),
+                  _DrivingModeSelector(
+                    modes: _availableModes,
+                    value: _modeOverride,
+                    onChanged: _busy
+                        ? null
+                        : (v) => setState(() => _modeOverride = v),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 _PermissionModeSelector(
                   value: _permissionMode,
@@ -759,13 +788,93 @@ class _PermissionModeSelector extends StatelessWidget {
   }
 }
 
+/// The modes a steward template may run: `driving_mode` first, then
+/// its `fallback_modes` (inline-list form), de-duped with order
+/// preserved. Options source for the driving-mode picker (#378).
+/// Top-level + pure so the picker logic is unit-testable without
+/// pumping the sheet.
+List<String> templateRunnableModes(String yaml) {
+  final out = <String>[];
+  final primary = RegExp(
+    r'^driving_mode:\s*([A-Za-z0-9_.-]+)\s*$',
+    multiLine: true,
+  ).firstMatch(yaml)?.group(1);
+  if (primary != null && primary.isNotEmpty) out.add(primary);
+  final fb = RegExp(
+    r'^\s*fallback_modes:\s*\[([^\]]*)\]',
+    multiLine: true,
+  ).firstMatch(yaml);
+  if (fb != null) {
+    for (final tok in fb.group(1)!.split(',')) {
+      final t = tok.trim();
+      if (t.isNotEmpty && !out.contains(t)) out.add(t);
+    }
+  }
+  return out;
+}
+
+/// Driving-mode picker (#378). Options are the modes the selected
+/// template can actually run (its driving_mode ∪ fallback_modes); the
+/// hub validates the choice against the engine family's supports +
+/// host capabilities, so an impossible mode can't leave the picker.
+/// `null` value = Auto — the spawn omits `mode` and the template's
+/// driving_mode resolves hub-side.
+class _DrivingModeSelector extends StatelessWidget {
+  final List<String> modes;
+  final String? value;
+  final ValueChanged<String?>? onChanged;
+  const _DrivingModeSelector({
+    required this.modes,
+    required this.value,
+    required this.onChanged,
+  });
+
+  static const _auto = 'auto';
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.drivingModeLabel,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: DesignColors.textMuted,
+          ),
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<String>(
+            segments: [
+              ButtonSegment<String>(
+                value: _auto,
+                label: Text(l10n.drivingModeAuto),
+              ),
+              for (final m in modes)
+                ButtonSegment<String>(value: m, label: Text(m)),
+            ],
+            selected: {value ?? _auto},
+            onSelectionChanged: onChanged == null
+                ? null
+                : (sel) => onChanged!(sel.first == _auto ? null : sel.first),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Static info row showing the backend that the selected steward
 /// template wires up. Reads `backend.kind`, `driving_mode`, and
 /// `backend.model` from the YAML so a YAML-side mode swap (M2→M4) or
 /// model swap is visible without opening the editor. The operator
 /// changes engine by picking a different template, not a separate
 /// radio. Engines we ship today: claude-code, codex, gemini-cli,
-/// kimi-code, antigravity.
+/// kimi-code-ts, antigravity.
 class _BackendInfo extends StatelessWidget {
   final String kind;
   final String? drivingMode;
@@ -859,7 +968,7 @@ class _BackendInfo extends StatelessWidget {
           ]),
           icon: Icons.auto_awesome_motion_outlined,
         );
-      case 'kimi-code':
+      case 'kimi-code-ts':
         return _EngineInfo(
           label: l10n.engineLabelKimiCode,
           detail: _joinDetail([

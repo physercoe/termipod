@@ -1,15 +1,17 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useHubAction } from '../hub/action';
 import { useHosts, useProjects } from '../hub/queries';
-import { str } from '../hub/types';
+import { arr, str } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
 
 // The engine families (CLAUDE.md / ADR-035 / ADR-054). gemini-cli is deprecated
-// but still spawnable until retirement; antigravity is its successor.
-// kimi-code-ts is the TypeScript Kimi Code line, alongside the Python kimi-code.
-const ENGINES = ['claude-code', 'codex', 'antigravity', 'kimi-code', 'kimi-code-ts', 'gemini-cli'];
+// but still spawnable until retirement; antigravity is its successor. kimi-code-ts
+// is the only kimi line (the Python kimi-cli family was removed in #378 after
+// upstream discontinued it).
+const ENGINES = ['claude-code', 'codex', 'antigravity', 'kimi-code-ts', 'gemini-cli'];
 
 /// Spawn an agent (parity Phase 4 / F3). Direct `POST /agents/spawn`
 /// (self-governing): an immediate spawn returns `{agent_id}`; a policy-gated one
@@ -45,6 +47,7 @@ export function AgentSpawn({
 
   const [handle, setHandle] = useState('');
   const [engine, setEngine] = useState('claude-code');
+  const [mode, setMode] = useState('');
   const [hostId, setHostId] = useState('');
   const [projectId, setProjectId] = useState(presetProjectId ?? '');
   const [task, setTask] = useState('');
@@ -52,6 +55,22 @@ export function AgentSpawn({
 
   const effectiveHost = hostId !== '' ? hostId : (hosts[0] !== undefined ? str(hosts[0], 'id') ?? '' : '');
   const canSubmit = handle.trim() !== '' && effectiveHost !== '';
+
+  // Driving-mode picker (#378): the engine family's `supports` list from the
+  // hub registry constrains the options; '' = Auto (the engine default mode
+  // resolves hub-side). Hidden while the registry hasn't answered and for
+  // single-mode engines.
+  const familiesQ = useQuery({
+    queryKey: ['agent-families'],
+    enabled: client !== null,
+    queryFn: () => client!.listAgentFamilies(),
+  });
+  const engineModes = (() => {
+    const fam = (familiesQ.data ?? []).find((f) => str(f, 'family') === engine);
+    return fam === undefined ? [] : arr(fam, 'supports').map(String).filter((s) => s !== '');
+  })();
+  // Snap back to Auto when the picked engine can't run the previous choice.
+  const effectiveMode = engineModes.includes(mode) ? mode : '';
 
   async function submit(): Promise<void> {
     if (client === null || !canSubmit) return;
@@ -62,6 +81,7 @@ export function AgentSpawn({
           kind: engine,
           host_id: effectiveHost,
           project_id: projectId !== '' ? projectId : undefined,
+          mode: effectiveMode !== '' ? effectiveMode : undefined,
           // task_id and the inline task are mutually exclusive hub-side. In
           // assign mode we link the existing task; otherwise the free-text
           // field mints a new one.
@@ -93,7 +113,13 @@ export function AgentSpawn({
           </label>
           <label>
             {t('spawn.engine')}
-            <select value={engine} onChange={(e) => setEngine(e.target.value)}>
+            <select
+              value={engine}
+              onChange={(e) => {
+                setEngine(e.target.value);
+                setMode('');
+              }}
+            >
               {ENGINES.map((k) => (
                 <option key={k} value={k}>
                   {k}
@@ -101,6 +127,19 @@ export function AgentSpawn({
               ))}
             </select>
           </label>
+          {engineModes.length > 1 && (
+            <label>
+              {t('spawn.mode')}
+              <select value={effectiveMode} onChange={(e) => setMode(e.target.value)}>
+                <option value="">{t('spawn.modeAuto')}</option>
+                {engineModes.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             {t('spawn.host')}
             <select value={effectiveHost} onChange={(e) => setHostId(e.target.value)}>

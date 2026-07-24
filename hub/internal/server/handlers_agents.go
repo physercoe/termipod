@@ -1705,10 +1705,17 @@ type spawnListOut struct {
 	// TaskID is the task this spawn executes (ADR-029 D-2); empty for
 	// ad-hoc spawns. Set for the ?task_id= attempts listing.
 	TaskID string `json:"task_id,omitempty"`
-	// TerminatedAt / TerminatedReason record the spawn's end — surfaced
-	// in the task-board's per-task attempts section (W4) so a finished
-	// attempt reads "ended 4m ago" with its reason.
-	TerminatedAt     string `json:"terminated_at,omitempty"`
+	// TerminatedAt records the attempt's end — surfaced in the
+	// task-board's per-task attempts section (W4) so a finished attempt
+	// reads "ended 4m ago". agent_spawns.terminated_at has NO writer yet
+	// (dead since 0001), so the query reads the child agent's stamp
+	// through the JOIN — sound because agent↔spawn is 1:1 (resume /
+	// respawn mints a NEW agent + spawn row) — with the spawn's own
+	// column taking precedence if a writer ever materializes.
+	TerminatedAt string `json:"terminated_at,omitempty"`
+	// TerminatedReason is reserved: neither agent_spawns (no writer) nor
+	// agents (no such column) records a reason today, so it stays empty
+	// until one exists. Clients must not rely on it.
 	TerminatedReason string `json:"terminated_reason,omitempty"`
 }
 
@@ -1731,7 +1738,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(sp.mcp_token_plaintext, ''),
 		       COALESCE(a.project_id, ''),
 		       COALESCE(sp.task_id, ''),
-		       COALESCE(sp.terminated_at, ''),
+		       COALESCE(sp.terminated_at, a.terminated_at, ''),
 		       COALESCE(sp.terminated_reason, '')
 		FROM agent_spawns sp
 		JOIN agents a ON a.id = sp.child_agent_id

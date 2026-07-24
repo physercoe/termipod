@@ -23,10 +23,12 @@ export type { Forge, ParsedForge };
 /// land in T3b. `parseForgeUrl` already understands both.
 
 const GH_API = 'https://api.github.com';
+const HF_HOST = 'https://huggingface.co';
 
 const BLOB_CAP = 2 * 1024 * 1024; // 2 MB — "no uncapped reads" applied to the network
 const META_CAP = 12 * 1024 * 1024; // repo metadata + recursive tree JSON
 const DISPLAY_TREE_ENTRIES = 50_000; // client-side display ceiling with a banner
+const HF_MAX_PAGES = 30; // tree pagination guard (limit 1000/page → ≤30k entries)
 
 // ── fetch venue (shell IPC / browser-direct) ─────────────────────────────────
 interface ForgeResponse {
@@ -97,8 +99,7 @@ function ensureOk(r: ForgeResponse, forge: Forge): void {
 // ── ref pinning ──────────────────────────────────────────────────────────────
 /// Resolve a (possibly absent) ref to an immutable `ForgeRepo` snapshot.
 export async function resolveForgeRepo(forge: Forge, id: string, ref?: string): Promise<ForgeRepo> {
-  if (forge === 'github') return githubResolveRef(id, ref);
-  throw new Error('hugging face roots arrive in T3b');
+  return forge === 'github' ? githubResolveRef(id, ref) : hfResolveRef(id, ref);
 }
 
 async function githubResolveRef(id: string, ref?: string): Promise<ForgeRepo> {
@@ -116,13 +117,59 @@ async function githubResolveRef(id: string, ref?: string): Promise<ForgeRepo> {
   return { id, ref: branch, sha };
 }
 
+async function hfResolveRef(id: string, ref?: string): Promise<ForgeRepo> {
+  const headers = await authHeaders('hf');
+  const rev = ref !== undefined && ref !== '' ? ref : 'main';
+  const r = await forgeFetch(`${HF_HOST}/api/models/${id}/revision/${encodeURIComponent(rev)}`, headers, META_CAP);
+  ensureOk(r, 'hf');
+  const sha = (JSON.parse(r.body) as { sha?: string }).sha ?? '';
+  if (sha === '') throw new Error('could not resolve the revision to a commit');
+  return { id, ref: rev, sha };
+}
+
 // ── tree ─────────────────────────────────────────────────────────────────────
 /// One recursive fetch of a repo's tree at its pinned SHA → the flat entry list
-/// the tree pane folds (via `foldHubDocs`). `truncated` when GitHub truncated the
-/// tree, the display ceiling was hit, or the JSON body exceeded the byte cap.
+/// the tree pane folds (via `foldHubDocs`). `truncated` when the forge truncated
+/// the tree, the display ceiling was hit, pagination was cut, or the JSON body
+/// exceeded the byte cap.
 export async function fetchForgeTree(forge: Forge, repo: ForgeRepo): Promise<{ entries: Array<{ path: string; is_dir: boolean }>; truncated: boolean }> {
-  if (forge === 'github') return githubTree(repo);
-  throw new Error('hugging face roots arrive in T3b');
+  return forge === 'github' ? githubTree(repo) : hfTree(repo);
+}
+
+// Parse a `Link:` header's `rel="next"` target (Hugging Face tree pagination).
+function nextLink(link: string | undefined): string | null {
+  if (link === undefined) return null;
+  for (const part of link.split(',')) {
+    const m = part.match(/<([^>]+)>\s*;\s*rel="?next"?/i);
+    if (m !== null) return m[1];
+  }
+  return null;
+}
+
+async function hfTree(repo: ForgeRepo): Promise<{ entries: Array<{ path: string; is_dir: boolean }>; truncated: boolean }> {
+  const headers = await authHeaders('hf');
+  let url: string | null = `${HF_HOST}/api/models/${repo.id}/tree/${repo.sha}?recursive=true`;
+  const entries: Array<{ path: string; is_dir: boolean }> = [];
+  let truncated = false;
+  for (let page = 0; url !== null; page += 1) {
+    const r = await forgeFetch(url, headers, META_CAP);
+    if (r.tooLarge) {
+      truncated = true;
+      break;
+    }
+    ensureOk(r, 'hf');
+    const arr = JSON.parse(r.body) as Array<{ path: string; type: string }>;
+    for (const e of arr) entries.push({ path: e.path, is_dir: e.type === 'directory' });
+    const next = nextLink(r.headers['link']);
+    if (next === null) break;
+    if (page + 1 >= HF_MAX_PAGES) {
+      truncated = true;
+      break;
+    }
+    url = next;
+  }
+  if (entries.length > DISPLAY_TREE_ENTRIES) return { entries: entries.slice(0, DISPLAY_TREE_ENTRIES), truncated: true };
+  return { entries, truncated };
 }
 
 async function githubTree(repo: ForgeRepo): Promise<{ entries: Array<{ path: string; is_dir: boolean }>; truncated: boolean }> {
@@ -146,9 +193,17 @@ export async function readForgeBlob(repo: ForgeRepo, forge: Forge, path: string)
   if (forge === 'github') {
     const headers = await authHeaders('github', { Accept: 'application/vnd.github.raw+json' });
     const r = await forgeFetch(`${GH_API}/repos/${repo.id}/contents/${encForgePath(path)}?ref=${repo.sha}`, headers, BLOB_CAP);
-    if (r.tooLarge) throw new Error(`file too large to inspect (${(r.size / (1024 * 1024)).toFixed(1)} MB — cap is 2 MB)`);
+    if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
     ensureOk(r, 'github');
     return r.body;
   }
-  throw new Error('hugging face blobs arrive in T3b');
+  const headers = await authHeaders('hf');
+  const r = await forgeFetch(`${HF_HOST}/${repo.id}/resolve/${repo.sha}/${encForgePath(path)}`, headers, BLOB_CAP);
+  if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
+  ensureOk(r, 'hf');
+  return r.body;
+}
+
+function tooLargeMsg(size: number): string {
+  return `file too large to inspect (${(size / (1024 * 1024)).toFixed(1)} MB — cap is 2 MB)`;
 }

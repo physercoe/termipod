@@ -2,15 +2,15 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-07-24) — **T1 (local) + T2 (remote/hub) +
-> T3a (GitHub repo roots) SHIPPED.** Local/remote/hub/GitHub roots browse
-> through one folded tree model; the forge substrate (`state/forge.ts` +
+> T3a (GitHub) + T3b (Hugging Face) SHIPPED.** Local/remote/hub/GitHub/HF roots
+> browse through one folded tree model; the forge substrate (`state/forge.ts` +
 > `state/forgeUrl.ts` + the proxy-aware `forge_fetch` IPC, `github`/`hf`
-> `InspectSource` members + `repo` snapshot, vault token) is live with GitHub
-> wired end to end. **Remaining: T3b (Hugging Face arms — the forge module's
-> `hf` branches + weight-file rows), §5a (config-only architecture view), and
-> T4 (content search + git lens).**
+> `InspectSource` members + `repo` snapshot, vault token) is live with both
+> forges wired end to end (HF revision-pinning, paginated tree, `resolve/`
+> blob reads). **Remaining: §5a (config-only architecture view — the weightless
+> HF case) and T4 (content search + git lens).**
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9baaa07f` (+ T1, T2, T3a)
+> **Last verified vs code:** origin/main `9baaa07f` (+ T1, T2, T3a, T3b)
 
 **TL;DR.** The Inspect tab (J3 round 2,
 [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)) opens

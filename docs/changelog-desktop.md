@@ -43,6 +43,14 @@ This complements:
 
 ### Added
 
+- **Inspect tab — Hugging Face repo roots (round 3, T3b).** The add-repo dialog
+  gains a GitHub / Hugging Face selector: paste a `huggingface.co/org/model` URL
+  (or `org/model@rev`) and browse the model repo the same way. The revision pins
+  to a commit SHA; the tree is fetched with pagination (capped, banner on
+  overflow); text files (config/tokenizer/README) open through the same 2 MB-cap
+  reader over `resolve/{sha}/{path}`, and an HF token in the vault unlocks gated
+  repos. Weight files are listed but open to the honest too-large placard (a
+  config-only architecture view lands next).
 - **Inspect tab — GitHub repo roots (round 3, T3a).** Point Inspect at a GitHub
   repo URL (or `owner/repo[@ref]`) and read it. "From GitHub repo…" resolves the
   ref to an immutable commit SHA, fetches the tree once, and pins it as a tree

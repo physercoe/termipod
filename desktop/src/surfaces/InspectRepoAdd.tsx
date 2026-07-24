@@ -1,29 +1,28 @@
 import { useMemo, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { parseForgeUrl, resolveForgeRepo, saveForgeToken } from '../state/forge';
+import { parseForgeUrl, resolveForgeRepo, saveForgeToken, type Forge } from '../state/forge';
 import type { PinRoot } from './InspectOpen';
 
-/// Add a **forge** root to the Inspect tree (round-3 T3): paste a GitHub (T3a) or
-/// Hugging Face (T3b) repo URL / shorthand, resolve its ref to an immutable
-/// commit SHA, and pin it. An optional token is stored in the vault (never
+/// Add a **forge** root to the Inspect tree (round-3 T3): paste a GitHub or
+/// Hugging Face repo URL / shorthand, resolve its ref to an immutable commit
+/// SHA, and pin it. An optional token is stored in the vault (never
 /// `localStorage`) keyed to the forge host, so all its repos pick it up.
 ///
-/// The forge is auto-detected from the URL host; a bare `owner/repo` shorthand
-/// defaults to GitHub (the T3b HF selector will disambiguate it).
+/// The forge is auto-detected from a URL's host; the forge selector only matters
+/// for the bare `owner/repo` shorthand (which host can't be inferred from).
 export function InspectRepoAddDialog({ onClose, onAdd }: { onClose: () => void; onAdd: (root: PinRoot) => void }): JSX.Element {
   const t = useT();
+  const [forge, setForge] = useState<Forge>('github');
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const parsed = useMemo(() => parseForgeUrl(url), [url]);
-  // HF resolution lands in T3b; keep the dialog honest until then.
-  const hfNotYet = parsed !== null && parsed.forge === 'hf';
-  const canAdd = parsed !== null && !hfNotYet && !busy;
+  const parsed = useMemo(() => parseForgeUrl(url, forge), [url, forge]);
+  const canAdd = parsed !== null && !busy;
 
   async function add(): Promise<void> {
-    if (parsed === null || hfNotYet) return;
+    if (parsed === null) return;
     setBusy(true);
     setErr(null);
     try {
@@ -48,22 +47,29 @@ export function InspectRepoAddDialog({ onClose, onAdd }: { onClose: () => void; 
           </button>
         </div>
         <div className="inspect-repoadd">
+          <div className="inspect-repoadd-forge">
+            <button className={`import-btn${forge === 'github' ? ' active' : ''}`} onClick={() => setForge('github')}>
+              <Icon name="git-branch" size={13} /> GitHub
+            </button>
+            <button className={`import-btn${forge === 'hf' ? ' active' : ''}`} onClick={() => setForge('hf')}>
+              <Icon name="sliders" size={13} /> Hugging Face
+            </button>
+          </div>
           <label className="inspect-repoadd-label small muted">{t('inspect.repoUrl')}</label>
           <input
             className="inspect-modal-search"
-            placeholder="github.com/owner/repo  ·  owner/repo@ref"
+            placeholder="github.com/owner/repo  ·  huggingface.co/org/model  ·  owner/repo@ref"
             value={url}
             autoFocus
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && canAdd && void add()}
           />
-          {parsed !== null && !hfNotYet && (
+          {parsed !== null && (
             <div className="small muted inspect-repoadd-hint">
-              <Icon name="git-branch" size={12} /> {parsed.forge === 'github' ? 'GitHub' : 'Hugging Face'} · {parsed.id}
+              <Icon name={parsed.forge === 'github' ? 'git-branch' : 'sliders'} size={12} /> {parsed.forge === 'github' ? 'GitHub' : 'Hugging Face'} · {parsed.id}
               {parsed.ref !== undefined ? ` @ ${parsed.ref}` : ` · ${t('inspect.repoDefaultBranch')}`}
             </div>
           )}
-          {hfNotYet && <div className="small muted inspect-repoadd-hint">{t('inspect.repoHfSoon')}</div>}
           <label className="inspect-repoadd-label small muted">{t('inspect.repoToken')}</label>
           <input className="inspect-modal-search" type="password" placeholder={t('inspect.repoTokenPlaceholder')} value={token} onChange={(e) => setToken(e.target.value)} />
           {err !== null && (

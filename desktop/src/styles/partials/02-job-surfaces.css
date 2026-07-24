@@ -1054,6 +1054,10 @@ button > .ui-icon:not(:only-child):first-child,
   gap: var(--spacing-s6);
   padding: var(--spacing-s12) var(--spacing-s16) var(--spacing-s16);
 }
+.inspect-repoadd-forge {
+  display: flex;
+  gap: var(--spacing-s6);
+}
 .inspect-repoadd-label {
   margin-top: var(--spacing-s4);
 }

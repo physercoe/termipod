@@ -6,7 +6,7 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Handler } from './dispatch';
-import { assertSafeLocalDelete, home, parentOrNull, sortDirsFirst, walkNameIndex, type NameIndexEntry } from './fsutil';
+import { assertSafeLocalDelete, home, parentOrNull, searchTree, sortDirsFirst, walkNameIndex, type NameIndexEntry, type SearchHit } from './fsutil';
 
 const MAX_ENTRIES = 10_000;
 
@@ -69,6 +69,18 @@ export const localfsHandlers: Record<string, Handler> = {
   /// cap was hit, so the UI never implies it indexed everything.
   tree_index: async (args): Promise<{ entries: NameIndexEntry[]; truncated: boolean }> => {
     return walkNameIndex(String(args.path ?? ''), TREE_INDEX_MAX_DEPTH, TREE_INDEX_MAX_ENTRIES);
+  },
+
+  /// Bounded recursive content search of a local root (Inspect T4a) — literal or
+  /// regex, capped (≤500 hits / ≤20k files / ≤1 MB per file), binary + SKIP_DIRS
+  /// skipped, every cap surfaced via `truncated`.
+  tree_search: async (args): Promise<{ hits: SearchHit[]; truncated: boolean; scanned: number }> => {
+    return searchTree(String(args.path ?? ''), {
+      query: String(args.query ?? ''),
+      regex: args.regex === true,
+      caseSensitive: args.caseSensitive === true,
+      includeSkip: args.includeSkip === true,
+    });
   },
 
   localfs_read: async (args): Promise<Uint8Array> => {

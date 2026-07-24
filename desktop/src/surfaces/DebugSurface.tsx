@@ -848,7 +848,8 @@ export function DebugSurface(): JSX.Element {
       makeCompare({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo, lang: langFromPath(r.path) });
       return;
     }
-    openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo });
+    const id = openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo });
+    if (r.revealLine !== undefined) setReveal((m) => ({ ...m, [id]: r.revealLine! }));
     setDialog(null);
   }
 

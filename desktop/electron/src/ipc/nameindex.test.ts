@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { walkNameIndex } from './fsutil.ts';
+import { walkNameIndex, searchTree } from './fsutil.ts';
 
 async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'insptree-'));
@@ -81,5 +81,59 @@ test('walkNameIndex: rejects a non-directory / missing path', async () => {
     await writeFile(f, 'x');
     await assert.rejects(() => walkNameIndex(f, 12, 20_000), /not a folder/);
     await assert.rejects(() => walkNameIndex(path.join(dir, 'nope'), 12, 20_000), /not a folder/);
+  });
+});
+
+// ── searchTree (content search, T4a) ─────────────────────────────────────────
+test('searchTree: literal match with rel path + 1-based line + capped text', async () => {
+  await withDir(async (dir) => {
+    await mkdir(path.join(dir, 'src'));
+    await writeFile(path.join(dir, 'src', 'a.ts'), 'const x = 1;\nTODO: fix this\nconst y = 2;\n');
+    await writeFile(path.join(dir, 'b.ts'), 'nothing here\n');
+    const { hits, truncated } = await searchTree(dir, { query: 'TODO' });
+    assert.equal(truncated, false);
+    assert.equal(hits.length, 1);
+    assert.deepEqual(hits[0], { rel: 'src/a.ts', line: 2, text: 'TODO: fix this' });
+  });
+});
+
+test('searchTree: regex + case-insensitive by default, case-sensitive on request', async () => {
+  await withDir(async (dir) => {
+    await writeFile(path.join(dir, 'f.txt'), 'Foo\nfoo\nFOOBAR\n');
+    assert.equal((await searchTree(dir, { query: 'foo' })).hits.length, 3); // insensitive
+    assert.equal((await searchTree(dir, { query: 'foo', caseSensitive: true })).hits.length, 1);
+    assert.equal((await searchTree(dir, { query: '^foo\\w+$', regex: true })).hits.length, 1); // FOOBAR (insensitive)
+    await assert.rejects(() => searchTree(dir, { query: '(', regex: true }), /invalid regular expression/);
+  });
+});
+
+test('searchTree: skips binary files (NUL) and SKIP_DIRS by default', async () => {
+  await withDir(async (dir) => {
+    await writeFile(path.join(dir, 'text.txt'), 'match me\n');
+    await writeFile(path.join(dir, 'bin.dat'), Buffer.from([0x6d, 0x00, 0x6d, 0x61, 0x74, 0x63, 0x68])); // has a NUL
+    await mkdir(path.join(dir, 'node_modules'));
+    await writeFile(path.join(dir, 'node_modules', 'dep.js'), 'match me too\n');
+    const { hits } = await searchTree(dir, { query: 'match' });
+    assert.deepEqual(hits.map((h) => h.rel), ['text.txt']); // binary + skip-dir excluded
+    const withSkip = await searchTree(dir, { query: 'match', includeSkip: true });
+    assert.ok(withSkip.hits.some((h) => h.rel === 'node_modules/dep.js'));
+  });
+});
+
+test('searchTree: caps total hits and flags truncation', async () => {
+  await withDir(async (dir) => {
+    await writeFile(path.join(dir, 'many.txt'), Array.from({ length: 10 }, () => 'hit').join('\n'));
+    const { hits, truncated } = await searchTree(dir, { query: 'hit', maxHits: 4 });
+    assert.equal(hits.length, 4);
+    assert.equal(truncated, true);
+  });
+});
+
+test('searchTree: empty query returns nothing, non-dir rejects', async () => {
+  await withDir(async (dir) => {
+    assert.deepEqual((await searchTree(dir, { query: '' })).hits, []);
+    const f = path.join(dir, 'x.txt');
+    await writeFile(f, 'y');
+    await assert.rejects(() => searchTree(f, { query: 'y' }), /not a folder/);
   });
 });

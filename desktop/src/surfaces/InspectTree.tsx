@@ -4,7 +4,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { kindForInspectFile } from '../state/inspect';
 import { useInspectRoots, type InspectRoot } from '../state/inspectRoots';
 import { foldHubDocs, nodeMatches, type TreeNode } from '../state/inspectTree';
-import { localList, treeIndex, type TreeIndexEntry } from '../state/localfs';
+import { localList, treeIndex, treeSearch, type TreeIndexEntry, type SearchHit } from '../state/localfs';
 import { sftpBrowse } from '../state/inspectSources';
 import { fetchForgeTree } from '../state/forge';
 import { useSession } from '../state/session';
@@ -43,6 +43,12 @@ function extOf(name: string): string {
 // Join a remote directory with a child name (mirrors RemotePicker's `child`).
 function joinRemote(dir: string, name: string): string {
   return dir === '.' || dir === '' ? name : `${dir.replace(/\/+$/, '')}/${name}`;
+}
+// Join a local root path with a POSIX-relative path, keeping the root's separator
+// at the seam (internal '/' is fine for Node fs on every platform).
+function joinRel(root: string, rel: string): string {
+  const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/';
+  return `${root.replace(/[\\/]+$/, '')}${sep}${rel}`;
 }
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -312,6 +318,13 @@ export function InspectTree({
     else if (isFolded(root.source)) void ensureFolded(root); // load the flat list for the exact filter
   }
 
+  // Open a content-search hit (local root) at its line — drives the surface's
+  // existing reveal-scroll via PickResult.revealLine.
+  function openAtLine(root: InspectRoot, rel: string, line: number): void {
+    const abs = joinRel(root.path ?? '', rel);
+    onPick({ source: 'local', kind: kindForInspectFile(extOf(baseName(rel)), ''), title: baseName(rel), path: abs, revealLine: line });
+  }
+
   function openFile(root: InspectRoot, node: TreeNode): void {
     const kind = kindForInspectFile(extOf(node.name), '');
     if (root.source === 'remote') onPick({ source: 'remote', kind, title: node.name, path: node.key, hostId: root.hostId });
@@ -405,6 +418,7 @@ export function InspectTree({
                 value={filters[root.id] ?? ''}
                 onChange={(e) => onFilterChange(root, e.target.value)}
               />
+              {root.source === 'local' && <RootContentSearch root={root} onOpenAt={(rel, line) => openAtLine(root, rel, line)} />}
               {q !== '' ? (
                 <FilterResults
                   root={root}
@@ -507,5 +521,78 @@ function FilterResults({
       ))}
       {results.capped && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.searchCapped')}</div>}
     </>
+  );
+}
+
+// ── content search (local roots, T4a) ────────────────────────────────────────
+// A collapsible per-root content search over `tree_search` (literal / regex,
+// capped). A hit opens the file at its line (via `onOpenAt` → PickResult
+// revealLine). Remote/hub/forge roots keep the name filter only (cap discipline).
+function RootContentSearch({ root, onOpenAt }: { root: InspectRoot; onOpenAt: (rel: string, line: number) => void }): JSX.Element {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [regex, setRegex] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ hits: SearchHit[]; truncated: boolean; scanned: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    if (root.path === undefined || q.trim() === '') return;
+    setBusy(true);
+    setErr(null);
+    try {
+      setRes(await treeSearch(root.path, q, { regex }));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setRes(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="inspect-tree-search">
+      <button className="inspect-tree-searchtoggle small muted" onClick={() => setOpen((o) => !o)}>
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={11} />
+        <Icon name="search" size={12} /> {t('inspect.searchContents')}
+      </button>
+      {open && (
+        <>
+          <div className="inspect-tree-searchbar">
+            <input
+              className="inspect-tree-filter"
+              placeholder={t('inspect.searchContentsPlaceholder')}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void run()}
+            />
+            <label className="inspect-tree-searchrx small muted" title={t('inspect.regex')}>
+              <input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> .*
+            </label>
+            <button className="icon-btn sm" title={t('inspect.runSearch')} disabled={busy} onClick={() => void run()}>
+              <Icon name="search" size={12} />
+            </button>
+          </div>
+          {err !== null && (
+            <div className="inspect-tree-msg err" style={{ paddingLeft: '8px' }}>
+              <Icon name="alert" size={12} /> {err}
+            </div>
+          )}
+          {busy && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.searching')}</div>}
+          {res !== null && !busy && res.hits.length === 0 && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.noMatches')}</div>}
+          {res !== null &&
+            res.hits.map((h, i) => (
+              <button key={`${h.rel}:${h.line}:${i}`} className="inspect-tree-hit" onClick={() => onOpenAt(h.rel, h.line)} title={`${h.rel}:${h.line}`}>
+                <span className="inspect-tree-hit-loc small muted">
+                  {h.rel}:{h.line}
+                </span>
+                <span className="inspect-tree-hit-text mono">{h.text}</span>
+              </button>
+            ))}
+          {res !== null && res.truncated && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.searchCapped')}</div>}
+        </>
+      )}
+    </div>
   );
 }

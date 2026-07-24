@@ -43,6 +43,13 @@ This complements:
 
 ### Added
 
+- **Inspect tab — content search over local roots (round 3, T4a).** Each pinned
+  local root gains a collapsible **Search contents** box: literal or regex search
+  over the whole tree, streamed in the main process with hard caps (≤500 hits,
+  ≤20k files, ≤1 MB per file; binary files and `node_modules`/`.git`/… skipped;
+  every cap surfaced). A `path:line` hit opens the file and scrolls to the line.
+  Remote / hub / forge roots keep the name filter only (no recursive remote
+  walk).
 - **Inspect tab — config-only architecture view (round 3, §5a).** A `config.json`
   opened from *any* source (local, workspace, remote, hub, GitHub, Hugging Face)
   that parses as a transformers config gains a **View architecture** action: it

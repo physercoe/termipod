@@ -1039,6 +1039,68 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s4);
 }
+/* Per-root content search (T4a). */
+.inspect-tree-search {
+  padding: 0 var(--spacing-s8) var(--spacing-s4);
+}
+.inspect-tree-searchtoggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.inspect-tree-searchbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  margin-bottom: var(--spacing-s4);
+}
+.inspect-tree-searchbar .inspect-tree-filter {
+  width: auto;
+  flex: 1;
+  margin: 0;
+}
+.inspect-tree-searchrx {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.inspect-tree-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 3px var(--spacing-s8);
+  cursor: pointer;
+  text-align: left;
+}
+.inspect-tree-hit:hover {
+  background: var(--hover);
+}
+.inspect-tree-hit-loc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.inspect-tree-hit-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: var(--font-size-body-small);
+}
 .inspect-tree-msg.err {
   color: var(--danger);
   white-space: normal;

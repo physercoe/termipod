@@ -32,6 +32,8 @@ export interface PickResult {
   projectId?: string;
   /// The pinned forge snapshot, for a `github`/`hf` pick.
   repo?: ForgeRepo;
+  /// A 1-based line to reveal after opening (a content-search hit).
+  revealLine?: number;
 }
 
 // ── Entity field helpers (hub entities are untyped JSON maps) ────────────────

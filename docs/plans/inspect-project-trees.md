@@ -9,11 +9,12 @@
 > `github`/`hf` `InspectSource` members + `repo` snapshot, vault token) serves
 > both forges; a `config.json` from any source flips to the ArchCard; local
 > roots have capped content search (`tree_search`) + a read-only git lens
-> (`git_info`/`git_diff`). **Recorded, not built:** analytic params/VRAM from
-> config math; remote/hub/GitHub server-side content search; the forge e2e
-> loopback stand-in; §8 open questions.
+> (`git_info`/`git_diff`); the config-only view now estimates params + VRAM from
+> config math (`estimateParamsFromConfig`, dense/GQA/MoE; null for MLA).
+> **Recorded, not built:** remote/hub/GitHub server-side content search; the
+> forge e2e loopback stand-in; §8 open questions.
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9baaa07f` (+ T1–T4, §5a)
+> **Last verified vs code:** origin/main `9baaa07f` (+ T1–T4, §5a + params)
 
 **TL;DR.** The Inspect tab (J3 round 2,
 [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)) opens

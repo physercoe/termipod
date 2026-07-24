@@ -136,6 +136,58 @@ function commonChips(id: string, out: string[]): void {
   out.push(k.startsWith('gemma') ? 'GeGLU' : 'SwiGLU');
 }
 
+/// Analytic parameter count from an HF `config.json` alone (round-3 §5a) — for
+/// the weightless case where no checkpoint/tensor data is available. Covers
+/// **dense + GQA + MoE** decoder transformers (SwiGLU/GeGLU gated FFN, the shape
+/// these families share). Returns **null** rather than a wrong number when the
+/// architecture is one this closed form doesn't model faithfully — **MLA**
+/// (DeepSeek-V2/V3: the low-rank q/kv projections need fields this omits) — or
+/// when a load-bearing field is missing. A returned count is an *estimate*
+/// (biases, exact norm/router details, and per-layer dense/MoE mixes are
+/// approximated) and must be badged as such.
+export function estimateParamsFromConfig(config: Record<string, unknown>): number | null {
+  // MLA is not modelled here — its param count depends on kv_lora_rank /
+  // q_lora_rank / qk_nope/rope head dims in ways a dense formula gets wrong.
+  if (num(config, 'kv_lora_rank') !== undefined) return null;
+
+  const hidden = num(config, 'hidden_size', 'n_embd');
+  const layers = num(config, 'num_hidden_layers', 'n_layer');
+  const heads = num(config, 'num_attention_heads');
+  const vocab = num(config, 'vocab_size');
+  const inter = num(config, 'intermediate_size', 'n_inner', 'ffn_dim');
+  if (hidden === undefined || layers === undefined || heads === undefined || vocab === undefined || inter === undefined) return null;
+
+  const kvHeads = num(config, 'num_key_value_heads') ?? heads;
+  const headDim = num(config, 'head_dim') ?? hidden / heads;
+
+  // Attention: q_proj + o_proj are hidden↔(heads·headDim); k_proj + v_proj are
+  // hidden↔(kvHeads·headDim) (GQA shrinks the KV side).
+  const attn = 2 * hidden * heads * headDim + 2 * hidden * kvHeads * headDim;
+
+  // FFN: gated (gate + up + down) = 3 · hidden · intermediate. MoE replaces the
+  // dense FFN with num_experts expert FFNs (at moe_intermediate_size) + a router,
+  // plus any shared experts.
+  const experts = num(config, 'num_local_experts', 'n_routed_experts', 'num_experts');
+  let ffn: number;
+  if (experts !== undefined && experts > 0) {
+    const expInter = num(config, 'moe_intermediate_size') ?? inter;
+    const shared = num(config, 'n_shared_experts', 'num_shared_experts') ?? 0;
+    const sharedInter = num(config, 'shared_expert_intermediate_size') ?? expInter;
+    ffn = experts * 3 * hidden * expInter + hidden * experts + shared * 3 * hidden * sharedInter;
+  } else {
+    ffn = 3 * hidden * inter;
+  }
+
+  const norms = 2 * hidden; // two RMSNorms per block (input + post-attention)
+  const perLayer = attn + ffn + norms;
+
+  const embed = vocab * hidden;
+  const tied = config.tie_word_embeddings !== false; // HF default is tied
+  const lmHead = tied ? 0 : vocab * hidden;
+
+  return embed + lmHead + layers * perLayer + hidden; // + final norm
+}
+
 /// Whether some text is a transformers `config.json` — parses to an object
 /// carrying `model_type` or `architectures` (round-3 §5a). Used to gate the
 /// "View architecture" flip on a JSON code tab from any source. Deliberately

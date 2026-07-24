@@ -7,6 +7,7 @@ import {
   buildTree,
   classifyArch,
   collapseRepeats,
+  estimateParamsFromConfig,
   humanBytes,
   humanCount,
   TEMPLATE_LABEL,
@@ -150,12 +151,20 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
   }, [tab.id]);
 
   const card = useMemo<ArchCard | null>(() => classifyArch({ config, tensorNames }), [config, tensorNames]);
+  // Analytic param count from the config (dense/GQA/MoE); null for MLA or when a
+  // field is missing. Approximate — feeds the VRAM estimator, badged as such.
+  const params = useMemo(() => estimateParamsFromConfig(config), [config]);
 
   return (
     <div className="modelview">
       <div className="modelview-summary">
         <span className="modelview-fmt">config</span>
         <span className="small muted">{t('model.configOnly')}</span>
+        {params !== null && (
+          <span className="modelview-stat" title={t('model.paramsApproxNote')}>
+            <span className="modelview-stat-v">≈{humanCount(params)}</span> <span className="small muted">{t('model.paramsApprox')}</span>
+          </span>
+        )}
         {totalSize !== null && (
           <span className="modelview-stat">
             <span className="modelview-stat-v">{humanBytes(totalSize)}</span> <span className="small muted">{t('model.weightsFromIndex')}</span>
@@ -167,6 +176,7 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
         </button>
       </div>
       {card !== null ? <ArchCardView card={card} /> : <div className="muted region-pad">{t('model.notAConfig')}</div>}
+      {params !== null && <VramCard totalParams={params} dtypeHist={{}} card={card} config={config} />}
       <div className="modelview-confignote small muted">
         <Icon name="alert" size={13} /> {t('model.configOnlyNote')}
       </div>
@@ -190,23 +200,35 @@ const ctxLabel = (n: number): string => (n >= 1024 ? `${n / 1024}K` : String(n))
 /// KV cache (GQA or the compressed MLA latent) + a rough activation term, live on
 /// batch/context/precision. An approximation — real runtimes add framework
 /// overhead and fragmentation on top.
-function VramCard({ info, card, config }: { info: CheckpointInfo; card: ArchCard | null; config: Record<string, unknown> | null }): JSX.Element {
+function VramCard({
+  totalParams,
+  dtypeHist,
+  metadata,
+  card,
+  config,
+}: {
+  totalParams: number;
+  dtypeHist: Record<string, number>;
+  metadata?: Record<string, string | number>;
+  card: ArchCard | null;
+  config: Record<string, unknown> | null;
+}): JSX.Element {
   const t = useT();
-  const [bytes, setBytes] = useState<number>(() => DTYPE_BYTES[defaultServingDtype(info.dtypeHistogram)]);
+  const [bytes, setBytes] = useState<number>(() => DTYPE_BYTES[defaultServingDtype(dtypeHist)]);
   const [batch, setBatch] = useState(1);
   const [context, setContext] = useState(8192);
 
   const est = useMemo(() => {
     const inputs = deriveVramInputs({
-      totalParams: info.totalParams,
+      totalParams,
       weightBytes: bytes,
       template: card?.template ?? 'unknown',
       card,
       config,
-      metadata: info.metadata,
+      metadata,
     });
     return estimateVram(inputs, { batch, context, kvBytes: 2 });
-  }, [info, card, config, bytes, batch, context]);
+  }, [totalParams, metadata, card, config, bytes, batch, context]);
 
   const total = est.totalBytes;
   const seg = (v: number): string => (total > 0 ? `${(v / total) * 100}%` : '0%');
@@ -455,7 +477,7 @@ export function ModelView({ path }: { path: string }): JSX.Element {
       </div>
       {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}
-      <VramCard info={info} card={card} config={config} />
+      <VramCard totalParams={info.totalParams} dtypeHist={info.dtypeHistogram} metadata={info.metadata} card={card} config={config} />
       <div className="modelview-split">
         <div className="modelview-tree">
           <div className="modelview-pane-head small muted">

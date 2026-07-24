@@ -43,6 +43,14 @@ This complements:
 
 ### Added
 
+- **Inspect tab — analytic params + VRAM in the config-only view (round 3, §5a
+  follow-up).** The config-only architecture view now shows an **estimated
+  parameter count** computed from `config.json` alone (dense / GQA / MoE
+  modelled — validated against Llama-3-8B ≈ 8.0B and Mixtral-8×7B ≈ 46.7B) and
+  feeds it into the existing MLA-aware VRAM estimator, so a weightless HF release
+  gets a params + VRAM readout too. Badged as an estimate; returns nothing (no
+  wrong number) for MLA models or when a load-bearing field is missing.
+
 - **Inspect tab — local git lens (round 3, T4b).** A pinned local root that is a
   git repo shows its **branch + dirty count** on the root row (read-only, via
   system `git status`; hidden when git is absent). When there are changes, a

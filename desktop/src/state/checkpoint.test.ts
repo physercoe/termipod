@@ -3,7 +3,7 @@
 /// `node --test src/state/checkpoint.test.ts` from `desktop/`. tsc covers types.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree, collapseRepeats, parseHfConfig, classifyArch, type TensorInfo, type TreeNode } from './checkpoint.ts';
+import { buildTree, collapseRepeats, parseHfConfig, classifyArch, estimateParamsFromConfig, type TensorInfo, type TreeNode } from './checkpoint.ts';
 
 function tensors(names: Array<[string, number[]]>, dtype = 'F16'): TensorInfo[] {
   return names.map(([name, shape]) => ({ name, dtype, shape, params: shape.reduce((a, b) => a * b, 1) }));
@@ -103,4 +103,29 @@ test('classifyArch: config-only (no tensors) still yields a card; index names co
   // A sibling index.json's weight-map keys corroborate the expert layout.
   const withIdx = classifyArch({ config: { model_type: 'qwen2' }, tensorNames: ['model.layers.0.mlp.experts.0.gate_proj.weight'] });
   assert.equal(withIdx?.template, 'moe');
+});
+
+// ── §5a analytic params from config (T-followup) ─────────────────────────────
+test('estimateParamsFromConfig: Llama-3-8B (dense GQA, untied) lands ~8.0B', () => {
+  const cfg = { model_type: 'llama', hidden_size: 4096, num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, head_dim: 128, intermediate_size: 14336, vocab_size: 128256, tie_word_embeddings: false };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p > 7.8e9 && p < 8.2e9, `expected ~8.0B, got ${(p / 1e9).toFixed(2)}B`);
+});
+
+test('estimateParamsFromConfig: Mixtral-8x7B (MoE) lands ~46.7B', () => {
+  const cfg = { model_type: 'mixtral', hidden_size: 4096, num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, intermediate_size: 14336, vocab_size: 32000, num_local_experts: 8, num_experts_per_tok: 2, tie_word_embeddings: false };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p > 45e9 && p < 48e9, `expected ~46.7B, got ${(p / 1e9).toFixed(2)}B`);
+});
+
+test('estimateParamsFromConfig: tied embeddings drop the lm_head', () => {
+  const base = { model_type: 'qwen2', hidden_size: 1024, num_hidden_layers: 4, num_attention_heads: 16, intermediate_size: 2816, vocab_size: 151936 };
+  const tied = estimateParamsFromConfig({ ...base, tie_word_embeddings: true })!;
+  const untied = estimateParamsFromConfig({ ...base, tie_word_embeddings: false })!;
+  assert.equal(untied - tied, 1024 * 151936); // exactly one vocab×hidden embedding matrix
+});
+
+test('estimateParamsFromConfig: null for MLA and for missing fields', () => {
+  assert.equal(estimateParamsFromConfig({ model_type: 'deepseek_v3', hidden_size: 7168, num_hidden_layers: 61, num_attention_heads: 128, vocab_size: 129280, intermediate_size: 18432, kv_lora_rank: 512 }), null);
+  assert.equal(estimateParamsFromConfig({ model_type: 'llama', hidden_size: 4096 }), null); // missing layers/heads/vocab/inter
 });

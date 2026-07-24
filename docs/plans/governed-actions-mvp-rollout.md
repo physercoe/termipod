@@ -738,7 +738,7 @@ exercise each MVP kind end-to-end.
 - Each bundled steward template carries a
   `### Governed actions — use the `propose` verb (ADR-030)`
   subsection under Authority. The full set
-  (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 11 -->):
+  (verified against `hub/templates/prompts/` <!-- verify glob hub/templates/prompts/steward.*.md 10 -->):
   `steward.v1.md`, `steward.general.v1.md`,
   `steward.claude-m4.v1.md`, `steward.codex.v1.md`,
   `steward.gemini.v1.md`, `steward.kimi.v1.md`,
@@ -869,7 +869,7 @@ exercise each MVP kind end-to-end.
 
 - All bundled steward templates carry the canonical
   `Governed actions — use the `propose` verb` block under
-  Authority / Concierge mode <!-- verify glob hub/templates/prompts/steward.*.md 11 -->.
+  Authority / Concierge mode <!-- verify glob hub/templates/prompts/steward.*.md 10 -->.
 - `docs/how-to/test-steward-lifecycle.md` lists Scenarios 33-42
   with reproducible steps + diagnostic ladders + failure modes.
 - Seed-demo comment is in place; no behavioural change to the

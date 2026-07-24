@@ -60,8 +60,8 @@ func TestEmbeddedKimiTSStewardTemplate_ShipsExpectedShape(t *testing.T) {
 		"M1 = ACP daemon (kimi acp); ADR-054 D1 — M1-only")
 	must("fallback_modes: [M4]",
 		"M4 is the sole fallback — the TS build's stream-json mode is unwired")
-	must(`cmd: "kimi --yolo acp"`,
-		"the top-level --yolo flag MUST precede the `acp` subcommand")
+	must(`cmd: "kimi --yolo"`,
+		"the interactive base cmd — the acp subcommand is composed on at launch from the family's launch.M1.mode_args (ADR-043, #378)")
 	must(`display_label: "Steward (kimi-ts)"`,
 		"the picker label that distinguishes this steward from the Python-line one")
 	must("prompt: steward.kimi-ts.v1.md",
@@ -86,15 +86,14 @@ func TestEmbeddedKimiTSStewardTemplate_ShipsExpectedShape(t *testing.T) {
 	cmdMustNot("--wire",
 		"--wire was the Python line's experimental JSON-RPC flag; ADR-054 chooses acp")
 
-	// Flag order matters: --yolo is a top-level kimi flag and must
-	// precede the subcommand.
-	yoloIdx := strings.Index(cmdLine, "--yolo")
-	acpIdx := strings.Index(cmdLine, " acp")
-	if yoloIdx < 0 || acpIdx < 0 {
-		t.Fatalf("cmd missing expected tokens: %q", cmdLine)
+	// The base cmd carries no subcommand: launchM1 composes `acp` from
+	// the family's launch.M1.mode_args (#378), so the same cmd also
+	// launches a usable TUI when the spawn lands on M4.
+	if strings.Contains(cmdLine, " acp") {
+		t.Errorf("cmd = %q; want no acp subcommand (composed at launch from launch.M1.mode_args)", cmdLine)
 	}
-	if yoloIdx > acpIdx {
-		t.Errorf("flag order in cmd = %q; want --yolo before `acp`", cmdLine)
+	if !strings.Contains(cmdLine, "--yolo") {
+		t.Errorf("cmd missing --yolo (the steward's consent posture): %q", cmdLine)
 	}
 
 	if _, err := fs.ReadFile(hub.TemplatesFS,

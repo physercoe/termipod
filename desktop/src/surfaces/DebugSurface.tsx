@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
+import { parseHfConfig } from '../state/checkpoint';
 import { useInspectRoots } from '../state/inspectRoots';
 import { looksLikeDot } from '../state/dotGraph';
 import type { GraphCollection } from '../state/modelGraph';
@@ -39,6 +40,9 @@ const LogView = lazy(() => import('../ui/LogView').then((m) => ({ default: m.Log
 // W4 — the checkpoint inspector (@huggingface/gguf runs main-side; this chunk is
 // the UI) is loaded the first time a model tab renders.
 const ModelView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ModelView })));
+// §5a — the config-only architecture view (ArchCard from a parsed config alone,
+// any source), its own lazy chunk shared with ModelView.
+const ConfigArchView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ConfigArchView })));
 // The Graphviz DOT viewer — the wasm engine loads on first render (its own chunk).
 const DotGraphView = lazy(() => import('../ui/DotGraphView').then((m) => ({ default: m.DotGraphView })));
 // The interactive Model Explorer WebGL graph — the 2.5 MB element + worker load on
@@ -295,7 +299,9 @@ function CodeTab({
   const isCallable = isShell() && ((langId !== undefined && CALLGRAPH_LANGS.has(langId)) || CALLGRAPH_EXTS.has(extOf(tab.path ?? '').toLowerCase()));
   // A file-backed Python module can be read into a class-composition graph (W4b).
   const isModeling = isPython && tab.path !== undefined;
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable;
+  // §5a — a transformers config.json (any source) can flip to the architecture card.
+  const isHfConfig = !isPatch && !isDot && !isLog && parseHfConfig(body) !== null;
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable || isHfConfig;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -327,6 +333,11 @@ function CodeTab({
           {isDot && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'graph')}>
               <Icon name="diagram" size={14} /> {t('inspect.viewAsGraph')}
+            </button>
+          )}
+          {isHfConfig && (
+            <button className="import-btn" onClick={() => setKind(tab.id, 'model')}>
+              <Icon name="sliders" size={14} /> {t('model.viewArch')}
             </button>
           )}
           {isPython && (
@@ -560,6 +571,19 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
 // follow-on (they'd need an SFTP header-fetch), so those show an honest note.
 function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const setKind = useInspect((s) => s.setKind);
+  // §5a — a model tab flipped from a JSON config code tab (any source) renders
+  // the config-only architecture view from the text already in the store; no
+  // `checkpoint_inspect`, no local path required.
+  const cfg = useMemo(() => parseHfConfig(content), [content]);
+  if (cfg !== null) {
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+        <ConfigArchView tab={tab} config={cfg} onViewSource={() => setKind(tab.id, 'code')} />
+      </Suspense>
+    );
+  }
   // `checkpoint_inspect` is by local absolute path — a `workspace` tab has one
   // too (the walk returns absolute paths), so it inspects just like `local`. The
   // gate reads "the path is local", not "picked via the native dialog".

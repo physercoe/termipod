@@ -1,16 +1,17 @@
 # Inspect tab round 3 — project trees: folders, remote dirs, hub projects & GitHub repos
 
 > **Type:** plan
-> **Status:** In progress (2026-07-24) — **T1 (local) + T2 (remote/hub) +
-> T3a (GitHub) + T3b (Hugging Face) SHIPPED.** Local/remote/hub/GitHub/HF roots
-> browse through one folded tree model; the forge substrate (`state/forge.ts` +
-> `state/forgeUrl.ts` + the proxy-aware `forge_fetch` IPC, `github`/`hf`
-> `InspectSource` members + `repo` snapshot, vault token) is live with both
-> forges wired end to end (HF revision-pinning, paginated tree, `resolve/`
-> blob reads). **Remaining: §5a (config-only architecture view — the weightless
-> HF case) and T4 (content search + git lens).**
+> **Status:** In progress (2026-07-24) — **T1 (local) + T2 (remote/hub) + T3
+> (GitHub + Hugging Face) + §5a (config-only architecture view) SHIPPED.**
+> Local/remote/hub/GitHub/HF roots browse through one folded tree model; the
+> forge substrate (`state/forge.ts` + `state/forgeUrl.ts` + the proxy-aware
+> `forge_fetch` IPC, `github`/`hf` `InspectSource` members + `repo` snapshot,
+> vault token) is live for both forges; a `config.json` from any source flips to
+> the ArchCard via `parseHfConfig` + the existing `classifyArch` (index.json
+> corroboration; analytic params/VRAM recorded, not built). **Remaining: T4
+> (content search + local git lens).**
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9baaa07f` (+ T1, T2, T3a, T3b)
+> **Last verified vs code:** origin/main `9baaa07f` (+ T1, T2, T3, §5a)
 
 **TL;DR.** The Inspect tab (J3 round 2,
 [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)) opens

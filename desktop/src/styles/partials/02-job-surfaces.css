@@ -1977,6 +1977,13 @@ button > .ui-icon:not(:only-child):first-child,
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
+/* §5a config-only architecture view: the "no weights read" caveat row. */
+.modelview-confignote {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s12);
+}
 .modelview-fmt {
   text-transform: uppercase;
   letter-spacing: var(--track-body);

@@ -1542,6 +1542,11 @@ const en: Dict = {
 
   // Model / checkpoint inspector (W4)
   'model.localOnly': 'Open a checkpoint from a local file to inspect it. Remote and hub checkpoints are coming in a later slice.',
+  'model.viewArch': 'View architecture',
+  'model.configOnly': 'config-only',
+  'model.configOnlyNote': 'Architecture read from config.json — no weights were read. Params/VRAM need the checkpoint (or its safetensors index).',
+  'model.weightsFromIndex': 'weights (from index)',
+  'model.notAConfig': 'This JSON does not describe a known architecture.',
   'model.paramsTotal': 'params',
   'model.tensors': 'tensors',
   'model.operators': 'operators',
@@ -3142,6 +3147,11 @@ const zh: Dict = {
 
   // 模型 / 检查点检查器（W4）
   'model.localOnly': '从本地文件打开检查点以进行检查。远程和 hub 检查点将在后续阶段支持。',
+  'model.viewArch': '查看架构',
+  'model.configOnly': '仅配置',
+  'model.configOnlyNote': '架构信息读取自 config.json — 未读取权重。参数量/显存需要检查点（或其 safetensors 索引）。',
+  'model.weightsFromIndex': '权重（来自索引）',
+  'model.notAConfig': '此 JSON 未描述已知的架构。',
   'model.paramsTotal': '参数',
   'model.tensors': '张量',
   'model.operators': '算子',

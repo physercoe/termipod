@@ -3,7 +3,7 @@
 /// `node --test src/state/checkpoint.test.ts` from `desktop/`. tsc covers types.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree, collapseRepeats, type TensorInfo, type TreeNode } from './checkpoint.ts';
+import { buildTree, collapseRepeats, parseHfConfig, classifyArch, type TensorInfo, type TreeNode } from './checkpoint.ts';
 
 function tensors(names: Array<[string, number[]]>, dtype = 'F16'): TensorInfo[] {
   return names.map(([name, shape]) => ({ name, dtype, shape, params: shape.reduce((a, b) => a * b, 1) }));
@@ -80,4 +80,27 @@ test('collapseRepeats: differing shapes are NOT collapsed together', () => {
   assert.equal(blocks.children.length, 2);
   assert.ok(blocks.children.some((c) => c.repeat?.count === 2));
   assert.ok(blocks.children.some((c) => c.key === '2'));
+});
+
+// ── §5a config-only entry gate + classification ──────────────────────────────
+test('parseHfConfig: accepts a transformers config, rejects generic JSON', () => {
+  assert.notEqual(parseHfConfig('{"model_type":"llama","hidden_size":4096}'), null);
+  assert.notEqual(parseHfConfig('{"architectures":["LlamaForCausalLM"]}'), null);
+  assert.equal(parseHfConfig('{"name":"x","version":1}'), null); // no model_type/architectures
+  assert.equal(parseHfConfig('[1,2,3]'), null); // an array, not a config object
+  assert.equal(parseHfConfig('not json'), null);
+  assert.equal(parseHfConfig(''), null);
+  assert.equal(parseHfConfig(undefined), null);
+});
+
+test('classifyArch: config-only (no tensors) still yields a card; index names corroborate MoE', () => {
+  const config = { model_type: 'mixtral', num_hidden_layers: 32, hidden_size: 4096, num_attention_heads: 32, num_key_value_heads: 8, num_local_experts: 8, num_experts_per_tok: 2 };
+  const bare = classifyArch({ config, tensorNames: [] });
+  assert.equal(bare?.family, 'Mixtral');
+  assert.equal(bare?.template, 'moe');
+  assert.ok(bare?.chips.includes('GQA'));
+  assert.ok(bare?.chips.includes('MoE'));
+  // A sibling index.json's weight-map keys corroborate the expert layout.
+  const withIdx = classifyArch({ config: { model_type: 'qwen2' }, tensorNames: ['model.layers.0.mlp.experts.0.gate_proj.weight'] });
+  assert.equal(withIdx?.template, 'moe');
 });

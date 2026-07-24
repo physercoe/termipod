@@ -43,6 +43,15 @@ This complements:
 
 ### Added
 
+- **Inspect tab — config-only architecture view (round 3, §5a).** A `config.json`
+  opened from *any* source (local, workspace, remote, hub, GitHub, Hugging Face)
+  that parses as a transformers config gains a **View architecture** action: it
+  renders the same family / block-template / component-chip card as a checkpoint,
+  from the config alone — no weights read. A weightless HF model release is now
+  fully describable. When a sibling `model.safetensors.index.json` is readable
+  from the same source, its tensor-name map corroborates MoE/MLA and its
+  `total_size` gives the weights figure. (Analytic params/VRAM from config math
+  is recorded for a later slice.)
 - **Inspect tab — Hugging Face repo roots (round 3, T3b).** The add-repo dialog
   gains a GitHub / Hugging Face selector: paste a `huggingface.co/org/model` URL
   (or `org/model@rev`) and browse the model repo the same way. The revision pins

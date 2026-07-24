@@ -136,6 +136,24 @@ function commonChips(id: string, out: string[]): void {
   out.push(k.startsWith('gemma') ? 'GeGLU' : 'SwiGLU');
 }
 
+/// Whether some text is a transformers `config.json` — parses to an object
+/// carrying `model_type` or `architectures` (round-3 §5a). Used to gate the
+/// "View architecture" flip on a JSON code tab from any source. Deliberately
+/// strict (not "any JSON") since `config.json` is a generic name; no auto-hijack.
+export function parseHfConfig(text: string | undefined): Record<string, unknown> | null {
+  if (text === undefined || text.trim() === '') return null;
+  try {
+    const o: unknown = JSON.parse(text);
+    if (o !== null && typeof o === 'object' && !Array.isArray(o)) {
+      const rec = o as Record<string, unknown>;
+      if (typeof rec.model_type === 'string' || Array.isArray(rec.architectures)) return rec;
+    }
+  } catch {
+    /* not JSON */
+  }
+  return null;
+}
+
 /// Build the architecture card. `config` is a parsed HF `config.json` (safetensors
 /// sidecar); `metadata` is gguf KV; `tensorNames` corroborates or, absent a
 /// config, drives the classification. Returns null when there is nothing to say.

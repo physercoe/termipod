@@ -195,6 +195,14 @@ export function InspectTree({
         p = Promise.reject(new Error(`inspect: source '${root.source}' is not a folded tree`));
       }
       foldedPromise.current[root.id] = p;
+      // A failed fetch must not stick: evict the rejected promise so the error
+      // row's Retry (and a later filter) re-fetches instead of replaying the
+      // cached rejection forever — the `sftpSessionFor` evict-on-fail pattern.
+      // Matters most for forge roots, where an unauthenticated rate limit is a
+      // routine, retry-after-reset failure.
+      p.catch(() => {
+        if (foldedPromise.current[root.id] === p) delete foldedPromise.current[root.id];
+      });
     }
     void p.then((folded) => setFoldedFiles((m) => ({ ...m, [root.id]: folded.files }))).catch(() => undefined);
     return p;
@@ -237,15 +245,17 @@ export function InspectTree({
 
   function toggleDir(root: InspectRoot, nodeKey: string): void {
     const k = ck(root.id, nodeKey);
+    // The fetch stays OUTSIDE the state updater — updaters must be pure, and
+    // StrictMode double-invokes them in dev (which double-fired the IPC/SFTP
+    // listing when the load lived inside).
+    const opening = !expanded.has(k);
     setExpanded((s) => {
       const n = new Set(s);
       if (n.has(k)) n.delete(k);
-      else {
-        n.add(k);
-        if (listings[k] === undefined && !loading.has(k)) loadDir(root, nodeKey);
-      }
+      else n.add(k);
       return n;
     });
+    if (opening && listings[k] === undefined && !loading.has(k)) loadDir(root, nodeKey);
   }
 
   // Auto-expand a genuinely new root once. On the first mount, only cheap local
@@ -265,7 +275,9 @@ export function InspectTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roots]);
 
-  function refreshRoot(root: InspectRoot): void {
+  // Drop every cache a root owns — shared by refresh (before the re-list) and
+  // remove (so a removed root doesn't strand its listings/index in memory).
+  function dropRootCaches(root: InspectRoot): void {
     const prefix = `${root.id} `;
     const drop = (obj: Record<string, unknown>): void => {
       for (const kk of Object.keys(obj)) if (kk.startsWith(prefix)) delete obj[kk];
@@ -278,6 +290,7 @@ export function InspectTree({
     setErrors((m) => {
       const n = { ...m };
       drop(n);
+      delete n[`idx:${root.id}`];
       return n;
     });
     delete foldedPromise.current[root.id];
@@ -291,6 +304,10 @@ export function InspectTree({
       delete n[root.id];
       return n;
     });
+  }
+
+  function refreshRoot(root: InspectRoot): void {
+    dropRootCaches(root);
     // Re-list the root itself so the pane doesn't blank on refresh.
     const key = rootKey(root);
     if (expanded.has(ck(root.id, key))) loadDir(root, key);
@@ -407,7 +424,7 @@ export function InspectTree({
                   <button className="icon-btn sm" title={t('inspect.refresh')} onClick={() => refreshRoot(root)}>
                     <Icon name="refresh" size={12} />
                   </button>
-                  <button className="icon-btn sm" title={t('inspect.remove')} onClick={() => removeRoot(root.id)}>
+                  <button className="icon-btn sm" title={t('inspect.remove')} onClick={() => (dropRootCaches(root), removeRoot(root.id))}>
                     <Icon name="close" size={12} />
                   </button>
                 </div>

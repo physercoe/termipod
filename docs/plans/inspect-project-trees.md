@@ -176,7 +176,8 @@ The shell wedge; everything later hangs off it.
    gate to `local | workspace`.
 8. **e2e**: real temp directory fixture — no native-dialog mocking needed
    (the §7a recorded gap does not apply; roots can be seeded through the
-   store for tests).
+   store for tests). *Status:* not yet delivered — T1 shipped unit coverage
+   (walk caps, roots helpers) but no tree e2e; pending alongside §5.9's.
 
 ## 4. T2 — Remote (SFTP) and hub-project roots
 
@@ -220,12 +221,17 @@ noted (§5.1).
    side; display cap 50 k entries with a truncation banner. If the API sets
    `truncated: true`, degrade to per-directory expansion via
    `GET /repos/{o}/{r}/contents/{path}?ref={sha}` — same lazy shape as local.
+   *Shipped deviation (T3a):* flag-only — a truncated tree shows the banner
+   but does **not** fall back to per-directory expansion; the fallback is a
+   recorded follow-up (repos past ~50 k entries browse truncated).
 4. **Blob reads.** `readFrom` `'github'` arm: `GET …/contents/{path}?ref={sha}`
    with `Accept: application/vnd.github.raw+json` (works for public and
    private with one code path). **Size cap ~2 MB** — larger files render a
    "too large — N MB" placard instead of fetching (the "no uncapped reads"
-   anchor applied to the network). In-memory blob cache per root (tab
-   re-activate re-reads are frequent), dropped with the root.
+   anchor applied to the network). In-memory blob cache (tab re-activate
+   re-reads are frequent): shipped as a small bounded cache keyed by the
+   pinned SHA — content at a SHA is immutable, so entries never go stale and
+   need bounding, not invalidation.
 5. **Fetch venue.** Shell: a thin `gh_fetch` main-process IPC over the
    existing proxy-aware `fetchWith` (`ipc/net.ts`) — GitHub must honour the
    app proxy like every other outbound transport (the ADR-055 M4 paydown
@@ -252,7 +258,9 @@ noted (§5.1).
    the source module isolates the seam), PR/issue metadata, commit history
    browsing, git clone (no local git dependency, no write surface, no
    credential helper integration — the API path needs none of it).
-9. **e2e**: API base URL overridable (env/setting) → Playwright loopback
+9. **e2e** (*not yet delivered — pending with §3 item 8's; unit tests cover
+   URL parsing and the config classifier*): API base URL overridable
+   (env/setting) → Playwright loopback
    stand-in serving canned tree/blob JSON (the PR #373 webtab e2e pattern);
    pins URL-parsing, SHA-pinning, truncation, and the size-cap placard
    without network.
@@ -273,6 +281,10 @@ architecture view land where the configs actually live:
   cap; weight files (`.safetensors`/`.bin`/`.gguf`/`.pt`) are listed with
   their sizes but are **never fetched** — they render an info row (name,
   size, and the §5a index/config-derived facts), not a download.
+  *Shipped deviation (T3b):* never-fetched holds (a weight click opens the
+  model kind's local-only placard, which reads no bytes), but the info row —
+  and sizes in the tree, which `foldHubDocs` currently drops — are a
+  recorded follow-up.
 - **Auth**: HF token in the vault (gated/private repos); anonymous works for
   public repos. CORS-open on both API and resolve endpoints, so the
   browser-degrade build works like GitHub's.

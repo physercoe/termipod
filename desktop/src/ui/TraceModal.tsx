@@ -49,7 +49,11 @@ export function TraceModal({
   // The repo-root default is the innermost pinned local root that contains the
   // file (import-locality is repo-shaped, not file-shaped), falling back to the
   // file's own directory as before (plan §3 item 6).
-  const [repoRoot, setRepoRoot] = useState<string>(tab.path ? (innermostLocalRoot(roots, tab.path) ?? dirOf(tab.path)) : '');
+  // Pinned-root defaulting only applies to tabs whose path IS a local path —
+  // a remote/hub path could spuriously prefix-match a local pin and substitute
+  // the wrong venue's directory.
+  const localTab = tab.source === 'local' || tab.source === 'workspace';
+  const [repoRoot, setRepoRoot] = useState<string>(tab.path ? ((localTab ? innermostLocalRoot(roots, tab.path) : undefined) ?? dirOf(tab.path)) : '');
   const [filePath, setFilePath] = useState<string>(tab.path ? baseOf(tab.path) : '');
   const [entry, setEntry] = useState<string>(last.entry);
   const [shape, setShape] = useState<string>(last.shape);

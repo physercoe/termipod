@@ -187,21 +187,41 @@ async function githubTree(repo: ForgeRepo): Promise<{ entries: Array<{ path: str
 }
 
 // ── blob ─────────────────────────────────────────────────────────────────────
+// A small bounded cache over blob reads (plan §5.4). Keys embed the pinned
+// commit SHA, and content at a SHA is immutable — so an entry can never go
+// stale and needs no invalidation, only bounding. Matters because a tab
+// re-reads its source on every activate: without this, each activation costs
+// one API call against the unauthenticated 60/h GitHub budget. FIFO eviction;
+// entries are ≤ BLOB_CAP by construction.
+const BLOB_CACHE_MAX = 64;
+const blobCache = new Map<string, string>();
+
 /// Read one file's text at the pinned SHA. Over the 2 MB cap → a typed "too
 /// large" error (the surface renders it as a placard instead of a viewer).
 export async function readForgeBlob(repo: ForgeRepo, forge: Forge, path: string): Promise<string> {
+  const key = `${forge} ${repo.id} ${repo.sha} ${path}`;
+  const hit = blobCache.get(key);
+  if (hit !== undefined) return hit;
+  let body: string;
   if (forge === 'github') {
     const headers = await authHeaders('github', { Accept: 'application/vnd.github.raw+json' });
     const r = await forgeFetch(`${GH_API}/repos/${repo.id}/contents/${encForgePath(path)}?ref=${repo.sha}`, headers, BLOB_CAP);
     if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
     ensureOk(r, 'github');
-    return r.body;
+    body = r.body;
+  } else {
+    const headers = await authHeaders('hf');
+    const r = await forgeFetch(`${HF_HOST}/${repo.id}/resolve/${repo.sha}/${encForgePath(path)}`, headers, BLOB_CAP);
+    if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
+    ensureOk(r, 'hf');
+    body = r.body;
   }
-  const headers = await authHeaders('hf');
-  const r = await forgeFetch(`${HF_HOST}/${repo.id}/resolve/${repo.sha}/${encForgePath(path)}`, headers, BLOB_CAP);
-  if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
-  ensureOk(r, 'hf');
-  return r.body;
+  if (blobCache.size >= BLOB_CACHE_MAX) {
+    const oldest = blobCache.keys().next().value;
+    if (oldest !== undefined) blobCache.delete(oldest);
+  }
+  blobCache.set(key, body);
+  return body;
 }
 
 function tooLargeMsg(size: number): string {

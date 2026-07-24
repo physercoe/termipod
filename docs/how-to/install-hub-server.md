@@ -29,34 +29,38 @@ tracks:
 
 ## 1. Get the mobile build
 
-The release workflow (`.github/workflows/release.yml`) fires on tag push
-and attaches one signed `arm64-v8a` Android APK, an unsigned iOS IPA,
-and four pre-built `hub-server`+`host-runner` tarballs (Linux/macOS,
-amd64/arm64).
+The release lanes are split per component (2026-07-24). Each pushes to its
+own tag namespace and produces its own GitHub release:
+
+| Component | Tag | Workflow | Assets |
+|-----------|-----|----------|--------|
+| Mobile  | `mobile-v<ver>` | `release.yml` + `release-ios.yml` | `Mobile-<ver>-android-arm64.apk`, `Mobile-<ver>-ios-unsigned.ipa` |
+| Hub     | `hub-v<ver>`    | `release-server.yml` | `hub-server-<ver>-<os>-<arch>.tar.gz` ×4 + `SHA256SUMS` |
+| Host    | `host-v<ver>`   | `release-server.yml` | `host-runner-<ver>-<os>-<arch>.tar.gz` ×4 + `SHA256SUMS` |
+| Desktop | `electron-v<ver>` | `desktop-electron-release.yml` | `Desktop-<ver>-*` (dmg/exe/AppImage/deb) |
+
+`<ver>` is the shared CalVer (`YYYY.MMDD.HHMM-alpha`; bump mobile+hub+host in
+lockstep via `make bump VERSION=...`). The mobile release is non-prerelease so
+it owns GitHub's `releases/latest` (the in-app updater reads it); hub / host /
+desktop releases are prereleases.
 
 ```bash
-# From the repo root, on the branch containing the hub changes.
-# Substitute X.Y.Z below with the next available version (current
-# is in `pubspec.yaml`; bump via `make bump VERSION=...`).
-git tag vX.Y.Z-alpha
-git push origin vX.Y.Z-alpha
-gh run watch                       # wait for the release build
-gh release view vX.Y.Z-alpha       # grab the asset URLs
+# From the repo root, on the branch containing the changes. Bump first:
+#   make bump VERSION=<ver>-alpha        # updates pubspec.yaml + buildinfo.go
+# then tag whichever lane(s) you're cutting (same <ver> across lanes):
+git tag mobile-v<ver>-alpha && git push origin mobile-v<ver>-alpha
+git tag hub-v<ver>-alpha    && git push origin hub-v<ver>-alpha
+git tag host-v<ver>-alpha   && git push origin host-v<ver>-alpha
+gh run watch                          # wait for the release build
+gh release view hub-v<ver>-alpha      # grab the asset URLs
 ```
-
-Assets (where `vX.Y.Z` matches the tag you pushed):
-
-- `termipod-vX.Y.Z-alpha-arm64-v8a.apk`     ← every modern Android phone/tablet
-- `termipod-vX.Y.Z-alpha-ios-unsigned.ipa`  ← sideload via AltStore/Sideloadly
-- `termipod-hub-server-vX.Y.Z-alpha-<os>-<arch>.tar.gz`   ← the hub daemon
-- `termipod-host-runner-vX.Y.Z-alpha-<os>-<arch>.tar.gz`  ← the agent host deputy
-- `SHA256SUMS`                                            ← checksums for all eight
 
 Server-side binaries ship one per tarball (`<os>-<arch>` ∈
 `linux-amd64` for VPS / x86_64, `linux-arm64` for ARM servers and
 Raspberry Pi 4/5, `darwin-amd64` for Intel Macs, `darwin-arm64` for
 Apple Silicon). The split lets `self-update` (ADR-028) pull only the
-binary it needs.
+binary it needs — and each lane's `self-update` is confined to its own
+tag namespace.
 
 > 32-bit `armeabi-v7a` and `x86_64` APKs were dropped 2026-05-07 — every
 > currently-supported Android device is 64-bit ARM, and Play-Store
@@ -64,7 +68,7 @@ binary it needs.
 
 ### Sideload on Android
 
-1. Download `termipod-*-arm64-v8a.apk` in a mobile browser.
+1. Download `Mobile-<ver>-android-arm64.apk` in a mobile browser.
 2. Tap the file. Grant the browser "install unknown apps" permission.
 3. Accept the install prompt. Upgrades preserve data + settings.
 
@@ -75,17 +79,18 @@ binary it needs.
 ### Option A — pre-built binary (recommended)
 
 ```bash
-TAG=vX.Y.Z-alpha
+VER=X.Y.Z-alpha                       # the shared CalVer, no lane prefix
 ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-BASE="https://github.com/physercoe/termipod/releases/download/${TAG}"
-for bin in hub-server host-runner; do
-  curl -L -o "${bin}.tar.gz" \
-    "${BASE}/termipod-${bin}-${TAG}-${OS}-${ARCH}.tar.gz"
-done
-# Optional but recommended — verify against the release SHA256SUMS:
-curl -L -o SHA256SUMS "${BASE}/SHA256SUMS"
-sha256sum -c --ignore-missing SHA256SUMS
+GH=https://github.com/physercoe/termipod/releases/download
+# hub-server comes from the hub-v lane, host-runner from the host-v lane —
+# each its own release + SHA256SUMS.
+curl -L -o hub-server.tar.gz  "${GH}/hub-v${VER}/hub-server-${VER}-${OS}-${ARCH}.tar.gz"
+curl -L -o hub.SHA256SUMS     "${GH}/hub-v${VER}/SHA256SUMS"
+curl -L -o host-runner.tar.gz "${GH}/host-v${VER}/host-runner-${VER}-${OS}-${ARCH}.tar.gz"
+curl -L -o host.SHA256SUMS    "${GH}/host-v${VER}/SHA256SUMS"
+# Optional but recommended — verify against each release's SHA256SUMS:
+sha256sum -c --ignore-missing hub.SHA256SUMS host.SHA256SUMS
 tar -xzf hub-server.tar.gz   && sudo install hub-server  /usr/local/bin/
 tar -xzf host-runner.tar.gz  && sudo install host-runner /usr/local/bin/
 hub-server help

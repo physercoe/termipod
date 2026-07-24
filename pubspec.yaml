@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # Date-based CalVer YYYY.MMDD.HHMM (UTC build time); the +N build number is
 # "minutes since 2020-01-01 UTC" (monotonic int32 versionCode — CI recomputes it
 # from the tag). See docs/changelog.md header for the scheme.
-version: 2026.722.236-alpha+3447516
+version: 2026.724.335-alpha+3450455
 
 environment:
   sdk: ^3.10.7

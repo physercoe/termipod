@@ -19,8 +19,8 @@ import (
 
 func TestParseSHA256SUMS(t *testing.T) {
 	const digest = "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abcd"
-	data := digest + "  termipod-host-runner-v1.0.0-linux-amd64.tar.gz\n" +
-		strings.Repeat("f", 64) + " *termipod-hub-server-v1.0.0-linux-amd64.tar.gz\n" +
+	data := digest + "  host-runner-1.0.0-linux-amd64.tar.gz\n" +
+		strings.Repeat("f", 64) + " *hub-server-1.0.0-linux-amd64.tar.gz\n" +
 		"# a comment line that must be ignored\n"
 
 	tests := []struct {
@@ -28,9 +28,9 @@ func TestParseSHA256SUMS(t *testing.T) {
 		wantHit bool
 		want    string
 	}{
-		{"termipod-host-runner-v1.0.0-linux-amd64.tar.gz", true, digest},
-		{"termipod-hub-server-v1.0.0-linux-amd64.tar.gz", true, strings.Repeat("f", 64)},
-		{"termipod-host-runner-v9.9.9-linux-amd64.tar.gz", false, ""},
+		{"host-runner-1.0.0-linux-amd64.tar.gz", true, digest},
+		{"hub-server-1.0.0-linux-amd64.tar.gz", true, strings.Repeat("f", 64)},
+		{"host-runner-9.9.9-linux-amd64.tar.gz", false, ""},
 	}
 	for _, tc := range tests {
 		got, ok := parseSHA256SUMS(data, tc.name)
@@ -44,13 +44,13 @@ func TestParseSHA256SUMS(t *testing.T) {
 }
 
 func TestRun_HappyPath(t *testing.T) {
-	tag := "v1.0.999-alpha"
+	tag := "host-v1.0.999-alpha"
 	asset := artifactName("host-runner", tag)
 	newBytes := []byte("NEW host-runner " + tag + "\n")
 	tarball := makeTarGz(t, "host-runner", newBytes)
 
 	sums := sha256hex(tarball) + "  " + asset + "\n" +
-		strings.Repeat("0", 64) + "  termipod-hub-server-" + tag + "-other.tar.gz\n"
+		strings.Repeat("0", 64) + "  hub-server-" + tag + "-other.tar.gz\n"
 	srv := newReleaseServer(t, releaseFixture{tag: tag, tarAsset: asset, tarball: tarball, sums: sums})
 	defer srv.Close()
 
@@ -83,7 +83,7 @@ func TestRun_HappyPath(t *testing.T) {
 }
 
 func TestRun_SHAMismatch(t *testing.T) {
-	tag := "v1.0.999-alpha"
+	tag := "host-v1.0.999-alpha"
 	asset := artifactName("host-runner", tag)
 	tarball := makeTarGz(t, "host-runner", []byte("tampered payload"))
 	// SHA256SUMS advertises a digest that does not match the tarball.
@@ -110,7 +110,7 @@ func TestRun_SHAMismatch(t *testing.T) {
 }
 
 func TestRun_ReleasePredatesSplit(t *testing.T) {
-	tag := "v1.0.500-alpha"
+	tag := "host-v1.0.500-alpha"
 	srv := newReleaseServer(t, releaseFixture{tag: tag, omitTar: true, sums: "x\n"})
 	defer srv.Close()
 
@@ -124,7 +124,7 @@ func TestRun_ReleasePredatesSplit(t *testing.T) {
 }
 
 func TestRun_DryRunTouchesNothing(t *testing.T) {
-	tag := "v1.0.999-alpha"
+	tag := "hub-v1.0.999-alpha"
 	asset := artifactName("hub-server", tag)
 	tarball := makeTarGz(t, "hub-server", []byte("new"))
 	sums := sha256hex(tarball) + "  " + asset + "\n"
@@ -159,6 +159,36 @@ func TestRun_UnknownBinary(t *testing.T) {
 	_, err := run(context.Background(), Options{Binary: "bogus"}, newGHClient(""))
 	if err == nil || !strings.Contains(err.Error(), "unknown binary") {
 		t.Fatalf("err = %v, want unknown binary", err)
+	}
+}
+
+// resolveRelease must confine the channel search to the binary's lane: a
+// host-runner alpha resolve skips newer mobile-v / electron-v / hub-v releases
+// and lands on the newest host-v. (Regression guard — before the split it took
+// the newest non-draft release of ANY lane, which for a server binary is often
+// a desktop prerelease that carries no tarball.)
+func TestResolveRelease_LaneFilter(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/x/y/releases", func(w http.ResponseWriter, _ *http.Request) {
+		// Newest-first, as GitHub returns them. Only host-v* should win.
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"tag_name": "electron-v2026.724.305-alpha", "draft": false, "prerelease": true},
+			{"tag_name": "mobile-v2026.724.301-alpha", "draft": false, "prerelease": false},
+			{"tag_name": "host-v2026.724.300-alpha", "draft": false, "prerelease": true},
+			{"tag_name": "hub-v2026.724.300-alpha", "draft": false, "prerelease": true},
+			{"tag_name": "host-v2026.723.100-alpha", "draft": false, "prerelease": true},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	gh := &ghClient{repo: "x/y", apiBase: srv.URL, http: srv.Client()}
+
+	rel, err := gh.resolveRelease(context.Background(), "", "alpha", lanePrefix("host-runner"))
+	if err != nil {
+		t.Fatalf("resolveRelease: %v", err)
+	}
+	if rel.TagName != "host-v2026.724.300-alpha" {
+		t.Errorf("resolved %q, want host-v2026.724.300-alpha (newest host-v lane)", rel.TagName)
 	}
 }
 

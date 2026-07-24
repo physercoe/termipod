@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-06-14)
+> **Status:** Current (2026-07-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.722.236-alpha
+> **Last verified vs code:** 2026.724.335-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -11,9 +11,12 @@ One section per version, newest first. Format follows
 Fixed / Deprecated / Removed / Security. Entries link to the commit
 or PR for forensic detail.
 
-This records the **mobile app + hub** lane (`v*` tags, owns
-`releases/latest`). The **desktop workbench** has its own changelog —
-[`changelog-desktop.md`](changelog-desktop.md) (`desktop-v*` / `electron-v*`).
+This records the **mobile app + hub + host** lanes. Since 2026-07-24 the
+release lanes are split per component, each with its own tag namespace + GitHub
+release: **Mobile** (`mobile-v*`, owns `releases/latest`, read by the in-app
+updater), **Hub** (`hub-v*`), **Host** (`host-v*`). The **desktop workbench**
+has its own changelog — [`changelog-desktop.md`](changelog-desktop.md)
+(`electron-v*`).
 
 **Version scheme.** From `2026.722.236-alpha` onward both mobile and hub use
 date-based **CalVer `YYYY.MMDD.HHMM`** (UTC build time — e.g. `2026.722.236` =
@@ -35,6 +38,29 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## 2026.724.335-alpha — 2026-07-24
+
+**Release lanes split per component.** The single `v*` release that bundled the
+Android APK, iOS IPA, and both server binaries is retired; each component now
+ships its own tag + GitHub release with a clean, `termipod-`-free name.
+
+### Changed
+- **Four release lanes by tag namespace:** `mobile-v*` (APK + IPA, one release
+  via `release.yml` + `release-ios.yml`), `hub-v*` and `host-v*` (server
+  binaries, new `release-server.yml`), `electron-v*` (desktop). Artifacts are
+  renamed: `Mobile-<ver>-android-arm64.apk` / `-ios-unsigned.ipa`,
+  `hub-server-<ver>-<os>-<arch>.tar.gz`, `host-runner-<ver>-<os>-<arch>.tar.gz`,
+  `Desktop-<ver>-*` — the `TermiPod`/`termipod-` prefix dropped, the component
+  name carried instead.
+- **Mobile owns `releases/latest`** (stays non-prerelease); hub/host/desktop
+  releases are prereleases, so the in-app updater only ever resolves a mobile
+  release. The updater strips the new `mobile-v` tag prefix.
+- **`self-update` is lane-confined.** `hub-server`/`host-runner` self-update now
+  resolves only its own lane's tags (`hub-v*` / `host-v*`) and pulls the
+  renamed tarball — it can no longer accidentally land on a foreign lane's
+  release that carries no server binary. `make bump` pinned to bash so the
+  CalVer build-number arithmetic runs where `/bin/sh` is dash.
 
 ## 2026.722.236-alpha — 2026-07-22
 

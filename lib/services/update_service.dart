@@ -55,8 +55,13 @@ class GitHubUpdateChecker implements UpdateChecker {
   final String repo;
 
   /// On Android we look for the APK asset. The naming convention in
-  /// this repo is `termipod-v<ver>-android.apk`, but we match on the
+  /// this repo is `Mobile-<ver>-android-arm64.apk`, but we match on the
   /// extension to stay resilient to renames.
+  ///
+  /// `releases/latest` is GitHub's newest NON-prerelease release. By design
+  /// only the mobile lane (`mobile-v*`) publishes non-prerelease releases; the
+  /// hub/host/desktop lanes are prereleases, so this checker only ever sees a
+  /// mobile release and never a foreign lane's tag with no APK.
   final String platformAssetSuffix;
 
   const GitHubUpdateChecker({
@@ -90,7 +95,7 @@ class GitHubUpdateChecker implements UpdateChecker {
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       final tagName = (json['tag_name'] as String?) ?? '';
-      final remoteVersion = _stripLeadingV(tagName);
+      final remoteVersion = _versionFromTag(tagName);
       if (remoteVersion.isEmpty) return null;
 
       if (_compareVersions(remoteVersion, currentVersion) <= 0) {
@@ -193,12 +198,21 @@ class UpdateService {
   }
 }
 
-/// Strips a leading `v` or `V` from a tag name.
-String _stripLeadingV(String tag) {
-  if (tag.isEmpty) return tag;
-  final c = tag.codeUnitAt(0);
-  if (c == 0x76 || c == 0x56) return tag.substring(1);
-  return tag;
+/// Extracts the numeric version from a release tag. Handles the split-lane
+/// mobile tag `mobile-v<ver>` (the lanes were separated per component —
+/// Hub/Host/Mobile/Desktop), the legacy `v<ver>` shape, and a bare `<ver>`,
+/// all returning `<ver>`. Used on both the remote `tag_name` and the local
+/// `APP_VERSION` (which CI ships as the raw tag), so both sides normalize the
+/// same way.
+String _versionFromTag(String tag) {
+  var t = tag;
+  const lane = 'mobile-';
+  if (t.startsWith(lane)) t = t.substring(lane.length);
+  if (t.isNotEmpty) {
+    final c = t.codeUnitAt(0);
+    if (c == 0x76 || c == 0x56) t = t.substring(1); // strip leading v/V
+  }
+  return t;
 }
 
 /// Three-way compare of semver-ish strings like `1.0.27-alpha`.
@@ -237,11 +251,11 @@ class _VersionParts {
 }
 
 _VersionParts _splitVersion(String v) {
-  // CI ships APP_VERSION as the raw tag name (e.g. "v1.0.27-alpha"),
-  // while remote tag_name goes through _stripLeadingV before reaching
-  // here. Normalize both sides so int.tryParse('v1') doesn't fall back
-  // to 0 and make the local build look older than itself.
-  final normalized = _stripLeadingV(v);
+  // CI ships APP_VERSION as the raw tag name (e.g. "mobile-v2026.724.301-alpha"),
+  // while remote tag_name goes through _versionFromTag before reaching here.
+  // Normalize both sides so int.tryParse('mobile') doesn't fall back to 0 and
+  // make the local build look older than itself.
+  final normalized = _versionFromTag(v);
   var core = normalized;
   var pre = '';
   final dash = normalized.indexOf('-');

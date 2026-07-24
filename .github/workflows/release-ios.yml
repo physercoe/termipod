@@ -1,9 +1,11 @@
 name: Build & Release iOS
 
+# Mobile lane (iOS half). Adds the unsigned IPA to the `mobile-v<ver>` release
+# that release.yml creates for the Android APK.
 on:
   push:
     tags:
-      - 'v*'
+      - 'mobile-v*'
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -68,7 +70,7 @@ jobs:
       - name: Build iOS (unsigned)
         run: |
           VERSION="${{ github.ref_name }}"
-          VERSION_NUM="${VERSION#v}"
+          VERSION_NUM="${VERSION#mobile-v}"
           # CalVer YYYY.MMDD.HHMM → build number = minutes since 2020-01-01 UTC
           # (monotonic across the day boundary; must match release.yml's formula).
           # Pure integer Julian-Day arithmetic — the macOS runner's BSD `date`
@@ -89,13 +91,15 @@ jobs:
 
       - name: Create unsigned IPA
         run: |
+          set -euo pipefail
+          VERSION_NUM="${GITHUB_REF_NAME#mobile-v}"
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -r "termipod-${{ github.ref_name }}-ios-unsigned.ipa" Payload
+          zip -r "Mobile-${VERSION_NUM}-ios-unsigned.ipa" Payload
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: termipod-${{ github.ref_name }}-ios-unsigned.ipa
+          files: Mobile-*-ios-unsigned.ipa
           fail_on_unmatched_files: false
           generate_release_notes: false

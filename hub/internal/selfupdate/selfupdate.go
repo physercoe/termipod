@@ -10,10 +10,13 @@
 // the host never goes dark.
 //
 // The release layout this package expects is the per-binary split
-// from ADR-028 W5.5: eight tarballs per tag
-// (termipod-{hub-server,host-runner}-<tag>-<os>-<arch>.tar.gz), each
-// expanding to a single bare binary, plus one SHA256SUMS over all
-// eight. Releases predating that split fail with a clear message.
+// from ADR-028 W5.5, refined when the release lanes split per component:
+// each lane's release (Hub → `hub-v*`, Host → `host-v*`) ships four
+// tarballs (`<binary>-<version>-<os>-<arch>.tar.gz`, one per platform),
+// each expanding to a single bare binary, plus one SHA256SUMS. resolveRelease
+// filters the channel listing to the binary's lane prefix so a host never
+// resolves a foreign lane's release. Releases predating the split fail with a
+// clear message.
 package selfupdate
 
 import (
@@ -79,7 +82,7 @@ func run(ctx context.Context, opt Options, gh *ghClient) (*Result, error) {
 		return nil, err
 	}
 
-	rel, err := gh.resolveRelease(ctx, opt.Version, opt.Channel)
+	rel, err := gh.resolveRelease(ctx, opt.Version, opt.Channel, lanePrefix(opt.Binary))
 	if err != nil {
 		return nil, err
 	}
@@ -173,9 +176,29 @@ func resolveInstallPath(explicit string) (string, error) {
 
 // artifactName builds the per-binary tarball name for this host's
 // OS/arch, matching the W5.5 release layout.
+// lanePrefix is the release-tag namespace a binary ships under, since the
+// release lanes were split per component (Hub / Host / Mobile / Desktop):
+// hub-server → `hub-v*`, host-runner → `host-v*`. resolveRelease filters the
+// channel listing to this prefix so a host never resolves a mobile/desktop
+// release that has no server tarball, and artifactName strips it so the file
+// name carries the bare version.
+func lanePrefix(binary string) string {
+	if binary == "host-runner" {
+		return "host-v"
+	}
+	return "hub-v" // hub-server
+}
+
+// artifactName is the per-binary tarball name in a release. The `termipod-`
+// prefix was dropped when the lanes split (the release itself is now named
+// Hub/Host); the tag's lane prefix is stripped so the file reads
+// `hub-server-<version>-<os>-<arch>.tar.gz`. Must stay in lockstep with the
+// name the release workflow (release-server.yml) generates + lists in
+// SHA256SUMS.
 func artifactName(binary, tag string) string {
-	return fmt.Sprintf("termipod-%s-%s-%s-%s.tar.gz",
-		binary, tag, runtime.GOOS, runtime.GOARCH)
+	ver := strings.TrimPrefix(tag, lanePrefix(binary))
+	return fmt.Sprintf("%s-%s-%s-%s.tar.gz",
+		binary, ver, runtime.GOOS, runtime.GOARCH)
 }
 
 // fetchExpectedSum downloads SHA256SUMS and returns the digest line

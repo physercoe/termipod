@@ -1,0 +1,116 @@
+name: Build & Release Server (Hub / Host)
+
+# Server lanes (split per component 2026-07-24). One workflow, two tag
+# namespaces — the tag prefix selects which binary is built and released:
+#   - `hub-v<ver>`  → Hub release,  hub-server binaries.
+#   - `host-v<ver>` → Host release, host-runner binaries.
+# Each release ships four per-binary tarballs (one per platform) +
+# SHA256SUMS, matching what `selfupdate` resolves (artifactName +
+# lanePrefix, hub/internal/selfupdate). The bundled Android/hub/host mega
+# release on the old `v*` tag is retired — mobile now lives on `mobile-v*`.
+#
+# These releases are PRERELEASE by design so they never capture GitHub's
+# `releases/latest` (owned by the mobile lane, read by the in-app updater).
+# `host-runner self-update` / `hub-server self-update` on an alpha use
+# `--channel alpha`, which includes prereleases and is confined to this lane.
+
+on:
+  push:
+    tags:
+      - 'hub-v*'
+      - 'host-v*'
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: hub/go.sum
+
+      - name: Resolve lane (binary + version from the tag)
+        id: lane
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in
+            hub-v*)  BIN=hub-server;  COMP=Hub;  VER="${TAG#hub-v}" ;;
+            host-v*) BIN=host-runner; COMP=Host; VER="${TAG#host-v}" ;;
+            *) echo "::error::tag $TAG is neither hub-v* nor host-v*"; exit 1 ;;
+          esac
+          {
+            echo "bin=$BIN"
+            echo "comp=$COMP"
+            echo "ver=$VER"
+          } >> "$GITHUB_OUTPUT"
+          echo "building $BIN (component $COMP) at version $VER for tag $TAG"
+
+      - name: Build binaries + per-platform tarballs
+        # Cross-compile the lane's binary for the four platforms operators
+        # deploy to (linux/{amd64,arm64} for VPS / Pi-style hosts;
+        # darwin/{amd64,arm64} for dev machines). modernc.org/sqlite is pure
+        # Go so CGO=0 keeps cross-compilation honest. Each binary ships in its
+        # own tarball (ADR-028 W5.5) — four per release — so `self-update`
+        # pulls only the ~15MB it needs. Names drop the old `termipod-` prefix
+        # and carry the bare version (the lane is the release name); they MUST
+        # match hub/internal/selfupdate artifactName().
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN='${{ steps.lane.outputs.bin }}'
+          VER='${{ steps.lane.outputs.ver }}'
+          OUT_DIR="dist/server"
+          mkdir -p "$OUT_DIR"
+          cd hub
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            echo "::group::build $BIN for $os/$arch"
+            stage="$(mktemp -d)"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags="-s -w" \
+              -o "$stage/$BIN" "./cmd/$BIN"
+            tar -C "$stage" -czf \
+              "../$OUT_DIR/${BIN}-${VER}-${os}-${arch}.tar.gz" "$BIN"
+            rm -rf "$stage"
+            echo "::endgroup::"
+          done
+          cd ..
+          # Single SHA256SUMS over the four tarballs; entries are basenames
+          # (glob runs inside OUT_DIR) so `self-update` matches by artifact name.
+          ( cd "$OUT_DIR" && sha256sum ${BIN}-*.tar.gz > SHA256SUMS )
+          ls -lh "$OUT_DIR"
+          echo "::group::SHA256SUMS"; cat "$OUT_DIR/SHA256SUMS"; echo "::endgroup::"
+
+      - name: Create prerelease on the tag
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          name: ${{ steps.lane.outputs.comp }} ${{ steps.lane.outputs.ver }}
+          files: |
+            dist/server/*.tar.gz
+            dist/server/SHA256SUMS
+          body: |
+            **${{ steps.lane.outputs.comp }} server binary** (statically linked, no CGO) —
+            one tarball per platform (ADR-028). Each expands to a single bare
+            `${{ steps.lane.outputs.bin }}` binary.
+
+            Platforms: `linux-amd64` (VPS, x86_64) · `linux-arm64` (ARM servers,
+            Raspberry Pi 4/5, Ampere) · `darwin-amd64` (Intel Macs) ·
+            `darwin-arm64` (Apple Silicon Macs).
+
+            `SHA256SUMS` covers the four tarballs; `${{ steps.lane.outputs.bin }}
+            self-update` verifies its artifact against it. This is a PRERELEASE —
+            `self-update --channel alpha` resolves it. Drop the binary on `$PATH`.
+          generate_release_notes: true

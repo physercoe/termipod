@@ -41,7 +41,15 @@ This complements:
 
 ## Unreleased
 
-_Nothing yet._
+### Changed
+
+- **Installer artifacts renamed `Desktop-<ver>-*`.** The packaged files drop the
+  `TermiPod-` prefix and carry the component name instead (`Desktop-<ver>-mac.dmg`,
+  `Desktop-Setup-<ver>.exe`, `Desktop-<ver>.AppImage`/`.deb`), matching the
+  per-component release-lane split (Hub/Host/Mobile/Desktop). The app's own
+  `productName` (window title, macOS app name) stays **TermiPod** — only the
+  release file names change; electron-updater's `latest*.yml` regenerates in
+  lockstep so the update feed is unaffected.
 
 ## 2026.724.305 — 2026-07-24 · Electron (alpha)
 

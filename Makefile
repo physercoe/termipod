@@ -1,3 +1,8 @@
+# The `bump` recipe uses bash-only `10#` base-10 arithmetic (so a leading-zero
+# CalVer component like HHMM "08" is never read as octal); pin bash so it works
+# where /bin/sh is dash.
+SHELL := /bin/bash
+
 GIT_REF := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)@$(shell git rev-parse --short HEAD 2>/dev/null)
 
 .PHONY: run build-apk analyze test bump

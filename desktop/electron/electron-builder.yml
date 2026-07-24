@@ -75,7 +75,7 @@ mac:
   # (universal would also need both arches of @napi-rs/keyring's per-arch
   # optionalDependencies force-installed). Revisit only if an Intel user shows
   # up (a fixed name would collide across arches).
-  artifactName: ${productName}-${version}-mac.${ext}
+  artifactName: Desktop-${version}-mac.${ext}
   target:
     - dmg
     - zip # electron-updater's mac feed needs the zip alongside the dmg
@@ -86,7 +86,7 @@ mac:
 
 win:
   icon: assets/icon.ico
-  artifactName: ${productName}-Setup-${version}.${ext}
+  artifactName: Desktop-Setup-${version}.${ext}
   target:
     - nsis
 
@@ -99,7 +99,7 @@ linux:
   icon: assets/icon.png
   category: Development
   maintainer: TermiPod contributors <noreply@users.noreply.github.com>
-  artifactName: ${productName}-${version}.${ext}
+  artifactName: Desktop-${version}.${ext}
   target:
     - AppImage
     - deb

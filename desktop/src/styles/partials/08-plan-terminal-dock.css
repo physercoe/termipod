@@ -931,15 +931,6 @@
 /* session web panel (P0: embedded agent web UIs, e.g. kimi web — the third
    sub-view next to terminal / files). Token stance: semantic vars + hairlines,
    no shadows — the guest paints its own UI. */
-.web-panel-wrap {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-}
-.web-panel-wrap.hidden {
-  display: none;
-}
 .web-panel {
   flex: 1;
   min-width: 0;

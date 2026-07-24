@@ -20,13 +20,16 @@
 ///
 /// Deliberately electron-free (like ipc/download.ts's core) so the unit tests
 /// run under plain `node --test`.
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { AddressInfo } from 'node:net';
 import type { Handler } from './ipc/dispatch';
+
+const pexecFile = promisify(execFile);
 
 export const KIMIWEB_START_TIMEOUT_MS = 15_000;
 
@@ -70,6 +73,108 @@ export function pickFreePort(): Promise<number> {
       srv.close(() => resolve(port));
     });
   });
+}
+
+// ── Spawn PATH recovery ──────────────────────────────────────────────────────
+// A GUI-launched app inherits a minimal/stale PATH: on unix a Finder/Dock launch
+// omits npm/Homebrew/nvm dirs; on Windows the process PATH is a login-time
+// snapshot that misses anything installed since (or into a dir the running
+// Explorer never learned about). So `kimi` on the user's *real* PATH isn't found
+// and `cmd.exe /C kimi.cmd` exits with "'kimi.cmd' is not recognized". We rebuild
+// PATH from the platform's source of truth and inject it into the spawn env,
+// mirroring pty.ts's login-PATH recovery (which is unix-only) and extending it to
+// Windows via the registry Environment key.
+
+/// Expand `%VAR%` references the way cmd would (registry Path values are
+/// `REG_EXPAND_SZ`, e.g. `%USERPROFILE%\bin`). Unknown vars are left verbatim.
+export function expandWinVars(s: string, env: NodeJS.ProcessEnv = process.env): string {
+  return s.replace(/%([^%]+)%/g, (whole, name: string) => env[name] ?? env[name.toUpperCase()] ?? whole);
+}
+
+/// Merge PATH fragments into one deduplicated list (order preserved, empties and
+/// repeats dropped). Pure + exported so the platform recovery stays testable.
+export function mergePathDirs(fragments: Array<string | null | undefined>, sep: string = path.delimiter): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const frag of fragments) {
+    if (frag === null || frag === undefined || frag === '') continue;
+    for (const dir of frag.split(sep)) {
+      const d = dir.trim();
+      if (d === '' || seen.has(d)) continue;
+      seen.add(d);
+      out.push(d);
+    }
+  }
+  return out.join(sep);
+}
+
+/// Well-known kimi bin dirs to append as a backstop when neither the inherited
+/// nor the recovered PATH lists them (npm-global on Windows; the kimi-code
+/// installer's own `bin`).
+function wellKnownBinDirs(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string[] {
+  const kimiHome = env.KIMI_CODE_HOME ?? path.join(home, '.kimi-code');
+  const dirs = [path.join(kimiHome, 'bin')];
+  if (process.platform === 'win32') {
+    dirs.push(path.join(env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'npm'));
+  }
+  return dirs;
+}
+
+/// The user's real login-shell PATH (unix) — spawns `$SHELL -ilc` so the same
+/// startup files a terminal sources are read. Markers strip startup noise.
+async function loginShellPath(): Promise<string | null> {
+  const shell = process.env.SHELL ?? '/bin/bash';
+  const MARK = '__TP_PATH__';
+  const { stdout } = await pexecFile(shell, ['-ilc', `printf '${MARK}%s${MARK}' "$PATH"`], { timeout: 5000, encoding: 'utf8' });
+  const start = stdout.indexOf(MARK);
+  if (start < 0) return null;
+  const rest = stdout.slice(start + MARK.length);
+  const end = rest.indexOf(MARK);
+  if (end < 0) return null;
+  const p = rest.slice(0, end).trim();
+  return p === '' ? null : p;
+}
+
+/// Read one registry Environment `Path` value. `reg.exe` lives in System32, which
+/// is always on even a minimal PATH, so this is safe from a GUI launch.
+async function regQueryPath(key: string): Promise<string | null> {
+  try {
+    const { stdout } = await pexecFile('reg', ['query', key, '/v', 'Path'], { timeout: 5000, encoding: 'utf8' });
+    const m = /\bPath\s+REG(?:_EXPAND)?_SZ\s+(.*)/i.exec(stdout);
+    if (m === null) return null;
+    const raw = m[1].trim();
+    return raw === '' ? null : expandWinVars(raw);
+  } catch {
+    return null;
+  }
+}
+
+/// The current Windows user+machine PATH from the registry — the durable source
+/// Windows itself uses, so it reflects installs made after this process (or its
+/// parent Explorer) captured its now-stale PATH.
+async function windowsRegistryPath(): Promise<string | null> {
+  const [user, machine] = await Promise.all([
+    regQueryPath('HKCU\\Environment'),
+    regQueryPath('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'),
+  ]);
+  const merged = mergePathDirs([machine, user]);
+  return merged === '' ? null : merged;
+}
+
+let recoveredPathP: Promise<string | null> | null = null;
+function recoveredPath(): Promise<string | null> {
+  if (recoveredPathP === null) {
+    recoveredPathP = (process.platform === 'win32' ? windowsRegistryPath() : loginShellPath()).catch(() => null);
+  }
+  return recoveredPathP;
+}
+
+/// The spawn env: a copy of process.env with PATH rebuilt from the inherited
+/// PATH + the platform-recovered PATH + the well-known kimi bin dirs.
+async function buildSpawnEnv(): Promise<NodeJS.ProcessEnv> {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  env.PATH = mergePathDirs([env.PATH, await recoveredPath(), ...wellKnownBinDirs(env)]);
+  return env;
 }
 
 // ── Server lifecycle (refcounted, serialized) ────────────────────────────────
@@ -119,7 +224,11 @@ async function spawnServer(): Promise<string> {
   const bin = resolveKimiBinary();
   const port = await pickFreePort();
   const cmd = spawnCmd(bin, ['web', '--no-open', '--port', String(port)]);
-  const child = spawn(cmd.file, cmd.args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  // Inject the platform-recovered PATH so a GUI launch resolves `kimi` even when
+  // the inherited PATH is minimal/stale (the Windows "'kimi.cmd' is not
+  // recognized" failure).
+  const env = await buildSpawnEnv();
+  const child = spawn(cmd.file, cmd.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
   proc = child;
   // A later exit (user Ctrl+C in a stray terminal, crash) invalidates the
   // cached URL so the next `kimiweb_start` respawns instead of handing the

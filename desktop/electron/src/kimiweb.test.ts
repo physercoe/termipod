@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { extractServerUrl, kimiBinaryPath, resolveKimiBinary, pickFreePort } from './kimiweb.ts';
+import { extractServerUrl, kimiBinaryPath, resolveKimiBinary, pickFreePort, expandWinVars, mergePathDirs } from './kimiweb.ts';
 
 // The banner as actually printed by `kimi web --no-open --port 17331`
 // (kimi-code 0.28.1), captured 2026-07-23.
@@ -65,6 +65,22 @@ test('resolveKimiBinary: the well-known path when it exists, PATH fallback other
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('expandWinVars: expands %VAR% from the env, leaves unknowns verbatim', () => {
+  const env = { USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming' };
+  assert.equal(expandWinVars('%USERPROFILE%\\bin;%APPDATA%\\npm', env), 'C:\\Users\\me\\bin;C:\\Users\\me\\AppData\\Roaming\\npm');
+  // Case-insensitive var names (registry values vary in case).
+  assert.equal(expandWinVars('%userprofile%\\x', env), 'C:\\Users\\me\\x');
+  // An undefined var is left as-is rather than turned into an empty string.
+  assert.equal(expandWinVars('%NOPE%\\x', env), '%NOPE%\\x');
+});
+
+test('mergePathDirs: dedups + drops empties, preserving first-seen order', () => {
+  assert.equal(mergePathDirs(['/a:/b', '/b:/c', null, '', '/a'], ':'), '/a:/b:/c');
+  // Trims per-entry whitespace and skips blank segments from trailing separators.
+  assert.equal(mergePathDirs([' /a : /b ', '/a:'], ':'), '/a:/b');
+  assert.equal(mergePathDirs([null, undefined, ''], ':'), '');
 });
 
 test('pickFreePort: returns a bindable loopback port', async () => {

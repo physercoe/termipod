@@ -12,6 +12,8 @@ import { Composer } from './Composer';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
 import { LocalAgentLauncher } from './LocalAgentLauncher';
+import { webPanels, webPanelById } from './webPanels';
+import { WebPanel } from '../surfaces/WebPanel';
 
 // Cap per-mention file text so a large file can't blow the message context.
 const MENTION_MAX = 100_000;
@@ -58,6 +60,14 @@ export function AgentCompanion({
   const [source, setSource] = useState<'hub' | 'local'>(() =>
     isShell() && localStorage.getItem(`${storageKey}.src`) === 'local' ? 'local' : 'hub',
   );
+  // Which local agent the Local source runs: `cli` = launch any engine CLI into
+  // the terminal dock; a web-panel id (`kimi`) = embed that agent's own web UI
+  // here. Web-UI agents used to be terminal sub-tabs; they're local-agent options
+  // now (decision: kimi web is parallel to shell/SSH, not a terminal view).
+  const [localAgent, setLocalAgent] = useState<string>(() => {
+    const saved = localStorage.getItem(`${storageKey}.localAgent`);
+    return saved !== null && (saved === 'cli' || webPanelById(saved) !== undefined) ? saved : 'cli';
+  });
   const [events, setEvents] = useState<Entity[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [useContext, setUseContext] = useState(true);
@@ -106,6 +116,15 @@ export function AgentCompanion({
     setSource(s);
     try {
       localStorage.setItem(`${storageKey}.src`, s);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function pickLocalAgent(id: string): void {
+    setLocalAgent(id);
+    try {
+      localStorage.setItem(`${storageKey}.localAgent`, id);
     } catch {
       /* ignore */
     }
@@ -253,6 +272,16 @@ export function AgentCompanion({
           })}
         </select>
       )}
+      {source === 'local' && (
+        <select className="companion-agent" value={localAgent} onChange={(e) => pickLocalAgent(e.target.value)}>
+          <option value="cli">{t('companion.localCli')}</option>
+          {webPanels.map((p) => (
+            <option key={p.id} value={p.id}>
+              {t(p.labelKey)}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 
@@ -261,10 +290,11 @@ export function AgentCompanion({
   // is reachable from any tab. The structured/chat interaction stays the hub path
   // above; a local structured-protocol driver is the tracked follow-up.
   if (source === 'local') {
+    const webPanel = localAgent === 'cli' ? undefined : webPanelById(localAgent);
     return (
       <div className="companion">
         {head}
-        <LocalAgentLauncher />
+        {webPanel !== undefined ? <WebPanel panel={webPanel} /> : <LocalAgentLauncher />}
       </div>
     );
   }

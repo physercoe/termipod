@@ -52,9 +52,21 @@ This complements:
   note here" (dropped at the cursor); right-clicking a card offers recolor +
   delete. The right mouse button is now reserved for this menu (middle-button
   drag still pans).
+- **Kimi web now launches on Windows.** The spawn failed with `'kimi.cmd' is not
+  recognized …` because a GUI-launched app inherits a minimal/stale PATH that
+  misses where `kimi` is installed. The backing-server spawn now rebuilds PATH
+  from the platform's source of truth — the login-shell PATH on macOS/Linux and
+  the user+machine registry `Environment\Path` on Windows — plus the well-known
+  kimi/npm-global bin dirs, before launching.
 
 ### Changed
 
+- **Kimi web moved from a terminal sub-tab to an assistant-panel local agent.**
+  It's a separate entity, parallel to the local shell and remote SSH — not a
+  view of a terminal session. In the assistant panel, source **Local** now has a
+  picker: *Terminal CLI* (launch any engine CLI into the terminal dock) or a
+  web-UI agent (currently **Kimi web**; opencode and others slot in as registry
+  rows later). The terminal's session view drops its web sub-tabs.
 - **The attention dock folds.** Like the left nav, the right-hand attention
   panel now has a collapse toggle in its header; folded, it leaves a thin
   re-open rail. The open/closed state persists per tab (Fleet / Projects).

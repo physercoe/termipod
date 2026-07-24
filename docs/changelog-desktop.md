@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.724.305 / electron-v2026.724.305-alpha
+> **Last verified vs code:** desktop 2026.724.405 / electron-v2026.724.405-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -40,6 +40,14 @@ This complements:
 ---
 
 ## Unreleased
+
+_Nothing yet._
+
+## 2026.724.405 — 2026-07-24 · Electron (alpha)
+
+> **Alpha — unsigned, device-test build.** Re-cut of `2026.724.305` to produce
+> the renamed `Desktop-*` installers; not signed or notarized and not for
+> distribution (macOS Gatekeeper will quarantine it).
 
 ### Changed
 

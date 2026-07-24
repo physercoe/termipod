@@ -1,7 +1,7 @@
 {
   "name": "termipod-desktop",
   "private": true,
-  "version": "2026.724.305",
+  "version": "2026.724.405",
   "type": "module",
   "description": "TermiPod desktop control plane — the unified web-tech client shell (WS2 of docs/plans/desktop-control-plane.md). Browser-target build; the Electron shell (desktop/electron) packages it (ADR-055).",
   "scripts": {

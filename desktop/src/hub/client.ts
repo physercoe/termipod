@@ -86,6 +86,17 @@ export class HubClient {
     const out = await this.transport.get(this.transport.team('/hosts'));
     return asArray(out);
   }
+  /** List agent_spawns (`handleListSpawns`). With `task_id` this is a task's
+   * *attempts* — the 1:N spawn history behind one task, newest first, each row
+   * carrying the child agent's handle/kind/status + spawned/terminated times. */
+  async listSpawns(params: { task_id?: string; host_id?: string; status?: string } = {}): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/agents/spawns'), {
+      task_id: params.task_id,
+      host_id: params.host_id,
+      status: params.status,
+    });
+    return asArray(out);
+  }
   async listSessions(): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team('/sessions'));
     return asArray(out);

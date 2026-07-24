@@ -1702,14 +1702,25 @@ type spawnListOut struct {
 	// host-runner reads this in launch_m2 to derive the project-
 	// scoped workdir when the template's default_workdir is empty.
 	ProjectID string `json:"project_id,omitempty"`
+	// TaskID is the task this spawn executes (ADR-029 D-2); empty for
+	// ad-hoc spawns. Set for the ?task_id= attempts listing.
+	TaskID string `json:"task_id,omitempty"`
+	// TerminatedAt / TerminatedReason record the spawn's end — surfaced
+	// in the task-board's per-task attempts section (W4) so a finished
+	// attempt reads "ended 4m ago" with its reason.
+	TerminatedAt     string `json:"terminated_at,omitempty"`
+	TerminatedReason string `json:"terminated_reason,omitempty"`
 }
 
 // handleListSpawns returns agent_spawns rows, filtered by host and/or status.
 // Primary caller is the host-runner polling for agents pending launch on its box.
+// The dashboard also calls it with ?task_id= to list a task's *attempts* — the
+// 1:N spawn history behind a single task (ADR-029 W10; task-board W4).
 func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := r.URL.Query().Get("host_id")
-	status := r.URL.Query().Get("status") // e.g. "pending"
+	status := r.URL.Query().Get("status")  // e.g. "pending"
+	taskID := r.URL.Query().Get("task_id") // attempts of a single task
 
 	q := `
 		SELECT sp.id, COALESCE(sp.parent_agent_id, ''), sp.child_agent_id,
@@ -1718,7 +1729,10 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(sp.worktree_path, ''), sp.spawned_at,
 		       COALESCE(a.driving_mode, ''),
 		       COALESCE(sp.mcp_token_plaintext, ''),
-		       COALESCE(a.project_id, '')
+		       COALESCE(a.project_id, ''),
+		       COALESCE(sp.task_id, ''),
+		       COALESCE(sp.terminated_at, ''),
+		       COALESCE(sp.terminated_reason, '')
 		FROM agent_spawns sp
 		JOIN agents a ON a.id = sp.child_agent_id
 		WHERE a.team_id = ?`
@@ -1730,6 +1744,10 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 	if status != "" {
 		q += " AND a.status = ?"
 		args = append(args, status)
+	}
+	if taskID != "" {
+		q += " AND sp.task_id = ?"
+		args = append(args, taskID)
 	}
 	q += " ORDER BY sp.spawned_at DESC LIMIT 200"
 
@@ -1755,7 +1773,8 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 			&sp.Handle, &sp.Kind, &sp.HostID, &sp.Status,
 			&sp.SpawnSpec, &authority, &task,
 			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode,
-			&sp.McpToken, &sp.ProjectID); err != nil {
+			&sp.McpToken, &sp.ProjectID,
+			&sp.TaskID, &sp.TerminatedAt, &sp.TerminatedReason); err != nil {
 			s.writeDBErr(w, err)
 			return
 		}

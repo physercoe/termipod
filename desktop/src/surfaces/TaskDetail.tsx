@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
@@ -56,6 +56,78 @@ export function firstLine(bodyMd: string | undefined): string {
     if (line !== '') return line;
   }
   return '';
+}
+
+/// The task's **attempts** — the 1:N `agent_spawns.task_id` history (ADR-029
+/// W10), newest first. Read-only framing over spawns the hub already records:
+/// each row is one worker session on the task (a restart, a different engine, a
+/// re-assignment), with its engine, live status pip, spawn/terminated age, and
+/// a click-through to that agent's transcript. "New attempt" reuses the assign
+/// picker (`onAssign`). Self-gating: renders nothing until at least one spawn
+/// exists AND there's no `onAssign` (nothing actionable + nothing to show).
+function TaskAttempts({
+  taskId,
+  onAssign,
+}: {
+  taskId: string;
+  onAssign?: () => void;
+}): JSX.Element | null {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const selectAgent = useFocus((s) => s.selectAgent);
+  const q = useQuery({
+    queryKey: ['task-attempts', taskId],
+    enabled: client !== null && taskId !== '',
+    refetchInterval: 8000,
+    queryFn: () => client!.listSpawns({ task_id: taskId }),
+  });
+  const attempts = q.data ?? [];
+  // Nothing to show and no way to start one → stay invisible (self-gating).
+  if (attempts.length === 0 && onAssign === undefined) return null;
+  return (
+    <section className="setting-group task-attempts">
+      <h3>
+        {t('task.attempts')}{' '}
+        {attempts.length > 0 && <span className="pill">{attempts.length}</span>}
+        <span className="spacer" />
+        {onAssign !== undefined && (
+          <button className="link-btn" onClick={onAssign}>
+            {t('task.newAttempt')}
+          </button>
+        )}
+      </h3>
+      {attempts.length === 0 ? (
+        <div className="muted small">{t('task.noAttempts')}</div>
+      ) : (
+        attempts.map((sp, i) => {
+          const agentId = str(sp, 'child_agent_id');
+          const handle = str(sp, 'handle') ?? agentId ?? '';
+          const status = str(sp, 'status');
+          const terminatedAt = str(sp, 'terminated_at');
+          const spawnedAt = str(sp, 'spawned_at');
+          // Terminated → "ended Xm ago"; still alive → "started Xm ago".
+          const when = terminatedAt !== undefined && terminatedAt !== ''
+            ? `${t('task.ended')} ${relTime(terminatedAt)}`
+            : `${t('task.started')} ${relTime(spawnedAt)}`;
+          return (
+            <div key={str(sp, 'spawn_id') ?? String(i)} className="task-attempt">
+              <span className={pipClass(status)} />
+              <button
+                className="link-btn task-attempt-handle"
+                disabled={agentId === undefined}
+                onClick={() => agentId !== undefined && selectAgent('projects', agentId, handle)}
+              >
+                {handle}
+              </button>
+              <span className="task-attempt-kind muted small">{str(sp, 'kind') ?? ''}</span>
+              <span className="spacer" />
+              <span className="muted small">{when}</span>
+            </div>
+          );
+        })
+      )}
+    </section>
+  );
 }
 
 /// The rich task detail — shared by the modal (narrow) and the master-detail
@@ -235,6 +307,8 @@ export function TaskDetailBody({
             <Markdown text={bodyMd} />
           </div>
         )}
+
+        <TaskAttempts taskId={taskId} onAssign={onAssign} />
 
         {error !== null && <div className="error">{error}</div>}
 

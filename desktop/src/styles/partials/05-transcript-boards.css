@@ -1473,6 +1473,31 @@
   gap: var(--spacing-s12);
 }
 
+/* W4 attempts — the 1:N spawn history for a task. Each row: pip, agent handle
+   (link → transcript), engine, spawn/terminated age. Header carries a count +
+   New-attempt action (h3 already flexes for the trailing button). */
+.task-attempts h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.task-attempt {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) 0;
+  border-top: 1px solid var(--border);
+}
+.task-attempt-handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-attempt-kind {
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
 /* ---- admin & governance cockpit ---- */
 
 .admin {

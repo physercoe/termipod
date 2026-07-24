@@ -724,6 +724,54 @@ button.small,
   font-family: var(--mono, ui-monospace, monospace);
 }
 
+/* W4 left-nav parity — the mobile 3-line project card (name+status+attention /
+   phase+open-ACs / progress). Only goal projects with insights data use it;
+   workspaces keep the flat row. Column layout overrides .tree-agent's row. */
+.tree-agent.project-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-s4);
+}
+.project-card-line {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.project-card-meta {
+  font-size: var(--font-size-label);
+}
+.project-card-pct {
+  flex: 0 0 auto;
+}
+/* Attention badge — count of open items on the project (+ children rollup). */
+.attn-badge {
+  flex: 0 0 auto;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: var(--radius-stadium);
+  background: var(--danger);
+  color: var(--accent-ink);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  text-align: center;
+}
+.phase-pill {
+  flex: 0 0 auto;
+  padding: 1px var(--spacing-s8);
+  border-radius: var(--radius-stadium);
+  background: var(--accent-tint);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ac-chip {
+  flex: 0 0 auto;
+  padding: 1px var(--spacing-s8);
+  border-radius: var(--radius-stadium);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .dot {
   width: 8px;
   height: 8px;

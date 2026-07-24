@@ -5,9 +5,11 @@
 > stretchy columns, resizable split + tri-pane transcript preview per §6.4);
 > **W2 SHIPPED** (`in_review` lifecycle end-to-end: hub derivation + clients +
 > unknown-status fallback + ADR-029 D-8); **W3 SHIPPED** (agent-aware DnD +
-> assign-on-drop + filters/search/view-tabs, desktop); W4–W5 open. Decisions §6.
+> assign-on-drop + filters/search/view-tabs, desktop); **W4 SHIPPED** (per-task
+> attempts section + New-attempt + left-nav project-card parity, desktop); W5
+> open. Decisions §6.
 > **Audience:** contributors, maintainer
-> **Last verified vs code:** W1+W2 shipped 2026-07-23; W3 shipped 2026-07-24
+> **Last verified vs code:** W1+W2 shipped 2026-07-23; W3+W4 shipped 2026-07-24
 
 **TL;DR.** The desktop Projects area under-serves widescreen: the tasks
 kanban is five fixed 220px columns with dead space to their right, task cards
@@ -268,9 +270,31 @@ unchanged.
   - Verified: tsc clean, `lint-desktop-tokens` clean (65 baseline), vite build
     green. DnD device-test (native drag on WebView2, confirm dialogs) is the
     director's.
-- **W4 — Attempts framing + left-nav parity (desktop).** Detail panel
-  attempts section from spawn history; "New attempt" action; left-nav card
-  content port.
+- **W4 — Attempts framing + left-nav parity (desktop). SHIPPED
+  (direct-to-main).** Two parts:
+  - **Attempts:** `handleListSpawns` gained a `task_id` filter + `terminated_at`/
+    `terminated_reason`/`task_id` output (the sole hub change — a read filter
+    over the existing 1:N `agent_spawns.task_id`; host-token MCP-secret gating
+    unchanged). Desktop `client.listSpawns({task_id})` + a `TaskAttempts`
+    section in `TaskDetailBody`: newest-first spawn rows (pip + handle→transcript
+    + engine + spawned/terminated age), a count pill, and a **New attempt**
+    action reusing W3's assign picker (`onAssign`). Self-gating (hidden when no
+    attempts AND no assign action). Shows in both the panel and the modal.
+  - **Left-nav parity:** `ProjectsSurface` rows port the mobile
+    `_ProjectListCard` — status dot, name, **attention badge** (own
+    `open_attention` + a parent→Σ(children) rollup), **phase pill** (`phase i/N`),
+    **open-AC chip**, **progress bar** (the phase-weighted `/v1/insights`
+    `progress`, NOT a task count). Fed by **one** team-scope `getInsights`
+    (`useProjectInsights` → `by_project[]`), folded client-side — no per-row
+    fetch. Goal projects with insights get the 3-line card; workspaces /
+    pre-insights rows keep the flat row (graceful degrade when insights is
+    absent). New i18n en+zh; CSS reuses `.proj-progress` + existing tokens
+    (`--accent-ink` for the badge).
+  - Verified: hub `go build` + full `go test ./internal/server/` green; desktop
+    tsc + `lint-desktop-tokens` (65 baseline, no phantom) + vite build green.
+    Widescreen device-test is the director's. (Mobile "New attempt in the
+    overflow" per §Mobile-deltas deferred — desktop is the wedge target; mobile
+    can already spawn against a task via its existing flows.)
 - **W5 — Review-feedback loop.** Per-task Changes rollup + line comments →
   composer feedback into the assignee session. **Shared wedge with
   `agent-transcript-redesign.md` P5** — land there or here, once.

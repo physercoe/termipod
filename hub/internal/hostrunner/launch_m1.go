@@ -316,7 +316,10 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		// duplicate agent (#376: the kimi-ts M1 cascade showed two
 		// tmux windows for one agent).
 		if pane != "" {
-			killPaneQuiet(ctx, pane)
+			// WithoutCancel: a Start failure caused by the spawn ctx
+			// being cancelled must still reap the pane — a cancelled
+			// ctx would make CommandContext no-op and leak it.
+			killPaneQuiet(context.WithoutCancel(ctx), pane)
 		}
 		return M1LaunchResult{}, fmt.Errorf("acp start: %w", err)
 	}

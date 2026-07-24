@@ -58,7 +58,7 @@ func scaffoldToolFor(toolPrefix, dirName, ext string) toolDef {
 func scaffoldInputSchema(toolPrefix string) json.RawMessage {
 	switch toolPrefix {
 	case "agent":
-		return schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["worker","steward"],"description":"steward = elevated MCP surface (allow_all role); worker = bounded role from roles.yaml worker.allow"},"engine":{"type":"string","enum":["claude-code","codex","gemini-cli","kimi-code","kimi-code-ts"],"description":"backend engine (default claude-code). Picks the cmd line + permission flags."}}}`)
+		return schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["worker","steward"],"description":"steward = elevated MCP surface (allow_all role); worker = bounded role from roles.yaml worker.allow"},"engine":{"type":"string","enum":["claude-code","codex","gemini-cli","kimi-code-ts"],"description":"backend engine (default claude-code). Picks the cmd line + permission flags."}}}`)
 	case "prompt":
 		return schema(`{"type":"object","properties":{"kind":{"type":"string","enum":["worker","steward"],"description":"shapes the section headings + opening line"}}}`)
 	case "plan":

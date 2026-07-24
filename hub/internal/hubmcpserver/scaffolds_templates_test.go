@@ -90,6 +90,19 @@ func TestScaffoldAgent_EngineSwapsCmdLine(t *testing.T) {
 	}
 }
 
+// The retired Python kimi-code family must not be offered by the agent
+// scaffold's engine enum: engineCmd has no arm for it anymore, so a
+// caller picking it would silently receive a claude-shaped cmd (#378).
+func TestScaffoldAgent_SchemaDropsRetiredKimiCode(t *testing.T) {
+	s := string(scaffoldInputSchema("agent"))
+	if strings.Contains(s, `"kimi-code"`) {
+		t.Errorf("agent scaffold schema still offers the retired kimi-code engine: %s", s)
+	}
+	if !strings.Contains(s, `"kimi-code-ts"`) {
+		t.Errorf("agent scaffold schema lost kimi-code-ts: %s", s)
+	}
+}
+
 func TestScaffoldPrompt_HasCanonicalSections(t *testing.T) {
 	worker, _ := scaffoldContent("prompt", map[string]any{"kind": "worker"})
 	for _, want := range []string{

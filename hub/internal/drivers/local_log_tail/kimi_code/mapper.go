@@ -410,7 +410,12 @@ func (m *Mapper) mapUpdateStore(raw []byte) ([]MappedEvent, error) {
 		})
 	}
 	if m.planMsgID == "" {
-		m.planMsgID = "kimi-plan-t" + strconv.Itoa(m.turnSeq)
+		// The agent id is part of the chain id: mappers are per wire file
+		// but all post into ONE termipod transcript, and subagent files
+		// have no turn.prompt (turnSeq stays 0) — without the namespace,
+		// two subagents' todo chains would share "…-t0" and the clients'
+		// fold-by-message_id would collapse them into one card.
+		m.planMsgID = "kimi-plan-" + m.AgentID + "-t" + strconv.Itoa(m.turnSeq)
 	}
 	return []MappedEvent{m.event("plan", "agent", map[string]any{
 		"sessionUpdate": "plan",

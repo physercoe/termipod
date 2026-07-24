@@ -46,12 +46,19 @@ export function WebPanel({ panel }: { panel: WebPanelDef }): JSX.Element {
 
   // Start the backing server and mount the guest at the returned embed URL.
   // Failures (binary missing, token never printed, early exit) land in the
-  // inline error state with a retry.
+  // inline error state with a retry (a null error message renders the static
+  // no-shell text, which is why the effect never needs `t`).
+  //
+  // Every start() is paired with a stop() in THIS effect's cleanup — the
+  // main-side refcount counts each start (including failed ones), so a
+  // stop-per-unmount-only pairing would leak a hold per Retry and the shared
+  // server would outlive the last panel. The manager serializes the
+  // stop→start replay a re-run produces, so pairing here is race-free.
+  const shell = isShell();
   useEffect(() => {
-    if (!isShell()) {
+    if (!shell) {
       // The browser degrade build has no native shell to spawn from.
       setPhase('error');
-      setError(t('webpanel.noShell'));
       return;
     }
     let alive = true;
@@ -71,17 +78,9 @@ export function WebPanel({ panel }: { panel: WebPanelDef }): JSX.Element {
     );
     return () => {
       alive = false;
-    };
-  }, [panel, attempt, t]);
-
-  // Release the panel's hold on the shared server when the panel unmounts (the
-  // session tab closed); the main-side refcount keeps it alive while other
-  // panels still show it.
-  useEffect(() => {
-    return () => {
       void panel.stop().catch(() => undefined);
     };
-  }, [panel]);
+  }, [shell, panel, attempt]);
 
   // A main-frame load failure inside the guest (the server died mid-session —
   // e.g. a stray Ctrl+C) drops back to the error state; Retry re-invokes
@@ -120,10 +119,12 @@ export function WebPanel({ panel }: { panel: WebPanelDef }): JSX.Element {
       {phase === 'error' && (
         <div className="web-panel-state">
           <Icon name="alert" size={18} />
-          <p className="error small">{error}</p>
-          <button className="web-panel-retry" onClick={retry}>
-            <Icon name="refresh" size={13} /> {t('webpanel.retry')}
-          </button>
+          <p className="error small">{error ?? t('webpanel.noShell')}</p>
+          {shell && (
+            <button className="web-panel-retry" onClick={retry}>
+              <Icon name="refresh" size={13} /> {t('webpanel.retry')}
+            </button>
+          )}
         </div>
       )}
     </div>

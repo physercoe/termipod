@@ -26,8 +26,10 @@ const (
 )
 
 // Line is one complete (LF-terminated) line read from the tailed
-// file. Bytes excludes the trailing newline. Offset is the absolute
-// byte position immediately AFTER the line in the file.
+// file. Bytes excludes the trailing newline. Offset is the underlying
+// file's read position when the line was emitted — bufio's readahead
+// means it can run past the line's end; informational only (the
+// adapter doesn't consume it).
 type Line struct {
 	Bytes  []byte
 	Offset int64
@@ -134,9 +136,11 @@ func (t *Tailer) loop(ctx context.Context, f *os.File, out chan<- Line) {
 			}
 			continue
 		case err == io.EOF:
-			// Partial line OR fully at EOF. Stash any partial bytes
-			// (note: ReadBytes' return shares bufio's backing
-			// buffer), sleep, then continue; the completed line is
+			// Partial line OR fully at EOF. Stash any partial bytes —
+			// ReadBytes has CONSUMED them from the reader (the returned
+			// slice is a copy, but the next read continues after them),
+			// so they must be prepended when the rest of the line
+			// arrives. Sleep, then continue; the completed line is
 			// emitted whole once its newline lands.
 			if len(line) > 0 {
 				pending = append(pending, line...)

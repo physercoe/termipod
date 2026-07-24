@@ -125,6 +125,17 @@ func TestMapper_TodoStoreMapsToPlanWithPerTurnChain(t *testing.T) {
 	if evs := mustMap(t, m, `{"type":"tools.update_store","key":"scratchpad","value":{"x":1},"time":5}`); len(evs) != 0 {
 		t.Fatalf("non-todo store should be dropped; got %+v", evs)
 	}
+
+	// The chain id is namespaced by agent: subagent wire files carry no
+	// turn.prompt (turnSeq stays 0 in every subagent mapper), and all
+	// mappers post into ONE termipod transcript — two agents sharing a
+	// message_id would fold into a single client card.
+	todo := `{"type":"tools.update_store","key":"todo","value":[{"title":"sub","status":"pending"}],"time":6}`
+	subA := mustMap(t, NewMapper("agent-1", "main", ""), todo)
+	subB := mustMap(t, NewMapper("agent-2", "main", ""), todo)
+	if subA[0].Payload["message_id"] == subB[0].Payload["message_id"] {
+		t.Fatalf("plan message_id must differ across agents; both %q", subA[0].Payload["message_id"])
+	}
 }
 
 // usage.record → usage flattened to the canonical StdioDriver/claude-M4

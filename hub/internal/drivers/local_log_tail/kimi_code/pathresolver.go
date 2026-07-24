@@ -39,8 +39,11 @@ type workspacesFile struct {
 }
 
 // LookupWorkspaceID maps a cwd to its wd_* id via workspaces.json.
-// Returns ErrNoWorkspace when the file is missing/unparseable or no
-// entry matches. Matching is on the cleaned absolute path; a
+// Returns ErrNoWorkspace when the file is missing or no entry matches
+// (both mean "kimi hasn't opened this cwd yet — keep polling"); an
+// unparseable file is a hard error on purpose, so the launch glue and
+// the wait loop treat corruption as fatal rather than spinning on it.
+// Matching is on the cleaned absolute path; a
 // symlink-resolved retry covers macOS's /tmp ↔ /private/tmp split
 // (kimi records both forms as separate entries — verified).
 func LookupWorkspaceID(storeHome, cwd string) (string, error) {

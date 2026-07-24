@@ -45,11 +45,14 @@ This complements:
 
 - **Inspect tab — analytic params + VRAM in the config-only view (round 3, §5a
   follow-up).** The config-only architecture view now shows an **estimated
-  parameter count** computed from `config.json` alone (dense / GQA / MoE
-  modelled — validated against Llama-3-8B ≈ 8.0B and Mixtral-8×7B ≈ 46.7B) and
-  feeds it into the existing MLA-aware VRAM estimator, so a weightless HF release
-  gets a params + VRAM readout too. Badged as an estimate; returns nothing (no
-  wrong number) for MLA models or when a load-bearing field is missing.
+  parameter count** computed from `config.json` alone and feeds it into the
+  existing MLA-aware VRAM estimator, so a weightless HF release gets a params +
+  VRAM readout too. Covers the mainstream open-source decoder shapes —
+  dense / GQA / **MLA** attention (DeepSeek-V2/V3), dense / **MoE** FFN (per-
+  expert + router + shared experts, with `first_k_dense_replace` mixed stacks),
+  gated or legacy non-gated MLP, tied/untied embeddings. Validated against
+  Llama-3-8B ≈ 8.0B, Mixtral-8×7B ≈ 46.7B, DeepSeek-V3 ≈ 671B, GPT-2 ≈ 124M.
+  Badged as an estimate (error-tolerant by design).
 
 - **Inspect tab — local git lens (round 3, T4b).** A pinned local root that is a
   git repo shows its **branch + dirty count** on the root row (read-only, via

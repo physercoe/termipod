@@ -125,7 +125,26 @@ test('estimateParamsFromConfig: tied embeddings drop the lm_head', () => {
   assert.equal(untied - tied, 1024 * 151936); // exactly one vocab×hidden embedding matrix
 });
 
-test('estimateParamsFromConfig: null for MLA and for missing fields', () => {
-  assert.equal(estimateParamsFromConfig({ model_type: 'deepseek_v3', hidden_size: 7168, num_hidden_layers: 61, num_attention_heads: 128, vocab_size: 129280, intermediate_size: 18432, kv_lora_rank: 512 }), null);
-  assert.equal(estimateParamsFromConfig({ model_type: 'llama', hidden_size: 4096 }), null); // missing layers/heads/vocab/inter
+test('estimateParamsFromConfig: DeepSeek-V3 (MLA + MoE + first_k_dense) lands ~671B', () => {
+  const cfg = {
+    model_type: 'deepseek_v3', hidden_size: 7168, num_hidden_layers: 61, num_attention_heads: 128, vocab_size: 129280,
+    q_lora_rank: 1536, kv_lora_rank: 512, qk_nope_head_dim: 128, qk_rope_head_dim: 64, v_head_dim: 128,
+    intermediate_size: 18432, moe_intermediate_size: 2048, n_routed_experts: 256, n_shared_experts: 1,
+    num_experts_per_tok: 8, first_k_dense_replace: 3, tie_word_embeddings: false,
+  };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p > 650e9 && p < 690e9, `expected ~671B, got ${(p / 1e9).toFixed(1)}B`);
+});
+
+test('estimateParamsFromConfig: non-gated legacy MLP (GPT-2) uses the 2× FFN', () => {
+  const base = { hidden_size: 768, num_hidden_layers: 12, num_attention_heads: 12, vocab_size: 50257, n_inner: 3072, tie_word_embeddings: true };
+  const gpt2 = estimateParamsFromConfig({ ...base, model_type: 'gpt2' })!;
+  const gated = estimateParamsFromConfig({ ...base, model_type: 'llama' })!;
+  // Same dims, gated adds one more hidden×inter matrix per layer → strictly more.
+  assert.ok(gated > gpt2);
+  assert.ok(gpt2 > 100e6 && gpt2 < 130e6, `GPT-2 ~124M, got ${(gpt2 / 1e6).toFixed(0)}M`);
+});
+
+test('estimateParamsFromConfig: null only for genuinely missing fields', () => {
+  assert.equal(estimateParamsFromConfig({ model_type: 'llama', hidden_size: 4096 }), null); // no layers/heads/vocab/inter
 });

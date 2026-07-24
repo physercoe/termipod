@@ -136,56 +136,82 @@ function commonChips(id: string, out: string[]): void {
   out.push(k.startsWith('gemma') ? 'GeGLU' : 'SwiGLU');
 }
 
-/// Analytic parameter count from an HF `config.json` alone (round-3 §5a) — for
-/// the weightless case where no checkpoint/tensor data is available. Covers
-/// **dense + GQA + MoE** decoder transformers (SwiGLU/GeGLU gated FFN, the shape
-/// these families share). Returns **null** rather than a wrong number when the
-/// architecture is one this closed form doesn't model faithfully — **MLA**
-/// (DeepSeek-V2/V3: the low-rank q/kv projections need fields this omits) — or
-/// when a load-bearing field is missing. A returned count is an *estimate*
-/// (biases, exact norm/router details, and per-layer dense/MoE mixes are
-/// approximated) and must be badged as such.
-export function estimateParamsFromConfig(config: Record<string, unknown>): number | null {
-  // MLA is not modelled here — its param count depends on kv_lora_rank /
-  // q_lora_rank / qk_nope/rope head dims in ways a dense formula gets wrong.
-  if (num(config, 'kv_lora_rank') !== undefined) return null;
+// Legacy decoder families with a NON-gated MLP (two matrices: up + down, GELU)
+// rather than the gated SwiGLU/GeGLU triple every modern OSS decoder uses. A
+// wrong gate multiplier is the biggest single error source, so name the classics
+// explicitly; everything else (the mainstream today) defaults to gated.
+const NON_GATED_FFN = new Set(['gpt2', 'gptj', 'gpt_neox', 'gpt_bigcode', 'bloom', 'opt', 'falcon', 'mpt', 'phi', 'codegen', 'starcoder']);
 
-  const hidden = num(config, 'hidden_size', 'n_embd');
+/// Analytic parameter count from an HF `config.json` alone (round-3 §5a) — for
+/// the weightless case where no checkpoint/tensor data is available. Covers the
+/// mainstream open-source decoder shapes: **dense / GQA** attention and **MLA**
+/// (DeepSeek-V2/V3 low-rank q/kv projections), **dense / MoE** FFN (per-expert +
+/// router + shared experts, with `first_k_dense_replace` mixed dense/MoE stacks),
+/// gated (SwiGLU/GeGLU) or the legacy non-gated MLP, and tied/untied embeddings.
+/// The result is an **estimate** — error-tolerant by design (biases, exact
+/// norm/router terms, and unusual per-layer mixes are approximated) — so it must
+/// be badged as such. Returns null only when a load-bearing field (hidden /
+/// layers / heads / vocab, or the FFN width) is absent.
+export function estimateParamsFromConfig(config: Record<string, unknown>): number | null {
+  const hidden = num(config, 'hidden_size', 'n_embd', 'd_model');
   const layers = num(config, 'num_hidden_layers', 'n_layer');
-  const heads = num(config, 'num_attention_heads');
+  const heads = num(config, 'num_attention_heads', 'n_head');
   const vocab = num(config, 'vocab_size');
-  const inter = num(config, 'intermediate_size', 'n_inner', 'ffn_dim');
-  if (hidden === undefined || layers === undefined || heads === undefined || vocab === undefined || inter === undefined) return null;
+  if (hidden === undefined || layers === undefined || heads === undefined || vocab === undefined) return null;
 
   const kvHeads = num(config, 'num_key_value_heads') ?? heads;
   const headDim = num(config, 'head_dim') ?? hidden / heads;
 
-  // Attention: q_proj + o_proj are hidden↔(heads·headDim); k_proj + v_proj are
-  // hidden↔(kvHeads·headDim) (GQA shrinks the KV side).
-  const attn = 2 * hidden * heads * headDim + 2 * hidden * kvHeads * headDim;
-
-  // FFN: gated (gate + up + down) = 3 · hidden · intermediate. MoE replaces the
-  // dense FFN with num_experts expert FFNs (at moe_intermediate_size) + a router,
-  // plus any shared experts.
-  const experts = num(config, 'num_local_experts', 'n_routed_experts', 'num_experts');
-  let ffn: number;
-  if (experts !== undefined && experts > 0) {
-    const expInter = num(config, 'moe_intermediate_size') ?? inter;
-    const shared = num(config, 'n_shared_experts', 'num_shared_experts') ?? 0;
-    const sharedInter = num(config, 'shared_expert_intermediate_size') ?? expInter;
-    ffn = experts * 3 * hidden * expInter + hidden * experts + shared * 3 * hidden * sharedInter;
+  // ── attention (per layer) ──────────────────────────────────────────────────
+  let attn: number;
+  const kvLora = num(config, 'kv_lora_rank');
+  if (kvLora !== undefined) {
+    // MLA (DeepSeek-V2/V3): a compressed KV latent + (optionally low-rank) Q.
+    const qLora = num(config, 'q_lora_rank');
+    const qkNope = num(config, 'qk_nope_head_dim') ?? headDim;
+    const qkRope = num(config, 'qk_rope_head_dim') ?? 0;
+    const vHeadDim = num(config, 'v_head_dim') ?? headDim;
+    const qHeadDim = qkNope + qkRope;
+    const q = qLora !== undefined ? hidden * qLora + qLora * heads * qHeadDim : hidden * heads * qHeadDim;
+    const kvA = hidden * (kvLora + qkRope); // kv_a_proj_with_mqa
+    const kvB = kvLora * heads * (qkNope + vHeadDim); // kv_b_proj
+    const o = heads * vHeadDim * hidden; // o_proj
+    attn = q + kvA + kvB + o;
   } else {
-    ffn = 3 * hidden * inter;
+    // Standard MHA / GQA: q_proj + o_proj at hidden↔(heads·headDim); k/v at the
+    // GQA-shrunk hidden↔(kvHeads·headDim).
+    attn = 2 * hidden * heads * headDim + 2 * hidden * kvHeads * headDim;
   }
 
-  const norms = 2 * hidden; // two RMSNorms per block (input + post-attention)
-  const perLayer = attn + ffn + norms;
+  // ── FFN (summed across layers) ──────────────────────────────────────────────
+  const mult = NON_GATED_FFN.has(String(config.model_type ?? '').toLowerCase()) ? 2 : 3;
+  const inter = num(config, 'intermediate_size', 'n_inner', 'ffn_dim', 'ffn_hidden_size');
+  const experts = num(config, 'num_local_experts', 'n_routed_experts', 'num_experts');
+  const isMoe = experts !== undefined && experts > 0;
+
+  let ffnAcrossLayers: number;
+  if (isMoe) {
+    const expInter = num(config, 'moe_intermediate_size') ?? inter;
+    if (expInter === undefined) return null; // can't size the experts
+    const shared = num(config, 'n_shared_experts', 'num_shared_experts') ?? 0;
+    const sharedInter = num(config, 'shared_expert_intermediate_size') ?? expInter;
+    const moeFfn = experts * mult * hidden * expInter + hidden * experts /* router */ + shared * mult * hidden * sharedInter;
+    // Some stacks (DeepSeek-V3) keep the first K layers dense, the rest MoE.
+    const denseLayers = Math.min(num(config, 'first_k_dense_replace') ?? 0, layers);
+    const denseInter = inter ?? expInter;
+    ffnAcrossLayers = denseLayers * (mult * hidden * denseInter) + (layers - denseLayers) * moeFfn;
+  } else {
+    if (inter === undefined) return null;
+    ffnAcrossLayers = layers * (mult * hidden * inter);
+  }
+
+  const norms = layers * 2 * hidden + hidden; // two norms per block + a final norm
 
   const embed = vocab * hidden;
   const tied = config.tie_word_embeddings !== false; // HF default is tied
   const lmHead = tied ? 0 : vocab * hidden;
 
-  return embed + lmHead + layers * perLayer + hidden; // + final norm
+  return embed + lmHead + attn * layers + ffnAcrossLayers + norms;
 }
 
 /// Whether some text is a transformers `config.json` — parses to an object

@@ -10,7 +10,8 @@
 > both forges; a `config.json` from any source flips to the ArchCard; local
 > roots have capped content search (`tree_search`) + a read-only git lens
 > (`git_info`/`git_diff`); the config-only view now estimates params + VRAM from
-> config math (`estimateParamsFromConfig`, dense/GQA/MoE; null for MLA).
+> config math (`estimateParamsFromConfig` — dense/GQA/MLA attention + dense/MoE
+> FFN, covering the mainstream OSS decoder shapes).
 > **Recorded, not built:** remote/hub/GitHub server-side content search; the
 > forge e2e loopback stand-in; §8 open questions.
 > **Audience:** principal · contributors

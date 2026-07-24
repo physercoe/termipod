@@ -76,7 +76,7 @@ type Mapper struct {
 	// when the tree hasn't flushed yet).
 	ParentAgentID string
 	// Engine names the family for usage events (mirrors the claude
-	// adapter's engine field). Empty defaults to "kimi-code".
+	// adapter's engine field). Empty defaults to "kimi-code-ts".
 	Engine string
 
 	turnSeq   int
@@ -86,7 +86,7 @@ type Mapper struct {
 // NewMapper builds a Mapper for one agent wire file.
 func NewMapper(agentID, parentAgentID, engine string) *Mapper {
 	if engine == "" {
-		engine = "kimi-code"
+		engine = "kimi-code-ts"
 	}
 	return &Mapper{AgentID: agentID, ParentAgentID: parentAgentID, Engine: engine}
 }

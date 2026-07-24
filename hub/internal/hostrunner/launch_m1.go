@@ -80,6 +80,17 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		return M1LaunchResult{}, fmt.Errorf("M1 launch: backend.cmd is empty in spawn spec")
 	}
 
+	// ADR-043, extended to M1 (#378): the mode-selecting argv (kimi's
+	// `acp` subcommand) lives on the engine family, not the persona
+	// template — templates then carry the interactive base cmd (`kimi
+	// --yolo`) so the M4 fallback pane launches a usable TUI instead of
+	// a stdio daemon. ComposeLaunchCmd is a no-op for templates that
+	// still carry the subcommand and for families with no M1 contract
+	// (gemini-cli composes driver-side below).
+	if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok {
+		command = fam.ComposeLaunchCmd("M1", command)
+	}
+
 	// gemini-cli@0.41+ refuses headless launch (incl. --acp) from an
 	// untrusted folder. Inline-export the trust opt-in into the bash -c
 	// command — this is the M1 mirror of the geminiEnv hook in launch_m2.
@@ -147,7 +158,8 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	// the agent hub-mediated MCP access regardless of which mode
 	// drives the JSON-RPC layer. ACPDriver itself sends an empty
 	// mcpServers in its session/new — gemini honors the file-level
-	// config, which is what we want for per-spawn isolation.
+	// config, which is what we want for per-spawn isolation. kimi
+	// auto-discovers <workdir>/.kimi-code/mcp.json (no argv needed).
 	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
 		if expandedWorkdir == "" {
 			return M1LaunchResult{}, fmt.Errorf("mcp_token set but backend.default_workdir is empty")
@@ -156,20 +168,6 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 			cfg.Spawn.Kind, expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken,
 		); err != nil {
 			return M1LaunchResult{}, fmt.Errorf("write mcp config: %w", err)
-		}
-		// kimi-code does NOT auto-discover the per-spawn mcp.json the
-		// way gemini-cli auto-discovers <workdir>/.gemini/settings.json
-		// from a cwd-matching trust gate. Kimi's `--mcp-config-file`
-		// flag is the only sanctioned injection path, and its default
-		// (~/.kimi/mcp.json) points at the operator's home dir — which
-		// our writeKimiMCPConfig has already merged into the per-spawn
-		// copy. Splice the flag into the argv between `kimi` and the
-		// next top-level flag so the per-spawn file wins. Idempotent
-		// against operator templates that already specify the flag.
-		if cfg.Spawn.Kind == "kimi-code" && !strings.Contains(command, "--mcp-config-file") {
-			mcpPath := filepath.Join(expandedWorkdir, ".kimi", "mcp.json")
-			command = strings.Replace(command, "kimi ",
-				"kimi --mcp-config-file "+shellEscape(mcpPath)+" ", 1)
 		}
 	}
 

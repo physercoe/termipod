@@ -56,7 +56,7 @@ type SpawnSpec struct {
 	// ResumeSessionID is the engine-side cursor captured from a prior
 	// session.init event (sessions.engine_session_id, ADR-014 + ADR-021
 	// W1.1). Two driver paths consume it via the same field:
-	//   - ACPDriver (gemini-cli, kimi-code): calls session/load with
+	//   - ACPDriver (gemini-cli, kimi-code-ts): calls session/load with
 	//     this id instead of session/new so the daemon reattaches to
 	//     its prior conversation.
 	//   - AppServerDriver (codex): converts this into the

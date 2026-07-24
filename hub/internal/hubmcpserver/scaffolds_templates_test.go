@@ -72,8 +72,7 @@ func TestScaffoldAgent_EngineSwapsCmdLine(t *testing.T) {
 		// the scaffold cmd carries only the bin.
 		{"codex", `cmd: "codex"`},
 		{"gemini-cli", "gemini --acp"},
-		{"kimi-code", "kimi --yolo acp"},
-		{"kimi-code-ts", "kimi --yolo acp"},
+		{"kimi-code-ts", "kimi --yolo"},
 	}
 	for _, tc := range cases {
 		out, err := scaffoldContent("agent",

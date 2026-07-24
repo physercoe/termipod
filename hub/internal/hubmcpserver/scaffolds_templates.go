@@ -137,19 +137,14 @@ func engineCmd(engine string) string {
 		return `  # Gemini's --acp flag puts it into Agent Client Protocol mode
   # (Zed spec, JSON-RPC over stdio); ACPDriver speaks the rest.
   cmd: "gemini --acp"`
-	case "kimi-code":
-		return `  # Kimi's acp subcommand mirrors gemini's protocol surface.
-  # --yolo bypasses the engine-layer gate; the hub's permission_prompt
-  # MCP tool still wraps tool calls (ADR-026). Switch to the explicit
-  # gate by removing --yolo.
-  cmd: "kimi --yolo acp"`
 	case "kimi-code-ts":
-		return `  # The TypeScript Kimi Code build (ADR-054) speaks the same ACP
-  # surface over its own acp subcommand. --yolo keeps the kimi steward's
-  # consent posture; remove it to route approvals through ACP's
-  # session/request_permission gate. MCP injection is file-based
-  # (<workdir>/.kimi-code/mcp.json) — no --mcp-config-file flag.
-  cmd: "kimi --yolo acp"`
+		return `  # Kimi Code (ADR-054) speaks ACP; the acp subcommand is
+  # composed on at launch from the family's launch.M1.mode_args
+  # (ADR-043, #378), so this base cmd also serves an M4 pane. --yolo
+  # keeps the kimi steward's consent posture; remove it to route
+  # approvals through ACP's session/request_permission gate. MCP
+  # injection is file-based (<workdir>/.kimi-code/mcp.json).
+  cmd: "kimi --yolo"`
 	default: // claude-code
 		// The stream-json launch flags and the skip/prompt permission
 		// contract come from the claude-code family (ADR-043); a template

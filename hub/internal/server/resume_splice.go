@@ -103,7 +103,7 @@ func rewriteClaudeResumeFlag(cmd, sessionID string) (string, bool) {
 // scalar in the rendered spawn_spec_yaml. Two driver families consume
 // the spliced field via the same `SpawnSpec.ResumeSessionID` accessor:
 //
-//   - ACPDriver (gemini-cli, kimi-code): calls session/load with this
+//   - ACPDriver (gemini-cli, kimi-code-ts): calls session/load with this
 //     id instead of session/new when the agent advertises loadSession
 //     capability (ADR-021 W1.2).
 //   - AppServerDriver (codex): calls `thread/resume` with this id as

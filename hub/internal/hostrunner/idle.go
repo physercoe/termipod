@@ -11,7 +11,7 @@ import (
 )
 
 // hasStructuredDriver returns true when `kind` matches a registered
-// agent-family bin (claude-code / codex / gemini-cli / kimi-code /
+// agent-family bin (claude-code / codex / gemini-cli / kimi-code-ts /
 // antigravity). Those drivers emit explicit busy/idle signals through
 // lifecycle / turn.result / completion events, so the regex-based idle
 // detector — which was a fallback for engines without structured state

@@ -477,3 +477,60 @@ func TestLaunchM1_KillsCosmeticPaneOnStartFailure(t *testing.T) {
 	}
 }
 
+// TestLaunchM1_ComposesFamilyModeArgs pins the ADR-043-for-M1 wedge
+// (#378): the kimi template ships the interactive base cmd (`kimi
+// --yolo`) and the family's launch.M1.mode_args (`acp`) is composed
+// on at launch — so the same template cmd also launches a usable TUI
+// when the spawn lands on M4.
+func TestLaunchM1_ComposesFamilyModeArgs(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:kimi-compose.0"}
+	poster := &fakePoster{}
+
+	sp := Spawn{
+		ChildID: "agent-acp-compose",
+		Handle:  "kimi-compose",
+		Kind:    "kimi-code-ts",
+		Mode:    "M1",
+		SpawnSpec: "backend:\n" +
+			"  cmd: kimi --yolo\n" +
+			"  default_workdir: " + homeDir + "\n",
+	}
+
+	type result struct {
+		res M1LaunchResult
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, e := launchM1(context.Background(), M1LaunchConfig{
+			Spawn:    sp,
+			Launcher: launcher,
+			Client:   poster,
+			Spawner:  spawner,
+			LogDir:   logDir,
+		})
+		done <- result{r, e}
+	}()
+	spawner.waitReady(t)
+	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-compose")
+	go agent.serve()
+
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("launchM1 did not return")
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("launchM1: %v", r.err)
+		}
+		r.res.Driver.Stop()
+	}
+	if !strings.Contains(spawner.cmd, "kimi --yolo acp") {
+		t.Errorf("spawner.cmd = %q; want family mode_args composed (`kimi --yolo acp`)", spawner.cmd)
+	}
+}
+

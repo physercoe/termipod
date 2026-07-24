@@ -93,7 +93,7 @@ type ACPDriver struct {
 
 	// EngineKind is the agent_families.yaml `family` name of the engine
 	// the driver is talking to (`claude-code`, `gemini-cli`, `codex`,
-	// `kimi-code`, …). Threaded in from launch_m1 so engine-specific
+	// `kimi-code-ts`, …). Threaded in from launch_m1 so engine-specific
 	// remediation strings can be picked without sniffing the cmd. Empty
 	// is acceptable — emitAuthRequiredAttention then falls back to a
 	// generic "log in on the host" hint. ADR-026 W3.
@@ -494,7 +494,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		})
 		cancelNS()
 		if newErr != nil {
-			// AUTH_REQUIRED handling — kimi-code (and any future ACP
+			// AUTH_REQUIRED handling — kimi-code-ts (and any future ACP
 			// daemon that authenticates out-of-band rather than via the
 			// ACP `authenticate` method) returns an AUTH_REQUIRED-class
 			// error from session/new when no logged-in account is on the
@@ -543,7 +543,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	// event) handles both shapes. Shape-driven and engine-neutral: any future ACP
 	// adopter benefits. Fill PER CATEGORY and only when the modes/models field is
 	// absent, so a modes/models-shaped reply produces byte-identical output (no
-	// regression for gemini-cli / Python kimi-code).
+	// regression for gemini-cli).
 	var thoughtLevel string
 	if coModes, coCurMode, coModels, coCurModel, coThought, ok := translateConfigOptions(sres); ok {
 		if len(sr.Modes.AvailableModes) == 0 && sr.Modes.CurrentModeID == "" {
@@ -1053,9 +1053,9 @@ func (d *ACPDriver) emitAuthRequiredAttention(ctx context.Context, daemonMessage
 // with no Go diff required.
 func (d *ACPDriver) authRequiredRemediation() string {
 	switch d.EngineKind {
-	case "kimi-code", "kimi-code-ts":
-		// Both kimi product lines authenticate via the same
-		// device-code `kimi login` flow (ADR-026 / ADR-054).
+	case "kimi-code-ts":
+		// kimi authenticates via the device-code `kimi login` flow
+		// (ADR-054).
 		return "Run `kimi login` in your shell on the engine host to authenticate, then retry the spawn."
 	case "gemini-cli":
 		return "Run `gemini auth` on the engine host OR set GEMINI_API_KEY in the daemon's environment, then retry the spawn."

@@ -25,7 +25,7 @@ func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 	}
 	want := map[string]bool{
 		"claude-code": false, "gemini-cli": false,
-		"codex": false, "kimi-code": false, "kimi-code-ts": false,
+		"codex": false, "kimi-code-ts": false,
 	}
 	for _, f := range got {
 		if _, ok := want[f.Family]; ok {
@@ -45,51 +45,12 @@ func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 	}
 }
 
-// TestKimiCode_FamilyShape asserts the kimi-code row carries the
-// assumed-true ACP capability surface declared in ADR-026 D8. If a
-// future on-host verification flips one of these, this test failing
-// is the prompt to update both the YAML and the engine-capabilities
-// reference doc in the same wedge.
-func TestKimiCode_FamilyShape(t *testing.T) {
-	f, ok := ByName("kimi-code")
-	if !ok {
-		t.Fatal("kimi-code not in embedded registry")
-	}
-	if f.Bin != "kimi" {
-		t.Errorf("kimi-code bin = %q; want kimi", f.Bin)
-	}
-	wantSupports := map[string]bool{"M1": false, "M4": false}
-	for _, m := range f.Supports {
-		if _, ok := wantSupports[m]; ok {
-			wantSupports[m] = true
-		}
-		if m == "M2" {
-			t.Errorf("kimi-code should NOT declare M2 support (no stream-json mode)")
-		}
-	}
-	for m, ok := range wantSupports {
-		if !ok {
-			t.Errorf("kimi-code missing mode %q from supports", m)
-		}
-	}
-	if got := f.RuntimeModeSwitch["M1"]; got != "rpc" {
-		t.Errorf("kimi-code runtime_mode_switch[M1] = %q; want rpc (assumed-true)", got)
-	}
-	if !f.PromptImage["M1"] {
-		t.Errorf("kimi-code prompt_image[M1] = false; want true (assumed-true)")
-	}
-	if !f.PromptPDF["M1"] {
-		t.Errorf("kimi-code prompt_pdf[M1] = false; want true (assumed-true)")
-	}
-}
-
-// TestKimiCodeTS_FamilyShape asserts the kimi-code-ts row (the
-// TypeScript rewrite of Kimi Code CLI — ADR-054, ADR-026's successor
-// wedge) carries the on-host-verified ACP capability surface. Unlike
-// the Python line's assumed-true row, these values were verified
-// against kimi-code 0.27.0 (2026-07-19). If a future upstream release
-// flips one, this test failing is the prompt to update both the YAML
-// and docs/decisions/054-kimi-code-ts-engine.md in the same wedge.
+// TestKimiCodeTS_FamilyShape asserts the kimi-code-ts row (Kimi Code
+// CLI — ADR-054) carries the on-host-verified ACP capability surface,
+// verified against kimi-code 0.27.0 (2026-07-19). If a future
+// upstream release flips one, this test failing is the prompt to
+// update both the YAML and docs/decisions/054-kimi-code-ts-engine.md
+// in the same wedge.
 func TestKimiCodeTS_FamilyShape(t *testing.T) {
 	f, ok := ByName("kimi-code-ts")
 	if !ok {
@@ -120,6 +81,19 @@ func TestKimiCodeTS_FamilyShape(t *testing.T) {
 	}
 	if f.PromptPDF["M1"] {
 		t.Errorf("kimi-code-ts prompt_pdf[M1] = true; want false (no PDF capability advertised)")
+	}
+	// ADR-043 for M1 (#378): the family owns the acp subcommand so
+	// persona templates ship the interactive base cmd and an M4 pane
+	// gets a usable TUI from the same cmd.
+	args := f.LaunchArgs("M1")
+	if len(args) != 1 || args[0] != "acp" {
+		t.Errorf("kimi-code-ts launch.M1.mode_args = %v; want [acp]", args)
+	}
+	if got := f.ComposeLaunchCmd("M1", "kimi --yolo"); got != "kimi --yolo acp" {
+		t.Errorf("ComposeLaunchCmd(M1) = %q; want `kimi --yolo acp`", got)
+	}
+	if got := f.ComposeLaunchCmd("M1", "kimi --yolo acp"); got != "kimi --yolo acp" {
+		t.Errorf("ComposeLaunchCmd(M1) idempotency = %q; want unchanged", got)
 	}
 }
 
@@ -557,7 +531,7 @@ func TestPermissionFlag_BundledClaude(t *testing.T) {
 		t.Errorf(`claude PermissionFlag("bogus") = %q; want ""`, got)
 	}
 	// Engines with no flag-time permission contract return "".
-	for _, fam := range []string{"codex", "gemini-cli", "kimi-code"} {
+	for _, fam := range []string{"codex", "gemini-cli", "kimi-code-ts"} {
 		f, ok := ByName(fam)
 		if !ok {
 			continue

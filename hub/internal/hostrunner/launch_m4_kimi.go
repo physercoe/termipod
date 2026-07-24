@@ -1,4 +1,4 @@
-// M4 launch path for Kimi Code CLI (kimi-code / kimi-code-ts) —
+// M4 launch path for Kimi Code CLI (kimi-code-ts) —
 // docs/plans/agent-transcript-redesign.md §6 P4, ticket #372. kimi's M4
 // used to fall through to the raw PaneDriver; this path replaces it
 // with a LocalLogTail adapter (drivers/local_log_tail/kimi_code) that
@@ -12,11 +12,11 @@
 // keeps the PaneDriver fallback: any error here happens BEFORE the
 // pane is spawned, and runner.go falls through to the PaneDriver M4
 // block.
-// That covers older kimi builds without the wire store (the Python
-// kimi-cli line writes ~/.kimi, not ~/.kimi-code), hosts where kimi has
-// never run, and wire protocol drift (the metadata gate — a prior
-// session's protocol_version is sniffed pre-launch; on mismatch the
-// spawn degrades to PaneDriver rather than emitting garbage).
+// That covers older kimi builds without the wire store (the
+// discontinued Python kimi-cli line writes ~/.kimi, not ~/.kimi-code)
+// and wire protocol drift (the metadata gate — a prior session's
+// protocol_version is sniffed pre-launch; on mismatch the spawn
+// degrades to PaneDriver rather than emitting garbage).
 package hostrunner
 
 import (
@@ -52,8 +52,8 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	if cfg.Spawn.ChildID == "" {
 		return nil, fmt.Errorf("kimi wire-tail M4: empty ChildID")
 	}
-	if cfg.Spawn.Kind != "kimi-code" && cfg.Spawn.Kind != "kimi-code-ts" {
-		return nil, fmt.Errorf("kimi wire-tail M4: only kimi-code/kimi-code-ts are wired (got %q)", cfg.Spawn.Kind)
+	if cfg.Spawn.Kind != "kimi-code-ts" {
+		return nil, fmt.Errorf("kimi wire-tail M4: only kimi-code-ts is wired (got %q)", cfg.Spawn.Kind)
 	}
 
 	spec, _ := ParseSpec(cfg.Spawn.SpawnSpec)
@@ -133,11 +133,9 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	}
 
 	// Per-spawn MCP config so kimi's request_* attention tools reach
-	// the hub. kimi-code-ts auto-discovers <workdir>/.kimi-code/
-	// mcp.json; kimi-code (Python) needs the --mcp-config-file argv
-	// splice (mirroring launch_m1.go). Best-effort like the
-	// antigravity path: a failure degrades hub-MCP reachability, not
-	// the transcript.
+	// the hub — the engine auto-discovers <workdir>/.kimi-code/
+	// mcp.json. Best-effort like the antigravity path: a failure
+	// degrades hub-MCP reachability, not the transcript.
 	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
 		if werr := writeMCPConfigForFamily(cfg.Spawn.Kind, workdir, cfg.HubURL, cfg.Spawn.MCPToken); werr != nil {
 			cfg.Log.Warn("kimi wire-tail M4: write mcp config failed; agent runs without hub MCP",
@@ -181,16 +179,6 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	cmd := spec.Backend.Cmd
 	if cmd == "" {
 		return nil, fmt.Errorf("kimi wire-tail M4: backend.cmd is empty")
-	}
-	// Python kimi-cli only: splice --mcp-config-file so the per-spawn
-	// .kimi/mcp.json wins over ~/.kimi/mcp.json (mirrors launch_m1.go —
-	// the TS build auto-discovers its project-level file and needs no
-	// flag). Idempotent against templates that already carry the flag.
-	if cfg.Spawn.Kind == "kimi-code" && cfg.Spawn.MCPToken != "" && cfg.HubURL != "" &&
-		!strings.Contains(cmd, "--mcp-config-file") {
-		mcpPath := filepath.Join(workdir, ".kimi", "mcp.json")
-		cmd = strings.Replace(cmd, "kimi ",
-			"kimi --mcp-config-file "+shellEscape(mcpPath)+" ", 1)
 	}
 	// Prepend `cd <workdir> &&` so kimi's cwd deterministically equals
 	// the workdir we resolved — kimi keys its workspace→session mapping

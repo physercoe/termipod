@@ -1,17 +1,19 @@
 # Inspect tab round 3 — project trees: folders, remote dirs, hub projects & GitHub repos
 
 > **Type:** plan
-> **Status:** In progress (2026-07-24) — **T1 (local) + T2 (remote/hub) + T3
-> (GitHub + Hugging Face) + §5a (config-only architecture view) SHIPPED.**
-> Local/remote/hub/GitHub/HF roots browse through one folded tree model; the
-> forge substrate (`state/forge.ts` + `state/forgeUrl.ts` + the proxy-aware
-> `forge_fetch` IPC, `github`/`hf` `InspectSource` members + `repo` snapshot,
-> vault token) is live for both forges; a `config.json` from any source flips to
-> the ArchCard via `parseHfConfig` + the existing `classifyArch` (index.json
-> corroboration; analytic params/VRAM recorded, not built). **Remaining: T4
-> (content search + local git lens).**
+> **Status:** Done (2026-07-24) — **all wedges shipped: T1 (local) · T2
+> (remote/hub) · T3 (GitHub + Hugging Face) · §5a (config-only architecture
+> view) · T4 (content search + local git lens).** Local/remote/hub/GitHub/HF
+> roots browse through one folded tree model; the forge substrate
+> (`state/forge.ts` + `state/forgeUrl.ts` + the proxy-aware `forge_fetch` IPC,
+> `github`/`hf` `InspectSource` members + `repo` snapshot, vault token) serves
+> both forges; a `config.json` from any source flips to the ArchCard; local
+> roots have capped content search (`tree_search`) + a read-only git lens
+> (`git_info`/`git_diff`). **Recorded, not built:** analytic params/VRAM from
+> config math; remote/hub/GitHub server-side content search; the forge e2e
+> loopback stand-in; §8 open questions.
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9baaa07f` (+ T1, T2, T3, §5a)
+> **Last verified vs code:** origin/main `9baaa07f` (+ T1–T4, §5a)
 
 **TL;DR.** The Inspect tab (J3 round 2,
 [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)) opens

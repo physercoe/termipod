@@ -964,9 +964,29 @@ button > .ui-icon:not(:only-child):first-child,
   cursor: pointer;
   text-align: left;
 }
+.inspect-tree-git {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: var(--spacing-s4);
+}
+.inspect-tree-git-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90px;
+}
+.inspect-tree-git-dirty {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
 .inspect-tree-rootactions {
   display: none;
   gap: 2px;
+  flex: 0 0 auto;
 }
 .inspect-tree-rootrow:hover .inspect-tree-rootactions {
   display: flex;

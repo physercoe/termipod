@@ -7,6 +7,7 @@ import { foldHubDocs, nodeMatches, type TreeNode } from '../state/inspectTree';
 import { localList, treeIndex, treeSearch, type TreeIndexEntry, type SearchHit } from '../state/localfs';
 import { sftpBrowse } from '../state/inspectSources';
 import { fetchForgeTree } from '../state/forge';
+import { gitInfo, gitDiff, type GitInfo } from '../state/git';
 import { useSession } from '../state/session';
 import { isShell } from '../platform';
 import type { PickResult } from './InspectOpen';
@@ -143,11 +144,13 @@ export function InspectTree({
   onPick,
   onAddFolder,
   onClose,
+  onOpenPatch,
 }: {
   width: number;
   onPick: (r: PickResult) => void;
   onAddFolder: () => void;
   onClose: () => void;
+  onOpenPatch: (title: string, patch: string) => void;
 }): JSX.Element {
   const t = useT();
   const roots = useInspectRoots((s) => s.roots);
@@ -170,6 +173,32 @@ export function InspectTree({
   const foldedPromise = useRef<Record<string, Promise<Folded>>>({});
   const seenRoots = useRef<Set<string>>(new Set());
   const mounted = useRef(false);
+  const [gitInfos, setGitInfos] = useState<Record<string, GitInfo>>({});
+  const gitFetched = useRef<Set<string>>(new Set());
+
+  // Read the git lens (branch + dirty count) for each local root once. Cheap
+  // (`git status`); degrades to hidden when the root isn't a repo or git is
+  // absent. Never blocks the tree.
+  useEffect(() => {
+    if (!isShell()) return;
+    for (const r of roots) {
+      if (r.source !== 'local' || r.path === undefined || gitFetched.current.has(r.id)) continue;
+      gitFetched.current.add(r.id);
+      void gitInfo(r.path)
+        .then((info) => setGitInfos((m) => ({ ...m, [r.id]: info })))
+        .catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots]);
+
+  function diffWorkingTree(root: InspectRoot): void {
+    if (root.path === undefined) return;
+    void gitDiff(root.path)
+      .then((r) => {
+        if (r.diff.trim() !== '') onOpenPatch(`diff: ${root.label}`, r.diff);
+      })
+      .catch(() => undefined);
+  }
 
   const ck = (rootId: string, key: string): string => `${rootId} ${key}`;
   const rootKey = (root: InspectRoot): string => (isFolded(root.source) ? '' : (root.path ?? ''));
@@ -308,6 +337,13 @@ export function InspectTree({
 
   function refreshRoot(root: InspectRoot): void {
     dropRootCaches(root);
+    // Re-read the git lens on refresh (branch/dirty may have changed).
+    if (isShell() && root.source === 'local' && root.path !== undefined) {
+      gitFetched.current.add(root.id);
+      void gitInfo(root.path)
+        .then((info) => setGitInfos((m) => ({ ...m, [root.id]: info })))
+        .catch(() => undefined);
+    }
     // Re-list the root itself so the pane doesn't blank on refresh.
     const key = rootKey(root);
     if (expanded.has(ck(root.id, key))) loadDir(root, key);
@@ -417,7 +453,19 @@ export function InspectTree({
                     <span className="inspect-tree-name strong">{root.label}</span>
                   )}
                 </button>
+                {gitInfos[root.id]?.isRepo === true && (
+                  <span className="inspect-tree-git small muted" title={`${gitInfos[root.id].branch}${gitInfos[root.id].dirty > 0 ? ` · ${gitInfos[root.id].dirty} changed` : ''}`}>
+                    <Icon name="git-branch" size={11} />
+                    <span className="inspect-tree-git-branch">{gitInfos[root.id].branch}</span>
+                    {gitInfos[root.id].dirty > 0 && <span className="inspect-tree-git-dirty">●{gitInfos[root.id].dirty}</span>}
+                  </span>
+                )}
                 <div className="inspect-tree-rootactions">
+                  {gitInfos[root.id]?.isRepo === true && gitInfos[root.id].dirty > 0 && (
+                    <button className="icon-btn sm" title={t('inspect.diffWorkingTree')} onClick={() => diffWorkingTree(root)}>
+                      <Icon name="git-compare" size={12} />
+                    </button>
+                  )}
                   <button className="icon-btn sm" title={t('inspect.rename')} onClick={() => setRenaming(root.id)}>
                     <Icon name="pen" size={12} />
                   </button>

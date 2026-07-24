@@ -997,7 +997,13 @@ export function DebugSurface(): JSX.Element {
       <div className="inspect-shell">
         {treeOpen && roots.length > 0 && (
           <>
-            <InspectTree width={treeW} onPick={pick} onAddFolder={() => void openFolder()} onClose={() => setTree(false)} />
+            <InspectTree
+              width={treeW}
+              onPick={pick}
+              onAddFolder={() => void openFolder()}
+              onClose={() => setTree(false)}
+              onOpenPatch={(title, patch) => openTab({ kind: 'diff', source: 'paste', title }, patch)}
+            />
             <ResizeHandle onResize={onResizeTree} />
           </>
         )}

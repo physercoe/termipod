@@ -43,6 +43,11 @@ This complements:
 
 ### Added
 
+- **Inspect tab — local git lens (round 3, T4b).** A pinned local root that is a
+  git repo shows its **branch + dirty count** on the root row (read-only, via
+  system `git status`; hidden when git is absent). When there are changes, a
+  **Diff working tree** action opens the `git diff` output in the existing patch
+  viewer. No staging, commit, or history — the inspector stays read-only.
 - **Inspect tab — content search over local roots (round 3, T4a).** Each pinned
   local root gains a collapsible **Search contents** box: literal or regex search
   over the whole tree, streamed in the main process with hard caps (≤500 hits,

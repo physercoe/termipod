@@ -51,8 +51,10 @@ This complements:
   dense / GQA / **MLA** attention (DeepSeek-V2/V3), dense / **MoE** FFN (per-
   expert + router + shared experts, with `first_k_dense_replace` mixed stacks),
   gated or legacy non-gated MLP, tied/untied embeddings. Validated against
-  Llama-3-8B ≈ 8.0B, Mixtral-8×7B ≈ 46.7B, DeepSeek-V3 ≈ 671B, GPT-2 ≈ 124M.
-  Badged as an estimate (error-tolerant by design).
+  Llama-3-8B ≈ 8.0B, Mixtral-8×7B ≈ 46.7B, DeepSeek-V3 ≈ 671B, GPT-2 ≈ 124M, and
+  the newest influential MoE releases — Qwen3-235B-A22B ≈ 235B, Kimi K2 ≈ 1.0T,
+  GLM-4.5 — which reuse the same field conventions. Badged as an estimate
+  (error-tolerant by design).
 
 - **Inspect tab — local git lens (round 3, T4b).** A pinned local root that is a
   git repo shows its **branch + dirty count** on the root row (read-only, via

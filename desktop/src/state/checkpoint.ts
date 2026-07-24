@@ -116,6 +116,10 @@ const FAMILY: Record<string, string> = {
   phi3: 'Phi-3',
   starcoder2: 'StarCoder2',
   cohere: 'Command-R',
+  chatglm: 'ChatGLM',
+  glm: 'GLM',
+  glm4: 'GLM-4',
+  glm4_moe: 'GLM-4.5-MoE',
 };
 
 function familyName(id: string): string {

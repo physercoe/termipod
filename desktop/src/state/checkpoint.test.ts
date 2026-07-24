@@ -148,3 +148,22 @@ test('estimateParamsFromConfig: non-gated legacy MLP (GPT-2) uses the 2× FFN', 
 test('estimateParamsFromConfig: null only for genuinely missing fields', () => {
   assert.equal(estimateParamsFromConfig({ model_type: 'llama', hidden_size: 4096 }), null); // no layers/heads/vocab/inter
 });
+
+// ── newest influential MoE models on HF (reuse DeepSeek-V3 field conventions) ──
+test('estimateParamsFromConfig: Qwen3-235B-A22B (qwen3_moe, GQA+MoE) lands ~235B', () => {
+  const cfg = { model_type: 'qwen3_moe', hidden_size: 4096, num_hidden_layers: 94, num_attention_heads: 64, num_key_value_heads: 4, head_dim: 128, moe_intermediate_size: 1536, num_experts: 128, num_experts_per_tok: 8, vocab_size: 151936, tie_word_embeddings: false };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p > 215e9 && p < 255e9, `expected ~235B, got ${(p / 1e9).toFixed(1)}B`);
+});
+
+test('estimateParamsFromConfig: Kimi K2 (kimi_k2, MLA+MoE) lands ~1.0T', () => {
+  const cfg = { model_type: 'kimi_k2', hidden_size: 7168, num_hidden_layers: 61, num_attention_heads: 64, q_lora_rank: 1536, kv_lora_rank: 512, qk_nope_head_dim: 128, qk_rope_head_dim: 64, v_head_dim: 128, intermediate_size: 18432, moe_intermediate_size: 2048, n_routed_experts: 384, n_shared_experts: 1, num_experts_per_tok: 8, first_k_dense_replace: 1, vocab_size: 163840, tie_word_embeddings: false };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p > 0.95e12 && p < 1.15e12, `expected ~1.0T, got ${(p / 1e12).toFixed(2)}T`);
+});
+
+test('estimateParamsFromConfig: GLM-4.5-Air (glm4_moe, GQA+MoE+first_k_dense) is modelled', () => {
+  const cfg = { model_type: 'glm4_moe', hidden_size: 4096, num_hidden_layers: 46, num_attention_heads: 96, num_key_value_heads: 8, intermediate_size: 10944, moe_intermediate_size: 1408, n_routed_experts: 128, n_shared_experts: 1, num_experts_per_tok: 8, first_k_dense_replace: 1, vocab_size: 151552, tie_word_embeddings: false };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p > 80e9 && p < 130e9, `expected ~106B, got ${(p / 1e9).toFixed(1)}B`);
+});

@@ -81,9 +81,19 @@ type ACPDriver struct {
 	// already has cached creds and treats authenticate as a no-op).
 	AuthMethod string
 
+	// Workdir is the effective cwd advertised in `session/new` and
+	// `session/load` params. kimi-code-ts rejects an empty cwd outright
+	// (-32603 "createSession requires workDir", #376); gemini-cli
+	// tolerates it, which is why the hardcoded "" survived until kimi.
+	// launch_m1 always populates this (the per-spawn workdir, else the
+	// host-runner's own cwd, which the child inherits when no `cd`
+	// prefix is prepended). Empty preserves the pre-#376 wire value for
+	// direct driver constructions (unit tests).
+	Workdir string
+
 	// EngineKind is the agent_families.yaml `family` name of the engine
 	// the driver is talking to (`claude-code`, `gemini-cli`, `codex`,
-	// `kimi-code`, …). Threaded in from launch_m1 so engine-specific
+	// `kimi-code-ts`, …). Threaded in from launch_m1 so engine-specific
 	// remediation strings can be picked without sniffing the cmd. Empty
 	// is acceptable — emitAuthRequiredAttention then falls back to a
 	// generic "log in on the host" hint. ADR-026 W3.
@@ -456,7 +466,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
 		loadRes, loadErr := d.call(nsCtx, "session/load", map[string]any{
 			"sessionId":      d.ResumeSessionID,
-			"cwd":            "",
+			"cwd":            d.Workdir,
 			"mcpServers":     []any{},
 			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
 		})
@@ -478,13 +488,13 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		// as initialize.
 		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
 		newRes, newErr := d.call(nsCtx, "session/new", map[string]any{
-			"cwd":            "",
+			"cwd":            d.Workdir,
 			"mcpServers":     []any{},
 			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
 		})
 		cancelNS()
 		if newErr != nil {
-			// AUTH_REQUIRED handling — kimi-code (and any future ACP
+			// AUTH_REQUIRED handling — kimi-code-ts (and any future ACP
 			// daemon that authenticates out-of-band rather than via the
 			// ACP `authenticate` method) returns an AUTH_REQUIRED-class
 			// error from session/new when no logged-in account is on the
@@ -533,7 +543,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	// event) handles both shapes. Shape-driven and engine-neutral: any future ACP
 	// adopter benefits. Fill PER CATEGORY and only when the modes/models field is
 	// absent, so a modes/models-shaped reply produces byte-identical output (no
-	// regression for gemini-cli / Python kimi-code).
+	// regression for gemini-cli).
 	var thoughtLevel string
 	if coModes, coCurMode, coModels, coCurModel, coThought, ok := translateConfigOptions(sres); ok {
 		if len(sr.Modes.AvailableModes) == 0 && sr.Modes.CurrentModeID == "" {
@@ -1043,9 +1053,9 @@ func (d *ACPDriver) emitAuthRequiredAttention(ctx context.Context, daemonMessage
 // with no Go diff required.
 func (d *ACPDriver) authRequiredRemediation() string {
 	switch d.EngineKind {
-	case "kimi-code", "kimi-code-ts":
-		// Both kimi product lines authenticate via the same
-		// device-code `kimi login` flow (ADR-026 / ADR-054).
+	case "kimi-code-ts":
+		// kimi authenticates via the device-code `kimi login` flow
+		// (ADR-054).
 		return "Run `kimi login` in your shell on the engine host to authenticate, then retry the spawn."
 	case "gemini-cli":
 		return "Run `gemini auth` on the engine host OR set GEMINI_API_KEY in the daemon's environment, then retry the spawn."

@@ -393,7 +393,6 @@ func TestResolveContextFiles_PerEngineMemoryFilename(t *testing.T) {
 	}{
 		{"claude-code → CLAUDE.md", "claude-code", "CLAUDE.md"},
 		{"codex → AGENTS.md", "codex", "AGENTS.md"},
-		{"kimi-code → AGENTS.md", "kimi-code", "AGENTS.md"},
 		{"kimi-code-ts → AGENTS.md", "kimi-code-ts", "AGENTS.md"},
 		{"gemini-cli → GEMINI.md", "gemini-cli", "GEMINI.md"},
 		{"empty/unknown → CLAUDE.md (legacy default)", "", "CLAUDE.md"},
@@ -454,7 +453,6 @@ func TestContextFileNameForKind(t *testing.T) {
 	cases := map[string]string{
 		"claude-code":        "CLAUDE.md",
 		"codex":              "AGENTS.md",
-		"kimi-code":          "AGENTS.md",
 		"kimi-code-ts":       "AGENTS.md",
 		"gemini-cli":         "GEMINI.md",
 		// antigravity reads BOTH AGENTS.md and GEMINI.md (host-verified

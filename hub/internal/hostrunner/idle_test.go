@@ -77,7 +77,7 @@ func TestIdleDetector_ResetOnChange(t *testing.T) {
 // antigravity despite it behaving normally).
 func TestHasStructuredDriver_KnownEnginesSkipped(t *testing.T) {
 	for _, kind := range []string{
-		"claude-code", "codex", "gemini-cli", "kimi-code", "kimi-code-ts",
+		"claude-code", "codex", "gemini-cli", "kimi-code-ts",
 		"antigravity",
 	} {
 		if !hasStructuredDriver(kind) {

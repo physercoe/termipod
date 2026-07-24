@@ -1,6 +1,6 @@
 // M4 launch path that uses the LocalLogTailDriver (ADR-027) — W5a +
 // W7. Three adapters are wired: claude-code (this file), antigravity
-// (launch_m4_antigravity.go, ADR-035 W7), and kimi-code/kimi-code-ts
+// (launch_m4_antigravity.go, ADR-035 W7), and kimi-code-ts
 // (launch_m4_kimi.go, agent-transcript-redesign §6 P4 — the wire-tail
 // adapter, WITH PaneDriver fallback). Other engines stay on the
 // PaneDriver M4 path until their adapters land (gemini-cli, codex).

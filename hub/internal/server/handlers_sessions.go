@@ -675,8 +675,9 @@ func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[
 			// (driver_appserver.go::handshake → upstream
 			// `codex-rs/app-server-protocol/src/protocol/common.rs:457`).
 			// One YAML field, two protocol surfaces. kimi-code-ts
-			// (ADR-054) rides the same ACPDriver session/load path as
-			// the Python kimi-code line.
+			// (ADR-054) rides the same ACPDriver session/load path.
+			// "kimi-code" stays in the arm only for rows persisted
+			// before the Python family's retirement (#378).
 			specYAML = spliceACPResume(specYAML, engineSessionID.String)
 		case "antigravity":
 			specYAML = spliceAntigravityResume(specYAML, engineSessionID.String)

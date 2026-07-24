@@ -746,6 +746,7 @@ class HubClient {
     String? personaSeed,
     String? permissionMode,
     String? sessionId,
+    String? mode,
     bool autoOpenSession = false,
   }) =>
       agents.spawnAgent(
@@ -757,6 +758,7 @@ class HubClient {
         personaSeed: personaSeed,
         permissionMode: permissionMode,
         sessionId: sessionId,
+        mode: mode,
         autoOpenSession: autoOpenSession,
       );
 

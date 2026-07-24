@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -77,6 +78,17 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	command := spec.Backend.Cmd
 	if command == "" {
 		return M1LaunchResult{}, fmt.Errorf("M1 launch: backend.cmd is empty in spawn spec")
+	}
+
+	// ADR-043, extended to M1 (#378): the mode-selecting argv (kimi's
+	// `acp` subcommand) lives on the engine family, not the persona
+	// template — templates then carry the interactive base cmd (`kimi
+	// --yolo`) so the M4 fallback pane launches a usable TUI instead of
+	// a stdio daemon. ComposeLaunchCmd is a no-op for templates that
+	// still carry the subcommand and for families with no M1 contract
+	// (gemini-cli composes driver-side below).
+	if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok {
+		command = fam.ComposeLaunchCmd("M1", command)
 	}
 
 	// gemini-cli@0.41+ refuses headless launch (incl. --acp) from an
@@ -146,7 +158,8 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	// the agent hub-mediated MCP access regardless of which mode
 	// drives the JSON-RPC layer. ACPDriver itself sends an empty
 	// mcpServers in its session/new — gemini honors the file-level
-	// config, which is what we want for per-spawn isolation.
+	// config, which is what we want for per-spawn isolation. kimi
+	// auto-discovers <workdir>/.kimi-code/mcp.json (no argv needed).
 	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
 		if expandedWorkdir == "" {
 			return M1LaunchResult{}, fmt.Errorf("mcp_token set but backend.default_workdir is empty")
@@ -155,20 +168,6 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 			cfg.Spawn.Kind, expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken,
 		); err != nil {
 			return M1LaunchResult{}, fmt.Errorf("write mcp config: %w", err)
-		}
-		// kimi-code does NOT auto-discover the per-spawn mcp.json the
-		// way gemini-cli auto-discovers <workdir>/.gemini/settings.json
-		// from a cwd-matching trust gate. Kimi's `--mcp-config-file`
-		// flag is the only sanctioned injection path, and its default
-		// (~/.kimi/mcp.json) points at the operator's home dir — which
-		// our writeKimiMCPConfig has already merged into the per-spawn
-		// copy. Splice the flag into the argv between `kimi` and the
-		// next top-level flag so the per-spawn file wins. Idempotent
-		// against operator templates that already specify the flag.
-		if cfg.Spawn.Kind == "kimi-code" && !strings.Contains(command, "--mcp-config-file") {
-			mcpPath := filepath.Join(expandedWorkdir, ".kimi", "mcp.json")
-			command = strings.Replace(command, "kimi ",
-				"kimi --mcp-config-file "+shellEscape(mcpPath)+" ", 1)
 		}
 	}
 
@@ -279,6 +278,13 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		Stdout:  teed,
 		RPCLog:  rpcLogFile,
 		Closer:  closer,
+		// kimi-code-ts rejects an empty session/new cwd (-32603
+		// "createSession requires workDir", #376). Advertise the
+		// per-spawn workdir when one was derived; otherwise the child
+		// inherited THIS process's cwd (no `cd` prefix was prepended),
+		// so advertise that — the engine's workspace mapping then
+		// matches where it actually runs.
+		Workdir: effectiveM1Workdir(expandedWorkdir),
 		// ADR-021 W1.2: when the hub spliced a captured cursor into the
 		// rendered spec (handlers_sessions.handleResumeSession), thread
 		// it through to ACPDriver so Start can call session/load instead
@@ -304,8 +310,45 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		_ = errLogFile.Close()
 		_ = rpcLogFile.Close()
 		kill()
+		// The cosmetic tail pane outlives a failed launch if left
+		// alone — `tail -F` never exits, and the caller's fallback
+		// (M2/M4) spawns its own pane, so a leaked window reads as a
+		// duplicate agent (#376: the kimi-ts M1 cascade showed two
+		// tmux windows for one agent).
+		if pane != "" {
+			// WithoutCancel: a Start failure caused by the spawn ctx
+			// being cancelled must still reap the pane — a cancelled
+			// ctx would make CommandContext no-op and leak it.
+			killPaneQuiet(context.WithoutCancel(ctx), pane)
+		}
 		return M1LaunchResult{}, fmt.Errorf("acp start: %w", err)
 	}
 
 	return M1LaunchResult{PaneID: pane, Driver: drv, LogPath: logPath}, nil
+}
+
+// effectiveM1Workdir resolves the cwd the M1 child actually runs in.
+// launchM1 prepends `cd <expanded> &&` when a per-spawn workdir was
+// derived; with none, the child inherits the host-runner's cwd, so we
+// surface that instead (#376 — kimi-code-ts needs a real directory in
+// session/new; gemini-cli tolerated the old empty value).
+func effectiveM1Workdir(expandedWorkdir string) string {
+	if expandedWorkdir != "" {
+		return expandedWorkdir
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
+}
+
+// killPaneQuiet best-effort kills a tmux pane by id, swallowing every
+// error: the pane may already be gone, and test launchers return
+// synthetic ids tmux has never heard of (kill-pane simply fails).
+// Bounded so a wedged tmux can't stall the failure path. A var so
+// tests can record the attempt instead of exec-ing tmux.
+var killPaneQuiet = func(ctx context.Context, paneID string) {
+	tctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(tctx, "tmux", "kill-pane", "-t", paneID).Run()
 }

@@ -862,105 +862,37 @@ families:
         # ships) fall through to ApplyProfile's kind=raw fallback.
         # That keeps the profile forward-compatible — a v1 hub
         # talking to a v2 app-server still records the new
-        # notifications verbatim instead of erroring out.
-  - family: kimi-code
-    bin: kimi
-    version_flag: --version
-    # M1-only. Kimi Code CLI (Moonshot AI's `kimi`, repo
-    # MoonshotAI/kimi-cli) ships an ACP daemon (`kimi acp` subcommand)
-    # and an interactive REPL — there is no stream-json one-shot mode
-    # and no JSON-RPC app-server. ACPDriver covers the M1 path
-    # wholesale; M4 (tmux pane) is the sole fallback when ACP can't
-    # negotiate (e.g. binary too old, daemon crashed mid-handshake).
-    # See docs/decisions/026-kimi-code-engine.md for the integration
-    # rationale and docs/plans/kimi-code-engine.md for the wedge plan.
-    #
-    # Minimum supported kimi-cli version: 1.43.0. Older builds either
-    # lack the `kimi acp` subcommand or lack the --yolo / --thinking
-    # top-level flags the steward template (steward.kimi.v1.yaml)
-    # depends on. The probe surfaces the actual version in the host
-    # capabilities pane; the resolver doesn't gate on the version
-    # string today (mirror of gemini-cli's precedent) — operators
-    # observe the version, upgrade as needed.
-    supports: [M1, M4]
-    # Authentication is out-of-band via `kimi login` run interactively
-    # on the host. The ACP daemon returns AUTH_REQUIRED on session/new
-    # until login completes; ACPDriver surfaces that as a kind=error
-    # agent_event whose payload carries the operator-actionable
-    # remediation text. We don't pre-pick an ACP authMethod — kimi's
-    # initialize response is expected to return an empty authMethods
-    # array because authentication isn't routed through ACP at all.
-    default_auth_method: ""
-    # ADR-021 D4 / W2.1 — assumed-true (director directive 2026-05-14):
-    # kimi's ACP daemon supports session/set_mode + session/set_model
-    # RPCs against the live process, matching the gemini-cli M1
-    # precedent. Mobile mode/model picker routes through the driver
-    # without respawning. If on-host verification (post-W4 smoke)
-    # shows kimi lacks one of these, flip the affected key to
-    # "respawn" in a follow-up wedge.
-    runtime_mode_switch:
-      M1: rpc
-    # ADR-021 D5 — assumed-true (director directive 2026-05-14):
-    # kimi's ACP promptCapabilities advertise image + PDF content
-    # blocks. Mobile composer enables the inline attach affordances
-    # accordingly. Audio/video aren't asserted because Moonshot
-    # hasn't documented input modality support for those today.
-    # M4 (tmux pane) has no inline-multimodal affordance anywhere.
-    prompt_image:
-      M1: true
-      M4: false
-    prompt_pdf:
-      M1: true
-      M4: false
-    # No frame_profile / frame_translator for kimi-code — M1 ACPDriver
-    # speaks ACP natively (driver_acp.go), and the M1 path doesn't
-    # consult per-engine frame_profiles. Future polish (e.g. promoting
-    # SearchWeb tool calls to a typed `web_search` kind) would land a
-    # profile here; deferred per docs/plans/kimi-code-engine.md §W6.
-    #
-    # M4 wire-tail (agent-transcript-redesign §6 P4, ticket #372):
-    # runner.go's M4 dispatch routes kimi-code spawns through
-    # launchM4KimiWireTail, which tails kimi's session wire store via
-    # the kimi_code LocalLogTail adapter instead of scraping raw pane
-    # bytes. The adapter engages only when the TS build's store
-    # (~/.kimi-code) is present — the Python kimi-cli line writes
-    # ~/.kimi and has no wire.jsonl, so a genuine Python-kimi spawn
-    # fails the launch pre-flight and falls back to PaneDriver (the
-    # pre-flight runs before the pane is spawned; no double-launch).
-
   - family: kimi-code-ts
     bin: kimi
     version_flag: --version
-    # The TypeScript rewrite of Kimi Code CLI (Moonshot AI's `kimi`,
-    # repo MoonshotAI/kimi-code, single compiled binary, data root
-    # ~/.kimi-code) — a SEPARATE product line from the Python kimi-cli
-    # the `kimi-code` family above targets. Verified on-host against
-    # kimi-code 0.27.0 (2026-07-19); see
+    # Kimi Code CLI (Moonshot AI's `kimi`, repo MoonshotAI/kimi-code —
+    # single compiled TypeScript binary, data root ~/.kimi-code).
+    # Verified on-host against kimi-code 0.27.0 (2026-07-19); see
     # docs/decisions/054-kimi-code-ts-engine.md and
-    # docs/plans/kimi-code-ts-engine.md.
+    # docs/plans/kimi-code-ts-engine.md. (The only kimi product line
+    # wired — the Python kimi-cli family was removed in #378 after
+    # upstream discontinued it, MoonshotAI/kimi-cli#2376.)
     #
-    # BIN-NAME COLLISION: both product lines install as `kimi`. The
-    # capability probe is bin-existence-based, so a host with either
-    # build reports BOTH families available. `kimi --version`
-    # disambiguates by eye: the Python build prints
-    # `kimi, version 1.x.y`; the TS build prints a bare `0.x.y`.
-    # Pick the template that matches the host's actual build — a
-    # mismatch fails loud at spawn (unknown flag), not silently.
-    #
-    # M1-only, same shape as the Python line: `kimi acp` survives the
-    # rewrite (protocolVersion 1, loadSession: true, prompt image —
-    # verified), so ACPDriver covers the path wholesale and M4 (tmux
-    # pane) is the sole fallback. A headless `-p --output-format
-    # stream-json` mode now exists upstream, but its NDJSON schema
-    # matches neither claude's nor gemini's; wiring it as M2 needs its
-    # own frame profile (deferred, see plan §2).
+    # M1-only: `kimi acp` (protocolVersion 1, loadSession: true,
+    # prompt image — verified), so ACPDriver covers the path wholesale
+    # and M4 (tmux pane) is the sole fallback. A headless
+    # `-p --output-format stream-json` mode now exists upstream, but
+    # its NDJSON schema matches neither claude's nor gemini's; wiring
+    # it as M2 needs its own frame profile (deferred, see plan §2).
     supports: [M1, M4]
+    # ADR-043: the template carries the interactive base cmd (`kimi
+    # --yolo`) so the M4 fallback pane launches a usable TUI; the M1
+    # subcommand is composed on at launch (launchM1, #378).
+    launch:
+      M1:
+        mode_args:
+          - acp
     # Authentication is out-of-band via `kimi login` (device-code
-    # flow), exactly like the Python line. The daemon advertises one
-    # ACP authMethod {id: "login", type: "terminal"}, but ACPDriver
-    # does not drive terminal-type auth — until the operator logs in,
-    # session/new fails and the driver surfaces the AUTH_REQUIRED
-    # remediation pointing at `kimi login`.
+    # flow). The daemon advertises one ACP authMethod
+    # {id: "login", type: "terminal"}, but ACPDriver does not drive
+    # terminal-type auth — until the operator logs in, session/new
+    # fails and the driver surfaces the AUTH_REQUIRED remediation
+    # pointing at `kimi login`.
     default_auth_method: ""
     # session/set_model exists on the wire (verified: a bad session id
     # draws -32602 Invalid params, not -32601 method-not-found), so
@@ -972,9 +904,8 @@ families:
     runtime_mode_switch:
       M1: rpc
     # Verified from the initialize reply's promptCapabilities:
-    # image: true, audio: false; no PDF capability is advertised (the
-    # Python family's prompt_pdf: true was assumed-true and is NOT
-    # copied here). M4 (tmux pane) has no inline-multimodal affordance.
+    # image: true, audio: false; no PDF capability is advertised.
+    # M4 (tmux pane) has no inline-multimodal affordance.
     prompt_image:
       M1: true
       M4: false
@@ -982,7 +913,7 @@ families:
       M1: false
       M4: false
     # No frame_profile / frame_translator — M1 ACPDriver speaks ACP
-    # natively (driver_acp.go), same as the Python kimi-code family.
+    # natively (driver_acp.go).
     #
     # M4 wire-tail (agent-transcript-redesign §6 P4, ticket #372): this
     # is the build the kimi_code LocalLogTail adapter was built for —

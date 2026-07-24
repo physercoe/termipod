@@ -118,6 +118,7 @@ class AgentsApi {
     String? personaSeed,
     String? permissionMode,
     String? sessionId,
+    String? mode,
     bool autoOpenSession = false,
   }) async {
     final body = <String, dynamic>{
@@ -134,6 +135,12 @@ class AgentsApi {
     }
     if (permissionMode != null && permissionMode.isNotEmpty) {
       body['permission_mode'] = permissionMode;
+    }
+    // Optional driving-mode override (ADR-035 W2, #378): the hub
+    // validates it against the engine family's supports + host caps
+    // + billing. Omitted = the template's driving_mode resolves.
+    if (mode != null && mode.isNotEmpty) {
+      body['mode'] = mode;
     }
     // sessionId attaches the spawn to an existing session — used by
     // the "Replace steward" / "Switch engine" flow on the project

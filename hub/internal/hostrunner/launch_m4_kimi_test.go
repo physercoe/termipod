@@ -91,43 +91,6 @@ func TestLaunchM4KimiWireTail_HappyPath(t *testing.T) {
 	}
 }
 
-// kimi-code (Python line): the --mcp-config-file flag is spliced into
-// the cmd so the per-spawn .kimi/mcp.json wins over ~/.kimi/mcp.json
-// (mirrors launch_m1.go's splice).
-func TestLaunchM4KimiWireTail_PythonFamilySplicesMCPFlag(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home) // writeKimiMCPConfig merges ~/.kimi/mcp.json
-	seedKimiStoreHome(t, true)
-	workdir := t.TempDir()
-	tl := &trackingLauncher{paneID: "%12"}
-	poster := &recordingAgentPoster{}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	res, err := launchM4KimiWireTail(ctx, M4LocalLogTailLaunchConfig{
-		Spawn:    kimiSpawn("kimi-code", workdir, "kimi --yolo"),
-		Launcher: tl,
-		Client:   poster,
-		HubURL:   "http://127.0.0.1:41825",
-	})
-	if err != nil {
-		t.Fatalf("launchM4KimiWireTail: %v", err)
-	}
-	defer func() {
-		if res.Driver != nil {
-			res.Driver.Stop()
-		}
-	}()
-
-	if !strings.Contains(tl.receivedCmd, "--mcp-config-file") ||
-		!strings.Contains(tl.receivedCmd, filepath.Join(".kimi", "mcp.json")) {
-		t.Errorf("launcher cmd = %q; want --mcp-config-file splice", tl.receivedCmd)
-	}
-	if _, err := os.Stat(filepath.Join(workdir, ".kimi", "mcp.json")); err != nil {
-		t.Errorf("workdir .kimi/mcp.json not materialized: %v", err)
-	}
-}
-
 // Fallback gate: no kimi wire store on the host (older kimi / Python
 // kimi-cli / KIMI_CODE_HOME moved) → error BEFORE any pane is spawned,
 // so the runner's PaneDriver fall-through is safe.

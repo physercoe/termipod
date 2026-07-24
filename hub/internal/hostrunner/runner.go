@@ -387,9 +387,10 @@ func (a *Runner) Start(ctx context.Context) error {
 // prevent us from watching the others.
 //
 // Agents whose kind matches a registered engine family (claude-code,
-// codex, gemini-cli, kimi-code, antigravity) are skipped: their drivers
-// emit explicit busy/idle signals via lifecycle / turn.result / completion
-// events, so mobile already has authoritative state, and the regex-based
+// codex, gemini-cli, kimi-code-ts, antigravity) are skipped: their
+// drivers emit explicit busy/idle signals via lifecycle / turn.result /
+// completion events, so mobile already has authoritative state, and the
+// regex-based
 // pane scrape false-positives on these engines' always-visible chat
 // prompt (the W11 smoke surfaced this — every 30 min an "agent idle at
 // prompt" attention item landed on the Me page even though agy was
@@ -634,8 +635,8 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		// path first (JSONL tail + UDS gateway + send-keys). On any
 		// failure we fall through to the PaneDriver path below so the
 		// agent still launches — degraded UX (text-dump transcript)
-		// but live. Other engines (gemini-cli, codex, kimi-code) stay
-		// on PaneDriver until their adapters ship (Phase 2/3).
+		// but live. Other engines (gemini-cli, codex, kimi-code-ts)
+		// stay on PaneDriver until their adapters ship (Phase 2/3).
 		switch sp.Kind {
 		case "claude-code":
 			hubURLForAgent := a.Client.BaseURL
@@ -725,7 +726,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			}
 			pane = res.PaneID
 			drv = res.Driver
-		case "kimi-code", "kimi-code-ts":
+		case "kimi-code-ts":
 			// P4 (agent-transcript-redesign §6 P4, ticket #372): kimi
 			// M4 spawns try the wire-tail LocalLogTail adapter first —
 			// structured events from kimi's session wire store instead
@@ -734,10 +735,9 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			// step in launchM4KimiWireTail runs before the pane is
 			// spawned, so the fallback can't double-launch. That's the
 			// inverse of the claude/agy arms — kimi's PaneDriver is a
-			// working degraded mode, so an upgrade-path failure (older
-			// kimi without the wire store, Python kimi-cli, protocol
-			// drift caught by the metadata gate) should degrade, not
-			// fail the spawn.
+			// working degraded mode, so an upgrade-path failure (an
+			// old build without the wire store, protocol drift caught
+			// by the metadata gate) should degrade, not fail the spawn.
 			hubURLForAgent := a.Client.BaseURL
 			if a.egressProxy != nil {
 				hubURLForAgent = a.egressProxy.LocalURL

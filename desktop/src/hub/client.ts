@@ -185,6 +185,10 @@ export class HubClient {
     kind: string;
     host_id: string;
     project_id?: string;
+    // Optional driving-mode override (#378): validated hub-side against the
+    // engine family's supports + host capabilities. Omitted = the engine's
+    // default mode resolves.
+    mode?: string;
     // Link the spawn to an existing task (ADR-029 D-2). Mutually exclusive with
     // `task` below — the hub 4xxs if both are set. The task's status then flips
     // todo→in_progress via the existing derivation, not a client PATCH.

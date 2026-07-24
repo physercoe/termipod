@@ -72,8 +72,7 @@ func TestScaffoldAgent_EngineSwapsCmdLine(t *testing.T) {
 		// the scaffold cmd carries only the bin.
 		{"codex", `cmd: "codex"`},
 		{"gemini-cli", "gemini --acp"},
-		{"kimi-code", "kimi --yolo acp"},
-		{"kimi-code-ts", "kimi --yolo acp"},
+		{"kimi-code-ts", "kimi --yolo"},
 	}
 	for _, tc := range cases {
 		out, err := scaffoldContent("agent",
@@ -88,6 +87,19 @@ func TestScaffoldAgent_EngineSwapsCmdLine(t *testing.T) {
 		if !strings.Contains(out, "kind: "+tc.engine) {
 			t.Errorf("engine %q: scaffold backend.kind missing", tc.engine)
 		}
+	}
+}
+
+// The retired Python kimi-code family must not be offered by the agent
+// scaffold's engine enum: engineCmd has no arm for it anymore, so a
+// caller picking it would silently receive a claude-shaped cmd (#378).
+func TestScaffoldAgent_SchemaDropsRetiredKimiCode(t *testing.T) {
+	s := string(scaffoldInputSchema("agent"))
+	if strings.Contains(s, `"kimi-code"`) {
+		t.Errorf("agent scaffold schema still offers the retired kimi-code engine: %s", s)
+	}
+	if !strings.Contains(s, `"kimi-code-ts"`) {
+		t.Errorf("agent scaffold schema lost kimi-code-ts: %s", s)
 	}
 }
 

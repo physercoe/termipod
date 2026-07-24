@@ -136,7 +136,9 @@ func (s *Server) respawnWithSpecMutation(
 			// `thread/resume` JSON-RPC handshake. Keeps the splice
 			// site engine-neutral; the protocol mapping happens
 			// driver-side. kimi-code-ts (ADR-054) rides the same
-			// ACPDriver session/load path as the Python kimi line.
+			// ACPDriver session/load path. "kimi-code" stays in the
+			// arm only for rows persisted before the Python family's
+			// retirement (#378) — no new spawns can carry it.
 			mutated = spliceACPResume(mutated, engineSessionID.String)
 		}
 	}

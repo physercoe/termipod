@@ -2639,6 +2639,76 @@ func eventKinds(evs []postedEvent) []string {
 	return out
 }
 
+// #376 — kimi-code-ts rejects an empty session/new cwd with -32603
+// ("createSession requires workDir"); gemini-cli tolerated the old
+// hardcoded "". The driver must advertise its Workdir on session/new.
+func TestACPDriver_StartSendsWorkdirOnSessionNew(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-wd-new")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-wd-new",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		Workdir:          "/tmp/wt-376",
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	frame := fake.findReceived("session/new")
+	if frame == nil {
+		t.Fatal("session/new never sent")
+	}
+	params, _ := frame["params"].(map[string]any)
+	if params["cwd"] != "/tmp/wt-376" {
+		t.Errorf("session/new cwd = %v; want /tmp/wt-376 (#376: kimi rejects empty)",
+			params["cwd"])
+	}
+}
+
+// Same param on session/load — kimi resolves the resumed session's
+// workspace by it just like session/new.
+func TestACPDriver_StartSendsWorkdirOnSessionLoad(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-load-wd")
+	fake.advertiseLoadSession = true
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-wd-load",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		ResumeSessionID:  "engine-uuid-load-wd",
+		Workdir:          "/tmp/wt-376",
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	frame := fake.findReceived("session/load")
+	if frame == nil {
+		t.Fatal("session/load never sent")
+	}
+	params, _ := frame["params"].(map[string]any)
+	if params["cwd"] != "/tmp/wt-376" {
+		t.Errorf("session/load cwd = %v; want /tmp/wt-376", params["cwd"])
+	}
+}
+
 // TestACPDriver_StartUsesSessionLoadWhenCursorAndCapability — ADR-021
 // W1.2 happy path. With both a captured cursor (ResumeSessionID) and
 // the agent advertising loadSession in initialize, Start must call

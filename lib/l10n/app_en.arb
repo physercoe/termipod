@@ -996,6 +996,8 @@
   "@taskUpdatedPairs": { "placeholders": { "pairs": { "type": "String" } } },
   "taskNotification": "Task notification",
   "taskProgress": "Task in progress",
+  "drivingModeLabel": "Driving mode",
+  "drivingModeAuto": "Auto · template default",
   "taskMessage": "Task: {message}",
   "@taskMessage": { "placeholders": { "message": { "type": "String" } } },
   "toolGroupHeader": "{count} tool calls",

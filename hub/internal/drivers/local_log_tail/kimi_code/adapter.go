@@ -25,8 +25,8 @@ type Config struct {
 	// $KIMI_CODE_HOME / ~/.kimi-code at Start (StoreHome()).
 	StoreHome string
 	// Engine names the engine family for session.init + usage payloads
-	// ("kimi-code" / "kimi-code-ts" in production; configurable so
-	// tests can vary). Empty defaults to "kimi-code" in NewMapper.
+	// ("kimi-code-ts" in production; configurable so tests can vary).
+	// Empty defaults to "kimi-code-ts" in NewMapper.
 	Engine string
 	// EngineVersion is the `kimi --version` output, resolved by the
 	// launch glue via agentfamilies.VersionFlag + runVersion (mirrors

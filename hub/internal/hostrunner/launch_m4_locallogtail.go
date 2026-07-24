@@ -1,9 +1,11 @@
 // M4 launch path that uses the LocalLogTailDriver (ADR-027) — W5a +
-// W7. Only claude-code is wired today; other engines stay on the
-// PaneDriver M4 path until their adapters land (gemini-cli, codex,
-// kimi-code: Phase 2/3 of ADR-027). The runner falls back to
-// PaneDriver M4 if any step here fails, so a misconfigured spawn
-// degrades gracefully rather than erroring out.
+// W7. Three adapters are wired: claude-code (this file), antigravity
+// (launch_m4_antigravity.go, ADR-035 W7), and kimi-code/kimi-code-ts
+// (launch_m4_kimi.go, agent-transcript-redesign §6 P4 — the wire-tail
+// adapter, WITH PaneDriver fallback). Other engines stay on the
+// PaneDriver M4 path until their adapters land (gemini-cli, codex).
+// The runner falls back to PaneDriver M4 if any step here fails, so a
+// misconfigured spawn degrades gracefully rather than erroring out.
 package hostrunner
 
 import (

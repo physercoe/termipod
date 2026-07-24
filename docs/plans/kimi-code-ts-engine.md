@@ -101,8 +101,13 @@ After this plan:
 - **Driving the terminal-type ACP auth method from the hub.**
   `kimi login` is interactive (device code in a browser); operators
   run it once per host, same as the Python line.
-- **M4 LocalLogTail adapter.** kimi-code-ts M4 falls through to the
-  generic PaneDriver, same as every non-claude/antigravity family.
+- **M4 LocalLogTail adapter.** SHIPPED (agent-transcript-redesign
+  §6 P4, ticket #372): kimi M4 spawns route through
+  `launchM4KimiWireTail` → the `kimi_code` LocalLogTail adapter,
+  which tails the wire store (`~/.kimi-code/sessions/<wd>/<session>/
+  agents/*/wire.jsonl`) instead of scraping pane bytes. Pre-flight
+  gates (store present, protocol sniff) fall back to PaneDriver
+  before the pane is spawned.
 
 ## 3. Vocabulary
 

@@ -35,6 +35,7 @@ import { updaterHandlers } from './updater';
 import { menuHandlers } from './menu';
 import { drawioHandlers } from '../drawio';
 import { webtabHandlers } from '../webtab';
+import { kimiwebHandlers } from '../kimiweb';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -67,6 +68,7 @@ const handlers: Record<string, Handler> = {
   ...menuHandlers,
   ...drawioHandlers,
   ...webtabHandlers,
+  ...kimiwebHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

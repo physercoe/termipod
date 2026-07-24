@@ -106,6 +106,17 @@ class FeedTelemetry {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
       if (p is! Map) continue;
+      // kimi M4 wire-tail stamps subagent emissions with
+      // subagent:true. Their turn.result / usage frames meter the
+      // subagent's inner loop, not the session's turn — counting them
+      // inflated the turns chip, and a subagent's prompt-size numbers
+      // clobbered the main agent's latest-wins context chips (#374).
+      // The main agent's own events still land when its delegating
+      // call completes, so the strip loses nothing.
+      if (p['subagent'] == true &&
+          (kind == 'turn.result' || kind == 'usage')) {
+        continue;
+      }
       if (kind == 'turn.result') {
         turnCount += 1;
         final c = p['cost_usd'];

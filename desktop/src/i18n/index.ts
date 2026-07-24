@@ -1552,6 +1552,8 @@ const en: Dict = {
   'vram.context': 'Context',
 
   'canvas.addNote': 'Note',
+  'canvas.addNoteHere': 'Add note here',
+  'canvas.dragHandle': 'Drag to move',
   'canvas.addRef': 'Reference',
   'canvas.group': 'Group',
   'canvas.undo': 'Undo (Cmd/Ctrl+Z)',
@@ -3118,6 +3120,8 @@ const zh: Dict = {
   'vram.context': '上下文',
 
   'canvas.addNote': '笔记',
+  'canvas.addNoteHere': '在此添加笔记',
+  'canvas.dragHandle': '拖动以移动',
   'canvas.addRef': '文献',
   'canvas.group': '编组',
   'canvas.undo': '撤销 (Cmd/Ctrl+Z)',

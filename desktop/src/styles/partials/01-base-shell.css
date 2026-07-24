@@ -457,6 +457,56 @@ pre {
   background: var(--canvas);
 }
 
+/* Foldable region header (attention dock): title on the left, fold toggle on
+   the right. */
+.region-header.foldable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+}
+.dock-fold-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+.dock-fold-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+/* Collapsed dock: a thin vertical rail that re-opens the attention panel; its
+   label reads bottom-to-top so the narrow rail stays readable. */
+.dock-rail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 30px;
+  padding: var(--spacing-s8) 0;
+  background: var(--canvas);
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dock-rail:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.dock-rail-label {
+  writing-mode: vertical-rl;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--font-size-caption);
+}
+
 .region-pad {
   padding: var(--spacing-s12);
 }

@@ -220,6 +220,12 @@ function TextNode({ id, data, selected }: NodeProps<RFNode>): JSX.Element {
     <div className={`canvas-node text${selected === true ? ' selected' : ''}`} style={nodeColorStyle(data.color)}>
       <NodeResizer isVisible={selected === true && !ctx.readOnly} minWidth={140} minHeight={72} />
       <SideHandles connectable={!ctx.readOnly} />
+      {/* Drag handle: the textarea fills the card and carries `nodrag` (so typing
+          never starts a drag), which would leave a note card with no draggable
+          surface at all. This grip strip is that surface. */}
+      <div className="canvas-node-grip" title={ctx.t('canvas.dragHandle')}>
+        <span className="canvas-node-grip-dots" aria-hidden="true" />
+      </div>
       <textarea
         className="canvas-node-note nodrag nowheel"
         value={data.text ?? ''}
@@ -337,6 +343,14 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
   const [{ nodes: initNodes, edges: initEdges }] = useState(() => boardToRf(initial));
   const [nodes, setNodes] = useState<RFNode[]>(initNodes);
   const [edges, setEdges] = useState<RFEdge[]>(initEdges);
+  // Right-click context menu: `pane` opens over empty canvas (add-note at cursor),
+  // `node` opens over a card (recolor / delete). `sx/sy` are viewport pixels for
+  // the fixed-positioned menu; `flow` is the cursor in board coords.
+  const [menu, setMenu] = useState<
+    | { kind: 'pane'; sx: number; sy: number; flow: { x: number; y: number } }
+    | { kind: 'node'; sx: number; sy: number; nodeId: string }
+    | null
+  >(null);
   // Top-level fields beyond nodes/edges (a future spec version's extras) ride
   // along so every serialize writes them back — same policy as per-node `raw`.
   const rootRef = useRef(initial.rawRoot);
@@ -514,10 +528,12 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
     return rf.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   }, [rf]);
 
-  const addNote = useCallback((): void => {
+  // `at` (flow coords) places the note under the cursor for the right-click menu;
+  // the toolbar button passes nothing and drops it in the viewport centre.
+  const addNote = useCallback((at?: { x: number; y: number }): void => {
     if (readOnly) return;
     pushHistory();
-    const p = centerFlow();
+    const p = at ?? centerFlow();
     const node = nodeToRf({ id: newId('n'), type: 'text', x: p.x - DEFAULT_W / 2, y: p.y - DEFAULT_H / 2, width: DEFAULT_W, height: DEFAULT_H, text: '' });
     node.selected = true;
     commitNodes([...nodesRef.current.map((n) => ({ ...n, selected: false })), node]);
@@ -554,6 +570,30 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
     // Prepend so the backdrop renders behind the members.
     commitNodes([group, ...nodesRef.current]);
   }, [commitNodes, pushHistory, readOnly, t]);
+
+  // ── Right-click context menu ────────────────────────────────────────────────
+  const closeMenu = useCallback((): void => setMenu(null), []);
+  const onPaneContextMenu = useCallback(
+    (e: React.MouseEvent | MouseEvent): void => {
+      if (readOnly) return;
+      e.preventDefault();
+      setMenu({ kind: 'pane', sx: e.clientX, sy: e.clientY, flow: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
+    },
+    [readOnly, rf],
+  );
+  const onNodeContextMenu = useCallback(
+    (e: React.MouseEvent, node: RFNode): void => {
+      if (readOnly) return;
+      e.preventDefault();
+      // Select the target so the menu's recolor/delete act on it (and the
+      // inspector reflects it) — selection is view state, so no emit.
+      const ns = nodesRef.current.map((n) => ({ ...n, selected: n.id === node.id }));
+      nodesRef.current = ns;
+      setNodes(ns);
+      setMenu({ kind: 'node', sx: e.clientX, sy: e.clientY, nodeId: node.id });
+    },
+    [readOnly],
+  );
 
   const applyBoardString = useCallback(
     (s: string): void => {
@@ -598,7 +638,7 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
   return (
     <div className="canvas-editor">
       <div className="author-doc-bar canvas-toolbar">
-        <button className="import-btn" onClick={addNote} disabled={readOnly}>
+        <button className="import-btn" onClick={() => addNote()} disabled={readOnly}>
           <Icon name="plus" size={14} />
           {t('canvas.addNote')}
         </button>
@@ -652,12 +692,18 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onNodeDragStart={onNodeDragStart}
+              onPaneContextMenu={onPaneContextMenu}
+              onNodeContextMenu={onNodeContextMenu}
+              onPaneClick={closeMenu}
+              onMoveStart={closeMenu}
               nodesDraggable={!readOnly}
               nodesConnectable={!readOnly}
               elementsSelectable
               deleteKeyCode={readOnly ? null : ['Delete', 'Backspace']}
               selectionOnDrag
-              panOnDrag={[1, 2]}
+              // Middle-button drag pans; the right button is reserved for the
+              // context menu (so a right-click isn't swallowed by a pan).
+              panOnDrag={[1]}
               minZoom={0.2}
               maxZoom={2.5}
               fitView
@@ -669,6 +715,17 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
             </ReactFlow>
           </CanvasContext.Provider>
           {nodes.length === 0 && !readOnly && <div className="canvas-empty">{t('canvas.empty')}</div>}
+          {menu !== null && !readOnly && (
+            <CanvasMenu
+              menu={menu}
+              node={menu.kind === 'node' ? nodes.find((n) => n.id === menu.nodeId) : undefined}
+              t={t}
+              onClose={closeMenu}
+              onAddNote={() => menu.kind === 'pane' && addNote(menu.flow)}
+              onSetColor={(c) => menu.kind === 'node' && setColor(menu.nodeId, c)}
+              onRemove={() => menu.kind === 'node' && removeNode(menu.nodeId)}
+            />
+          )}
         </div>
 
         {selectedNode !== undefined && (
@@ -702,6 +759,72 @@ export function CanvasEditor({ value, onChange }: { value: string; onChange: (ne
     <ReactFlowProvider>
       <Board value={value} onChange={onChange} />
     </ReactFlowProvider>
+  );
+}
+
+// ── Right-click context menu ─────────────────────────────────────────────────
+// A fixed-positioned popover over the flow surface with a full-screen backdrop
+// that dismisses it. Pane menus add a note at the cursor; node menus recolor or
+// delete the card (mutators are owned by Board and passed down).
+function CanvasMenu(props: {
+  menu: { kind: 'pane'; sx: number; sy: number } | { kind: 'node'; sx: number; sy: number };
+  node: RFNode | undefined;
+  t: (k: string) => string;
+  onClose: () => void;
+  onAddNote: () => void;
+  onSetColor: (color: string | undefined) => void;
+  onRemove: () => void;
+}): JSX.Element {
+  const { menu, node, t, onClose, onAddNote, onSetColor, onRemove } = props;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const run = (fn: () => void) => (): void => {
+    fn();
+    onClose();
+  };
+
+  return (
+    <>
+      <div className="canvas-menu-backdrop" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
+      <div className="canvas-menu" style={{ left: menu.sx, top: menu.sy }} onContextMenu={(e) => e.preventDefault()}>
+        {menu.kind === 'pane' ? (
+          <button className="canvas-menu-item" onClick={run(onAddNote)}>
+            <Icon name="plus" size={14} />
+            {t('canvas.addNoteHere')}
+          </button>
+        ) : (
+          <>
+            <div className="canvas-menu-colors">
+              <button
+                className={`canvas-swatch none${node?.data.color === undefined ? ' active' : ''}`}
+                title={t('canvas.colorNone')}
+                onClick={run(() => onSetColor(undefined))}
+              />
+              {CANVAS_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  className={`canvas-swatch${node?.data.color === p ? ' active' : ''}`}
+                  style={{ background: colorCss(p) }}
+                  title={t('canvas.color')}
+                  onClick={run(() => onSetColor(p))}
+                />
+              ))}
+            </div>
+            <div className="canvas-menu-sep" />
+            <button className="canvas-menu-item danger" onClick={run(onRemove)}>
+              <Icon name="trash" size={14} />
+              {t('canvas.deleteCard')}
+            </button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

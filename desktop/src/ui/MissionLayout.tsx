@@ -16,6 +16,14 @@ function loadBool(key: string, dflt: boolean): boolean {
   }
 }
 
+function saveBool(key: string, v: boolean): void {
+  try {
+    localStorage.setItem(key, v ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
 /// Shared three-region frame for the Fleet and Projects tabs: a toolbar row, then
 /// a **foldable + resizable** left nav, the shared `FocusRegion` centre, and the
 /// attention dock. `storageKey` namespaces the persisted nav width + fold flag so
@@ -38,15 +46,21 @@ export function MissionLayout({
   // dragging left widens it → sign -1). Resizing either side reflows the main
   // (focus) page between them, so the director can size the centre as they like.
   const [dockW, onResizeDock] = usePanelWidth(`termipod.${storageKey}.dockW`, 320, 240, 560, -1);
+  // The dock folds too (like the nav) — governance stays reachable but the
+  // director can reclaim the width. Collapsed, it leaves a thin re-open rail.
+  const [dockOpen, setDockOpen] = useState(() => loadBool(`termipod.${storageKey}.dockOpen`, true));
 
   function toggle(): void {
     setOpen((o) => {
       const n = !o;
-      try {
-        localStorage.setItem(`termipod.${storageKey}.navOpen`, n ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
+      saveBool(`termipod.${storageKey}.navOpen`, n);
+      return n;
+    });
+  }
+  function toggleDock(): void {
+    setDockOpen((o) => {
+      const n = !o;
+      saveBool(`termipod.${storageKey}.dockOpen`, n);
       return n;
     });
   }
@@ -77,11 +91,35 @@ export function MissionLayout({
 
         <FocusRegion scope={storageKey} />
 
-        <ResizeHandle onResize={onResizeDock} />
-        <div className="region dock" style={{ width: dockW }}>
-          <div className="region-header">{t('region.attention')}</div>
-          <AttentionDock />
-        </div>
+        {dockOpen ? (
+          <>
+            <ResizeHandle onResize={onResizeDock} />
+            <div className="region dock" style={{ width: dockW }}>
+              <div className="region-header foldable">
+                <span>{t('region.attention')}</span>
+                <button
+                  className="dock-fold-btn"
+                  title={t('nav.collapse')}
+                  aria-label={t('nav.collapse')}
+                  onClick={toggleDock}
+                >
+                  <Icon name="sidebar" size={14} className="mirror-x" />
+                </button>
+              </div>
+              <AttentionDock />
+            </div>
+          </>
+        ) : (
+          <button
+            className="dock-rail"
+            title={t('nav.expand')}
+            aria-label={t('nav.expand')}
+            onClick={toggleDock}
+          >
+            <Icon name="sidebar" size={16} className="mirror-x" />
+            <span className="dock-rail-label">{t('region.attention')}</span>
+          </button>
+        )}
       </div>
     </>
   );

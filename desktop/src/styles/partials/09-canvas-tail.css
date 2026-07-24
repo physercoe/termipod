@@ -160,6 +160,83 @@
 .canvas-node-note:focus {
   outline: none;
 }
+/* Note-card drag grip: the textarea fills the card and carries `nodrag`, so
+   without this strip a note card has no surface React Flow will drag. Always
+   visible (discoverability) but subtle. */
+.canvas-node.text .canvas-node-grip {
+  flex: 0 0 auto;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  background: var(--hover);
+  border-bottom: 1px solid var(--border);
+}
+.canvas-node.text .canvas-node-grip:active {
+  cursor: grabbing;
+}
+.canvas-node-grip-dots {
+  width: 24px;
+  height: 4px;
+  background: radial-gradient(circle, var(--text-muted) 0.9px, transparent 1.1px);
+  background-size: 5px 4px;
+  opacity: 0.6;
+}
+
+/* Right-click context menu (pane: add note · node: recolor / delete). */
+.canvas-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.canvas-menu {
+  position: fixed;
+  z-index: 41;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spacing-s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-menu, 0 8px 24px rgba(0, 0, 0, 0.28));
+}
+.canvas-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-menu-item:hover {
+  background: var(--hover);
+}
+.canvas-menu-item.danger {
+  color: var(--danger);
+}
+.canvas-menu-item.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.canvas-menu-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4);
+}
+.canvas-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
 .canvas-node-ref {
   padding: var(--spacing-s8);
   display: flex;

@@ -41,7 +41,23 @@ This complements:
 
 ## Unreleased
 
-_Nothing yet._
+### Fixed
+
+- **Canvas note cards can now be dragged.** A note card's body is a full-bleed
+  `textarea` carrying React Flow's `nodrag` class (so typing never starts a
+  drag), which left the card with no draggable surface at all — only reference
+  cards (which have a header) could be moved. Note cards now carry a small drag
+  grip strip at the top edge.
+- **Canvas right-click context menu.** Right-clicking empty canvas offers "Add
+  note here" (dropped at the cursor); right-clicking a card offers recolor +
+  delete. The right mouse button is now reserved for this menu (middle-button
+  drag still pans).
+
+### Changed
+
+- **The attention dock folds.** Like the left nav, the right-hand attention
+  panel now has a collapse toggle in its header; folded, it leaves a thin
+  re-open rail. The open/closed state persists per tab (Fleet / Projects).
 
 ## 2026.724.405 — 2026-07-24 · Electron (alpha)
 

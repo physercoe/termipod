@@ -151,7 +151,7 @@ func (c *ghClient) download(ctx context.Context, url string) (io.ReadCloser, err
 // normalizeTag ensures a leading "v" so "1.2.3" and "v1.2.3" both work.
 // normalizeVersionTag maps an operator-supplied --version onto this lane's
 // release tag. Accepts the full tag (`hub-v2026.724.305-alpha` → as-is), a bare
-// version (`2026.724.305-alpha` → `hub-v2026.724.305-alpha`), or a legacy
+// version (`2026.724.305-alpha` → `hub-v2026.724.305-alpha`), or a plain
 // `v`-prefixed version (`v2026…` → strip the `v`, then prefix). The lane prefix
 // itself ends in `v`, so an already-prefixed tag is detected before the bare-v
 // strip.

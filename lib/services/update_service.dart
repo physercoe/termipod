@@ -200,7 +200,7 @@ class UpdateService {
 
 /// Extracts the numeric version from a release tag. Handles the split-lane
 /// mobile tag `mobile-v<ver>` (the lanes were separated per component —
-/// Hub/Host/Mobile/Desktop), the legacy `v<ver>` shape, and a bare `<ver>`,
+/// Hub/Host/Mobile/Desktop), the plain `v<ver>` shape, and a bare `<ver>`,
 /// all returning `<ver>`. Used on both the remote `tag_name` and the local
 /// `APP_VERSION` (which CI ships as the raw tag), so both sides normalize the
 /// same way.

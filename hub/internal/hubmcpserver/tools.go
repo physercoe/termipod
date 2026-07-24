@@ -1093,8 +1093,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks_update",
-			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `block_reason`, `status` (todo|in_progress|blocked|done|cancelled), `priority` (low|med|high|urgent), `assignee_id`, `result_summary` may be supplied. ADR-029: `cancelled` is the explicit override path when the work should be stopped (vs. `done` which is auto-derived from agent termination); auto-derive never enters or leaves `cancelled`. When blocking a task, set `block_reason` for *why* it is stuck — do NOT overwrite `body_md` (the task's standing description) with the reason. `block_reason` is cleared automatically when the task moves out of `blocked`. Workers closing out a task should prefer `tasks_complete` (sugar over this verb) which bundles status='done' + result_summary in one call.",
-			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"block_reason":{"type":"string","description":"why the task is currently blocked; set this instead of overwriting body_md. Auto-cleared when status leaves 'blocked'."},"status":{"type":"string","enum":["todo","in_progress","blocked","done","cancelled"]},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"},"result_summary":{"type":"string"}}}`),
+			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `block_reason`, `status` (todo|in_progress|blocked|in_review|done|cancelled), `priority` (low|med|high|urgent), `assignee_id`, `result_summary` may be supplied. ADR-029 D-8 (done-when-reviewed): a worker finishing lands the task in `in_review` (auto-derived on agent terminate with a result_summary, or via `tasks_complete`); a reviewer then accepts with status='done' or sends back with status='in_progress' — `done` is a reviewer's verdict, never set it on your own work. `cancelled` is the explicit override path when the work should be stopped; auto-derive never enters or leaves `cancelled`. When blocking a task, set `block_reason` for *why* it is stuck — do NOT overwrite `body_md` (the task's standing description) with the reason. `block_reason` is cleared automatically when the task moves out of `blocked`. Workers closing out a task should prefer `tasks_complete` (sugar over this verb) which bundles status='in_review' + result_summary in one call.",
+			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"block_reason":{"type":"string","description":"why the task is currently blocked; set this instead of overwriting body_md. Auto-cleared when status leaves 'blocked'."},"status":{"type":"string","enum":["todo","in_progress","blocked","in_review","done","cancelled"]},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"},"result_summary":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
 				id, _ := args["task"].(string)
@@ -1119,7 +1119,7 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks_complete",
-			Description: "Close out a task that this worker was assigned (ADR-029 W2.8). Requires `project_id` and `task`. Optional `summary` records what the worker actually did (lands in `tasks.result_summary` and is surfaced inline in the assigner's session via the W2.9 notification). Bundles status='done' + completed_at + result_summary in one call so workers don't have to remember to update each field separately. Use `tasks_update status='blocked'` instead when you hit a blocker and want the steward to intervene; `tasks_update status='cancelled'` when the decision is to abandon the work.",
+			Description: "Hand off a task that this worker was assigned (ADR-029 W2.8, ADR-029 D-8). Requires `project_id` and `task`. Optional `summary` records what the worker actually did (lands in `tasks.result_summary` and is surfaced inline in the assigner's session via the W2.9 notification). Bundles status='in_review' + completed_at + result_summary in one call so workers don't have to remember to update each field separately. Work is done when *reviewed*, not when you stop: the task lands in 'in_review' and a human (or the delegating steward) accepts it to 'done' or sends it back. Use `tasks_update status='blocked'` instead when you hit a blocker and want the steward to intervene; `tasks_update status='cancelled'` when the decision is to abandon the work.",
 			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"summary":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -1127,14 +1127,19 @@ func buildTools() []toolDef {
 				if p == "" || id == "" {
 					return nil, fmt.Errorf("project_id and task are required")
 				}
-				body := map[string]any{"status": "done"}
+				// D-8 done-when-reviewed: the close-out verb hands off to
+				// review; writing 'done' here would (a) self-certify the
+				// work and (b) get demoted to in_review by the terminate
+				// auto-derive anyway, double-waking the assigner with
+				// "completed." then "is ready for review.".
+				body := map[string]any{"status": "in_review"}
 				if summary, ok := args["summary"].(string); ok && summary != "" {
 					body["result_summary"] = summary
 				}
 				if err := c.do("PATCH", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks/"+url.PathEscape(id)), nil, body, nil); err != nil {
 					return nil, err
 				}
-				return map[string]any{"ok": true, "project_id": p, "task": id, "status": "done"}, nil
+				return map[string]any{"ok": true, "project_id": p, "task": id, "status": "in_review"}, nil
 			},
 		},
 		{

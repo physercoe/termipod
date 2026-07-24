@@ -421,6 +421,18 @@ work doesn't vanish from digests. `in_review` allows new spawns
 (unlike `done`/`cancelled`), which is what powers "new attempt" and
 send-back. No schema migration — task status has no CHECK constraint.
 
+The worker-facing close-out verb follows the same rule (2026-07-24
+review fix): `tasks_complete` bundles **status=`in_review`** (was
+`done`) + `completed_at` + `result_summary` — a worker hands its work
+off for review, it never self-certifies `done`. This keeps the wake
+single ("is ready for review", at hand-off; the later terminate
+auto-derive is a no-op) where the old `done` write produced a
+"completed." wake, then a `done → in_review` demotion plus a second,
+contradictory wake at terminate. `done` also joins the never-overwrite
+guard: post-W2 it means a reviewer *accepted*, so an accept landing
+between hand-off and the worker's terminate event (or a straggling
+crash report) can never be silently reverted by the derive.
+
 Clients hard-code the status vocabulary, so the rollout order is
 **clients before hub**: ship the `in_review` column/chip/picker plus an
 unknown-status fallback bucket (a task in an unrecognised status renders

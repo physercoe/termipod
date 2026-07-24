@@ -299,7 +299,7 @@ func toolRegistry() []ToolSpec {
 		// pre-fix `false` here contradicted both surfaces and forced
 		// workers into request_help to finish their own tasks.
 		spec("tasks_complete",
-			"Close out an assigned task — bundles status=done + result_summary. Required: project_id, task.",
+			"Hand off an assigned task for review — bundles status=in_review + result_summary (ADR-029 D-8). Required: project_id, task.",
 			tierRoutine, true),
 		spec("tasks_delete",
 			"Delete a task. Required: project_id, task. Use tasks_update status=cancelled to keep it for the audit trail.",

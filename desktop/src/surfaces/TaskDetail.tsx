@@ -114,8 +114,15 @@ export function TaskDetailBody({
   }
 
   // W2 review lifecycle: from in_review a human accepts (→done) or sends the
-  // work back to the assignee (→in_progress to re-engage). A one-click patch —
-  // no Save round-trip. (The send-back note into the assignee session is W5.)
+  // work back. Send-back target follows the plan decision: →in_progress only
+  // when the assignee session is still alive to re-engage; the normal case at
+  // in_review is a terminated assignee (that's how the status arises), and
+  // →in_progress there would show work in progress that nobody is doing —
+  // those go →todo for a fresh pickup. A one-click patch — no Save round-trip.
+  // (The send-back note into the assignee session is W5.)
+  const assigneeAlive =
+    assigneeStatus === 'pending' || assigneeStatus === 'running' ||
+    assigneeStatus === 'idle' || assigneeStatus === 'paused';
   async function review(target: string): Promise<void> {
     if (client === null) return;
     setBusy(true);
@@ -146,7 +153,7 @@ export function TaskDetailBody({
             <button className="primary" disabled={busy} onClick={() => void review('done')}>
               {t('task.accept')}
             </button>
-            <button disabled={busy} onClick={() => void review('in_progress')}>
+            <button disabled={busy} onClick={() => void review(assigneeAlive ? 'in_progress' : 'todo')}>
               {t('task.sendBack')}
             </button>
           </div>

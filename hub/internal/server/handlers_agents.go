@@ -535,7 +535,8 @@ func (s *Server) stopOrTerminateAgent(w http.ResponseWriter, r *http.Request, ar
 //   - 'crashed' / 'failed'                       → task.status='blocked'
 //   - other agent statuses                       → no-op
 //
-// Cancelled tasks are skipped (terminal override the operator picked).
+// Cancelled/blocked/in_review/done tasks are never overwritten (explicit
+// operator override, worker's verdict, pending review, reviewer's accept).
 // Audit row is written with source='spawn' per ADR-029 D-4 W4; the
 // summary line names the trigger so feed readers can tell auto-derived
 // 'cancelled' apart from explicit operator cancellation.
@@ -573,7 +574,12 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 	// off completed work for review, a *later* attempt that abandons (would
 	// derive 'cancelled') or crashes ('blocked') must not silently erase the
 	// pending-review verdict — only a human accept/send-back moves it out.
-	if curStatus == "cancelled" || curStatus == "blocked" || curStatus == "in_review" {
+	// done is also never-overwrite (D-8): post-W2 it means a reviewer
+	// ACCEPTED the work — an accept landing between the worker's hand-off
+	// and its terminate event must not be demoted back to in_review by the
+	// derive, nor flipped to blocked by a straggling crash report.
+	if curStatus == "cancelled" || curStatus == "blocked" ||
+		curStatus == "in_review" || curStatus == "done" {
 		return nil
 	}
 
@@ -883,14 +889,15 @@ func renderTaskInstructions(title, body, projectID, taskID string) string {
 		out.WriteString("  project_id=\"" + projectID + "\",\n")
 		out.WriteString("  task=\"" + taskID + "\",\n")
 		out.WriteString("  status=\"blocked\",\n")
-		out.WriteString("  body_md=\"<short note on why you are stuck>\",\n")
+		out.WriteString("  block_reason=\"<short note on why you are stuck>\",\n")
 		out.WriteString(")\n")
 		out.WriteString("```\n\n")
 		out.WriteString("`tasks_complete` and `tasks_update` are orchestration protocol, not\n")
 		out.WriteString("domain tools — any `TOOLS:` / `BOUNDARIES:` restrictions written into\n")
-		out.WriteString("the task body above do NOT apply to them. The hub flips the task to\n")
-		out.WriteString("`done`, stamps `result_summary`, and pushes a `task.notify` event into\n")
-		out.WriteString("your assigner's session automatically when you call `tasks_complete`.\n")
+		out.WriteString("the task body above do NOT apply to them. The hub hands the task off\n")
+		out.WriteString("to review (`in_review`), stamps `result_summary`, and pushes a\n")
+		out.WriteString("`task.notify` event into your assigner's session automatically when\n")
+		out.WriteString("you call `tasks_complete`; your reviewer accepts it to `done`.\n")
 	}
 	return out.String()
 }

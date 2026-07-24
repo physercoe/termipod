@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -326,6 +329,154 @@ type notifyEvent struct {
 	Kind     string
 	Producer string
 	Payload  string
+}
+
+// spawnWorkerWithTask is the shared fixture for the D-8 close-out tests:
+// steward with an active session, worker spawned via DoSpawn with an inline
+// task (created_by = steward). Returns (stewardID, workerID, taskID).
+func spawnWorkerWithTask(t *testing.T, s *Server, proj, title, body string) (string, string, string) {
+	t.Helper()
+	stewardID := seedAgentWithActiveSession(t, s, "@steward.proj", "steward.v1")
+	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@worker.handoff",
+		Kind:        "claude-code",
+		ParentID:    stewardID,
+		ProjectID:   proj,
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\nbackend:\n  cmd: echo test\n",
+		Task:        &spawnTaskInline{Title: title, BodyMD: body},
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+	var taskID string
+	if err := s.db.QueryRow(
+		`SELECT id FROM tasks WHERE assignee_id = ?`, out.AgentID,
+	).Scan(&taskID); err != nil {
+		t.Fatalf("find spawned task: %v", err)
+	}
+	return stewardID, out.AgentID, taskID
+}
+
+// patchTaskHTTP drives the real PATCH endpoint (the path the
+// tasks_complete / tasks_update MCP verbs and both clients take).
+func patchTaskHTTP(t *testing.T, s *Server, proj, taskID string, body map[string]any) {
+	t.Helper()
+	token := mintTeamToken(t, s, "owner", defaultTeamID)
+	buf, _ := json.Marshal(body)
+	r := httptest.NewRequest("PATCH",
+		"/v1/teams/"+defaultTeamID+"/projects/"+proj+"/tasks/"+taskID,
+		bytes.NewReader(buf))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	s.router.ServeHTTP(rr, r)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("PATCH task = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// D-8 regression: the REAL worker close-out path — tasks_complete PATCHes
+// status='in_review' — must produce exactly ONE steward wake ("is ready for
+// review"), with the subsequent terminate auto-derive a no-op. Pre-fix,
+// tasks_complete wrote 'done': the steward was woken "completed.", then the
+// terminate derive demoted done → in_review and woke it a second time with
+// the contradictory "is ready for review.".
+func TestTasksComplete_HandoffThenTerminate_SingleReviewWake(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-handoff-once")
+	stewardID, workerID, taskID := spawnWorkerWithTask(t, s, proj,
+		"Run the migration", "Apply migration 0042 and confirm row count.")
+
+	// The exact body the tasks_complete MCP verb sends post-D-8.
+	patchTaskHTTP(t, s, proj, taskID, map[string]any{
+		"status":         "in_review",
+		"result_summary": "Migration applied; 12 318 rows.",
+	})
+
+	got := lastTaskNotifyEvent(t, s, stewardID)
+	var p struct {
+		To string `json:"to"`
+	}
+	_ = json.Unmarshal([]byte(got.Payload), &p)
+	if p.To != "in_review" {
+		t.Errorf("hand-off notify to = %q, want in_review", p.To)
+	}
+	// The driver-deliverable wake (input.text) carries the review verb.
+	var wakeBody string
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
+		SELECT payload_json FROM agent_events
+		 WHERE agent_id = ? AND kind = 'input.text' AND producer = 'system'
+		 ORDER BY seq DESC LIMIT 1`, stewardID).Scan(&wakeBody); err != nil {
+		t.Fatalf("query input.text wake: %v", err)
+	}
+	if !strings.Contains(wakeBody, "ready for review") {
+		t.Errorf("wake body = %q, want 'ready for review'", wakeBody)
+	}
+
+	// Worker exits after handing off — the derive must be a no-op (in_review
+	// is in the never-overwrite set), not a re-derive or a second wake.
+	if _, err := s.db.Exec(
+		`UPDATE agents SET status = 'terminated' WHERE id = ?`, workerID); err != nil {
+		t.Fatalf("terminate worker: %v", err)
+	}
+	if err := s.deriveTaskStatusFromAgent(context.Background(),
+		defaultTeamID, workerID, "terminated"); err != nil {
+		t.Fatalf("deriveTaskStatusFromAgent: %v", err)
+	}
+
+	var taskStatus string
+	if err := s.db.QueryRow(
+		`SELECT status FROM tasks WHERE id = ?`, taskID).Scan(&taskStatus); err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	if taskStatus != "in_review" {
+		t.Errorf("task status after terminate = %q, want in_review", taskStatus)
+	}
+	var wakes int
+	if err := evRForTeam(t, s, defaultTeamID).QueryRow(`
+		SELECT COUNT(*) FROM agent_events
+		 WHERE agent_id = ? AND kind = 'task.notify'`, stewardID).Scan(&wakes); err != nil {
+		t.Fatalf("count notify events: %v", err)
+	}
+	if wakes != 1 {
+		t.Errorf("steward woken %d times, want exactly 1 (hand-off only)", wakes)
+	}
+}
+
+// D-8: 'done' is a reviewer's verdict — an accept landing between the
+// worker's hand-off and its terminate event must not be demoted back to
+// in_review (or flipped to blocked by a straggling crash report) by the
+// auto-derive. done joined the never-overwrite set for exactly this.
+func TestDeriveTaskStatus_NeverDemotesReviewerAccept(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-accept-final")
+	_, workerID, taskID := spawnWorkerWithTask(t, s, proj,
+		"Audit the rollout", "Check the canary dashboards.")
+
+	// Hand-off, then the reviewer accepts before the worker's terminate
+	// event lands.
+	patchTaskHTTP(t, s, proj, taskID, map[string]any{
+		"status": "in_review", "result_summary": "Canary clean across 6 regions.",
+	})
+	patchTaskHTTP(t, s, proj, taskID, map[string]any{"status": "done"})
+
+	if _, err := s.db.Exec(
+		`UPDATE agents SET status = 'terminated' WHERE id = ?`, workerID); err != nil {
+		t.Fatalf("terminate worker: %v", err)
+	}
+	if err := s.deriveTaskStatusFromAgent(context.Background(),
+		defaultTeamID, workerID, "terminated"); err != nil {
+		t.Fatalf("deriveTaskStatusFromAgent: %v", err)
+	}
+
+	var taskStatus string
+	if err := s.db.QueryRow(
+		`SELECT status FROM tasks WHERE id = ?`, taskID).Scan(&taskStatus); err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	if taskStatus != "done" {
+		t.Errorf("task status after terminate = %q, want done (accept is final)", taskStatus)
+	}
 }
 
 func lastTaskNotifyEvent(t *testing.T, s *Server, agentID string) notifyEvent {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { kindForInspectFile, type InspectKind, type InspectSource } from '../state/inspect';
+import { kindForInspectFile, type ForgeRepo, type InspectKind, type InspectSource } from '../state/inspect';
 import type { InspectRoot } from '../state/inspectRoots';
 import { useWorkspace } from '../state/workspace';
 import { listWorkspaceFiles, type WorkspaceFile } from '../state/workspaceFiles';
@@ -30,6 +30,10 @@ export interface PickResult {
   path: string;
   hostId?: string;
   projectId?: string;
+  /// The pinned forge snapshot, for a `github`/`hf` pick.
+  repo?: ForgeRepo;
+  /// A 1-based line to reveal after opening (a content-search hit).
+  revealLine?: number;
 }
 
 // ── Entity field helpers (hub entities are untyped JSON maps) ────────────────

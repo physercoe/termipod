@@ -317,6 +317,25 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "session.init", "agent", payload)
 			return
 		}
+		if sub == "task_progress" {
+			// claude-code 2.1.x fires task_progress per tool-use inside
+			// background/subagent tasks; passing the full frame through
+			// dumped uuid/session_id/usage noise as raw JSON on mobile
+			// (#374). Ship only the fields the one-liner needs; text
+			// mirrors description so collapsed previews + copy read the
+			// human line. The frame-profile rule in agent_families.yaml
+			// mirrors this shape — keep them in lockstep (the parity
+			// test diffs both paths over the corpus).
+			payload := map[string]any{
+				"subtype":        frame["subtype"],
+				"task_id":        frame["task_id"],
+				"description":    frame["description"],
+				"last_tool_name": frame["last_tool_name"],
+				"text":           frame["description"],
+			}
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", payload)
+			return
+		}
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", frame)
 
 	case "assistant":

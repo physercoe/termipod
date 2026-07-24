@@ -930,3 +930,61 @@ test('inspect: checkpoint_inspect parses an ONNX graph (W4 remainder)', async ()
     fs.rmSync(p, { force: true });
   }
 });
+
+// A forge (GitHub) root end-to-end against a loopback stand-in (plan §5.9): the
+// forge base URL is overridden via localStorage to point at a local server
+// serving canned repo / commit / tree / blob JSON, so ref-pinning → tree fold →
+// lazy blob read are exercised without the network.
+test('inspect: a GitHub repo root resolves, lists its tree, and opens a blob (T3 loopback)', async () => {
+  const server = http.createServer((req, res) => {
+    const u = (req.url ?? '').split('?')[0];
+    const json = (o: unknown): void => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(o));
+    };
+    if (u === '/repos/acme/widget') return json({ default_branch: 'main' });
+    if (u.startsWith('/repos/acme/widget/commits/')) return json({ sha: 'cafe1234' });
+    if (u.startsWith('/repos/acme/widget/git/trees/'))
+      return json({ truncated: false, tree: [{ path: 'README.md', type: 'blob' }, { path: 'src', type: 'tree' }, { path: 'src/app.py', type: 'blob' }] });
+    if (u.startsWith('/repos/acme/widget/contents/README.md')) {
+      res.setHeader('content-type', 'text/plain');
+      return void res.end('# Widget\nhello from the loopback forge');
+    }
+    res.statusCode = 404;
+    res.setHeader('content-type', 'application/json');
+    res.end('{}');
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await dismissConnectModal();
+    await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+    // Point the forge API at the loopback server (the app never writes this key).
+    await page.evaluate((base) => localStorage.setItem('termipod.forge.githubApi', base), `http://127.0.0.1:${port}`);
+
+    // Open the add-repo dialog and pin acme/widget (shorthand → GitHub default branch).
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await page.getByRole('menuitem', { name: /GitHub \/ Hugging Face/ }).click();
+    await expect(page.locator('.inspect-repoadd')).toBeVisible();
+    await page.locator('.inspect-repoadd .inspect-modal-search').first().fill('acme/widget');
+    await page.getByRole('button', { name: 'Add repo' }).click();
+
+    // The pinned root appears (label = id@ref); expand it → the tree fetch folds.
+    const root = page.locator('.inspect-tree-root', { hasText: 'acme/widget' });
+    await expect(root).toBeVisible({ timeout: 15000 });
+    await root.locator('.inspect-tree-roottoggle').click();
+    const readme = root.locator('.inspect-tree-row.file', { hasText: 'README.md' });
+    await expect(readme).toBeVisible({ timeout: 15000 });
+
+    // Opening the blob reads it (2 MB-capped) and renders it in CodeMirror.
+    await readme.click();
+    await expect(page.locator('.inspect-code .cm-content')).toContainText('hello from the loopback forge', { timeout: 15000 });
+  } finally {
+    // Don't leak the override / the pinned root into later runs.
+    await page.evaluate(() => {
+      localStorage.removeItem('termipod.forge.githubApi');
+      localStorage.removeItem('termipod.inspect.roots');
+    });
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+});

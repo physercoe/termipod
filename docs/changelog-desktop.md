@@ -43,6 +43,67 @@ This complements:
 
 ### Added
 
+- **Inspect tab — forge e2e coverage (round 3, §5.9).** The GitHub/HF forge read
+  path (ref-pinning → tree fold → lazy 2 MB-capped blob read) now has an
+  end-to-end test: the forge base URL is overridable via `localStorage` so a
+  Playwright loopback server stands in for the API, and `forge_fetch` allows
+  plain-http only to loopback (a real forge is always https). Closes the last
+  "recorded, not built" coverage gap on shipped forge code.
+
+- **Inspect tab — analytic params + VRAM in the config-only view (round 3, §5a
+  follow-up).** The config-only architecture view now shows an **estimated
+  parameter count** computed from `config.json` alone and feeds it into the
+  existing MLA-aware VRAM estimator, so a weightless HF release gets a params +
+  VRAM readout too. Covers the mainstream open-source decoder shapes —
+  dense / GQA / **MLA** attention (DeepSeek-V2/V3), dense / **MoE** FFN (per-
+  expert + router + shared experts, with `first_k_dense_replace` mixed stacks),
+  gated or legacy non-gated MLP, tied/untied embeddings. Validated against
+  Llama-3-8B ≈ 8.0B, Mixtral-8×7B ≈ 46.7B, DeepSeek-V3 ≈ 671B, GPT-2 ≈ 124M, and
+  the newest influential MoE releases — Qwen3-235B-A22B ≈ 235B, Kimi K2 ≈ 1.0T,
+  GLM-4.5 — which reuse the same field conventions. Badged as an estimate
+  (error-tolerant by design).
+
+- **Inspect tab — local git lens (round 3, T4b).** A pinned local root that is a
+  git repo shows its **branch + dirty count** on the root row (read-only, via
+  system `git status`; hidden when git is absent). When there are changes, a
+  **Diff working tree** action opens the `git diff` output in the existing patch
+  viewer. No staging, commit, or history — the inspector stays read-only.
+- **Inspect tab — content search over local roots (round 3, T4a).** Each pinned
+  local root gains a collapsible **Search contents** box: literal or regex search
+  over the whole tree, streamed in the main process with hard caps (≤500 hits,
+  ≤20k files, ≤1 MB per file; binary files and `node_modules`/`.git`/… skipped;
+  every cap surfaced). A `path:line` hit opens the file and scrolls to the line.
+  Remote / hub / forge roots keep the name filter only (no recursive remote
+  walk).
+- **Inspect tab — config-only architecture view (round 3, §5a).** A `config.json`
+  opened from *any* source (local, workspace, remote, hub, GitHub, Hugging Face)
+  that parses as a transformers config gains a **View architecture** action: it
+  renders the same family / block-template / component-chip card as a checkpoint,
+  from the config alone — no weights read. A weightless HF model release is now
+  fully describable. When a sibling `model.safetensors.index.json` is readable
+  from the same source, its tensor-name map corroborates MoE/MLA and its
+  `total_size` gives the weights figure. (Analytic params/VRAM from config math
+  is recorded for a later slice.)
+- **Inspect tab — Hugging Face repo roots (round 3, T3b).** The add-repo dialog
+  gains a GitHub / Hugging Face selector: paste a `huggingface.co/org/model` URL
+  (or `org/model@rev`) and browse the model repo the same way. The revision pins
+  to a commit SHA; the tree is fetched with pagination (capped, banner on
+  overflow); text files (config/tokenizer/README) open through the same 2 MB-cap
+  reader over `resolve/{sha}/{path}`, and an HF token in the vault unlocks gated
+  repos. Weight files are listed but open to the honest too-large placard (a
+  config-only architecture view lands next).
+- **Inspect tab — GitHub repo roots (round 3, T3a).** Point Inspect at a GitHub
+  repo URL (or `owner/repo[@ref]`) and read it. "From GitHub repo…" resolves the
+  ref to an immutable commit SHA, fetches the tree once, and pins it as a tree
+  root you browse and open files from — every read uses the SHA, so a moving
+  branch can't tear the tree. Blobs are capped at 2 MB (a larger file shows a
+  placard instead of downloading); an optional access token is stored in the
+  **vault** (never `localStorage`, keyed to the forge host) to raise the rate
+  limit and reach private repos, with the rate-limit reset surfaced on a 403. In
+  the desktop shell every request goes through the proxy-aware `forge_fetch`
+  main-process bridge; the plain-browser build fetches the CORS-open API
+  directly. Hugging Face repos and a config-only architecture view follow in the
+  next wedges.
 - **Inspect tab — remote & hub project-tree roots (round 3, T2).** The tree pane
   now pins two more kinds of root beside a local folder: a **remote directory**
   over an existing SSH connection (browse it in the Remote picker, "Pin this

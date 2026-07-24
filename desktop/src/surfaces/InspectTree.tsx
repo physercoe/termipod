@@ -4,8 +4,10 @@ import { Icon, type IconName } from '../ui/Icon';
 import { kindForInspectFile } from '../state/inspect';
 import { useInspectRoots, type InspectRoot } from '../state/inspectRoots';
 import { foldHubDocs, nodeMatches, type TreeNode } from '../state/inspectTree';
-import { localList, treeIndex, type TreeIndexEntry } from '../state/localfs';
+import { localList, treeIndex, treeSearch, type TreeIndexEntry, type SearchHit } from '../state/localfs';
 import { sftpBrowse } from '../state/inspectSources';
+import { fetchForgeTree } from '../state/forge';
+import { gitInfo, gitDiff, type GitInfo } from '../state/git';
 import { useSession } from '../state/session';
 import { isShell } from '../platform';
 import type { PickResult } from './InspectOpen';
@@ -43,18 +45,33 @@ function extOf(name: string): string {
 function joinRemote(dir: string, name: string): string {
   return dir === '.' || dir === '' ? name : `${dir.replace(/\/+$/, '')}/${name}`;
 }
+// Join a local root path with a POSIX-relative path, keeping the root's separator
+// at the seam (internal '/' is fine for Node fs on every platform).
+function joinRel(root: string, rel: string): string {
+  const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/';
+  return `${root.replace(/[\\/]+$/, '')}${sep}${rel}`;
+}
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 function sourceIcon(source: InspectRoot['source']): IconName {
-  return source === 'remote' ? 'terminal' : source === 'hub' ? 'cloud' : 'folder';
+  if (source === 'remote') return 'terminal';
+  if (source === 'hub') return 'cloud';
+  if (source === 'github') return 'git-branch';
+  if (source === 'hf') return 'sliders';
+  return 'folder';
+}
+// Sources whose whole tree arrives in one fetch and is folded client-side (hub
+// docs, forge trees) rather than listed one directory per expand.
+function isFolded(source: InspectRoot['source']): boolean {
+  return source === 'hub' || source === 'github' || source === 'hf';
 }
 
 interface Listing {
   nodes: TreeNode[];
   truncated: boolean;
 }
-type Folded = { children: Map<string, TreeNode[]>; files: TreeNode[] };
+type Folded = { children: Map<string, TreeNode[]>; files: TreeNode[]; truncated: boolean };
 
 // ── one directory's rendered children (recursive) ────────────────────────────
 interface BranchCtx {
@@ -127,11 +144,13 @@ export function InspectTree({
   onPick,
   onAddFolder,
   onClose,
+  onOpenPatch,
 }: {
   width: number;
   onPick: (r: PickResult) => void;
   onAddFolder: () => void;
   onClose: () => void;
+  onOpenPatch: (title: string, patch: string) => void;
 }): JSX.Element {
   const t = useT();
   const roots = useInspectRoots((s) => s.roots);
@@ -149,27 +168,84 @@ export function InspectTree({
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [indexes, setIndexes] = useState<Record<string, { entries: TreeIndexEntry[]; truncated: boolean }>>({});
   const [indexBusy, setIndexBusy] = useState<Set<string>>(new Set());
-  const [hubFiles, setHubFiles] = useState<Record<string, TreeNode[]>>({});
+  const [foldedFiles, setFoldedFiles] = useState<Record<string, TreeNode[]>>({});
   const [renaming, setRenaming] = useState<string | null>(null);
-  const hubPromise = useRef<Record<string, Promise<Folded>>>({});
+  const foldedPromise = useRef<Record<string, Promise<Folded>>>({});
   const seenRoots = useRef<Set<string>>(new Set());
   const mounted = useRef(false);
+  const [gitInfos, setGitInfos] = useState<Record<string, GitInfo>>({});
+  // Per-root git-lens notice (diff error / empty-diff) shown under the root row.
+  const [gitMsgs, setGitMsgs] = useState<Record<string, string>>({});
+  const gitFetched = useRef<Set<string>>(new Set());
+
+  // Read the git lens (branch + dirty count) for each local root once. Cheap
+  // (`git status`); degrades to hidden when the root isn't a repo or git is
+  // absent. Never blocks the tree.
+  useEffect(() => {
+    if (!isShell()) return;
+    for (const r of roots) {
+      if (r.source !== 'local' || r.path === undefined || gitFetched.current.has(r.id)) continue;
+      gitFetched.current.add(r.id);
+      void gitInfo(r.path)
+        .then((info) => setGitInfos((m) => ({ ...m, [r.id]: info })))
+        .catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots]);
+
+  function diffWorkingTree(root: InspectRoot): void {
+    if (root.path === undefined) return;
+    setGitMsgs((m) => {
+      const n = { ...m };
+      delete n[root.id];
+      return n;
+    });
+    void gitDiff(root.path)
+      .then((r) => {
+        if (r.diff.trim() !== '') onOpenPatch(`diff: ${root.label}`, r.diff);
+        // A dirty count can be untracked-files-only, where `git diff` is empty —
+        // say so instead of a click that does nothing.
+        else setGitMsgs((m) => ({ ...m, [root.id]: t('inspect.noUnstagedChanges') }));
+      })
+      // The IPC throws typed messages (too-large cap, git missing, stderr) —
+      // surface them; a swallowed error violates the caps-surfaced anchor.
+      .catch((e: unknown) => setGitMsgs((m) => ({ ...m, [root.id]: msg(e) })));
+  }
 
   const ck = (rootId: string, key: string): string => `${rootId} ${key}`;
-  const rootKey = (root: InspectRoot): string => (root.source === 'hub' ? '' : (root.path ?? ''));
+  const rootKey = (root: InspectRoot): string => (isFolded(root.source) ? '' : (root.path ?? ''));
 
-  function ensureHub(root: InspectRoot): Promise<Folded> {
-    let p = hubPromise.current[root.id];
+  // One fetch → folded tree, memoized per root: hub docs, or a forge repo tree at
+  // its pinned SHA (both land in the same TreeNode shape via `foldHubDocs`).
+  function ensureFolded(root: InspectRoot): Promise<Folded> {
+    let p = foldedPromise.current[root.id];
     if (p === undefined) {
-      p =
-        client === null
-          ? Promise.reject(new Error(t('inspect.noHub')))
-          : client
-              .listProjectDocs(root.projectId ?? '')
-              .then((docs) => foldHubDocs(docs.map((d) => ({ path: typeof d.path === 'string' ? d.path : '', is_dir: d.is_dir === true }))));
-      hubPromise.current[root.id] = p;
+      if (root.source === 'hub') {
+        p =
+          client === null
+            ? Promise.reject(new Error(t('inspect.noHub')))
+            : client
+                .listProjectDocs(root.projectId ?? '')
+                .then((docs) => ({ ...foldHubDocs(docs.map((d) => ({ path: typeof d.path === 'string' ? d.path : '', is_dir: d.is_dir === true }))), truncated: false }));
+      } else if (root.source === 'github' || root.source === 'hf') {
+        p =
+          root.repo === undefined
+            ? Promise.reject(new Error('forge root is missing its repo snapshot'))
+            : fetchForgeTree(root.source, root.repo).then((r) => ({ ...foldHubDocs(r.entries), truncated: r.truncated }));
+      } else {
+        p = Promise.reject(new Error(`inspect: source '${root.source}' is not a folded tree`));
+      }
+      foldedPromise.current[root.id] = p;
+      // A failed fetch must not stick: evict the rejected promise so the error
+      // row's Retry (and a later filter) re-fetches instead of replaying the
+      // cached rejection forever — the `sftpSessionFor` evict-on-fail pattern.
+      // Matters most for forge roots, where an unauthenticated rate limit is a
+      // routine, retry-after-reset failure.
+      p.catch(() => {
+        if (foldedPromise.current[root.id] === p) delete foldedPromise.current[root.id];
+      });
     }
-    void p.then((folded) => setHubFiles((m) => ({ ...m, [root.id]: folded.files }))).catch(() => undefined);
+    void p.then((folded) => setFoldedFiles((m) => ({ ...m, [root.id]: folded.files }))).catch(() => undefined);
     return p;
   }
 
@@ -183,8 +259,9 @@ export function InspectTree({
       const sorted = es.slice().sort((a, b) => Number(b.is_dir) - Number(a.is_dir) || a.name.localeCompare(b.name));
       return { nodes: sorted.map((e) => ({ name: e.name, key: joinRemote(nodeKey, e.name), is_dir: e.is_dir })), truncated: false };
     }
-    const folded = await ensureHub(root);
-    return { nodes: folded.children.get(nodeKey) ?? [], truncated: false };
+    const folded = await ensureFolded(root);
+    // Surface a truncated forge tree at the root level (the whole tree was capped).
+    return { nodes: folded.children.get(nodeKey) ?? [], truncated: nodeKey === rootKey(root) ? folded.truncated : false };
   }
 
   function loadDir(root: InspectRoot, nodeKey: string): void {
@@ -209,15 +286,17 @@ export function InspectTree({
 
   function toggleDir(root: InspectRoot, nodeKey: string): void {
     const k = ck(root.id, nodeKey);
+    // The fetch stays OUTSIDE the state updater — updaters must be pure, and
+    // StrictMode double-invokes them in dev (which double-fired the IPC/SFTP
+    // listing when the load lived inside).
+    const opening = !expanded.has(k);
     setExpanded((s) => {
       const n = new Set(s);
       if (n.has(k)) n.delete(k);
-      else {
-        n.add(k);
-        if (listings[k] === undefined && !loading.has(k)) loadDir(root, nodeKey);
-      }
+      else n.add(k);
       return n;
     });
+    if (opening && listings[k] === undefined && !loading.has(k)) loadDir(root, nodeKey);
   }
 
   // Auto-expand a genuinely new root once. On the first mount, only cheap local
@@ -237,7 +316,9 @@ export function InspectTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roots]);
 
-  function refreshRoot(root: InspectRoot): void {
+  // Drop every cache a root owns — shared by refresh (before the re-list) and
+  // remove (so a removed root doesn't strand its listings/index in memory).
+  function dropRootCaches(root: InspectRoot): void {
     const prefix = `${root.id} `;
     const drop = (obj: Record<string, unknown>): void => {
       for (const kk of Object.keys(obj)) if (kk.startsWith(prefix)) delete obj[kk];
@@ -250,19 +331,42 @@ export function InspectTree({
     setErrors((m) => {
       const n = { ...m };
       drop(n);
+      delete n[`idx:${root.id}`];
       return n;
     });
-    delete hubPromise.current[root.id];
+    delete foldedPromise.current[root.id];
     setIndexes((m) => {
       const n = { ...m };
       delete n[root.id];
       return n;
     });
-    setHubFiles((m) => {
+    setFoldedFiles((m) => {
       const n = { ...m };
       delete n[root.id];
       return n;
     });
+    setGitInfos((m) => {
+      const n = { ...m };
+      delete n[root.id];
+      return n;
+    });
+    setGitMsgs((m) => {
+      const n = { ...m };
+      delete n[root.id];
+      return n;
+    });
+    gitFetched.current.delete(root.id);
+  }
+
+  function refreshRoot(root: InspectRoot): void {
+    dropRootCaches(root);
+    // Re-read the git lens on refresh (branch/dirty may have changed).
+    if (isShell() && root.source === 'local' && root.path !== undefined) {
+      gitFetched.current.add(root.id);
+      void gitInfo(root.path)
+        .then((info) => setGitInfos((m) => ({ ...m, [root.id]: info })))
+        .catch(() => undefined);
+    }
     // Re-list the root itself so the pane doesn't blank on refresh.
     const key = rootKey(root);
     if (expanded.has(ck(root.id, key))) loadDir(root, key);
@@ -287,12 +391,20 @@ export function InspectTree({
     setFilters((f) => ({ ...f, [root.id]: q }));
     if (q.trim() === '') return;
     if (root.source === 'local') buildIndex(root);
-    else if (root.source === 'hub') void ensureHub(root); // load the flat list for the exact filter
+    else if (isFolded(root.source)) void ensureFolded(root); // load the flat list for the exact filter
+  }
+
+  // Open a content-search hit (local root) at its line — drives the surface's
+  // existing reveal-scroll via PickResult.revealLine.
+  function openAtLine(root: InspectRoot, rel: string, line: number): void {
+    const abs = joinRel(root.path ?? '', rel);
+    onPick({ source: 'local', kind: kindForInspectFile(extOf(baseName(rel)), ''), title: baseName(rel), path: abs, revealLine: line });
   }
 
   function openFile(root: InspectRoot, node: TreeNode): void {
     const kind = kindForInspectFile(extOf(node.name), '');
     if (root.source === 'remote') onPick({ source: 'remote', kind, title: node.name, path: node.key, hostId: root.hostId });
+    else if (root.source === 'github' || root.source === 'hf') onPick({ source: root.source, kind, title: baseName(node.key), path: node.key, repo: root.repo });
     else if (root.source === 'hub') onPick({ source: 'hub', kind, title: baseName(node.key), path: node.key, projectId: root.projectId });
     else onPick({ source: 'local', kind, title: node.name, path: node.key });
   }
@@ -364,24 +476,43 @@ export function InspectTree({
                     <span className="inspect-tree-name strong">{root.label}</span>
                   )}
                 </button>
+                {gitInfos[root.id]?.isRepo === true && (
+                  <span className="inspect-tree-git small muted" title={`${gitInfos[root.id].branch}${gitInfos[root.id].dirty > 0 ? ` · ${gitInfos[root.id].dirty} changed` : ''}`}>
+                    <Icon name="git-branch" size={11} />
+                    <span className="inspect-tree-git-branch">{gitInfos[root.id].branch}</span>
+                    {gitInfos[root.id].dirty > 0 && <span className="inspect-tree-git-dirty">●{gitInfos[root.id].dirty}</span>}
+                  </span>
+                )}
                 <div className="inspect-tree-rootactions">
+                  {gitInfos[root.id]?.isRepo === true && gitInfos[root.id].dirty > 0 && (
+                    <button className="icon-btn sm" title={t('inspect.diffWorkingTree')} onClick={() => diffWorkingTree(root)}>
+                      <Icon name="git-compare" size={12} />
+                    </button>
+                  )}
                   <button className="icon-btn sm" title={t('inspect.rename')} onClick={() => setRenaming(root.id)}>
                     <Icon name="pen" size={12} />
                   </button>
                   <button className="icon-btn sm" title={t('inspect.refresh')} onClick={() => refreshRoot(root)}>
                     <Icon name="refresh" size={12} />
                   </button>
-                  <button className="icon-btn sm" title={t('inspect.remove')} onClick={() => removeRoot(root.id)}>
+                  <button className="icon-btn sm" title={t('inspect.remove')} onClick={() => (dropRootCaches(root), removeRoot(root.id))}>
                     <Icon name="close" size={12} />
                   </button>
                 </div>
               </div>
+              {gitMsgs[root.id] !== undefined && (
+                <div className="inspect-tree-msg err" style={{ paddingLeft: '8px' }}>
+                  <Icon name="alert" size={12} />
+                  <span className="inspect-tree-name">{gitMsgs[root.id]}</span>
+                </div>
+              )}
               <input
                 className="inspect-tree-filter"
                 placeholder={t('inspect.filterInTree')}
                 value={filters[root.id] ?? ''}
                 onChange={(e) => onFilterChange(root, e.target.value)}
               />
+              {root.source === 'local' && <RootContentSearch root={root} onOpenAt={(rel, line) => openAtLine(root, rel, line)} />}
               {q !== '' ? (
                 <FilterResults
                   root={root}
@@ -389,7 +520,7 @@ export function InspectTree({
                   index={indexes[root.id]}
                   indexBusy={indexBusy.has(root.id)}
                   indexErr={errors[`idx:${root.id}`]}
-                  hubFiles={hubFiles[root.id]}
+                  foldedFiles={foldedFiles[root.id]}
                   loadedMatches={loadedMatches}
                   onOpen={(n) => openFile(root, n)}
                 />
@@ -412,7 +543,7 @@ function FilterResults({
   index,
   indexBusy,
   indexErr,
-  hubFiles,
+  foldedFiles,
   loadedMatches,
   onOpen,
 }: {
@@ -421,7 +552,7 @@ function FilterResults({
   index: { entries: TreeIndexEntry[]; truncated: boolean } | undefined;
   indexBusy: boolean;
   indexErr: string | undefined;
-  hubFiles: TreeNode[] | undefined;
+  foldedFiles: TreeNode[] | undefined;
   loadedMatches: (root: InspectRoot, qLower: string) => TreeNode[];
   onOpen: (node: TreeNode) => void;
 }): JSX.Element {
@@ -429,7 +560,7 @@ function FilterResults({
   const CAP = 500;
   const rootPath = root.path ?? '';
 
-  // Local: recursive index; remote: loaded nodes only; hub: full flat list.
+  // Local: recursive index; remote: loaded nodes only; hub/forge: full flat list.
   const results = useMemo<{ rows: TreeNode[]; capped: boolean; pending: boolean }>(() => {
     if (root.source === 'local') {
       if (index === undefined) return { rows: [], capped: false, pending: true };
@@ -439,14 +570,14 @@ function FilterResults({
         .map((e) => ({ name: e.rel.slice(e.rel.lastIndexOf('/') + 1), key: `${rootPath.replace(/[\\/]+$/, '')}/${e.rel}`, is_dir: false }));
       return { rows, capped: index.truncated || rows.length >= CAP, pending: false };
     }
-    if (root.source === 'hub') {
-      if (hubFiles === undefined) return { rows: [], capped: false, pending: true };
-      const rows = hubFiles.filter((n) => nodeMatches(n, q)).slice(0, CAP);
+    if (root.source === 'hub' || root.source === 'github' || root.source === 'hf') {
+      if (foldedFiles === undefined) return { rows: [], capped: false, pending: true };
+      const rows = foldedFiles.filter((n) => nodeMatches(n, q)).slice(0, CAP);
       return { rows, capped: rows.length >= CAP, pending: false };
     }
     const rows = loadedMatches(root, q);
     return { rows, capped: rows.length >= CAP, pending: false };
-  }, [root, q, index, hubFiles, loadedMatches, rootPath]);
+  }, [root, q, index, foldedFiles, loadedMatches, rootPath]);
 
   if (root.source === 'local' && indexErr !== undefined)
     return (
@@ -462,12 +593,11 @@ function FilterResults({
       </div>
     );
 
-  // Display the path fragment that helps locate a match: the root-relative path
-  // for local (its `key` is an absolute path), the project-relative path for hub
-  // (`key` already is), the basename for remote (only loaded folders, so the
-  // basename is enough).
+  // Display the path fragment that helps locate a match: the repo/project-
+  // relative path for hub + forge (`key` already is), the root-relative path for
+  // local (its `key` is absolute), the basename for remote (only loaded folders).
   const label = (n: TreeNode): string => {
-    if (root.source === 'hub') return n.key;
+    if (root.source === 'hub' || root.source === 'github' || root.source === 'hf') return n.key;
     if (root.source === 'local') {
       const base = rootPath.replace(/[\\/]+$/, '');
       return n.key.startsWith(base) ? n.key.slice(base.length).replace(/^[\\/]/, '') : n.key;
@@ -485,5 +615,78 @@ function FilterResults({
       ))}
       {results.capped && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.searchCapped')}</div>}
     </>
+  );
+}
+
+// ── content search (local roots, T4a) ────────────────────────────────────────
+// A collapsible per-root content search over `tree_search` (literal / regex,
+// capped). A hit opens the file at its line (via `onOpenAt` → PickResult
+// revealLine). Remote/hub/forge roots keep the name filter only (cap discipline).
+function RootContentSearch({ root, onOpenAt }: { root: InspectRoot; onOpenAt: (rel: string, line: number) => void }): JSX.Element {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [regex, setRegex] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ hits: SearchHit[]; truncated: boolean; scanned: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    if (root.path === undefined || q.trim() === '') return;
+    setBusy(true);
+    setErr(null);
+    try {
+      setRes(await treeSearch(root.path, q, { regex }));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setRes(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="inspect-tree-search">
+      <button className="inspect-tree-searchtoggle small muted" onClick={() => setOpen((o) => !o)}>
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={11} />
+        <Icon name="search" size={12} /> {t('inspect.searchContents')}
+      </button>
+      {open && (
+        <>
+          <div className="inspect-tree-searchbar">
+            <input
+              className="inspect-tree-filter"
+              placeholder={t('inspect.searchContentsPlaceholder')}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void run()}
+            />
+            <label className="inspect-tree-searchrx small muted" title={t('inspect.regex')}>
+              <input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> .*
+            </label>
+            <button className="icon-btn sm" title={t('inspect.runSearch')} disabled={busy} onClick={() => void run()}>
+              <Icon name="search" size={12} />
+            </button>
+          </div>
+          {err !== null && (
+            <div className="inspect-tree-msg err" style={{ paddingLeft: '8px' }}>
+              <Icon name="alert" size={12} /> {err}
+            </div>
+          )}
+          {busy && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.searching')}</div>}
+          {res !== null && !busy && res.hits.length === 0 && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.noMatches')}</div>}
+          {res !== null &&
+            res.hits.map((h, i) => (
+              <button key={`${h.rel}:${h.line}:${i}`} className="inspect-tree-hit" onClick={() => onOpenAt(h.rel, h.line)} title={`${h.rel}:${h.line}`}>
+                <span className="inspect-tree-hit-loc small muted">
+                  {h.rel}:{h.line}
+                </span>
+                <span className="inspect-tree-hit-text mono">{h.text}</span>
+              </button>
+            ))}
+          {res !== null && res.truncated && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.searchCapped')}</div>}
+        </>
+      )}
+    </div>
   );
 }

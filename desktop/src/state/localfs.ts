@@ -25,6 +25,14 @@ export interface TreeIndexEntry {
   is_dir: boolean;
 }
 
+/// One content-search hit (`tree_search`): a root-relative path, 1-based line, and
+/// the matching line's (capped) text.
+export interface SearchHit {
+  rel: string;
+  line: number;
+  text: string;
+}
+
 /** The default local directory (the user's home). */
 export function localHome(): Promise<string> {
   return invoke<string>('localfs_home');
@@ -36,6 +44,14 @@ export function localList(path: string): Promise<LocalListing> {
 /** Bounded recursive name-index of a folder (Inspect tree filter; hidden files included, SKIP_DIRS not descended). */
 export function treeIndex(path: string): Promise<{ entries: TreeIndexEntry[]; truncated: boolean }> {
   return invoke<{ entries: TreeIndexEntry[]; truncated: boolean }>('tree_index', { path });
+}
+/** Bounded recursive content search of a folder (Inspect content search; capped, binary + SKIP_DIRS skipped). */
+export function treeSearch(
+  path: string,
+  query: string,
+  opts?: { regex?: boolean; caseSensitive?: boolean; includeSkip?: boolean },
+): Promise<{ hits: SearchHit[]; truncated: boolean; scanned: number }> {
+  return invoke<{ hits: SearchHit[]; truncated: boolean; scanned: number }>('tree_search', { path, query, ...opts });
 }
 /** Read a local file → raw bytes (for upload to remote; no base64 over IPC — §7 row 4). */
 export function localRead(path: string): Promise<Uint8Array> {

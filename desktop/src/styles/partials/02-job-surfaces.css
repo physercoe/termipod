@@ -964,9 +964,29 @@ button > .ui-icon:not(:only-child):first-child,
   cursor: pointer;
   text-align: left;
 }
+.inspect-tree-git {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: var(--spacing-s4);
+}
+.inspect-tree-git-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90px;
+}
+.inspect-tree-git-dirty {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
 .inspect-tree-rootactions {
   display: none;
   gap: 2px;
+  flex: 0 0 auto;
 }
 .inspect-tree-rootrow:hover .inspect-tree-rootactions {
   display: flex;
@@ -1039,12 +1059,105 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s4);
 }
+/* Per-root content search (T4a). */
+.inspect-tree-search {
+  padding: 0 var(--spacing-s8) var(--spacing-s4);
+}
+.inspect-tree-searchtoggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.inspect-tree-searchbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  margin-bottom: var(--spacing-s4);
+}
+.inspect-tree-searchbar .inspect-tree-filter {
+  width: auto;
+  flex: 1;
+  margin: 0;
+}
+.inspect-tree-searchrx {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.inspect-tree-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 3px var(--spacing-s8);
+  cursor: pointer;
+  text-align: left;
+}
+.inspect-tree-hit:hover {
+  background: var(--hover);
+}
+.inspect-tree-hit-loc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.inspect-tree-hit-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: var(--font-size-body-small);
+}
 .inspect-tree-msg.err {
   color: var(--danger);
   white-space: normal;
 }
 .icon-btn.sm {
   padding: 2px;
+}
+
+/* ── Inspect add-repo dialog (round-3 T3) ───────────────────────────────── */
+.inspect-repoadd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s12) var(--spacing-s16) var(--spacing-s16);
+}
+.inspect-repoadd-forge {
+  display: flex;
+  gap: var(--spacing-s6);
+}
+.inspect-repoadd-label {
+  margin-top: var(--spacing-s4);
+}
+.inspect-repoadd-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.inspect-repoadd-err {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  white-space: normal;
+}
+.inspect-repoadd-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--spacing-s4);
 }
 .inspect-tabs {
   display: flex;
@@ -1945,6 +2058,13 @@ button > .ui-icon:not(:only-child):first-child,
   padding: var(--spacing-s8) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+}
+/* §5a config-only architecture view: the "no weights read" caveat row. */
+.modelview-confignote {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s12);
 }
 .modelview-fmt {
   text-transform: uppercase;

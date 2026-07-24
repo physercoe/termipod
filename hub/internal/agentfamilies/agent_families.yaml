@@ -155,6 +155,25 @@ families:
               is_using_overage: "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage"
               reason:           "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason"
 
+        # ── system.subtype = task_progress  →  system (compact) ────
+        # claude-code 2.1.x fires task_progress per tool-use inside
+        # background/subagent tasks; the full frame carries
+        # uuid/session_id/usage noise that dumped raw on mobile
+        # (#374). Compact to the fields the one-liner needs; text
+        # mirrors description so collapsed previews + copy read the
+        # human line. Two-key match beats the generic system rule
+        # below (most-specific wins).
+        - match: { type: system, subtype: task_progress }
+          emit:
+            kind: system
+            producer: agent
+            payload:
+              subtype:        "$.subtype"
+              task_id:        "$.task_id"
+              description:    "$.description"
+              last_tool_name: "$.last_tool_name"
+              text:           "$.description"
+
         # ── system (any other subtype)  →  system ────────────────
         # task_started / task_updated / task_notification all land
         # here and are folded by the mobile _systemBody renderer

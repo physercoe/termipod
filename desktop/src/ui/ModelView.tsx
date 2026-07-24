@@ -7,6 +7,7 @@ import {
   buildTree,
   classifyArch,
   collapseRepeats,
+  estimateParamsFromConfig,
   humanBytes,
   humanCount,
   TEMPLATE_LABEL,
@@ -17,7 +18,8 @@ import {
 } from '../state/checkpoint';
 import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram } from '../state/vram';
 import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph';
-import { useInspect } from '../state/inspect';
+import { useInspect, type InspectTab } from '../state/inspect';
+import { readRef } from '../state/inspectSources';
 
 function dirOf(p: string): string {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
@@ -115,6 +117,73 @@ function ArchCardView({ card }: { card: ArchCard }): JSX.Element {
   );
 }
 
+/// Config-only architecture view (round-3 §5a): an HF release is fully
+/// describable **without its weights** — `config.json` carries the architecture.
+/// This renders the same `ArchCardView` from a parsed config alone (no
+/// `CheckpointInfo`, no tensor tree/table), reachable from **every** source
+/// (local / workspace / remote / hub / github / hf) since it only needs the text
+/// the tab already read. When a sibling `model.safetensors.index.json` is
+/// readable from the same source, its tensor-name map corroborates MoE/MLA and
+/// its `total_size` gives the weights figure — still without reading a weight.
+export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab; config: Record<string, unknown>; onViewSource: () => void }): JSX.Element {
+  const t = useT();
+  const [tensorNames, setTensorNames] = useState<string[]>([]);
+  const [totalSize, setTotalSize] = useState<number | null>(null);
+
+  // Best-effort sibling index.json corroboration from the same source.
+  useEffect(() => {
+    if (tab.path === undefined) return;
+    let cancelled = false;
+    const idxPath = join(dirOf(tab.path), 'model.safetensors.index.json');
+    void readRef({ source: tab.source, title: 'index', path: idxPath, hostId: tab.hostId, projectId: tab.projectId, repo: tab.repo }, `insp-${tab.id}-idx`)
+      .then((txt) => {
+        if (cancelled) return;
+        const j = JSON.parse(txt) as { weight_map?: Record<string, string>; metadata?: { total_size?: number } };
+        setTensorNames(Object.keys(j.weight_map ?? {}));
+        const size = j.metadata?.total_size;
+        if (typeof size === 'number') setTotalSize(size);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  const card = useMemo<ArchCard | null>(() => classifyArch({ config, tensorNames }), [config, tensorNames]);
+  // Analytic param count from the config (dense/GQA/MoE); null for MLA or when a
+  // field is missing. Approximate — feeds the VRAM estimator, badged as such.
+  const params = useMemo(() => estimateParamsFromConfig(config), [config]);
+
+  return (
+    <div className="modelview">
+      <div className="modelview-summary">
+        <span className="modelview-fmt">config</span>
+        <span className="small muted">{t('model.configOnly')}</span>
+        {params !== null && (
+          <span className="modelview-stat" title={t('model.paramsApproxNote')}>
+            <span className="modelview-stat-v">≈{humanCount(params)}</span> <span className="small muted">{t('model.paramsApprox')}</span>
+          </span>
+        )}
+        {totalSize !== null && (
+          <span className="modelview-stat">
+            <span className="modelview-stat-v">{humanBytes(totalSize)}</span> <span className="small muted">{t('model.weightsFromIndex')}</span>
+          </span>
+        )}
+        <span className="spacer" />
+        <button className="import-btn" onClick={onViewSource}>
+          <Icon name="code" size={13} /> {t('inspect.viewSource')}
+        </button>
+      </div>
+      {card !== null ? <ArchCardView card={card} /> : <div className="muted region-pad">{t('model.notAConfig')}</div>}
+      {params !== null && <VramCard totalParams={params} dtypeHist={{}} card={card} config={config} />}
+      <div className="modelview-confignote small muted">
+        <Icon name="alert" size={13} /> {t('model.configOnlyNote')}
+      </div>
+    </div>
+  );
+}
+
 // Precision options as bytes-per-weight (the only thing that matters for the
 // weights term); fp16/bf16 collapse to one 2-byte button.
 const PRECISIONS: Array<{ label: string; bytes: number }> = [
@@ -131,23 +200,35 @@ const ctxLabel = (n: number): string => (n >= 1024 ? `${n / 1024}K` : String(n))
 /// KV cache (GQA or the compressed MLA latent) + a rough activation term, live on
 /// batch/context/precision. An approximation — real runtimes add framework
 /// overhead and fragmentation on top.
-function VramCard({ info, card, config }: { info: CheckpointInfo; card: ArchCard | null; config: Record<string, unknown> | null }): JSX.Element {
+function VramCard({
+  totalParams,
+  dtypeHist,
+  metadata,
+  card,
+  config,
+}: {
+  totalParams: number;
+  dtypeHist: Record<string, number>;
+  metadata?: Record<string, string | number>;
+  card: ArchCard | null;
+  config: Record<string, unknown> | null;
+}): JSX.Element {
   const t = useT();
-  const [bytes, setBytes] = useState<number>(() => DTYPE_BYTES[defaultServingDtype(info.dtypeHistogram)]);
+  const [bytes, setBytes] = useState<number>(() => DTYPE_BYTES[defaultServingDtype(dtypeHist)]);
   const [batch, setBatch] = useState(1);
   const [context, setContext] = useState(8192);
 
   const est = useMemo(() => {
     const inputs = deriveVramInputs({
-      totalParams: info.totalParams,
+      totalParams,
       weightBytes: bytes,
       template: card?.template ?? 'unknown',
       card,
       config,
-      metadata: info.metadata,
+      metadata,
     });
     return estimateVram(inputs, { batch, context, kvBytes: 2 });
-  }, [info, card, config, bytes, batch, context]);
+  }, [totalParams, metadata, card, config, bytes, batch, context]);
 
   const total = est.totalBytes;
   const seg = (v: number): string => (total > 0 ? `${(v / total) * 100}%` : '0%');
@@ -396,7 +477,7 @@ export function ModelView({ path }: { path: string }): JSX.Element {
       </div>
       {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}
-      <VramCard info={info} card={card} config={config} />
+      <VramCard totalParams={info.totalParams} dtypeHist={info.dtypeHistogram} metadata={info.metadata} card={card} config={config} />
       <div className="modelview-split">
         <div className="modelview-tree">
           <div className="modelview-pane-head small muted">

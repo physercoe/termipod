@@ -139,6 +139,105 @@ export async function walkNameIndex(root: string, maxDepth: number, maxEntries: 
   return { entries: out, truncated };
 }
 
+/// One content-search hit: a root-relative path, the 1-based line number, and
+/// the matching line's text (capped).
+export interface SearchHit {
+  rel: string;
+  line: number;
+  text: string;
+}
+
+const SEARCH_MAX_FILE = 1024 * 1024; // ≤1 MB per file read
+const SEARCH_SNIFF = 8 * 1024; // NUL in the first 8 KB → treat as binary, skip
+const SEARCH_LINE_CAP = 400; // trim a matching line to this many chars
+// Only the first N chars of a line are TESTED. This runs in the main process,
+// and a user regex over an unbounded line (a minified bundle is one multi-MB
+// line) can hang the whole app on catastrophic backtracking — bounding the
+// input bounds the damage. Matches past the cap are missed (documented).
+const SEARCH_TEST_CAP = 2000;
+
+/// Bounded recursive **content search** of `root` (Inspect T4a). Literal
+/// substring or regex, streamed directory walk with hard caps — every one
+/// surfaced via `truncated` so a capped search never reads as "covered
+/// everything". Skips `SKIP_DIRS` by default, files over 1 MB, and binary files
+/// (a NUL in the first 8 KB). Returns hits in a deterministic path order.
+export async function searchTree(
+  root: string,
+  opts: { query: string; regex?: boolean; caseSensitive?: boolean; includeSkip?: boolean; maxHits?: number; maxFiles?: number; maxDepth?: number },
+): Promise<{ hits: SearchHit[]; truncated: boolean; scanned: number }> {
+  const rootStat = await stat(root).catch(() => null);
+  if (rootStat === null || !rootStat.isDirectory()) throw new Error(`not a folder: ${root}`);
+  if (opts.query === '') return { hits: [], truncated: false, scanned: 0 };
+
+  const maxHits = opts.maxHits ?? 500;
+  const maxFiles = opts.maxFiles ?? 20_000;
+  const maxDepth = opts.maxDepth ?? 24;
+
+  let re: RegExp | null = null;
+  if (opts.regex === true) {
+    try {
+      re = new RegExp(opts.query, opts.caseSensitive === true ? '' : 'i');
+    } catch {
+      throw new Error(`invalid regular expression: ${opts.query}`);
+    }
+  }
+  const needle = opts.caseSensitive === true ? opts.query : opts.query.toLowerCase();
+  const matches = (raw: string): boolean => {
+    const line = raw.length > SEARCH_TEST_CAP ? raw.slice(0, SEARCH_TEST_CAP) : raw;
+    return re !== null ? re.test(line) : (opts.caseSensitive === true ? line : line.toLowerCase()).includes(needle);
+  };
+
+  const hits: SearchHit[] = [];
+  let truncated = false;
+  let scanned = 0;
+
+  const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
+    if (truncated) return;
+    const names = (await readdir(dir).catch(() => [] as string[])).sort();
+    for (const name of names) {
+      if (hits.length >= maxHits || scanned >= maxFiles) {
+        truncated = true;
+        return;
+      }
+      const full = path.join(dir, name);
+      const md = await stat(full).catch(() => null);
+      if (md === null) continue;
+      const childRel = rel === '' ? name : `${rel}/${name}`;
+      if (md.isDirectory()) {
+        if (opts.includeSkip !== true && SKIP_DIRS.has(name)) continue;
+        if (depth + 1 > maxDepth) {
+          truncated = true;
+          continue;
+        }
+        await walk(full, childRel, depth + 1);
+        if (truncated) return;
+        continue;
+      }
+      if (md.size === 0 || md.size > SEARCH_MAX_FILE) continue; // skip empty + over-cap files
+      scanned += 1;
+      const buf = await readFile(full).catch(() => null);
+      if (buf === null) continue;
+      let binary = false;
+      for (let i = 0; i < Math.min(buf.length, SEARCH_SNIFF); i += 1)
+        if (buf[i] === 0) {
+          binary = true;
+          break;
+        }
+      if (binary) continue;
+      const lines = buf.toString('utf8').split('\n');
+      for (let i = 0; i < lines.length; i += 1) {
+        if (hits.length >= maxHits) {
+          truncated = true;
+          break;
+        }
+        if (matches(lines[i])) hits.push({ rel: childRel, line: i + 1, text: lines[i].slice(0, SEARCH_LINE_CAP) });
+      }
+    }
+  };
+  await walk(root, '', 0);
+  return { hits, truncated, scanned };
+}
+
 /// dirs-first, then case-insensitive alphabetical (the ordering every listing
 /// uses). Sorts in place; `dir` reads whether the entry is a directory.
 export function sortDirsFirst<T>(entries: T[], dir: (e: T) => boolean, name: (e: T) => string): void {

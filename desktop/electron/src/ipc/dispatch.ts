@@ -19,6 +19,8 @@ import { logfileHandlers } from './logfile';
 import { checkpointHandlers } from './checkpointfile';
 import { localfsHandlers } from './localfs';
 import { workspaceHandlers } from './workspace';
+import { forgeHandlers } from './forge';
+import { gitHandlers } from './git';
 import { storageHandlers } from './storage';
 import { keychainHandlers } from './keychain';
 import { ptyHandlers } from './pty';
@@ -52,6 +54,8 @@ const handlers: Record<string, Handler> = {
   ...checkpointHandlers,
   ...localfsHandlers,
   ...workspaceHandlers,
+  ...forgeHandlers,
+  ...gitHandlers,
   ...storageHandlers,
   ...keychainHandlers,
   ...ptyHandlers,

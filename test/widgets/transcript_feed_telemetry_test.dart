@@ -92,4 +92,53 @@ void main() {
     expect(t.sessionCostUsdImputed, isNull);
     expect(t.hasTelemetry, false);
   });
+
+  // #374 — kimi M4 wire-tail stamps subagent emissions with
+  // subagent:true. Their terminal + usage frames meter the subagent's
+  // inner loop, not the session's turn; the strip must ignore them.
+  test('kimi subagent turn.result does not inflate the turns chip', () {
+    final t = FeedTelemetry.fromEvents([
+      _ev('turn.result', {'reason': 'end_of_turn', 'status': 'success'}),
+      _ev('turn.result', {
+        'reason': 'end_of_turn',
+        'status': 'success',
+        'subagent': true,
+        'kimi_agent_id': 'agent-9',
+      }),
+    ], null);
+    expect(t.turnCount, 1);
+  });
+
+  test('kimi subagent usage does not clobber the main agent chips', () {
+    final t = FeedTelemetry.fromEvents([
+      _ev('usage', {
+        'input_tokens': 100,
+        'output_tokens': 10,
+        'model': 'kimi-k2',
+      }),
+      _ev('usage', {
+        'input_tokens': 999999,
+        'output_tokens': 88,
+        'subagent': true,
+      }),
+    ], null);
+    // Latest-wins per-message snapshot must stay the main agent's.
+    expect(t.modelTotals['kimi-k2']?.latestInput, 100);
+    expect(t.modelTotals['kimi-k2']?.output, 10);
+  });
+
+  test('subagent-only cumulative usage yields no telemetry', () {
+    final t = FeedTelemetry.fromEvents([
+      _ev('usage', {
+        'cumulative': true,
+        'engine': 'kimi-code',
+        'context_window': 262144,
+        'total_tokens': 5000,
+        'subagent': true,
+      }),
+    ], null);
+    expect(t.latestContextWindow, isNull);
+    expect(t.modelTotals, isEmpty);
+    expect(t.hasTelemetry, false);
+  });
 }

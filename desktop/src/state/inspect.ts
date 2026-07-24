@@ -20,7 +20,17 @@ import { looksLikeDot } from './dotGraph';
 /// never copied into `localStorage`.
 
 export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph';
-export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub';
+export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub' | 'github' | 'hf';
+
+/// A pinned forge snapshot (round-3 T3). `id` is `owner/repo` (GitHub) or the
+/// model id (Hugging Face); `ref` is the human ref (branch / tag), `sha` the
+/// resolved immutable commit — every tree + blob read uses the sha, so a moving
+/// branch can't tear a tree mid-read.
+export interface ForgeRepo {
+  id: string;
+  ref: string;
+  sha: string;
+}
 
 /// A reference to one readable source — the two sides of a two-blob compare
 /// tab (W2, tier 2). Mirrors the file-locating fields of a tab; `body` carries an
@@ -31,6 +41,8 @@ export interface InspectRef {
   path?: string;
   hostId?: string;
   projectId?: string;
+  /// For a `github`/`hf` ref: the pinned forge snapshot the path is read from.
+  repo?: ForgeRepo;
   lang?: string;
   body?: string;
 }
@@ -46,6 +58,8 @@ export interface InspectTab {
   hostId?: string;
   /// The hub project id, for a `hub` tab.
   projectId?: string;
+  /// The pinned forge snapshot, for a `github`/`hf` tab.
+  repo?: ForgeRepo;
   /// A language-mode override (else inferred from the path / content).
   lang?: string;
   /// For a two-blob **compare** tab (kind `diff`): the two sides. When both are
@@ -53,6 +67,12 @@ export interface InspectTab {
   /// viewer; the tab's own `source`/content are then unused.
   left?: InspectRef;
   right?: InspectRef;
+  /// Never persisted (neither the tab nor its body). For paste-source tabs
+  /// whose body is bulky and reproducible — e.g. the git lens's working-tree
+  /// diff (up to 24 MB, vs the ~5 MB whole-app localStorage quota): persisting
+  /// one would make the debounced write throw and silently wedge persistence
+  /// for EVERY tab until the app restarts.
+  ephemeral?: boolean;
 }
 
 // Extension → kind dispatch, mirroring `documents.ts kindForFile` in spirit. A
@@ -152,9 +172,14 @@ function writeNow(): void {
   pending = null;
 }
 function persist(s: Pick<InspectState, 'tabs' | 'activeId' | 'content'>): void {
+  // Ephemeral tabs are dropped wholesale (tab + body); if the active tab is
+  // ephemeral, fall back to the last persistable tab so the restored activeId
+  // never dangles.
+  const tabs = s.tabs.filter((t) => t.ephemeral !== true);
+  const activeId = tabs.some((t) => t.id === s.activeId) ? s.activeId : (tabs[tabs.length - 1]?.id ?? null);
   const paste: Record<string, string> = {};
-  for (const t of s.tabs) if (t.source === 'paste') paste[t.id] = s.content[t.id] ?? '';
-  pending = { tabs: s.tabs, activeId: s.activeId, paste };
+  for (const t of tabs) if (t.source === 'paste') paste[t.id] = s.content[t.id] ?? '';
+  pending = { tabs, activeId, paste };
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = undefined;
@@ -172,7 +197,14 @@ export const useInspect = create<InspectState>((set, get) => ({
     // Focus an already-open file-backed tab instead of duplicating it.
     if (tab.source !== 'paste') {
       const existing = get().tabs.find(
-        (t) => t.kind === tab.kind && t.source === tab.source && t.path === tab.path && t.hostId === tab.hostId && t.projectId === tab.projectId,
+        (t) =>
+          t.kind === tab.kind &&
+          t.source === tab.source &&
+          t.path === tab.path &&
+          t.hostId === tab.hostId &&
+          t.projectId === tab.projectId &&
+          t.repo?.id === tab.repo?.id &&
+          t.repo?.sha === tab.repo?.sha,
       );
       if (existing) {
         set({ activeId: existing.id });

@@ -1,16 +1,22 @@
 # Inspect tab round 3 — project trees: folders, remote dirs, hub projects & GitHub repos
 
 > **Type:** plan
-> **Status:** In progress (2026-07-24) — **T1 (local folder roots) + T2
-> (remote SFTP & hub-project roots) SHIPPED.** The pane, the `inspectRoots`
-> store, the `tree_index` name-index IPC, the source-agnostic tree model
-> (`state/inspectTree.ts` fold + filter), the browse-then-pin flows, and the
-> fed-back features (stack-trace resolver + trace repo-root default) are live;
-> the model-inspector gate reads `local | workspace`. **T3 (GitHub/HF +
-> §5a config-only view) and T4 (content search + git lens) are the remaining
-> wedges.**
+> **Status:** Done (2026-07-24) — **all wedges shipped: T1 (local) · T2
+> (remote/hub) · T3 (GitHub + Hugging Face) · §5a (config-only architecture
+> view) · T4 (content search + local git lens).** Local/remote/hub/GitHub/HF
+> roots browse through one folded tree model; the forge substrate
+> (`state/forge.ts` + `state/forgeUrl.ts` + the proxy-aware `forge_fetch` IPC,
+> `github`/`hf` `InspectSource` members + `repo` snapshot, vault token) serves
+> both forges; a `config.json` from any source flips to the ArchCard; local
+> roots have capped content search (`tree_search`) + a read-only git lens
+> (`git_info`/`git_diff`); the config-only view now estimates params + VRAM from
+> config math (`estimateParamsFromConfig` — dense/GQA/MLA attention + dense/MoE
+> FFN, covering the mainstream OSS decoder shapes); the forge read path has an
+> e2e loopback test (§5.9 — base-URL override + `forge_fetch` loopback-http).
+> **Recorded, not built:** remote/hub/GitHub server-side content search; §8 open
+> questions.
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9baaa07f` (+ T1, T2)
+> **Last verified vs code:** origin/main `9baaa07f` (+ T1–T4, §5a + params)
 
 **TL;DR.** The Inspect tab (J3 round 2,
 [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)) opens
@@ -175,7 +181,8 @@ The shell wedge; everything later hangs off it.
    gate to `local | workspace`.
 8. **e2e**: real temp directory fixture — no native-dialog mocking needed
    (the §7a recorded gap does not apply; roots can be seeded through the
-   store for tests).
+   store for tests). *Status:* not yet delivered — T1 shipped unit coverage
+   (walk caps, roots helpers) but no tree e2e; pending alongside §5.9's.
 
 ## 4. T2 — Remote (SFTP) and hub-project roots
 
@@ -219,12 +226,17 @@ noted (§5.1).
    side; display cap 50 k entries with a truncation banner. If the API sets
    `truncated: true`, degrade to per-directory expansion via
    `GET /repos/{o}/{r}/contents/{path}?ref={sha}` — same lazy shape as local.
+   *Shipped deviation (T3a):* flag-only — a truncated tree shows the banner
+   but does **not** fall back to per-directory expansion; the fallback is a
+   recorded follow-up (repos past ~50 k entries browse truncated).
 4. **Blob reads.** `readFrom` `'github'` arm: `GET …/contents/{path}?ref={sha}`
    with `Accept: application/vnd.github.raw+json` (works for public and
    private with one code path). **Size cap ~2 MB** — larger files render a
    "too large — N MB" placard instead of fetching (the "no uncapped reads"
-   anchor applied to the network). In-memory blob cache per root (tab
-   re-activate re-reads are frequent), dropped with the root.
+   anchor applied to the network). In-memory blob cache (tab re-activate
+   re-reads are frequent): shipped as a small bounded cache keyed by the
+   pinned SHA — content at a SHA is immutable, so entries never go stale and
+   need bounding, not invalidation.
 5. **Fetch venue.** Shell: a thin `gh_fetch` main-process IPC over the
    existing proxy-aware `fetchWith` (`ipc/net.ts`) — GitHub must honour the
    app proxy like every other outbound transport (the ADR-055 M4 paydown
@@ -251,7 +263,9 @@ noted (§5.1).
    the source module isolates the seam), PR/issue metadata, commit history
    browsing, git clone (no local git dependency, no write surface, no
    credential helper integration — the API path needs none of it).
-9. **e2e**: API base URL overridable (env/setting) → Playwright loopback
+9. **e2e** (*not yet delivered — pending with §3 item 8's; unit tests cover
+   URL parsing and the config classifier*): API base URL overridable
+   (env/setting) → Playwright loopback
    stand-in serving canned tree/blob JSON (the PR #373 webtab e2e pattern);
    pins URL-parsing, SHA-pinning, truncation, and the size-cap placard
    without network.
@@ -272,6 +286,10 @@ architecture view land where the configs actually live:
   cap; weight files (`.safetensors`/`.bin`/`.gguf`/`.pt`) are listed with
   their sizes but are **never fetched** — they render an info row (name,
   size, and the §5a index/config-derived facts), not a download.
+  *Shipped deviation (T3b):* never-fetched holds (a weight click opens the
+  model kind's local-only placard, which reads no bytes), but the info row —
+  and sizes in the tree, which `foldHubDocs` currently drops — are a
+  recorded follow-up.
 - **Auth**: HF token in the vault (gated/private repos); anonymous works for
   public repos. CORS-open on both API and resolve endpoints, so the
   browser-degrade build works like GitHub's.
@@ -330,9 +348,15 @@ reverse), so a weightless HF repo shows a plain JSON code tab.
    (`git status --porcelain=v2 --branch` via a small `git_info` IPC using
    `execFile`; **system git required, feature hidden when absent** — no
    bundled git, no libgit2 dependency). One action: "Diff working tree" →
-   `git diff` output opened as a standard `diff`-kind tab in the existing
-   patch viewer. No staging, no commit, no log walking — the read-only
-   posture (§0) holds. This is the wedge that serves "inspect the repo an
+   `git diff` output opened in the existing patch viewer as an **ephemeral**
+   (never-persisted) `diff`-kind tab — the diff cap (24 MB) dwarfs the
+   whole-app localStorage quota, so a persisted body would wedge tab
+   persistence wholesale. Diff failures and the untracked-only empty diff
+   are surfaced under the root row. No staging, no commit, no log walking —
+   the read-only posture (§0) holds. (§6.1 note: search matching tests only
+   the first 2000 chars of a line — a main-process regex over an unbounded
+   line is a backtracking hang risk; matches past the cap are missed,
+   documentedly.) This is the wedge that serves "inspect the repo an
    agent is working in right now".
 
 ## 7. Sequencing & review anchors

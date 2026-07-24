@@ -235,6 +235,20 @@ func TestMapper_StepEndTurnResult(t *testing.T) {
 	}
 }
 
+// A subagent's end_turn must NOT surface turn.result (#374): every
+// consumer of that kind assumes the session's own turns — the hub
+// digest closes the single open turn on it (shutting the MAIN turn
+// early), mobile's turns chip counted it, and the busy-walker
+// flickered idle mid-main-turn. The main agent's own end_turn still
+// lands when its delegating Agent tool.call completes.
+func TestMapper_StepEndTurnResult_SubagentDrops(t *testing.T) {
+	m := NewMapper("agent-9", "main", "")
+	end := mustMap(t, m, `{"type":"context.append_loop_event","event":{"type":"step.end","uuid":"s2","turnId":"0","step":5,"finishReason":"end_turn"},"time":2}`)
+	if len(end) != 0 {
+		t.Fatalf("subagent end_turn should drop; got %+v", end)
+	}
+}
+
 // permission.record_approval_result → approval_result (NOT
 // approval_request — the wire only carries the post-hoc decision, and
 // the request kind would park a fake actionable card on the clients).

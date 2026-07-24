@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
+import { parseHfConfig } from '../state/checkpoint';
 import { useInspectRoots } from '../state/inspectRoots';
 import { looksLikeDot } from '../state/dotGraph';
 import type { GraphCollection } from '../state/modelGraph';
@@ -24,6 +25,7 @@ import { usePanelWidth, ResizeHandle } from '../ui/ResizeHandle';
 import type { LogSource } from '../ui/LogView';
 import { InspectOpenDialog, type OpenMode, type PickResult, type PinRoot } from './InspectOpen';
 import { InspectTree } from './InspectTree';
+import { InspectRepoAddDialog } from './InspectRepoAdd';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
@@ -38,6 +40,9 @@ const LogView = lazy(() => import('../ui/LogView').then((m) => ({ default: m.Log
 // W4 — the checkpoint inspector (@huggingface/gguf runs main-side; this chunk is
 // the UI) is loaded the first time a model tab renders.
 const ModelView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ModelView })));
+// §5a — the config-only architecture view (ArchCard from a parsed config alone,
+// any source), its own lazy chunk shared with ModelView.
+const ConfigArchView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ConfigArchView })));
 // The Graphviz DOT viewer — the wasm engine loads on first render (its own chunk).
 const DotGraphView = lazy(() => import('../ui/DotGraphView').then((m) => ({ default: m.DotGraphView })));
 // The interactive Model Explorer WebGL graph — the 2.5 MB element + worker load on
@@ -294,7 +299,9 @@ function CodeTab({
   const isCallable = isShell() && ((langId !== undefined && CALLGRAPH_LANGS.has(langId)) || CALLGRAPH_EXTS.has(extOf(tab.path ?? '').toLowerCase()));
   // A file-backed Python module can be read into a class-composition graph (W4b).
   const isModeling = isPython && tab.path !== undefined;
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable;
+  // §5a — a transformers config.json (any source) can flip to the architecture card.
+  const isHfConfig = !isPatch && !isDot && !isLog && parseHfConfig(body) !== null;
+  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable || isHfConfig;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -326,6 +333,11 @@ function CodeTab({
           {isDot && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'graph')}>
               <Icon name="diagram" size={14} /> {t('inspect.viewAsGraph')}
+            </button>
+          )}
+          {isHfConfig && (
+            <button className="import-btn" onClick={() => setKind(tab.id, 'model')}>
+              <Icon name="sliders" size={14} /> {t('model.viewArch')}
             </button>
           )}
           {isPython && (
@@ -559,6 +571,19 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
 // follow-on (they'd need an SFTP header-fetch), so those show an honest note.
 function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const setKind = useInspect((s) => s.setKind);
+  // §5a — a model tab flipped from a JSON config code tab (any source) renders
+  // the config-only architecture view from the text already in the store; no
+  // `checkpoint_inspect`, no local path required.
+  const cfg = useMemo(() => parseHfConfig(content), [content]);
+  if (cfg !== null) {
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+        <ConfigArchView tab={tab} config={cfg} onViewSource={() => setKind(tab.id, 'code')} />
+      </Suspense>
+    );
+  }
   // `checkpoint_inspect` is by local absolute path — a `workspace` tab has one
   // too (the walk returns absolute paths), so it inspects just like `local`. The
   // gate reads "the path is local", not "picked via the native dialog".
@@ -717,6 +742,7 @@ export function DebugSurface(): JSX.Element {
   const [menu, setMenu] = useState(false);
   const [cmpMenu, setCmpMenu] = useState(false);
   const [dialog, setDialog] = useState<OpenMode | null>(null);
+  const [repoDialog, setRepoDialog] = useState(false);
   // When set, the next file/tab the user picks becomes side B of a compare tab
   // whose side A is this base tab (W2 tier 2).
   const [cmpBase, setCmpBase] = useState<InspectTab | null>(null);
@@ -773,6 +799,7 @@ export function DebugSurface(): JSX.Element {
       path: tb.path,
       hostId: tb.hostId,
       projectId: tb.projectId,
+      repo: tb.repo,
       lang: tb.lang ?? langFromPath(tb.path),
       body: tb.source === 'paste' ? (useInspect.getState().content[tb.id] ?? '') : undefined,
     };
@@ -818,10 +845,11 @@ export function DebugSurface(): JSX.Element {
   // side B of a compare against the base tab.
   function pick(r: PickResult): void {
     if (cmpBase !== null) {
-      makeCompare({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, lang: langFromPath(r.path) });
+      makeCompare({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo, lang: langFromPath(r.path) });
       return;
     }
-    openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId });
+    const id = openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo });
+    if (r.revealLine !== undefined) setReveal((m) => ({ ...m, [id]: r.revealLine! }));
     setDialog(null);
   }
 
@@ -915,6 +943,9 @@ export function DebugSurface(): JSX.Element {
                       <Icon name="cloud" size={14} /> {t('inspect.fromHub')}
                     </button>
                   )}
+                  <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setRepoDialog(true))}>
+                    <Icon name="git-branch" size={14} /> {t('inspect.fromRepo')}
+                  </button>
                 </div>
               </>
             )}
@@ -966,7 +997,13 @@ export function DebugSurface(): JSX.Element {
       <div className="inspect-shell">
         {treeOpen && roots.length > 0 && (
           <>
-            <InspectTree width={treeW} onPick={pick} onAddFolder={() => void openFolder()} onClose={() => setTree(false)} />
+            <InspectTree
+              width={treeW}
+              onPick={pick}
+              onAddFolder={() => void openFolder()}
+              onClose={() => setTree(false)}
+              onOpenPatch={(title, patch) => openTab({ kind: 'diff', source: 'paste', title, ephemeral: true }, patch)}
+            />
             <ResizeHandle onResize={onResizeTree} />
           </>
         )}
@@ -1049,6 +1086,7 @@ export function DebugSurface(): JSX.Element {
           </div>
         )}
         {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} onPinRoot={pinRoot} />}
+        {repoDialog && <InspectRepoAddDialog onClose={() => setRepoDialog(false)} onAdd={(r) => (pinRoot(r), setRepoDialog(false))} />}
       </div>
     </WorkbenchSurface>
   );

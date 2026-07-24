@@ -351,3 +351,48 @@ func TestDigestTurnStartAdoptsSyntheticTurn(t *testing.T) {
 		t.Errorf("end_seq/status = %d/%q, want 4/success", got.EndSeq, got.Status)
 	}
 }
+
+// TestDigestSubagentTerminalDoesNotCloseMainTurn pins the #374 guard:
+// kimi M4 wire-tail stamps subagent emissions with subagent:true. A
+// subagent's turn.result must neither count as a session turn nor
+// close the main agent's open turn; its usage frames must not fold
+// into the main turn's token estimate.
+func TestDigestSubagentTerminalDoesNotCloseMainTurn(t *testing.T) {
+	events := []foldEvent{
+		{Seq: 1, Kind: "input.text", TS: "2026-06-02T00:00:00Z", Producer: "user",
+			Payload: map[string]any{"text": "delegate"}},
+		{Seq: 2, Kind: "turn.start", TS: "2026-06-02T00:00:01Z", Producer: "agent",
+			Payload: map[string]any{"turn_id": "t1"}},
+		{Seq: 3, Kind: "tool_call", TS: "2026-06-02T00:00:02Z", Producer: "agent",
+			Payload: map[string]any{"id": "call-1", "name": "Agent"}},
+		// The delegated subagent works, then its wire reports end_turn.
+		{Seq: 4, Kind: "text", TS: "2026-06-02T00:00:03Z", Producer: "agent",
+			Payload: map[string]any{
+				"text": "sub report", "subagent": true, "kimi_agent_id": "agent-9"}},
+		{Seq: 5, Kind: "usage", TS: "2026-06-02T00:00:04Z", Producer: "agent",
+			Payload: map[string]any{
+				"input_tokens": 999, "output_tokens": 88, "subagent": true}},
+		{Seq: 6, Kind: "turn.result", TS: "2026-06-02T00:00:05Z", Producer: "agent",
+			Payload: map[string]any{
+				"reason": "end_of_turn", "status": "success", "subagent": true}},
+		// The main agent's own end_turn lands when its Agent call completes.
+		{Seq: 7, Kind: "turn.result", TS: "2026-06-02T00:00:06Z", Producer: "agent",
+			Payload: map[string]any{"reason": "end_of_turn", "status": "success"}},
+	}
+	d, turns := computeAgentDigest("a", "t", events)
+	if d.TurnCount != 1 {
+		t.Errorf("turn_count = %d, want 1 (subagent terminal not counted)", d.TurnCount)
+	}
+	if len(turns) != 1 {
+		t.Fatalf("len(turns) = %d, want 1 (main turn not closed early); got %+v",
+			len(turns), turns)
+	}
+	got := turns[0]
+	if got.TurnID != "t1" || got.EndSeq != 7 {
+		t.Errorf("turn = id %q end_seq %d, want t1/7", got.TurnID, got.EndSeq)
+	}
+	if got.InTokens != 0 || got.OutTokens != 0 {
+		t.Errorf("turn tokens = %d/%d, want 0/0 (subagent usage skipped)",
+			got.InTokens, got.OutTokens)
+	}
+}

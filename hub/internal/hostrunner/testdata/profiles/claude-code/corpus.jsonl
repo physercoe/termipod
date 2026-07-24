@@ -3,6 +3,7 @@
 {"type":"system","subtype":"task_started","task_id":"brgb0gz57","agent":"researcher","description":"investigate stale sessions"}
 {"type":"system","subtype":"task_updated","task_id":"brgb0gz57","patch":{"is_backgrounded":true}}
 {"type":"system","subtype":"task_notification","task_id":"brgb0gz57","message":"agent paused for input"}
+{"type":"system","subtype":"task_progress","task_id":"brgb0gz57","tool_use_id":"toolu_9","description":"investigate stale sessions","last_tool_name":"Bash","usage":{"total_tokens":1234,"tool_uses":3,"duration_ms":9000},"uuid":"u-9","session_id":"sess-abc"}
 {"type":"rate_limit_event","rateLimitType":"5h","status":"warn","resetsAt":"2026-04-29T13:00:00Z"}
 {"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"five_hour","status":"allowed","resetsAt":1777443000,"overageDisabledReason":"org_level_disabled_until","isUsingOverage":false}}
 {"type":"assistant","message":{"id":"msg_text_only","model":"claude-opus-4-7","content":[{"type":"text","text":"Reading the file."}]}}

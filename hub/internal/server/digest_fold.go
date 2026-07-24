@@ -331,7 +331,12 @@ func (f *digestFolder) step(e foldEvent) {
 		// authoritative per-model + per-turn totals come from
 		// turn.result.by_model at close (below), so the digest's by_model is
 		// never double-counted across usage + turn.result.
-		if f.open != nil {
+		//
+		// Subagent-flagged frames (kimi M4 wire-tail stamps
+		// subagent:true) are skipped: they meter the subagent's inner
+		// loop, and folding them in misattributes a delegated agent's
+		// prompt size to the main turn (#374).
+		if f.open != nil && e.Payload["subagent"] != true {
 			f.open.InTokens += readNumber(e.Payload, "input_tokens")
 			f.open.OutTokens += readNumber(e.Payload, "output_tokens")
 		}
@@ -352,6 +357,15 @@ func (f *digestFolder) step(e foldEvent) {
 			f.open.ToolCount++
 		}
 	case "turn.result":
+		// Subagent-flagged terminal frames (kimi M4 wire-tail stamps
+		// subagent:true) are not session turns: counting one inflated
+		// TurnCount, and closeTurn shut the MAIN turn early so the main
+		// agent's remaining events spilled into a synthetic syn-N turn
+		// (#374). Current mappers no longer emit these; the guard keeps
+		// mixed-version fleets and already-stored rows honest.
+		if e.Payload["subagent"] == true {
+			return
+		}
 		// Fold cost / by_model / tokens, then close the turn.
 		cost := readFloat(e.Payload, "cost_usd")
 		d.CostUSD += cost

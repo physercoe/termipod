@@ -162,12 +162,21 @@ func (m *Mapper) MapLine(raw []byte) ([]MappedEvent, error) {
 	}
 }
 
+// isSubagent reports whether this mapper tails a non-main agent's wire
+// file. The single definition keeps the provenance stamp (event) and the
+// subagent drop-guards (mapStepEnd) agreeing on what "subagent" means —
+// if they drifted, an event could be dropped-as-subagent but stamped
+// main, or vice versa.
+func (m *Mapper) isSubagent() bool {
+	return m.AgentID != "" && m.AgentID != "main"
+}
+
 // event is the single construction point for MappedEvents — it stamps
 // subagent provenance onto every payload a non-main agent emits so the
 // clients (and the P2 state dock's background-task chips) can tell
 // delegated activity apart from the main agent's own work.
 func (m *Mapper) event(kind, producer string, payload map[string]any) MappedEvent {
-	if m.AgentID != "" && m.AgentID != "main" {
+	if m.isSubagent() {
 		payload["subagent"] = true
 		payload["kimi_agent_id"] = m.AgentID
 		if m.ParentAgentID != "" {
@@ -335,20 +344,20 @@ func (m *Mapper) mapToolResult(raw json.RawMessage) ([]MappedEvent, error) {
 
 // mapStepEnd emits turn.result only on the terminal step of a turn
 // (finishReason "end_turn"; intermediate steps end "tool_use" —
-// verified 71 end_turn vs 1086 tool_use in the sampled capture).
-// Mobile's busy-walker scans tail-first for turn.result/completion, so
-// this is what drops the cancel button when a kimi turn completes.
+// verified 71 end_turn vs 1086 tool_use in the sampled capture), and
+// only for the MAIN agent. Mobile's busy-walker scans tail-first for
+// turn.result/completion, so this is what drops the cancel button when
+// a kimi turn completes.
 //
-// Subagent tails emit turn.result too (marked subagent:true like every
-// event from a non-main agent). A subagent's terminal event can
-// therefore briefly flip the session busy-walker to idle while the
-// main agent is between wire events — accepted deliberately: (1) the
-// client's busy inference is default-idle by design (feed_reducer.dart
-// v1.0.721 — transient wrong-idle self-heals on the next turn-active
-// event), and (2) kimi's main agent blocks inside the delegating Agent
-// tool.call while a subagent runs, so the next main event lands
-// immediately after the subagent drains. Payload-level busy refinement
-// (ignoring subagent-flagged terminal kinds) is client-side P2 work.
+// Subagent step ends are dropped here (#374): a subagent's end_turn
+// describes the subagent's inner loop, not the session's turn, and
+// every consumer of turn.result assumes the session's own turns —
+// the hub digest closes the single open turn on any turn.result (a
+// subagent's closed the MAIN turn early, then a synthetic syn-N turn
+// opened for the rest), mobile's telemetry chip counted them all, and
+// the busy-walker flickered idle mid-main-turn. The main agent's own
+// end_turn still lands when its delegating Agent tool.call completes,
+// so no turn boundary is lost.
 func (m *Mapper) mapStepEnd(raw json.RawMessage) ([]MappedEvent, error) {
 	var e struct {
 		FinishReason string `json:"finishReason"`
@@ -357,6 +366,9 @@ func (m *Mapper) mapStepEnd(raw json.RawMessage) ([]MappedEvent, error) {
 		return nil, mapErr("step.end parse", err)
 	}
 	if e.FinishReason != "end_turn" {
+		return nil, nil
+	}
+	if m.isSubagent() {
 		return nil, nil
 	}
 	return []MappedEvent{m.event("turn.result", "agent", map[string]any{

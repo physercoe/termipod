@@ -99,8 +99,15 @@ class AgentEventCard extends StatefulWidget {
       case 'system':
         // System rows usually carry a one-liner; otherwise fall back
         // to the full payload so audit-trail entries copy with their
-        // structured fields intact.
-        final t = (payload['text'] ?? payload['summary'] ?? '').toString();
+        // structured fields intact. `description` sits ahead of the
+        // JSON: claude's task_* frames (started/progress/notification)
+        // carry it, and it doubles as the collapsed preview line —
+        // prettier than the "{" a raw frame otherwise previews as.
+        final t = (payload['text'] ??
+                payload['summary'] ??
+                payload['description'] ??
+                '')
+            .toString();
         s = t.isNotEmpty ? t : feedJsonPretty(payload);
         break;
       default:
@@ -311,10 +318,30 @@ class AgentEventCard extends StatefulWidget {
         final msg = (p['message'] ?? p['text'] ?? p['notification'] ?? '').toString();
         line = msg.isEmpty ? l10n.taskNotification : l10n.taskMessage(msg);
         break;
+      case 'task_progress':
+        // claude-code 2.1.x fires this per tool-use inside a
+        // background/subagent task — the volume that flooded the feed
+        // with raw dumps (#374). The hub compacts the frame upstream;
+        // render the one-liner from whichever of description /
+        // last_tool_name survived, never the full JSON.
+        final desc = (p['description'] ?? '').toString();
+        final tool = (p['last_tool_name'] ?? '').toString();
+        var head = l10n.taskProgress;
+        if (desc.isNotEmpty) head = '$head — $desc';
+        line = tool.isEmpty ? head : '$head · $tool';
+        break;
     }
     if (line != null) {
       final suffix = taskId.isEmpty ? '' : '  ·  $taskId';
       return _mono(ctx, '$line$suffix');
+    }
+    // Unknown task_* subtypes degrade to a subtype one-liner instead
+    // of the full-JSON dump — claude grows this family between SDK
+    // releases (task_progress before it was modeled was the #374
+    // flood), so the fallback must stay legible.
+    if (subtype.startsWith('task_')) {
+      final suffix = taskId.isEmpty ? '' : '  ·  $taskId';
+      return _mono(ctx, '$subtype$suffix');
     }
     // Unknown subtype — keep the legacy JSON dump so nothing is silently
     // hidden, but tag the subtype on top so the user can spot the kind.

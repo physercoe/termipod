@@ -139,11 +139,13 @@ jobs:
           done
 
       - name: Rename APK
+        id: apk
         # Drop the `termipod-` prefix; name it for the lane. Uses the bare
         # version (not the full tag) so the file reads `Mobile-<ver>-...`.
         run: |
           set -euo pipefail
           VERSION_NUM="${GITHUB_REF_NAME#mobile-v}"
+          echo "ver=$VERSION_NUM" >> "$GITHUB_OUTPUT"
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
              "build/app/outputs/flutter-apk/Mobile-${VERSION_NUM}-android-arm64.apk"
 
@@ -154,7 +156,7 @@ jobs:
           # which the in-app updater reads. (hub/host/desktop lanes are prereleases.)
           files: |
             build/app/outputs/flutter-apk/Mobile-*-android-arm64.apk
-          name: Mobile ${{ github.ref_name }}
+          name: Mobile ${{ steps.apk.outputs.ver }}
           body: |
             **Mobile (Android):**
             - `Mobile-<ver>-android-arm64.apk` — every modern Android phone/tablet (Android 8+). 32-bit and x86_64 builds are no longer published.

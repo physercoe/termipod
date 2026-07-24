@@ -22,7 +22,7 @@ import { extractSymbols, SUPPORTED_LANGS, type CodeSymbol } from '../state/treeS
 import { CodeOutline } from '../ui/CodeOutline';
 import { usePanelWidth, ResizeHandle } from '../ui/ResizeHandle';
 import type { LogSource } from '../ui/LogView';
-import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen';
+import { InspectOpenDialog, type OpenMode, type PickResult, type PinRoot } from './InspectOpen';
 import { InspectTree } from './InspectTree';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
@@ -756,6 +756,14 @@ export function DebugSurface(): JSX.Element {
     setTree(true);
   }
 
+  // Pin a remote directory / hub project browsed in the open dialog (T2).
+  function pinRoot(r: PinRoot): void {
+    addRoot(r);
+    setTree(true);
+    setDialog(null);
+    setCmpBase(null);
+  }
+
   // Snapshot a tab as a compare side. A paste/scratch side carries its current
   // body inline (nothing to re-read); a file-backed side re-reads on activate.
   function refOfTab(tb: InspectTab): InspectRef {
@@ -1040,7 +1048,7 @@ export function DebugSurface(): JSX.Element {
             {t('inspect.notFound')}: {baseName(notFound)}
           </div>
         )}
-        {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} />}
+        {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} onPinRoot={pinRoot} />}
       </div>
     </WorkbenchSurface>
   );

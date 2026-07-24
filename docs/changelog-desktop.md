@@ -43,6 +43,17 @@ This complements:
 
 ### Added
 
+- **Inspect tab — remote & hub project-tree roots (round 3, T2).** The tree pane
+  now pins two more kinds of root beside a local folder: a **remote directory**
+  over an existing SSH connection (browse it in the Remote picker, "Pin this
+  folder as a root"; one cached SFTP session per host; a failed connect shows a
+  retry row without blocking other roots) and a **hub project's docs** (one flat
+  fetch folded into the tree, "Pin this project as a root" in the Hub picker —
+  and it works in the plain-browser build too). Per-root filter matches the
+  source: recursive index (local), the full flat list (hub), or the folders
+  you've opened (remote, no recursive remote walk). A checkpoint / model-def
+  opened from a remote root keeps its graph + tracer; remote *checkpoints* stay
+  on the honest local-only note (a header-fetch follow-on).
 - **Inspect tab — project trees (round 3, T1).** The Inspect tab could only open
   *single files*; it now has a **tree pane** for pinning and browsing whole
   folders. "Open folder…" (or the pane's ＋) pins a local root; expand it lazily

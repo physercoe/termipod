@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { kindForInspectFile, type InspectKind, type InspectSource } from '../state/inspect';
+import type { InspectRoot } from '../state/inspectRoots';
 import { useWorkspace } from '../state/workspace';
 import { listWorkspaceFiles, type WorkspaceFile } from '../state/workspaceFiles';
 import { listConnections, type Connection } from '../state/connections';
@@ -17,6 +18,10 @@ import type { SftpEntry } from '../ssh/native';
 /// only chooses metadata, except where it already holds the bytes).
 
 export type OpenMode = 'workspace' | 'remote' | 'hub';
+
+/// A root to pin (round-3 T2) — the same browse dialog that opens a file can pin
+/// the folder/project it is browsing as a tree root.
+export type PinRoot = Omit<InspectRoot, 'id'>;
 
 export interface PickResult {
   source: InspectSource;
@@ -100,7 +105,7 @@ function WorkspacePicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.E
 }
 
 // ── Remote (SFTP) mode ───────────────────────────────────────────────────────
-function RemotePicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.Element {
+function RemotePicker({ onPick, onPinRoot }: { onPick: (r: PickResult) => void; onPinRoot?: (r: PinRoot) => void }): JSX.Element {
   const t = useT();
   const conns = useMemo(() => listConnections(), []);
   const [connId, setConnId] = useState<string | null>(null);
@@ -163,6 +168,17 @@ function RemotePicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.Elem
           {listConnections().find((c) => c.id === connId)?.name ?? t('inspect.remote')}
         </button>
         <span className="muted"> : {cwd}</span>
+        {onPinRoot !== undefined && (
+          <>
+            <span className="spacer" />
+            <button
+              className="link-btn small"
+              onClick={() => onPinRoot({ source: 'remote', hostId: connId, path: cwd, label: `${listConnections().find((c) => c.id === connId)?.name ?? t('inspect.remote')}:${cwd}` })}
+            >
+              <Icon name="plus" size={12} /> {t('inspect.pinFolderAsRoot')}
+            </button>
+          </>
+        )}
       </div>
       <div className="inspect-modal-list">
         {error !== null ? (
@@ -206,7 +222,7 @@ function RemotePicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.Elem
 }
 
 // ── Hub project-doc mode ─────────────────────────────────────────────────────
-function HubPicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.Element {
+function HubPicker({ onPick, onPinRoot }: { onPick: (r: PickResult) => void; onPinRoot?: (r: PinRoot) => void }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [projects, setProjects] = useState<Entity[] | null>(null);
@@ -275,6 +291,14 @@ function HubPicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.Element
         <button className="link-btn" onClick={() => (setProject(null), setDocs(null))}>
           {str(project, 'name') || pid}
         </button>
+        {onPinRoot !== undefined && (
+          <>
+            <span className="spacer" />
+            <button className="link-btn small" onClick={() => onPinRoot({ source: 'hub', projectId: pid, label: str(project, 'name') || pid })}>
+              <Icon name="plus" size={12} /> {t('inspect.pinProjectAsRoot')}
+            </button>
+          </>
+        )}
       </div>
       <div className="inspect-modal-list">
         {docs === null ? (
@@ -301,7 +325,17 @@ function HubPicker({ onPick }: { onPick: (r: PickResult) => void }): JSX.Element
   );
 }
 
-export function InspectOpenDialog({ mode, onClose, onPick }: { mode: OpenMode; onClose: () => void; onPick: (r: PickResult) => void }): JSX.Element {
+export function InspectOpenDialog({
+  mode,
+  onClose,
+  onPick,
+  onPinRoot,
+}: {
+  mode: OpenMode;
+  onClose: () => void;
+  onPick: (r: PickResult) => void;
+  onPinRoot?: (r: PinRoot) => void;
+}): JSX.Element {
   const t = useT();
   const title = mode === 'workspace' ? t('inspect.fromWorkspace') : mode === 'remote' ? t('inspect.fromRemote') : t('inspect.fromHub');
   return (
@@ -314,7 +348,13 @@ export function InspectOpenDialog({ mode, onClose, onPick }: { mode: OpenMode; o
             <Icon name="close" size={15} />
           </button>
         </div>
-        {mode === 'workspace' ? <WorkspacePicker onPick={onPick} /> : mode === 'remote' ? <RemotePicker onPick={onPick} /> : <HubPicker onPick={onPick} />}
+        {mode === 'workspace' ? (
+          <WorkspacePicker onPick={onPick} />
+        ) : mode === 'remote' ? (
+          <RemotePicker onPick={onPick} onPinRoot={onPinRoot} />
+        ) : (
+          <HubPicker onPick={onPick} onPinRoot={onPinRoot} />
+        )}
       </div>
     </div>
   );

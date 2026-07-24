@@ -81,6 +81,16 @@ type ACPDriver struct {
 	// already has cached creds and treats authenticate as a no-op).
 	AuthMethod string
 
+	// Workdir is the effective cwd advertised in `session/new` and
+	// `session/load` params. kimi-code-ts rejects an empty cwd outright
+	// (-32603 "createSession requires workDir", #376); gemini-cli
+	// tolerates it, which is why the hardcoded "" survived until kimi.
+	// launch_m1 always populates this (the per-spawn workdir, else the
+	// host-runner's own cwd, which the child inherits when no `cd`
+	// prefix is prepended). Empty preserves the pre-#376 wire value for
+	// direct driver constructions (unit tests).
+	Workdir string
+
 	// EngineKind is the agent_families.yaml `family` name of the engine
 	// the driver is talking to (`claude-code`, `gemini-cli`, `codex`,
 	// `kimi-code`, …). Threaded in from launch_m1 so engine-specific
@@ -456,7 +466,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
 		loadRes, loadErr := d.call(nsCtx, "session/load", map[string]any{
 			"sessionId":      d.ResumeSessionID,
-			"cwd":            "",
+			"cwd":            d.Workdir,
 			"mcpServers":     []any{},
 			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
 		})
@@ -478,7 +488,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		// as initialize.
 		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
 		newRes, newErr := d.call(nsCtx, "session/new", map[string]any{
-			"cwd":            "",
+			"cwd":            d.Workdir,
 			"mcpServers":     []any{},
 			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
 		})

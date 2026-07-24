@@ -72,6 +72,12 @@ func TestLaunchM1_WiresACPDriverAndPane(t *testing.T) {
 		if _, ok := r.res.Driver.(*ACPDriver); !ok {
 			t.Fatalf("Driver: want *ACPDriver, got %T", r.res.Driver)
 		}
+		// #376: the driver must advertise the derived per-spawn workdir
+		// as its session/new cwd — kimi-code-ts rejects an empty one
+		// outright.
+		if wd := r.res.Driver.(*ACPDriver).Workdir; wd != homeDir {
+			t.Errorf("ACPDriver.Workdir = %q; want %q (the derived per-spawn workdir)", wd, homeDir)
+		}
 		if r.res.PaneID != "hub-agents:gemini-acp.0" {
 			t.Errorf("PaneID = %q; want hub-agents:gemini-acp.0", r.res.PaneID)
 		}
@@ -388,6 +394,86 @@ func TestLaunchM1_ErrorsWhenBackendCmdMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "backend.cmd") {
 		t.Errorf("error missing 'backend.cmd' context: %v", err)
+	}
+}
+
+// TestEffectiveM1Workdir pins the #376 cwd ladder: a derived per-spawn
+// workdir wins; with none, the child inherits the host-runner's cwd
+// (no `cd` prefix was prepended), so that same directory is what the
+// driver advertises — kimi-code-ts rejects an empty session/new cwd.
+func TestEffectiveM1Workdir(t *testing.T) {
+	if got := effectiveM1Workdir("/tmp/wt"); got != "/tmp/wt" {
+		t.Errorf("expanded workdir should win; got %q", got)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Skip("no process cwd")
+	}
+	if got := effectiveM1Workdir(""); got != wd {
+		t.Errorf("empty workdir → host cwd %q; got %q", wd, got)
+	}
+}
+
+// TestLaunchM1_KillsCosmeticPaneOnStartFailure pins the #376 leak:
+// the `tail -F` cosmetic pane is spawned before drv.Start, and a
+// failed handshake used to leave it running — the M2/M4 fallback then
+// spawned its own pane and the agent showed two tmux windows.
+func TestLaunchM1_KillsCosmeticPaneOnStartFailure(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:kimi-acp.0"}
+	poster := &fakePoster{}
+
+	sp := Spawn{
+		ChildID: "agent-acp-fail",
+		Handle:  "kimi-acp",
+		Kind:    "kimi-code-ts",
+		Mode:    "M1",
+		SpawnSpec: "backend:\n" +
+			"  cmd: kimi acp\n" +
+			"  default_workdir: " + homeDir + "\n",
+	}
+
+	killed := make(chan string, 1)
+	origKill := killPaneQuiet
+	killPaneQuiet = func(_ context.Context, paneID string) { killed <- paneID }
+	defer func() { killPaneQuiet = origKill }()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := launchM1(context.Background(), M1LaunchConfig{
+			Spawn:    sp,
+			Launcher: launcher,
+			Client:   poster,
+			Spawner:  spawner,
+			LogDir:   logDir,
+		})
+		done <- err
+	}()
+
+	spawner.waitReady(t)
+	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-x")
+	agent.failSessionNewWithAuth = true // session/new → -32603; Start fails
+	go agent.serve()
+
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("launchM1 did not return")
+	case err := <-done:
+		if err == nil {
+			t.Fatal("launchM1: want session/new failure")
+		}
+	}
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("cosmetic pane kill not attempted on Start failure")
+	case pane := <-killed:
+		if pane != "hub-agents:kimi-acp.0" {
+			t.Errorf("killed pane = %q; want hub-agents:kimi-acp.0", pane)
+		}
 	}
 }
 

@@ -67,6 +67,12 @@ export interface InspectTab {
   /// viewer; the tab's own `source`/content are then unused.
   left?: InspectRef;
   right?: InspectRef;
+  /// Never persisted (neither the tab nor its body). For paste-source tabs
+  /// whose body is bulky and reproducible — e.g. the git lens's working-tree
+  /// diff (up to 24 MB, vs the ~5 MB whole-app localStorage quota): persisting
+  /// one would make the debounced write throw and silently wedge persistence
+  /// for EVERY tab until the app restarts.
+  ephemeral?: boolean;
 }
 
 // Extension → kind dispatch, mirroring `documents.ts kindForFile` in spirit. A
@@ -166,9 +172,14 @@ function writeNow(): void {
   pending = null;
 }
 function persist(s: Pick<InspectState, 'tabs' | 'activeId' | 'content'>): void {
+  // Ephemeral tabs are dropped wholesale (tab + body); if the active tab is
+  // ephemeral, fall back to the last persistable tab so the restored activeId
+  // never dangles.
+  const tabs = s.tabs.filter((t) => t.ephemeral !== true);
+  const activeId = tabs.some((t) => t.id === s.activeId) ? s.activeId : (tabs[tabs.length - 1]?.id ?? null);
   const paste: Record<string, string> = {};
-  for (const t of s.tabs) if (t.source === 'paste') paste[t.id] = s.content[t.id] ?? '';
-  pending = { tabs: s.tabs, activeId: s.activeId, paste };
+  for (const t of tabs) if (t.source === 'paste') paste[t.id] = s.content[t.id] ?? '';
+  pending = { tabs, activeId, paste };
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = undefined;

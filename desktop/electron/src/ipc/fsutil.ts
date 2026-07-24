@@ -150,6 +150,11 @@ export interface SearchHit {
 const SEARCH_MAX_FILE = 1024 * 1024; // ≤1 MB per file read
 const SEARCH_SNIFF = 8 * 1024; // NUL in the first 8 KB → treat as binary, skip
 const SEARCH_LINE_CAP = 400; // trim a matching line to this many chars
+// Only the first N chars of a line are TESTED. This runs in the main process,
+// and a user regex over an unbounded line (a minified bundle is one multi-MB
+// line) can hang the whole app on catastrophic backtracking — bounding the
+// input bounds the damage. Matches past the cap are missed (documented).
+const SEARCH_TEST_CAP = 2000;
 
 /// Bounded recursive **content search** of `root` (Inspect T4a). Literal
 /// substring or regex, streamed directory walk with hard caps — every one
@@ -177,7 +182,10 @@ export async function searchTree(
     }
   }
   const needle = opts.caseSensitive === true ? opts.query : opts.query.toLowerCase();
-  const matches = (line: string): boolean => (re !== null ? re.test(line) : (opts.caseSensitive === true ? line : line.toLowerCase()).includes(needle));
+  const matches = (raw: string): boolean => {
+    const line = raw.length > SEARCH_TEST_CAP ? raw.slice(0, SEARCH_TEST_CAP) : raw;
+    return re !== null ? re.test(line) : (opts.caseSensitive === true ? line : line.toLowerCase()).includes(needle);
+  };
 
   const hits: SearchHit[] = [];
   let truncated = false;

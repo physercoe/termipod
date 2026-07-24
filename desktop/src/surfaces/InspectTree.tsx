@@ -174,6 +174,8 @@ export function InspectTree({
   const seenRoots = useRef<Set<string>>(new Set());
   const mounted = useRef(false);
   const [gitInfos, setGitInfos] = useState<Record<string, GitInfo>>({});
+  // Per-root git-lens notice (diff error / empty-diff) shown under the root row.
+  const [gitMsgs, setGitMsgs] = useState<Record<string, string>>({});
   const gitFetched = useRef<Set<string>>(new Set());
 
   // Read the git lens (branch + dirty count) for each local root once. Cheap
@@ -193,11 +195,21 @@ export function InspectTree({
 
   function diffWorkingTree(root: InspectRoot): void {
     if (root.path === undefined) return;
+    setGitMsgs((m) => {
+      const n = { ...m };
+      delete n[root.id];
+      return n;
+    });
     void gitDiff(root.path)
       .then((r) => {
         if (r.diff.trim() !== '') onOpenPatch(`diff: ${root.label}`, r.diff);
+        // A dirty count can be untracked-files-only, where `git diff` is empty —
+        // say so instead of a click that does nothing.
+        else setGitMsgs((m) => ({ ...m, [root.id]: t('inspect.noUnstagedChanges') }));
       })
-      .catch(() => undefined);
+      // The IPC throws typed messages (too-large cap, git missing, stderr) —
+      // surface them; a swallowed error violates the caps-surfaced anchor.
+      .catch((e: unknown) => setGitMsgs((m) => ({ ...m, [root.id]: msg(e) })));
   }
 
   const ck = (rootId: string, key: string): string => `${rootId} ${key}`;
@@ -333,6 +345,17 @@ export function InspectTree({
       delete n[root.id];
       return n;
     });
+    setGitInfos((m) => {
+      const n = { ...m };
+      delete n[root.id];
+      return n;
+    });
+    setGitMsgs((m) => {
+      const n = { ...m };
+      delete n[root.id];
+      return n;
+    });
+    gitFetched.current.delete(root.id);
   }
 
   function refreshRoot(root: InspectRoot): void {
@@ -477,6 +500,12 @@ export function InspectTree({
                   </button>
                 </div>
               </div>
+              {gitMsgs[root.id] !== undefined && (
+                <div className="inspect-tree-msg err" style={{ paddingLeft: '8px' }}>
+                  <Icon name="alert" size={12} />
+                  <span className="inspect-tree-name">{gitMsgs[root.id]}</span>
+                </div>
+              )}
               <input
                 className="inspect-tree-filter"
                 placeholder={t('inspect.filterInTree')}

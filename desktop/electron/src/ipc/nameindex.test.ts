@@ -137,3 +137,16 @@ test('searchTree: empty query returns nothing, non-dir rejects', async () => {
     await assert.rejects(() => searchTree(f, { query: 'y' }), /not a folder/);
   });
 });
+
+test('searchTree: only the first 2000 chars of a line are tested (main-process regex guard)', async () => {
+  await withDir(async (dir) => {
+    // One long line with the needle inside the tested prefix, one with it past
+    // the cap — the pathological-backtracking guard trades tail matches for a
+    // bounded regex input.
+    await writeFile(path.join(dir, 'long.txt'), `${'x'.repeat(1900)}early\n${'x'.repeat(2100)}late`);
+    const early = await searchTree(dir, { query: 'early' });
+    assert.equal(early.hits.length, 1);
+    const late = await searchTree(dir, { query: 'late' });
+    assert.equal(late.hits.length, 0, 'a match past the test cap is (documentedly) missed');
+  });
+});

@@ -1002,7 +1002,7 @@ export function DebugSurface(): JSX.Element {
               onPick={pick}
               onAddFolder={() => void openFolder()}
               onClose={() => setTree(false)}
-              onOpenPatch={(title, patch) => openTab({ kind: 'diff', source: 'paste', title }, patch)}
+              onOpenPatch={(title, patch) => openTab({ kind: 'diff', source: 'paste', title, ephemeral: true }, patch)}
             />
             <ResizeHandle onResize={onResizeTree} />
           </>

@@ -346,9 +346,15 @@ reverse), so a weightless HF repo shows a plain JSON code tab.
    (`git status --porcelain=v2 --branch` via a small `git_info` IPC using
    `execFile`; **system git required, feature hidden when absent** — no
    bundled git, no libgit2 dependency). One action: "Diff working tree" →
-   `git diff` output opened as a standard `diff`-kind tab in the existing
-   patch viewer. No staging, no commit, no log walking — the read-only
-   posture (§0) holds. This is the wedge that serves "inspect the repo an
+   `git diff` output opened in the existing patch viewer as an **ephemeral**
+   (never-persisted) `diff`-kind tab — the diff cap (24 MB) dwarfs the
+   whole-app localStorage quota, so a persisted body would wedge tab
+   persistence wholesale. Diff failures and the untracked-only empty diff
+   are surfaced under the root row. No staging, no commit, no log walking —
+   the read-only posture (§0) holds. (§6.1 note: search matching tests only
+   the first 2000 chars of a line — a main-process regex over an unbounded
+   line is a backtracking hang risk; matches past the cap are missed,
+   documentedly.) This is the wedge that serves "inspect the repo an
    agent is working in right now".
 
 ## 7. Sequencing & review anchors

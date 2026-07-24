@@ -11,9 +11,10 @@
 > roots have capped content search (`tree_search`) + a read-only git lens
 > (`git_info`/`git_diff`); the config-only view now estimates params + VRAM from
 > config math (`estimateParamsFromConfig` — dense/GQA/MLA attention + dense/MoE
-> FFN, covering the mainstream OSS decoder shapes).
-> **Recorded, not built:** remote/hub/GitHub server-side content search; the
-> forge e2e loopback stand-in; §8 open questions.
+> FFN, covering the mainstream OSS decoder shapes); the forge read path has an
+> e2e loopback test (§5.9 — base-URL override + `forge_fetch` loopback-http).
+> **Recorded, not built:** remote/hub/GitHub server-side content search; §8 open
+> questions.
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `9baaa07f` (+ T1–T4, §5a + params)
 

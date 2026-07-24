@@ -43,6 +43,13 @@ This complements:
 
 ### Added
 
+- **Inspect tab — forge e2e coverage (round 3, §5.9).** The GitHub/HF forge read
+  path (ref-pinning → tree fold → lazy 2 MB-capped blob read) now has an
+  end-to-end test: the forge base URL is overridable via `localStorage` so a
+  Playwright loopback server stands in for the API, and `forge_fetch` allows
+  plain-http only to loopback (a real forge is always https). Closes the last
+  "recorded, not built" coverage gap on shipped forge code.
+
 - **Inspect tab — analytic params + VRAM in the config-only view (round 3, §5a
   follow-up).** The config-only architecture view now shows an **estimated
   parameter count** computed from `config.json` alone and feeds it into the

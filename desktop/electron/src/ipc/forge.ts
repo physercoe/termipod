@@ -32,7 +32,10 @@ interface ForgeResponse {
 export const forgeHandlers: Record<string, Handler> = {
   forge_fetch: async (args): Promise<ForgeResponse> => {
     const url = String(args.url ?? '');
-    if (!/^https:\/\//i.test(url)) throw new Error('forge_fetch: only https URLs are allowed');
+    // https only — except plain http to loopback, so the e2e suite can point the
+    // forge base URL at a local stand-in server (a real forge is always https).
+    const loopback = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/i.test(url);
+    if (!/^https:\/\//i.test(url) && !loopback) throw new Error('forge_fetch: only https (or loopback http) URLs are allowed');
     const reqHeaders = args.headers !== null && typeof args.headers === 'object' ? (args.headers as Record<string, string>) : {};
     const maxBytes = Math.min(typeof args.maxBytes === 'number' && args.maxBytes > 0 ? args.maxBytes : DEFAULT_MAX, HARD_MAX);
     const headers: Record<string, string> = { 'User-Agent': 'TermiPod-Inspect', Accept: 'application/vnd.github+json', ...reqHeaders };

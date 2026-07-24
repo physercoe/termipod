@@ -25,6 +25,24 @@ export type { Forge, ParsedForge };
 const GH_API = 'https://api.github.com';
 const HF_HOST = 'https://huggingface.co';
 
+// The forge API base URLs are overridable via localStorage so the e2e suite can
+// point them at a loopback stand-in (plan §5.9) — the app never writes these
+// keys, so production always uses the real hosts.
+function ghApiBase(): string {
+  try {
+    return localStorage.getItem('termipod.forge.githubApi') ?? GH_API;
+  } catch {
+    return GH_API;
+  }
+}
+function hfHostBase(): string {
+  try {
+    return localStorage.getItem('termipod.forge.hfHost') ?? HF_HOST;
+  } catch {
+    return HF_HOST;
+  }
+}
+
 const BLOB_CAP = 2 * 1024 * 1024; // 2 MB — "no uncapped reads" applied to the network
 const META_CAP = 12 * 1024 * 1024; // repo metadata + recursive tree JSON
 const DISPLAY_TREE_ENTRIES = 50_000; // client-side display ceiling with a banner
@@ -106,11 +124,11 @@ async function githubResolveRef(id: string, ref?: string): Promise<ForgeRepo> {
   const headers = await authHeaders('github');
   let branch = ref;
   if (branch === undefined || branch === '') {
-    const r = await forgeFetch(`${GH_API}/repos/${id}`, headers, META_CAP);
+    const r = await forgeFetch(`${ghApiBase()}/repos/${id}`, headers, META_CAP);
     ensureOk(r, 'github');
     branch = (JSON.parse(r.body) as { default_branch?: string }).default_branch ?? 'main';
   }
-  const c = await forgeFetch(`${GH_API}/repos/${id}/commits/${encodeURIComponent(branch)}`, headers, META_CAP);
+  const c = await forgeFetch(`${ghApiBase()}/repos/${id}/commits/${encodeURIComponent(branch)}`, headers, META_CAP);
   ensureOk(c, 'github');
   const sha = (JSON.parse(c.body) as { sha?: string }).sha ?? '';
   if (sha === '') throw new Error('could not resolve the ref to a commit');
@@ -120,7 +138,7 @@ async function githubResolveRef(id: string, ref?: string): Promise<ForgeRepo> {
 async function hfResolveRef(id: string, ref?: string): Promise<ForgeRepo> {
   const headers = await authHeaders('hf');
   const rev = ref !== undefined && ref !== '' ? ref : 'main';
-  const r = await forgeFetch(`${HF_HOST}/api/models/${id}/revision/${encodeURIComponent(rev)}`, headers, META_CAP);
+  const r = await forgeFetch(`${hfHostBase()}/api/models/${id}/revision/${encodeURIComponent(rev)}`, headers, META_CAP);
   ensureOk(r, 'hf');
   const sha = (JSON.parse(r.body) as { sha?: string }).sha ?? '';
   if (sha === '') throw new Error('could not resolve the revision to a commit');
@@ -148,7 +166,7 @@ function nextLink(link: string | undefined): string | null {
 
 async function hfTree(repo: ForgeRepo): Promise<{ entries: Array<{ path: string; is_dir: boolean }>; truncated: boolean }> {
   const headers = await authHeaders('hf');
-  let url: string | null = `${HF_HOST}/api/models/${repo.id}/tree/${repo.sha}?recursive=true`;
+  let url: string | null = `${hfHostBase()}/api/models/${repo.id}/tree/${repo.sha}?recursive=true`;
   const entries: Array<{ path: string; is_dir: boolean }> = [];
   let truncated = false;
   for (let page = 0; url !== null; page += 1) {
@@ -174,7 +192,7 @@ async function hfTree(repo: ForgeRepo): Promise<{ entries: Array<{ path: string;
 
 async function githubTree(repo: ForgeRepo): Promise<{ entries: Array<{ path: string; is_dir: boolean }>; truncated: boolean }> {
   const headers = await authHeaders('github');
-  const r = await forgeFetch(`${GH_API}/repos/${repo.id}/git/trees/${repo.sha}?recursive=1`, headers, META_CAP);
+  const r = await forgeFetch(`${ghApiBase()}/repos/${repo.id}/git/trees/${repo.sha}?recursive=1`, headers, META_CAP);
   if (r.tooLarge) return { entries: [], truncated: true };
   ensureOk(r, 'github');
   const j = JSON.parse(r.body) as { tree?: Array<{ path: string; type: string }>; truncated?: boolean };
@@ -205,13 +223,13 @@ export async function readForgeBlob(repo: ForgeRepo, forge: Forge, path: string)
   let body: string;
   if (forge === 'github') {
     const headers = await authHeaders('github', { Accept: 'application/vnd.github.raw+json' });
-    const r = await forgeFetch(`${GH_API}/repos/${repo.id}/contents/${encForgePath(path)}?ref=${repo.sha}`, headers, BLOB_CAP);
+    const r = await forgeFetch(`${ghApiBase()}/repos/${repo.id}/contents/${encForgePath(path)}?ref=${repo.sha}`, headers, BLOB_CAP);
     if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
     ensureOk(r, 'github');
     body = r.body;
   } else {
     const headers = await authHeaders('hf');
-    const r = await forgeFetch(`${HF_HOST}/${repo.id}/resolve/${repo.sha}/${encForgePath(path)}`, headers, BLOB_CAP);
+    const r = await forgeFetch(`${hfHostBase()}/${repo.id}/resolve/${repo.sha}/${encForgePath(path)}`, headers, BLOB_CAP);
     if (r.tooLarge) throw new Error(tooLargeMsg(r.size));
     ensureOk(r, 'hf');
     body = r.body;

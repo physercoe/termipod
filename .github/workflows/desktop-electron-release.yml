@@ -25,6 +25,16 @@ name: Desktop Electron Release
 #   - Run workflow, promote=<version> → copy that release's assets onto the
 #     rolling `electron-latest` feed release (go live; no rebuild).
 #
+# Channels (by tag suffix, or the workflow_dispatch `channel` input on a tagless
+# run):
+#   - alpha — UNSIGNED. Skips cert import + notarization entirely, so a build
+#     finishes in minutes instead of waiting ~55 min on Apple's notary service
+#     (the mac-signing latency blocker). For DEVICE TESTING only — Gatekeeper
+#     will quarantine the unsigned .app/.dmg (right-click→Open, or `xattr -dr
+#     com.apple.quarantine`); not for distribution.
+#   - beta  — SIGNED + notarized (the flow below when a macOS cert is present).
+# Both create a PRERELEASE on the pushed tag; the release notes state the channel.
+#
 # Signing/notarization are supplied by repo secrets when present. The env-var
 # names electron-builder consumes are FIXED (CSC_LINK / CSC_KEY_PASSWORD for the
 # macOS cert; APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID for
@@ -47,8 +57,19 @@ on:
         description: 'Version to promote to the electron-latest update feed (e.g. 2026.722.211). Leave empty to just build.'
         required: false
         default: ''
+      channel:
+        description: 'Build channel for a tagless run: alpha = unsigned (fast, device-test only), beta = signed+notarized. Tag runs infer this from the tag suffix.'
+        required: false
+        type: choice
+        default: alpha
+        options:
+          - alpha
+          - beta
   push:
     tags:
+      # Two channels by tag SUFFIX: `-alpha` builds unsigned (device-test,
+      # skips the ~55-min notarization wait); `-beta` (or a bare tag) builds
+      # signed+notarized. Both create a prerelease on the pushed tag.
       - 'electron-v*'
 
 permissions:
@@ -201,6 +222,22 @@ jobs:
           node -e "const f='./desktop/electron/package.json',p=require(f);p.version='$V';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
           echo "packaged version = $V"
 
+      # Resolve the build channel: `-alpha`/`-beta` tag suffix wins; else the
+      # workflow_dispatch `channel` input; else beta (signed) as the safe
+      # default for a bare tag. Exposed as $CHANNEL for the signing step.
+      - name: Resolve channel
+        shell: bash
+        run: |
+          REF='${{ github.ref_name }}'
+          IN='${{ inputs.channel }}'
+          case "$REF" in
+            *-alpha) CH=alpha ;;
+            *-beta)  CH=beta ;;
+            *)       CH="${IN:-beta}" ;;
+          esac
+          echo "CHANNEL=$CH" >> "$GITHUB_ENV"
+          echo "channel = $CH"
+
       # Export the signing/notarization secrets to the job env ONLY when they are
       # actually set. Passing `CSC_LINK: ${{ secrets.CSC_LINK }}` directly exports
       # an EMPTY string when the secret is absent, and electron-builder then treats
@@ -208,7 +245,13 @@ jobs:
       # dir → `⨯ desktop/electron not a file`, failing the macOS/Windows Package.
       # Skipping empty vars leaves signing genuinely unconfigured, so unsigned
       # installers build cleanly; a real cert flows through untouched.
-      - name: Configure signing (only when secrets present)
+      #
+      # ALPHA short-circuits: it exports NO cert/notarization secrets (so the
+      # build is unsigned and never calls notarytool) but STILL pins
+      # CSC_IDENTITY_AUTO_DISCOVERY=false — skipping that would let a headless
+      # runner with no keychain identity hang on the discovery probe (the reason
+      # it defaults false here).
+      - name: Configure signing (beta only; alpha builds unsigned)
         shell: bash
         env:
           # Map this repo's secret names onto the fixed env-var names
@@ -221,6 +264,13 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          if [ "$CHANNEL" != "beta" ]; then
+            # alpha: unsigned by design — no cert, no notarization, but never
+            # probe the keychain (would hang headless).
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "channel=$CHANNEL → unsigned (device test); signing skipped"
+            exit 0
+          fi
           for v in CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -n "${!v}" ]; then
               printf '%s<<__EOF__\n%s\n__EOF__\n' "$v" "${!v}" >> "$GITHUB_ENV"
@@ -299,9 +349,14 @@ jobs:
         run: |
           TAG='${{ github.ref_name }}'
           V=$(node -p "require('./desktop/package.json').version")
+          case "$TAG" in
+            *-alpha) CH='alpha'; NOTE='**Alpha — UNSIGNED, device-test only.** Not for distribution: macOS Gatekeeper will quarantine it (right-click→Open, or `xattr -dr com.apple.quarantine <app>`). Signed builds ship on `-beta` tags.' ;;
+            *-beta)  CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
+            *)       CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
+          esac
           gh release create "$TAG" --prerelease --verify-tag \
-            --title "TermiPod Desktop (Electron) $V" \
-            --notes "Electron desktop build $V. Not the update feed — promote to \`electron-latest\` to go live (see desktop/electron/README.md)." \
+            --title "TermiPod Desktop (Electron) $V — $CH" \
+            --notes "Electron desktop build $V ($CH). $NOTE Not the update feed — promote to \`electron-latest\` to go live (see desktop/electron/README.md)." \
             || echo "release $TAG exists — refreshing assets"
           echo "downloaded assets:"; ls -R assets
           # Upload only the installer files by extension — NOT `assets/*`, which

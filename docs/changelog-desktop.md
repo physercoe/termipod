@@ -1,9 +1,9 @@
 # Desktop Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-23)
+> **Status:** Current (2026-07-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.723.247 / electron-v2026.723.247
+> **Last verified vs code:** desktop 2026.724.305 / electron-v2026.724.305-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -41,8 +41,44 @@ This complements:
 
 ## Unreleased
 
+_Nothing yet._
+
+## 2026.724.305 — 2026-07-24 · Electron (alpha)
+
+> **Alpha — unsigned, device-test build.** Cut to exercise the task-board
+> redesign and the Inspect (J3) surface on real devices; not signed or
+> notarized and not for distribution (macOS Gatekeeper will quarantine it). The
+> signed counterpart ships on a `-beta` tag.
+
 ### Added
 
+- **Projects task board — master-detail + rich cards (W1).** The desktop Tasks
+  kanban becomes a master-detail split: columns stretch to fill the width (no
+  more fixed-220px dead space), cards show priority, a body snippet, live
+  assignee pip, result summary and age, and selecting one opens a full detail
+  panel (status/priority, assignee + open-transcript, result, timestamps,
+  markdown body) inline ≥1100px (modal below). The split is user-resizable and,
+  ≥1600px, a third pane previews the assignee's live transcript.
+- **Task `in_review` lifecycle (W2).** A new status between blocked and done: an
+  agent that terminates with a result now lands the task in **In review**
+  (done-when-reviewed), and the detail panel gains **Accept** (→done) /
+  **Send back** actions. Any status the client doesn't recognise renders in its
+  own trailing column instead of vanishing.
+- **Agent-aware kanban drag-and-drop + board filters (W3).** Drag a card between
+  columns: into **In progress** opens the agent picker and the spawn drives the
+  status (not a raw edit); **Cancelled** confirms; blocked cards (agent-owned)
+  can't be dragged. Plus an `Active | All | Cancelled` view tab, a title/body
+  search box, and a priority filter.
+- **Per-task attempts + project-nav parity (W4).** The task detail lists a
+  task's **attempts** — every agent spawned for it, newest first, each linking
+  to its transcript — with a **New attempt** action. The Projects left nav rows
+  gain the mobile card content: status dot, attention badge (with a
+  parent←children rollup), phase pill, open-AC chip, and a phase-weighted
+  progress bar, all fed by one team-scope insights read.
+- **Task review-feedback loop (W5).** A feedback composer on the task detail
+  posts the reviewer's note straight into the **assignee agent's session**;
+  **Send back** delivers the note and re-opens the task to re-engage a live
+  worker.
 - **Inspect (J3) surface — W1.** The Debug tab is rebuilt from a paste textarea
   into a tabbed inspector (and renamed **Debug → Inspect**; the `debug` id is
   unchanged). Ships the shell + a **CodeView** (CodeMirror 6, read-only by
@@ -179,6 +215,20 @@ This complements:
   files, so CI pins the same bytes a device tester opens. Also: `log_slice` now
   clamps its line count like `log_search`, and `kimi_k2` joins the architecture-
   card family names.
+
+### Changed
+
+- **Release workflow — alpha / beta channels.** `desktop-electron-release.yml`
+  now builds two channels by tag suffix (or the `channel` dispatch input):
+  **`electron-v<ver>-alpha`** is **unsigned** — it skips cert import and
+  notarization, so a build finishes in minutes instead of waiting ~55 min on
+  Apple's notary service, for **device testing** (Gatekeeper quarantines it);
+  **`electron-v<ver>-beta`** is **signed + notarized**. The release notes state
+  the channel; both remain prereleases.
+- **Task auto-derivation flips to `in_review`.** When a worker terminates with a
+  result summary the hub now derives **in_review** (was `done`) — completion is
+  a human accept, not the agent stopping. The never-overwrite guard extends to
+  `in_review`, and notify/digest surfaces learn the status (ADR-029 D-8).
 
 ## 2026.723.247 — 2026-07-23 · Electron
 

@@ -155,7 +155,8 @@ const NON_GATED_FFN = new Set(['gpt2', 'gptj', 'gpt_neox', 'gpt_bigcode', 'bloom
 /// The result is an **estimate** — error-tolerant by design (biases, exact
 /// norm/router terms, and unusual per-layer mixes are approximated) — so it must
 /// be badged as such. Returns null only when a load-bearing field (hidden /
-/// layers / heads / vocab, or the FFN width) is absent.
+/// layers / heads / vocab, or a gated FFN's width) is absent; legacy non-gated
+/// configs that omit the width get the transformers 4·hidden default.
 export function estimateParamsFromConfig(config: Record<string, unknown>): number | null {
   const hidden = num(config, 'hidden_size', 'n_embd', 'd_model');
   const layers = num(config, 'num_hidden_layers', 'n_layer');
@@ -163,7 +164,9 @@ export function estimateParamsFromConfig(config: Record<string, unknown>): numbe
   const vocab = num(config, 'vocab_size');
   if (hidden === undefined || layers === undefined || heads === undefined || vocab === undefined) return null;
 
-  const kvHeads = num(config, 'num_key_value_heads') ?? heads;
+  // Falcon spells GQA `num_kv_heads`/`n_head_kv`, and pre-GQA multi-query
+  // models (falcon-7b) signal one KV head with `multi_query: true`.
+  const kvHeads = num(config, 'num_key_value_heads', 'num_kv_heads', 'n_head_kv') ?? (config.multi_query === true ? 1 : heads);
   const headDim = num(config, 'head_dim') ?? hidden / heads;
 
   // ── attention (per layer) ──────────────────────────────────────────────────
@@ -188,8 +191,12 @@ export function estimateParamsFromConfig(config: Record<string, unknown>): numbe
   }
 
   // ── FFN (summed across layers) ──────────────────────────────────────────────
-  const mult = NON_GATED_FFN.has(String(config.model_type ?? '').toLowerCase()) ? 2 : 3;
-  const inter = num(config, 'intermediate_size', 'n_inner', 'ffn_dim', 'ffn_hidden_size');
+  const nonGated = NON_GATED_FFN.has(String(config.model_type ?? '').toLowerCase());
+  const mult = nonGated ? 2 : 3;
+  // The classics routinely omit the FFN width (gpt2 ships `n_inner: null`,
+  // falcon/bloom/mpt have no field at all) — transformers defaults it to
+  // 4·hidden for them. Gated configs always carry an explicit width.
+  const inter = num(config, 'intermediate_size', 'n_inner', 'ffn_dim', 'ffn_hidden_size') ?? (nonGated ? 4 * hidden : undefined);
   const experts = num(config, 'num_local_experts', 'n_routed_experts', 'num_experts');
   const isMoe = experts !== undefined && experts > 0;
 

@@ -47,7 +47,9 @@ This complements:
   path (ref-pinning → tree fold → lazy 2 MB-capped blob read) now has an
   end-to-end test: the forge base URL is overridable via `localStorage` so a
   Playwright loopback server stands in for the API, and `forge_fetch` allows
-  plain-http only to loopback (a real forge is always https). Closes the last
+  plain-http only to loopback **and only under the e2e harness**
+  (`TERMIPOD_E2E=1`) — production stays https-only (the policy is extracted to
+  `forgepolicy.ts` and unit-tested both ways). Closes the last
   "recorded, not built" coverage gap on shipped forge code.
 
 - **Inspect tab — analytic params + VRAM in the config-only view (round 3, §5a
@@ -60,8 +62,11 @@ This complements:
   gated or legacy non-gated MLP, tied/untied embeddings. Validated against
   Llama-3-8B ≈ 8.0B, Mixtral-8×7B ≈ 46.7B, DeepSeek-V3 ≈ 671B, GPT-2 ≈ 124M, and
   the newest influential MoE releases — Qwen3-235B-A22B ≈ 235B, Kimi K2 ≈ 1.0T,
-  GLM-4.5 — which reuse the same field conventions. Badged as an estimate
-  (error-tolerant by design).
+  GLM-4.5 — which reuse the same field conventions. Legacy configs that omit
+  the FFN width (gpt2's `n_inner: null`, falcon/bloom) get the transformers
+  4·hidden default, and `multi_query` / `num_kv_heads` spellings of MQA/GQA are
+  honoured, so the classics estimate from their *real* HF configs. Badged as an
+  estimate (error-tolerant by design).
 
 - **Inspect tab — local git lens (round 3, T4b).** A pinned local root that is a
   git repo shows its **branch + dirty count** on the root row (read-only, via

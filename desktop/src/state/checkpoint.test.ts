@@ -149,6 +149,21 @@ test('estimateParamsFromConfig: null only for genuinely missing fields', () => {
   assert.equal(estimateParamsFromConfig({ model_type: 'llama', hidden_size: 4096 }), null); // no layers/heads/vocab/inter
 });
 
+// The classics as they REALLY ship on HF: gpt2's config carries `n_inner: null`
+// and falcon has no FFN-width field at all — both default to 4·hidden in
+// transformers. falcon-7b also signals multi-query via `multi_query: true`.
+test('estimateParamsFromConfig: real gpt2 config (n_inner null) lands ~124M', () => {
+  const cfg = { model_type: 'gpt2', n_embd: 768, n_layer: 12, n_head: 12, vocab_size: 50257, n_inner: null };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p !== null && p > 100e6 && p < 130e6, `expected ~124M, got ${p === null ? 'null' : (p / 1e6).toFixed(0) + 'M'}`);
+});
+
+test('estimateParamsFromConfig: real falcon-7b config (no FFN field, multi_query) lands ~7B', () => {
+  const cfg = { model_type: 'falcon', hidden_size: 4544, num_hidden_layers: 32, num_attention_heads: 71, vocab_size: 65024, multi_query: true, tie_word_embeddings: false };
+  const p = estimateParamsFromConfig(cfg)!;
+  assert.ok(p !== null && p > 6.4e9 && p < 7.6e9, `expected ~7B, got ${p === null ? 'null' : (p / 1e9).toFixed(2) + 'B'}`);
+});
+
 // ── newest influential MoE models on HF (reuse DeepSeek-V3 field conventions) ──
 test('estimateParamsFromConfig: Qwen3-235B-A22B (qwen3_moe, GQA+MoE) lands ~235B', () => {
   const cfg = { model_type: 'qwen3_moe', hidden_size: 4096, num_hidden_layers: 94, num_attention_heads: 64, num_key_value_heads: 4, head_dim: 128, moe_intermediate_size: 1536, num_experts: 128, num_experts_per_tok: 8, vocab_size: 151936, tie_word_embeddings: false };

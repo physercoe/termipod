@@ -7,6 +7,7 @@ import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+import { AgentSpawn } from './AgentSpawn';
 import { AgentTranscript } from './AgentTranscript';
 import { ActivityTab, CriteriaTab, DeliverableDetail, DocumentsTab, FilesTab } from './ProjectPanels';
 import { ProjectHero } from './ProjectHero';
@@ -564,10 +565,14 @@ function TaskCard({
   task,
   selected,
   onOpen,
+  onDragStart,
+  onDragEnd,
 }: {
   task: Entity;
   selected: boolean;
   onOpen: () => void;
+  onDragStart: (task: Entity) => void;
+  onDragEnd: () => void;
 }): JSX.Element {
   const status = str(task, 'status') ?? 'todo';
   const priority = str(task, 'priority') ?? 'med';
@@ -575,13 +580,31 @@ function TaskCard({
   const snippet = firstLine(str(task, 'body_md'));
   const result = str(task, 'result_summary');
   const age = relTime(str(task, 'completed_at') ?? str(task, 'started_at') ?? str(task, 'updated_at'));
+  // Blocked cards are agent-owned (crash/failed verdict) — drag-disabled so a
+  // human can't manually re-route the worker's state (decision §6.3).
+  const draggable = status !== 'blocked';
   const cls =
     'kanban-card' +
     (selected ? ' selected' : '') +
+    (draggable ? ' draggable' : '') +
     (status === 'cancelled' ? ' cancelled' : '') +
     (status === 'blocked' ? ' blocked' : '');
   return (
-    <div className={cls} role="button" onClick={onOpen}>
+    <div
+      className={cls}
+      role="button"
+      onClick={onOpen}
+      draggable={draggable}
+      onDragStart={(e) => {
+        if (!draggable) return;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', str(task, 'id') ?? '');
+        onDragStart(task);
+      }}
+      // Clears drag state on any end — a successful drop OR a cancel (Esc /
+      // release outside a column) — so no stale highlight or dragTask lingers.
+      onDragEnd={onDragEnd}
+    >
       <div className="kanban-card-top">
         <span className={`prio-dot prio-${priority}`} title={priority} />
         <div className="kanban-card-title">{str(task, 'title') ?? str(task, 'summary') ?? str(task, 'id')}</div>
@@ -604,11 +627,28 @@ function TaskCard({
   );
 }
 
+type TaskView = 'active' | 'all' | 'cancelled';
+
 function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const qc = useQueryClient();
   const [open, setOpen] = useState<Entity | null>(null);
   const [creating, setCreating] = useState(false);
+  // W3 assign-to-task: dropping a card into In progress (or the detail
+  // panel's assign action) opens the spawn picker linked to this task.
+  const [assignTask, setAssignTask] = useState<Entity | null>(null);
+  // W3 drag state — the card currently being dragged and the column hovered,
+  // for drop routing + hover affordance. HTML5 dataTransfer carries the id too
+  // (accessibility / cross-frame), but React state drives the eligibility gate.
+  const [dragTask, setDragTask] = useState<Entity | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [dndErr, setDndErr] = useState<string | null>(null);
+  // W3 toolbar: cancelled hides behind a tab (VK Active|All|Cancelled); search
+  // + priority narrow the board.
+  const [view, setView] = useState<TaskView>('active');
+  const [query, setQuery] = useState('');
+  const [prio, setPrio] = useState('');
   // Master-detail engages ≥1100px (panel; modal below); the tri-pane transcript
   // preview engages ≥1600px (decision §6.4). The detail panel is user-resizable,
   // mirroring MissionLayout's right-dock rail (usePanelWidth + ResizeHandle).
@@ -626,7 +666,18 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   if (tasksQ.isError) return <div className="region-pad error">{(tasksQ.error as Error).message}</div>;
 
   const tasks = tasksQ.data ?? [];
-  const inColumn = (status: string): Entity[] => tasks.filter((task) => (str(task, 'status') ?? 'todo') === status);
+  // Search (title + body) and priority narrow which cards render; the column
+  // set is chosen by the view tab below. Both are pure client-side filters.
+  const q = query.trim().toLowerCase();
+  const shown = tasks.filter((task) => {
+    if (prio !== '' && (str(task, 'priority') ?? 'med') !== prio) return false;
+    if (q !== '') {
+      const hay = `${str(task, 'title') ?? ''} ${str(task, 'body_md') ?? ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const inColumn = (status: string): Entity[] => shown.filter((task) => (str(task, 'status') ?? 'todo') === status);
   // Unknown-status fallback: any status the client doesn't know (a hub that
   // ships a new lifecycle state before this build does) gets its own trailing
   // column instead of silently vanishing from the board — killing the
@@ -636,7 +687,15 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const extraStatuses = [
     ...new Set(tasks.map((task) => str(task, 'status') ?? 'todo').filter((sv) => !known.has(sv))),
   ];
-  const columns = [...COLUMNS, ...extraStatuses];
+  // Cancelled lives behind its own tab (it is terminal + human-only); Active
+  // hides it, All shows every column, Cancelled shows only it. Unknown statuses
+  // ride alongside the active/all columns (they are never 'cancelled').
+  const columns =
+    view === 'cancelled'
+      ? ['cancelled']
+      : view === 'active'
+        ? [...COLUMNS.filter((c) => c !== 'cancelled'), ...extraStatuses]
+        : [...COLUMNS, ...extraStatuses];
   const columnLabel = (status: string): string => (known.has(status) ? t(`kanban.${status}`) : status);
   const selectedId = open !== null ? str(open, 'id') : null;
   // Render the detail from the freshest copy of the task: `open` is the
@@ -648,12 +707,64 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   const assigneeId = selected !== null ? str(selected, 'assignee_id') : undefined;
   const showTranscript = ultra && selected !== null && assigneeId !== undefined;
 
+  async function patchStatus(task: Entity, status: string): Promise<void> {
+    if (client === null) return;
+    setDndErr(null);
+    try {
+      await client.patchTask(projectId, str(task, 'id') ?? '', { status });
+      await qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+    } catch (e) {
+      setDndErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Drop routing per the derivation table (decision §6.3):
+  //   → in_progress : never a raw PATCH — open the agent picker; the spawn
+  //                   flips the status via hub derivation (explicit beats magic).
+  //   → cancelled   : human-only + terminal — confirm before the drop lands.
+  //   → todo/in_review/done/… : plain human PATCH (done from in_review = accept).
+  // Blocked cards can't be dragged at all (agent-owned; TaskCard gates the
+  // source), so there is no "from blocked" case to guard here.
+  function onDropStatus(target: string): void {
+    const task = dragTask;
+    setDragTask(null);
+    setDragOver(null);
+    if (task === null) return;
+    const from = str(task, 'status') ?? 'todo';
+    if (from === target) return;
+    if (target === 'in_progress') {
+      setAssignTask(task);
+      return;
+    }
+    if (target === 'cancelled' && !window.confirm(t('task.confirmCancel'))) return;
+    void patchStatus(task, target);
+  }
+
   const board = (
     <div className="kanban">
       {columns.map((status) => {
         const items = inColumn(status);
+        const droppable = dragTask !== null && (str(dragTask, 'status') ?? 'todo') !== status;
         return (
-          <div key={status} className="kanban-col">
+          <div
+            key={status}
+            className={`kanban-col${dragOver === status && droppable ? ' drag-over' : ''}`}
+            onDragOver={(e) => {
+              if (!droppable) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (dragOver !== status) setDragOver(status);
+            }}
+            onDragLeave={(e) => {
+              // Ignore leaves into descendant nodes (relatedTarget still inside).
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+              if (dragOver === status) setDragOver(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              onDropStatus(status);
+            }}
+          >
             <div className="kanban-head">
               {columnLabel(status)} <span className="pill">{items.length}</span>
             </div>
@@ -663,6 +774,11 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
                 task={task}
                 selected={str(task, 'id') === selectedId}
                 onOpen={() => setOpen(task)}
+                onDragStart={setDragTask}
+                onDragEnd={() => {
+                  setDragTask(null);
+                  setDragOver(null);
+                }}
               />
             ))}
             {items.length === 0 && <div className="kanban-empty">—</div>}
@@ -675,7 +791,30 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   return (
     <>
       <div className="kanban-bar">
+        <div className="kanban-views">
+          {(['active', 'all', 'cancelled'] as TaskView[]).map((v) => (
+            <button key={v} className={view === v ? 'chip active' : 'chip'} onClick={() => setView(v)}>
+              {t(`taskview.${v}`)}
+            </button>
+          ))}
+        </div>
+        <input
+          className="kanban-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('task.search')}
+          spellCheck={false}
+        />
+        <select value={prio} onChange={(e) => setPrio(e.target.value)} title={t('task.priority')}>
+          <option value="">{t('task.allPriorities')}</option>
+          {PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
         <span className="spacer" />
+        {dndErr !== null && <span className="error small">{dndErr}</span>}
         <button onClick={() => setCreating(true)}>+ {t('task.new')}</button>
       </div>
       {showPanel ? (
@@ -691,6 +830,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
               projectId={projectId}
               task={selected!}
               onClose={() => setOpen(null)}
+              onAssign={() => setAssignTask(selected)}
             />
           </aside>
           {showTranscript && (
@@ -704,6 +844,15 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
       )}
       {selected !== null && !wide && <TaskDetail projectId={projectId} task={selected} onClose={() => setOpen(null)} />}
       {creating && <NewTaskForm projectId={projectId} onDone={() => setCreating(false)} />}
+      {assignTask !== null && (
+        <AgentSpawn
+          taskId={str(assignTask, 'id') ?? ''}
+          taskTitle={str(assignTask, 'title') ?? str(assignTask, 'summary') ?? undefined}
+          presetProjectId={projectId}
+          onSpawned={() => void qc.invalidateQueries({ queryKey: ['tasks', projectId] })}
+          onClose={() => setAssignTask(null)}
+        />
+      )}
     </>
   );
 }

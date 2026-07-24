@@ -1,12 +1,13 @@
 # Project & task board redesign — master-detail desktop, in-review lifecycle, agent-aware DnD
 
 > **Type:** plan
-> **Status:** In progress 2026-07-23 — **W1 SHIPPED** (master-detail board,
-> rich cards, stretchy columns, resizable split + tri-pane transcript preview
-> per §6.4); **W2 SHIPPED** (`in_review` lifecycle end-to-end: hub derivation +
-> clients + unknown-status fallback + ADR-029 D-8); W3–W5 open. Decisions §6.
+> **Status:** In progress — **W1 SHIPPED** (master-detail board, rich cards,
+> stretchy columns, resizable split + tri-pane transcript preview per §6.4);
+> **W2 SHIPPED** (`in_review` lifecycle end-to-end: hub derivation + clients +
+> unknown-status fallback + ADR-029 D-8); **W3 SHIPPED** (agent-aware DnD +
+> assign-on-drop + filters/search/view-tabs, desktop); W4–W5 open. Decisions §6.
 > **Audience:** contributors, maintainer
-> **Last verified vs code:** W1+W2 shipped to main, 2026-07-23
+> **Last verified vs code:** W1+W2 shipped 2026-07-23; W3 shipped 2026-07-24
 
 **TL;DR.** The desktop Projects area under-serves widescreen: the tasks
 kanban is five fixed 220px columns with dead space to their right, task cards
@@ -240,11 +241,33 @@ unchanged.
     The send-back **note into the assignee session** is W5's feedback loop.
   - Verified: hub `go test ./internal/server/` green; desktop tsc + tokens +
     vite build green; mobile CI-verified (no local Flutter).
-- **W3 — DnD-with-assign + filters/search (desktop).** HTML5 drag events on
-  cards/columns; transition guard per the derivation table; assign sheet
-  reuse (`AgentSpawn` — which has **no `task_id` plumbing today**; W3 adds
-  the prop and passes it through to the spawn call, which the hub API
-  already accepts); toolbar chips + search.
+- **W3 — DnD-with-assign + filters/search (desktop). SHIPPED
+  (direct-to-main).** Desktop-only; no hub change (the spawn `task_id` field
+  already existed, `handlers_agents.go:714`). What landed:
+  - **Agent-aware DnD** on the kanban. Cards are HTML5-`draggable` except
+    `blocked` (agent-owned — the crash/failed verdict isn't human-re-routable,
+    §6.3); columns are drop targets with an accent drag-over affordance.
+    `onDragEnd` clears drag state on cancel (Esc / drop outside) so no
+    highlight lingers.
+  - **Drop routing per the derivation table** (`onDropStatus`): into
+    `in_progress` → **never a raw PATCH**, opens the assign picker and the
+    spawn flips the status via hub derivation (§6.3 — explicit beats magic);
+    into `cancelled` → `window.confirm` then PATCH (terminal + human-only);
+    `todo`/`in_review`/`done`/unknown → plain human PATCH (dropping an
+    `in_review` card on `done` = accept). Same-column drop is a no-op.
+  - **Assign sheet reuse:** `AgentSpawn` gained optional `taskId` / `taskTitle`
+    / `presetProjectId` / `onSpawned` props — in assign mode it sends `task_id`
+    (mutually exclusive with the inline `task`), locks the project, and shows
+    the task title read-only. The desktop client's `spawnAgent` body gained
+    `task_id`. Also reachable non-DnD via an **Assign agent** action on an
+    unassigned task's detail panel (`TaskDetailBody` `onAssign`).
+  - **Board toolbar (mobile parity):** `Active | All | Cancelled` view tabs
+    (cancelled hides behind its own tab, VK pattern), a title+body search box,
+    and a priority filter menu — all pure client-side filters over the polled
+    task list; the unknown-status fallback columns ride alongside active/all.
+  - Verified: tsc clean, `lint-desktop-tokens` clean (65 baseline), vite build
+    green. DnD device-test (native drag on WebView2, confirm dialogs) is the
+    director's.
 - **W4 — Attempts framing + left-nav parity (desktop).** Detail panel
   attempts section from spawn history; "New attempt" action; left-nav card
   content port.

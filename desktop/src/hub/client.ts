@@ -174,6 +174,10 @@ export class HubClient {
     kind: string;
     host_id: string;
     project_id?: string;
+    // Link the spawn to an existing task (ADR-029 D-2). Mutually exclusive with
+    // `task` below — the hub 4xxs if both are set. The task's status then flips
+    // todo→in_progress via the existing derivation, not a client PATCH.
+    task_id?: string;
     task?: { title: string; body_md?: string };
   }): Promise<Entity> {
     return this.transport.post(this.transport.team('/agents/spawn'), body) as Promise<Entity>;

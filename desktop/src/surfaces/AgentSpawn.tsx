@@ -14,8 +14,28 @@ const ENGINES = ['claude-code', 'codex', 'antigravity', 'kimi-code', 'kimi-code-
 /// Spawn an agent (parity Phase 4 / F3). Direct `POST /agents/spawn`
 /// (self-governing): an immediate spawn returns `{agent_id}`; a policy-gated one
 /// returns `202 pending_approval` and the item lands in the Attention dock.
-export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
+///
+/// Assign-to-task mode (W3): when `taskId` is set the sheet spawns a worker
+/// *against an existing task* — it sends `task_id` (mutually exclusive with the
+/// inline `task`), locks the project to the task's project, and swaps the
+/// free-text task field for the task's title as read-only context. The task's
+/// status flips todo→in_progress via the hub's derivation, not a client PATCH
+/// (decision §6.3 — dragging a card into In progress opens this picker).
+export function AgentSpawn({
+  onClose,
+  taskId,
+  taskTitle,
+  presetProjectId,
+  onSpawned,
+}: {
+  onClose: () => void;
+  taskId?: string;
+  taskTitle?: string;
+  presetProjectId?: string;
+  onSpawned?: () => void;
+}): JSX.Element {
   const t = useT();
+  const assignMode = taskId !== undefined;
   const client = useSession((s) => s.client);
   const { run, busy, error } = useHubAction();
   const hostsQ = useHosts();
@@ -26,7 +46,7 @@ export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
   const [handle, setHandle] = useState('');
   const [engine, setEngine] = useState('claude-code');
   const [hostId, setHostId] = useState('');
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(presetProjectId ?? '');
   const [task, setTask] = useState('');
   const [pending, setPending] = useState(false);
 
@@ -42,7 +62,11 @@ export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
           kind: engine,
           host_id: effectiveHost,
           project_id: projectId !== '' ? projectId : undefined,
-          task: task.trim() !== '' ? { title: task.trim() } : undefined,
+          // task_id and the inline task are mutually exclusive hub-side. In
+          // assign mode we link the existing task; otherwise the free-text
+          // field mints a new one.
+          task_id: assignMode ? taskId : undefined,
+          task: !assignMode && task.trim() !== '' ? { title: task.trim() } : undefined,
         }),
       { invalidate: [['agents'], ['attention']] },
     );
@@ -50,14 +74,15 @@ export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
     if (str(res, 'status') === 'pending_approval') {
       setPending(true);
     } else {
+      onSpawned?.();
       onClose();
     }
   }
 
   return (
-    <Modal onClose={onClose} className="task-detail" ariaLabel={t('spawn.title')}>
+    <Modal onClose={onClose} className="task-detail" ariaLabel={assignMode ? t('spawn.assignTitle') : t('spawn.title')}>
         <div className="admin-tabs">
-          <strong>{t('spawn.title')}</strong>
+          <strong>{assignMode ? t('spawn.assignTitle') : t('spawn.title')}</strong>
           <span className="spacer" />
           <button onClick={onClose}>{t('admin.close')}</button>
         </div>
@@ -89,24 +114,35 @@ export function AgentSpawn({ onClose }: { onClose: () => void }): JSX.Element {
               })}
             </select>
           </label>
-          <label>
-            {t('spawn.project')}
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">{t('spawn.none')}</option>
-              {projects.map((p) => {
-                const id = str(p, 'id') ?? '';
-                return (
-                  <option key={id} value={id}>
-                    {str(p, 'name') ?? id}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          <label className="wide">
-            {t('spawn.task')}
-            <textarea value={task} onChange={(e) => setTask(e.target.value)} placeholder={t('spawn.taskPlaceholder')} />
-          </label>
+          {assignMode ? (
+            /* Project is fixed to the task's project; the task is the one being
+               assigned — shown read-only, not authored here. */
+            <label className="wide">
+              {t('spawn.assignTo')}
+              <div className="spawn-task-context">{taskTitle ?? taskId}</div>
+            </label>
+          ) : (
+            <>
+              <label>
+                {t('spawn.project')}
+                <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                  <option value="">{t('spawn.none')}</option>
+                  {projects.map((p) => {
+                    const id = str(p, 'id') ?? '';
+                    return (
+                      <option key={id} value={id}>
+                        {str(p, 'name') ?? id}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <label className="wide">
+                {t('spawn.task')}
+                <textarea value={task} onChange={(e) => setTask(e.target.value)} placeholder={t('spawn.taskPlaceholder')} />
+              </label>
+            </>
+          )}
           {hosts.length === 0 && <div className="muted small wide">{t('spawn.noHost')}</div>}
           {pending && <div className="wide sev sev-medium">{t('spawn.pending')}</div>}
           {error !== null && <div className="error wide">{error}</div>}

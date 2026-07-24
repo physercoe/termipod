@@ -70,7 +70,17 @@ button.search-result-link:hover {
 .kanban-bar {
   display: flex;
   align-items: center;
+  gap: var(--spacing-s8);
   padding: 0 var(--spacing-s8) var(--spacing-s8);
+}
+/* W3 board toolbar: view tabs (Active|All|Cancelled), search, priority menu. */
+.kanban-views {
+  display: flex;
+  gap: var(--spacing-s4);
+}
+.kanban-search {
+  width: 180px;
+  max-width: 40vw;
 }
 .task-detail {
   width: 560px;
@@ -261,6 +271,14 @@ button.search-result-link:hover {
 .task-form-actions {
   display: flex;
   justify-content: flex-end;
+}
+/* Read-only task title shown in the assign-to-task spawn sheet (W3). */
+.spawn-task-context {
+  padding: var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
 }
 .sessions-panel {
   width: 960px;

@@ -68,10 +68,15 @@ export function TaskDetailBody({
   projectId,
   task,
   onClose,
+  onAssign,
 }: {
   projectId: string;
   task: Entity;
   onClose: () => void;
+  // W3: opens the assign-agent picker for this task (keyboard/non-DnD path to
+  // the same spawn the drag-into-In-progress drop triggers). Omitted by the
+  // modal (narrow viewport) where DnD isn't the entry point anyway.
+  onAssign?: () => void;
 }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
@@ -163,7 +168,14 @@ export function TaskDetailBody({
               )}
             </span>
           ) : (
-            <span className="muted">{t('task.unassigned')}</span>
+            <span className="task-assignee">
+              <span className="muted">{t('task.unassigned')}</span>
+              {onAssign !== undefined && (
+                <button className="link-btn" onClick={onAssign}>
+                  {t('task.assign')}
+                </button>
+              )}
+            </span>
           )}
         </div>
 

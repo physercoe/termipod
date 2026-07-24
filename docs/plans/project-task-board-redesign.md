@@ -1,15 +1,18 @@
 # Project & task board redesign — master-detail desktop, in-review lifecycle, agent-aware DnD
 
 > **Type:** plan
-> **Status:** In progress — **W1 SHIPPED** (master-detail board, rich cards,
-> stretchy columns, resizable split + tri-pane transcript preview per §6.4);
-> **W2 SHIPPED** (`in_review` lifecycle end-to-end: hub derivation + clients +
-> unknown-status fallback + ADR-029 D-8); **W3 SHIPPED** (agent-aware DnD +
-> assign-on-drop + filters/search/view-tabs, desktop); **W4 SHIPPED** (per-task
-> attempts section + New-attempt + left-nav project-card parity, desktop); W5
-> open. Decisions §6.
+> **Status:** Complete (core) — **W1–W5 SHIPPED** (all direct-to-main): W1
+> master-detail board + rich cards + stretchy columns + resizable split +
+> tri-pane transcript (§6.4); W2 `in_review` lifecycle end-to-end (hub
+> derivation + clients + unknown-status fallback + ADR-029 D-8); W3 agent-aware
+> DnD + assign-on-drop + filters/search/view-tabs; W4 per-task attempts +
+> left-nav project-card parity; W5 review-feedback loop (note → assignee
+> session + send-back-with-note). The cumulative **Changes-rollup diff surface +
+> per-line comments** is the sole deferred item — the cross-linked P5
+> "recorded, not scheduled" (decision §6.5; needs per-session diff infra, a hub
+> non-goal). Decisions §6.
 > **Audience:** contributors, maintainer
-> **Last verified vs code:** W1+W2 shipped 2026-07-23; W3+W4 shipped 2026-07-24
+> **Last verified vs code:** W1+W2 shipped 2026-07-23; W3+W4+W5 shipped 2026-07-24
 
 **TL;DR.** The desktop Projects area under-serves widescreen: the tasks
 kanban is five fixed 220px columns with dead space to their right, task cards
@@ -295,9 +298,24 @@ unchanged.
     Widescreen device-test is the director's. (Mobile "New attempt in the
     overflow" per §Mobile-deltas deferred — desktop is the wedge target; mobile
     can already spawn against a task via its existing flows.)
-- **W5 — Review-feedback loop.** Per-task Changes rollup + line comments →
-  composer feedback into the assignee session. **Shared wedge with
-  `agent-transcript-redesign.md` P5** — land there or here, once.
+- **W5 — Review-feedback loop. SHIPPED (direct-to-main).** Desktop-only; no
+  hub change (reuses `postAgentInput` → a fresh turn into an agent's session).
+  A `TaskFeedback` composer on the task detail (`TaskDetailBody`), rendered only
+  when the assignee is **alive** (you can't send a turn to a terminated agent):
+  a textarea + **Send feedback** (delivers the note, keeps the task where it is
+  — iterative review) and, at `in_review`, **Send back** (delivers the note AND
+  flips → `in_progress` to re-engage the worker — decision §6.2, closing the
+  W2-deferred "send-back note into the assignee session"). The review-actions
+  row's plain send-back now shows only for the **dead-assignee** case (→`todo`
+  re-pickup, no session to note). i18n en+zh; CSS in `05-transcript-boards.css`.
+  Verified: tsc + `lint-desktop-tokens` (65 baseline) + vite build green.
+  - **Deferred (cross-link, decision §6.5):** the cumulative per-session
+    **Changes rollup** (diff surface) + **per-line comments** on it. It needs
+    per-session diff infrastructure the hub doesn't carry (it owns metadata, not
+    bytes — a non-goal to add byte/diff storage), and stays the "recorded, not
+    scheduled" P5 item in `agent-transcript-redesign.md` (§Mobile-parity: the
+    free-text feedback-to-session is the actionable core that ships; per-line
+    comments ride the future diff surface).
 
 Each wedge is its own PR; W1 is independent and can ship first; W2 touches
 hub + both clients and should land behind the status migration.

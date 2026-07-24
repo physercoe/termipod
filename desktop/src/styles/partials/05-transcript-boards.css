@@ -1498,6 +1498,24 @@
   font-family: var(--mono, ui-monospace, monospace);
 }
 
+/* W5 review-feedback composer — a note into the live assignee session. */
+.task-feedback-input {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  color: var(--text);
+}
+.task-feedback-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s8);
+}
+
 /* ---- admin & governance cockpit ---- */
 
 .admin {

@@ -130,6 +130,96 @@ function TaskAttempts({
   );
 }
 
+/// W5 review-feedback loop — a composer that posts the reviewer's note straight
+/// into the **assignee agent's session** (`postAgentInput` → a fresh turn), so
+/// review comments reach the worker without leaving the board. Rendered only
+/// when the assignee is alive (you can't send a turn to a terminated agent). Two
+/// actions: **Send feedback** delivers the note and keeps the task where it is
+/// (iterative review); **Send back** — shown at `in_review` — delivers the note
+/// AND flips the task to `in_progress` to re-engage the worker (decision §6.2,
+/// closing the W2-deferred "send-back note into the assignee session").
+///
+/// The cumulative per-session **Changes rollup** (diff surface + per-line
+/// comments) is the deferred half of W5 — it needs per-session diff
+/// infrastructure the hub doesn't carry (it owns metadata, not bytes), and
+/// stays the cross-linked P5 "recorded, not scheduled" item in
+/// `agent-transcript-redesign.md` (decision §6.5).
+function TaskFeedback({
+  projectId,
+  taskId,
+  assigneeId,
+  atReview,
+  onClose,
+}: {
+  projectId: string;
+  taskId: string;
+  assigneeId: string;
+  atReview: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const qc = useQueryClient();
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  async function send(sendBack: boolean): Promise<void> {
+    if (client === null) return;
+    const body = text.trim();
+    if (body === '' && !sendBack) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      if (body !== '') await client.postAgentInput(assigneeId, body);
+      if (sendBack) {
+        // Deliver the note first (above), then re-open the task so the live
+        // worker picks it up as its next turn. Alive-only path — the dead
+        // assignee send-back (→todo) stays on the review-actions row.
+        await client.patchTask(projectId, taskId, { status: 'in_progress' });
+        await qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+        onClose();
+        return;
+      }
+      setText('');
+      setSent(true);
+    } catch (e) {
+      setErr(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="setting-group task-feedback">
+      <h3>{t('task.feedback')}</h3>
+      <textarea
+        className="task-feedback-input"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSent(false);
+        }}
+        placeholder={t('task.feedbackHint')}
+      />
+      <div className="task-feedback-actions">
+        {sent && <span className="muted small">{t('task.feedbackSent')}</span>}
+        <span className="spacer" />
+        <button disabled={busy || text.trim() === ''} onClick={() => void send(false)}>
+          {t('task.sendFeedback')}
+        </button>
+        {atReview && (
+          <button className="primary" disabled={busy} onClick={() => void send(true)}>
+            {t('task.sendBack')}
+          </button>
+        )}
+      </div>
+      {err !== null && <div className="error">{err}</div>}
+    </section>
+  );
+}
+
 /// The rich task detail — shared by the modal (narrow) and the master-detail
 /// panel (wide, ≥1100px). Reaches mobile parity: status/priority pickers, live
 /// assignee pip + Open-transcript, result summary, start/complete timestamps,
@@ -191,7 +281,9 @@ export function TaskDetailBody({
   // in_review is a terminated assignee (that's how the status arises), and
   // →in_progress there would show work in progress that nobody is doing —
   // those go →todo for a fresh pickup. A one-click patch — no Save round-trip.
-  // (The send-back note into the assignee session is W5.)
+  // W5: when the assignee IS alive the send-back moves into the feedback
+  // composer below (send-back-with-note → in_progress); the review-actions row
+  // keeps the plain →todo send-back only for the dead-assignee case.
   const assigneeAlive =
     assigneeStatus === 'pending' || assigneeStatus === 'running' ||
     assigneeStatus === 'idle' || assigneeStatus === 'paused';
@@ -225,9 +317,13 @@ export function TaskDetailBody({
             <button className="primary" disabled={busy} onClick={() => void review('done')}>
               {t('task.accept')}
             </button>
-            <button disabled={busy} onClick={() => void review(assigneeAlive ? 'in_progress' : 'todo')}>
-              {t('task.sendBack')}
-            </button>
+            {/* Alive → send-back lives in the feedback composer (with a note);
+                dead assignee → plain →todo re-pickup here. */}
+            {!assigneeAlive && (
+              <button disabled={busy} onClick={() => void review('todo')}>
+                {t('task.sendBack')}
+              </button>
+            )}
           </div>
         )}
 
@@ -257,6 +353,16 @@ export function TaskDetailBody({
             </span>
           )}
         </div>
+
+        {assigneeId !== undefined && assigneeAlive && (
+          <TaskFeedback
+            projectId={projectId}
+            taskId={taskId}
+            assigneeId={assigneeId}
+            atReview={(str(task, 'status') ?? 'todo') === 'in_review'}
+            onClose={onClose}
+          />
+        )}
 
         {resultSummary !== undefined && resultSummary !== '' && (
           <div className="setting-row task-result-row">

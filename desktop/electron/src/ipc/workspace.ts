@@ -6,7 +6,7 @@ import { readdir, rename, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Ctx, Handler } from './dispatch';
 import { openDialog } from './dialogs';
-import { copyRecursive, isWithin, sortDirsFirst } from './fsutil';
+import { copyRecursive, isWithin, SKIP_DIRS, sortDirsFirst } from './fsutil';
 
 interface FileNode {
   name: string;
@@ -15,10 +15,6 @@ interface FileNode {
   children: FileNode[];
 }
 
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'target', 'dist', 'build', '.next', '.venv', 'venv',
-  '__pycache__', '.cache', '.idea', '.vscode', '.svn', '.hg',
-]);
 const MAX_DEPTH = 8;
 const MAX_ENTRIES = 5000;
 

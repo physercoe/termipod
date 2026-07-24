@@ -41,6 +41,23 @@ This complements:
 
 ## Unreleased
 
+### Added
+
+- **Inspect tab — project trees (round 3, T1).** The Inspect tab could only open
+  *single files*; it now has a **tree pane** for pinning and browsing whole
+  folders. "Open folder…" (or the pane's ＋) pins a local root; expand it lazily
+  (one directory listed per click), open any file into a viewer tab (compare
+  mode included), rename/refresh/remove roots, and filter a root by name (a
+  bounded recursive index — hidden files included, `node_modules`/`.git`/… never
+  descended, every cap surfaced rather than implied). The pane is resizable and
+  foldable, and it feeds features that were starved of a project root: a
+  stack-trace frame now resolves against every pinned root, and the model-graph
+  tracer defaults its repo-root to the innermost pinned root containing the
+  file. Checkpoint / model-graph tabs opened from the Author *workspace* picker
+  now inspect too (the gate was "picked via the native dialog"; it is now "the
+  path is local"). Remote/hub/GitHub/Hugging-Face roots follow in later wedges.
+  Plan: [`plans/inspect-project-trees.md`](plans/inspect-project-trees.md).
+
 ### Fixed
 
 - **Canvas note cards can now be dragged.** A note card's body is a full-bleed

@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
+import { useInspectRoots } from '../state/inspectRoots';
 import { looksLikeDot } from '../state/dotGraph';
 import type { GraphCollection } from '../state/modelGraph';
 import { TraceModal } from '../ui/TraceModal';
@@ -19,8 +20,10 @@ import { looksLikePatch } from '../state/patch';
 import { looksLikeLog } from '../state/ansi';
 import { extractSymbols, SUPPORTED_LANGS, type CodeSymbol } from '../state/treeSitter';
 import { CodeOutline } from '../ui/CodeOutline';
+import { usePanelWidth, ResizeHandle } from '../ui/ResizeHandle';
 import type { LogSource } from '../ui/LogView';
 import { InspectOpenDialog, type OpenMode, type PickResult } from './InspectOpen';
+import { InspectTree } from './InspectTree';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
@@ -556,7 +559,10 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
 // follow-on (they'd need an SFTP header-fetch), so those show an honest note.
 function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
-  if (!isShell() || tab.source !== 'local' || tab.path === undefined) {
+  // `checkpoint_inspect` is by local absolute path — a `workspace` tab has one
+  // too (the walk returns absolute paths), so it inspects just like `local`. The
+  // gate reads "the path is local", not "picked via the native dialog".
+  if (!isShell() || (tab.source !== 'local' && tab.source !== 'workspace') || tab.path === undefined) {
     return (
       <div className="surface-placeholder region-pad">
         <div className="surface-posture">{t('model.localOnly')}</div>
@@ -659,7 +665,7 @@ function MEGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
       </Suspense>
     );
   }
-  if (!isShell() || tab.source !== 'local' || tab.path === undefined) {
+  if (!isShell() || (tab.source !== 'local' && tab.source !== 'workspace') || tab.path === undefined) {
     return (
       <div className="surface-placeholder region-pad">
         <div className="surface-posture">{t('model.localOnly')}</div>
@@ -702,6 +708,10 @@ export function DebugSurface(): JSX.Element {
   const setActive = useInspect((s) => s.setActive);
   const folder = useWorkspace((s) => s.folder);
   const client = useSession((s) => s.client);
+  const roots = useInspectRoots((s) => s.roots);
+  const addRoot = useInspectRoots((s) => s.addRoot);
+  const [treeW, onResizeTree] = usePanelWidth('termipod.inspect.treeW', 260, 200, 420);
+  const [treeOpen, setTreeOpen] = useState<boolean>(() => localStorage.getItem('termipod.inspect.treeOpen') !== '0');
   const [reveal, setReveal] = useState<Record<string, number>>({});
   const [notFound, setNotFound] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
@@ -718,6 +728,32 @@ export function DebugSurface(): JSX.Element {
 
   function newScratch(): void {
     openTab({ kind: 'code', source: 'paste', title: t('inspect.scratch') }, '');
+  }
+
+  function setTree(open: boolean): void {
+    setTreeOpen(open);
+    try {
+      localStorage.setItem('termipod.inspect.treeOpen', open ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Pin a local folder as a tree root (Open menu "Open folder…" + the pane's +).
+  async function openFolder(): Promise<void> {
+    if (!isShell()) return;
+    const p = await invoke<string | null>('workspace_pick_folder', {});
+    if (p === null || p === '') return;
+    addRoot({ source: 'local', label: baseName(p), path: p });
+    setTree(true);
+  }
+
+  // Pin the Author workspace folder as a root (a one-click suggestion, not
+  // auto-pinned — plan §8 open question 1).
+  function pinWorkspaceRoot(): void {
+    if (folder === null || folder === '') return;
+    addRoot({ source: 'local', label: baseName(folder), path: folder });
+    setTree(true);
   }
 
   // Snapshot a tab as a compare side. A paste/scratch side carries its current
@@ -794,6 +830,10 @@ export function DebugSurface(): JSX.Element {
     const cands: string[] = [];
     if (isAbs(frame.file)) cands.push(frame.file);
     if (folder !== null && folder !== '') cands.push(joinPath(folder, frame.file));
+    // Every pinned local root — a traceback from an inspected checkout resolves
+    // against it (plan §3 item 6), after the workspace folder, before the origin
+    // tab's own directory.
+    for (const r of roots) if (r.source === 'local' && r.path !== undefined && r.path !== '') cands.push(joinPath(r.path, frame.file));
     if (from.path !== undefined) cands.push(joinPath(dirName(from.path), frame.file));
     if (!isAbs(frame.file)) cands.push(frame.file);
     for (const c of cands) {
@@ -816,6 +856,16 @@ export function DebugSurface(): JSX.Element {
       job="debug"
       actions={
         <>
+          {roots.length > 0 && (
+            <button
+              className={`import-btn${treeOpen ? ' active' : ''}`}
+              title={treeOpen ? t('inspect.hideTree') : t('inspect.showTree')}
+              aria-pressed={treeOpen}
+              onClick={() => setTree(!treeOpen)}
+            >
+              <Icon name="sidebar" size={14} /> {t('inspect.tree')}
+            </button>
+          )}
           <button className="import-btn" onClick={newScratch}>
             <Icon name="plus" size={14} /> {t('inspect.newScratch')}
           </button>
@@ -830,6 +880,16 @@ export function DebugSurface(): JSX.Element {
                   {isShell() && (
                     <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), void openLocal())}>
                       <Icon name="file-text" size={14} /> {t('inspect.openFile')}
+                    </button>
+                  )}
+                  {isShell() && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), void openFolder())}>
+                      <Icon name="folder" size={14} /> {t('inspect.openFolder')}
+                    </button>
+                  )}
+                  {isShell() && folder !== null && folder !== '' && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), pinWorkspaceRoot())}>
+                      <Icon name="sidebar" size={14} /> {t('inspect.pinWorkspaceFolder')}
                     </button>
                   )}
                   {isShell() && (
@@ -896,6 +956,13 @@ export function DebugSurface(): JSX.Element {
       }
     >
       <div className="inspect-shell">
+        {treeOpen && roots.length > 0 && (
+          <>
+            <InspectTree width={treeW} onPick={pick} onAddFolder={() => void openFolder()} onClose={() => setTree(false)} />
+            <ResizeHandle onResize={onResizeTree} />
+          </>
+        )}
+        <div className="inspect-main">
         {tabs.length > 0 && (
           <div className="inspect-tabs" role="tablist">
             {tabs.map((tb) => (
@@ -958,6 +1025,7 @@ export function DebugSurface(): JSX.Element {
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}
+        </div>
         </div>
         {cmpBase !== null && (
           <div className="inspect-toast cmp">

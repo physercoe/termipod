@@ -6,9 +6,16 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Handler } from './dispatch';
-import { assertSafeLocalDelete, home, parentOrNull, sortDirsFirst } from './fsutil';
+import { assertSafeLocalDelete, home, parentOrNull, sortDirsFirst, walkNameIndex, type NameIndexEntry } from './fsutil';
 
 const MAX_ENTRIES = 10_000;
+
+// Recursive name-index caps (Inspect tree filter, plan §3 item 5) — deeper and
+// wider than `workspace_list`'s @-mention walk because inspection wants the
+// whole project, and *includes* hidden files (a `.github/` or `.env.example` is
+// an inspection target). Every cap is surfaced to the UI (`truncated`).
+const TREE_INDEX_MAX_DEPTH = 12;
+const TREE_INDEX_MAX_ENTRIES = 20_000;
 
 // Field names mirror the serde output (`is_dir`, no rename) so the frontend's
 // LocalListing/LocalEntry types read unchanged.
@@ -22,7 +29,11 @@ interface LocalListing {
   path: string;
   parent: string | null;
   entries: LocalEntry[];
+  // True when the directory held more than MAX_ENTRIES (the listing is capped);
+  // the tree pane surfaces this rather than implying it read everything.
+  truncated: boolean;
 }
+
 
 export const localfsHandlers: Record<string, Handler> = {
   localfs_home: async (): Promise<string> => home(),
@@ -35,15 +46,29 @@ export const localfsHandlers: Record<string, Handler> = {
 
     const names = await readdir(base);
     const entries: LocalEntry[] = [];
+    let truncated = false;
     for (const name of names) {
-      if (entries.length >= MAX_ENTRIES) break;
+      if (entries.length >= MAX_ENTRIES) {
+        truncated = true;
+        break;
+      }
       const full = path.join(base, name);
       const md = await stat(full).catch(() => null);
       const isDir = md?.isDirectory() ?? false;
       entries.push({ name, path: full, is_dir: isDir, size: isDir ? 0 : (md?.size ?? 0) });
     }
     sortDirsFirst(entries, (e) => e.is_dir, (e) => e.name);
-    return { path: base, parent: parentOrNull(base), entries };
+    return { path: base, parent: parentOrNull(base), entries, truncated };
+  },
+
+  /// A bounded recursive **name index** of a folder, for the Inspect tree's
+  /// filter box (plan §3 item 5). Unlike `workspace_list` this includes hidden
+  /// files and uses inspection's own caps; it never descends `SKIP_DIRS` (they
+  /// are listed as leaf-tagged nodes but not walked). Returns root-relative
+  /// paths only — no bytes, no absolute paths — and a `truncated` flag when a
+  /// cap was hit, so the UI never implies it indexed everything.
+  tree_index: async (args): Promise<{ entries: NameIndexEntry[]; truncated: boolean }> => {
+    return walkNameIndex(String(args.path ?? ''), TREE_INDEX_MAX_DEPTH, TREE_INDEX_MAX_ENTRIES);
   },
 
   localfs_read: async (args): Promise<Uint8Array> => {

@@ -896,10 +896,155 @@ button > .ui-icon:not(:only-child):first-child,
 /* ── Inspect (J3) — tabbed inspector shell + CodeView (round-2 plan W1) ─────── */
 .inspect-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
   min-height: 0;
   position: relative;
+}
+/* The tabs + active-viewer column, beside the (optional) tree pane. */
+.inspect-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Inspect tree pane (round-3 T1) ─────────────────────────────────────── */
+.inspect-tree {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--canvas);
+  overflow: hidden;
+}
+.inspect-tree-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s6) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-tree-title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inspect-tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  padding-bottom: var(--spacing-s8);
+}
+.inspect-tree-root {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--spacing-s4);
+}
+.inspect-tree-rootrow {
+  display: flex;
+  align-items: center;
+  padding-right: var(--spacing-s4);
+}
+.inspect-tree-rootrow:hover {
+  background: var(--hover);
+}
+.inspect-tree-roottoggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: var(--spacing-s6) var(--spacing-s4);
+  cursor: pointer;
+  text-align: left;
+}
+.inspect-tree-rootactions {
+  display: none;
+  gap: 2px;
+}
+.inspect-tree-rootrow:hover .inspect-tree-rootactions {
+  display: flex;
+}
+.inspect-tree-rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--spacing-s4);
+}
+.inspect-tree-filter {
+  width: calc(100% - var(--spacing-s16));
+  margin: 0 var(--spacing-s8) var(--spacing-s4);
+  font: inherit;
+  font-size: var(--font-size-body-small);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 2px var(--spacing-s6);
+}
+.inspect-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 3px var(--spacing-s8) 3px 0;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.inspect-tree-row.file {
+  color: var(--text);
+}
+.inspect-tree-row.dir-match {
+  cursor: default;
+}
+.inspect-tree-row:hover:not(.dir-match) {
+  background: var(--hover);
+}
+.inspect-tree-spacer {
+  width: 12px;
+  flex: 0 0 12px;
+}
+.inspect-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body-small);
+}
+.inspect-tree-name.strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.inspect-tree-tag {
+  margin-left: auto;
+  padding-left: var(--spacing-s6);
+  flex: 0 0 auto;
+}
+.inspect-tree-msg {
+  padding: 3px var(--spacing-s8);
+  font-size: var(--font-size-body-small);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.inspect-tree-msg.err {
+  color: var(--danger);
+  white-space: normal;
+}
+.icon-btn.sm {
+  padding: 2px;
 }
 .inspect-tabs {
   display: flex;

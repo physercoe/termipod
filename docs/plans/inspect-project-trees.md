@@ -1,9 +1,14 @@
 # Inspect tab round 3 — project trees: folders, remote dirs, hub projects & GitHub repos
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-24)
+> **Status:** In progress (2026-07-24) — **T1 (tree pane + local folder roots)
+> SHIPPED.** The pane, the `inspectRoots` store, the `tree_index` name-index
+> IPC, and the two fed-back features (stack-trace resolver + trace repo-root
+> default) are live; the model-inspector gate now reads `local | workspace`.
+> **T2 (remote/hub roots), T3 (GitHub/HF + §5a config-only view) and T4
+> (content search + git lens) are the remaining wedges.**
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9baaa07f`
+> **Last verified vs code:** origin/main `9baaa07f` (+ T1)
 
 **TL;DR.** The Inspect tab (J3 round 2,
 [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)) opens

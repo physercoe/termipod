@@ -5,7 +5,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { cp, copyFile, mkdir, readFile, realpath } from 'node:fs/promises';
+import { cp, copyFile, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 
 /// The user's home directory (Rust used HOME || USERPROFILE; os.homedir() is the
 /// same resolution).
@@ -86,6 +86,57 @@ export function genKey(): string {
   let out = '';
   for (let i = 0; i < raw.length; i += 1) out += KEY_ALPHABET[raw[i] % KEY_ALPHABET.length];
   return out;
+}
+
+/// Heavy / generated directories a recursive walk lists but never descends —
+/// shared by the Author workspace walk (`workspace_list`) and the Inspect tree
+/// name-index (`tree_index`). A single source of truth so the two walks agree on
+/// what "skip" means; the tree still *shows* these as tagged nodes (never
+/// auto-expanded), only the recursive descent stops.
+export const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'target', 'dist', 'build', '.next', '.venv', 'venv',
+  '__pycache__', '.cache', '.idea', '.vscode', '.svn', '.hg',
+]);
+
+/// One entry of a recursive name-index: a root-relative POSIX-joined path and
+/// whether it is a directory. Deliberately not an absolute path or a full stat —
+/// the Inspect tree filter only needs to match names and rebuild `root + rel`.
+export interface NameIndexEntry {
+  rel: string;
+  is_dir: boolean;
+}
+
+/// A bounded recursive name-index of `root` (Inspect tree filter, plan §3 item
+/// 5). Unlike the Author `workspace_list` walk this **includes hidden files** (a
+/// `.github/` / `.env.example` is an inspection target) and never descends
+/// `SKIP_DIRS` (they are listed as tagged nodes but not walked). `truncated` is
+/// set whenever a cap was hit — depth OR the entry ceiling — so the UI never
+/// implies it indexed everything. Throws if `root` is not a directory.
+export async function walkNameIndex(root: string, maxDepth: number, maxEntries: number): Promise<{ entries: NameIndexEntry[]; truncated: boolean }> {
+  const rootStat = await stat(root).catch(() => null);
+  if (rootStat === null || !rootStat.isDirectory()) throw new Error(`not a folder: ${root}`);
+
+  const out: NameIndexEntry[] = [];
+  let truncated = false;
+  const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
+    const names = await readdir(dir).catch(() => [] as string[]);
+    for (const name of names) {
+      if (out.length >= maxEntries) {
+        truncated = true;
+        return;
+      }
+      const md = await stat(path.join(dir, name)).catch(() => null);
+      const isDir = md?.isDirectory() ?? false;
+      const childRel = rel === '' ? name : `${rel}/${name}`;
+      out.push({ rel: childRel, is_dir: isDir });
+      if (isDir && !SKIP_DIRS.has(name)) {
+        if (depth + 1 >= maxDepth) truncated = true;
+        else await walk(path.join(dir, name), childRel, depth + 1);
+      }
+    }
+  };
+  await walk(root, '', 0);
+  return { entries: out, truncated };
 }
 
 /// dirs-first, then case-insensitive alphabetical (the ordering every listing

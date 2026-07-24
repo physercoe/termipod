@@ -6,6 +6,7 @@ import { detectInterpreter, getInterp, getLastForm, runTrace, setInterp, setLast
 import { detectTorch, runTraceExport } from '../state/traceExport';
 import type { GraphCollection } from '../state/modelGraph';
 import type { InspectTab } from '../state/inspect';
+import { useInspectRoots, innermostLocalRoot } from '../state/inspectRoots';
 
 /// Tier 1 = torchview weightless **architecture** graph → DOT viewer. Tier 2 =
 /// `torch.export` **traced** ATen graph → the interactive Model Explorer element.
@@ -39,12 +40,16 @@ export function TraceModal({
   const t = useT();
   const conns = useMemo(() => listConnections(), []);
   const last = useMemo(() => getLastForm(), []);
+  const roots = useInspectRoots((s) => s.roots);
 
   const [tier, setTier] = useState<TraceTier>('arch');
   // Default the venue to the tab's own SFTP host, else local.
   const [venue, setVenue] = useState<string>(tab.source === 'remote' && tab.hostId ? tab.hostId : 'local');
   const [command, setCommand] = useState<string>(() => getInterp(venue));
-  const [repoRoot, setRepoRoot] = useState<string>(tab.path ? dirOf(tab.path) : '');
+  // The repo-root default is the innermost pinned local root that contains the
+  // file (import-locality is repo-shaped, not file-shaped), falling back to the
+  // file's own directory as before (plan §3 item 6).
+  const [repoRoot, setRepoRoot] = useState<string>(tab.path ? (innermostLocalRoot(roots, tab.path) ?? dirOf(tab.path)) : '');
   const [filePath, setFilePath] = useState<string>(tab.path ? baseOf(tab.path) : '');
   const [entry, setEntry] = useState<string>(last.entry);
   const [shape, setShape] = useState<string>(last.shape);

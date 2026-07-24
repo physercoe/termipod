@@ -5,6 +5,7 @@ import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { foldTranscriptStats } from '../state/transcriptStats';
 import type { InputAttachments } from '../hub/client';
 import { Composer } from '../ui/Composer';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -411,32 +412,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // Persistent status line (#332): model, turn count, latest token snapshot, and
   // elapsed wall-time — all reliably present in the session.init / usage / turn
   // events and the row timestamps. (Live running-state + a composer Stop swap
-  // want the agent's lifecycle status, not just the feed — deferred.)
-  const stats = useMemo(() => {
-    let model: string | undefined;
-    let inTok = 0;
-    let outTok = 0;
-    let turns = 0;
-    let firstTs: number | undefined;
-    let lastTs: number | undefined;
-    for (const ev of feed) {
-      if (ev.ts !== undefined) {
-        const ts = Date.parse(ev.ts);
-        if (!Number.isNaN(ts)) {
-          if (firstTs === undefined) firstTs = ts;
-          lastTs = ts;
-        }
-      }
-      if (ev.kind === 'session.init') model = str(ev.payload, 'model') ?? model;
-      else if (ev.kind === 'usage') {
-        model = str(ev.payload, 'model') ?? model;
-        inTok = num(ev.payload, 'input_tokens') ?? inTok;
-        outTok = num(ev.payload, 'output_tokens') ?? outTok;
-      } else if (ev.kind === 'turn.result') turns += 1;
-    }
-    const elapsed = firstTs !== undefined && lastTs !== undefined && lastTs > firstTs ? lastTs - firstTs : undefined;
-    return { model, inTok, outTok, turns, elapsed };
-  }, [feed]);
+  // want the agent's lifecycle status, not just the feed — deferred.) The fold
+  // lives in state/transcriptStats so its subagent guard (#374) is unit-tested.
+  const stats = useMemo(() => foldTranscriptStats(feed), [feed]);
 
   // A tool_result folded into its matching tool_call — not rendered on its own.
   const isFolded = (ev: FeedEvent): boolean => {

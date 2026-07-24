@@ -486,7 +486,10 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
         </div>
       );
     case 'system':
-      return <div className="ev-line muted">{str(p, 'subtype') ?? 'event'}</div>;
+      // Prefer the frame's human one-liner when the hub ships one (compacted
+      // task_progress mirrors `description` into `text`, #374); fall back to
+      // the bare subtype tag.
+      return <div className="ev-line muted">{str(p, 'text') ?? str(p, 'subtype') ?? 'event'}</div>;
     default: {
       // Any unmapped frame that is thinking-ish (a thinking/reasoning payload
       // field, or a kind like `thinking`) renders as a thought, not a raw

@@ -162,12 +162,21 @@ func (m *Mapper) MapLine(raw []byte) ([]MappedEvent, error) {
 	}
 }
 
+// isSubagent reports whether this mapper tails a non-main agent's wire
+// file. The single definition keeps the provenance stamp (event) and the
+// subagent drop-guards (mapStepEnd) agreeing on what "subagent" means —
+// if they drifted, an event could be dropped-as-subagent but stamped
+// main, or vice versa.
+func (m *Mapper) isSubagent() bool {
+	return m.AgentID != "" && m.AgentID != "main"
+}
+
 // event is the single construction point for MappedEvents — it stamps
 // subagent provenance onto every payload a non-main agent emits so the
 // clients (and the P2 state dock's background-task chips) can tell
 // delegated activity apart from the main agent's own work.
 func (m *Mapper) event(kind, producer string, payload map[string]any) MappedEvent {
-	if m.AgentID != "" && m.AgentID != "main" {
+	if m.isSubagent() {
 		payload["subagent"] = true
 		payload["kimi_agent_id"] = m.AgentID
 		if m.ParentAgentID != "" {
@@ -359,7 +368,7 @@ func (m *Mapper) mapStepEnd(raw json.RawMessage) ([]MappedEvent, error) {
 	if e.FinishReason != "end_turn" {
 		return nil, nil
 	}
-	if m.AgentID != "" && m.AgentID != "main" {
+	if m.isSubagent() {
 		return nil, nil
 	}
 	return []MappedEvent{m.event("turn.result", "agent", map[string]any{

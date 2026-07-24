@@ -43,6 +43,18 @@ This complements:
 
 ### Added
 
+- **Inspect tab — GitHub repo roots (round 3, T3a).** Point Inspect at a GitHub
+  repo URL (or `owner/repo[@ref]`) and read it. "From GitHub repo…" resolves the
+  ref to an immutable commit SHA, fetches the tree once, and pins it as a tree
+  root you browse and open files from — every read uses the SHA, so a moving
+  branch can't tear the tree. Blobs are capped at 2 MB (a larger file shows a
+  placard instead of downloading); an optional access token is stored in the
+  **vault** (never `localStorage`, keyed to the forge host) to raise the rate
+  limit and reach private repos, with the rate-limit reset surfaced on a 403. In
+  the desktop shell every request goes through the proxy-aware `forge_fetch`
+  main-process bridge; the plain-browser build fetches the CORS-open API
+  directly. Hugging Face repos and a config-only architecture view follow in the
+  next wedges.
 - **Inspect tab — remote & hub project-tree roots (round 3, T2).** The tree pane
   now pins two more kinds of root beside a local folder: a **remote directory**
   over an existing SSH connection (browse it in the Remote picker, "Pin this

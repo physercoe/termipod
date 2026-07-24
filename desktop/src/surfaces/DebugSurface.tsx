@@ -24,6 +24,7 @@ import { usePanelWidth, ResizeHandle } from '../ui/ResizeHandle';
 import type { LogSource } from '../ui/LogView';
 import { InspectOpenDialog, type OpenMode, type PickResult, type PinRoot } from './InspectOpen';
 import { InspectTree } from './InspectTree';
+import { InspectRepoAddDialog } from './InspectRepoAdd';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
@@ -717,6 +718,7 @@ export function DebugSurface(): JSX.Element {
   const [menu, setMenu] = useState(false);
   const [cmpMenu, setCmpMenu] = useState(false);
   const [dialog, setDialog] = useState<OpenMode | null>(null);
+  const [repoDialog, setRepoDialog] = useState(false);
   // When set, the next file/tab the user picks becomes side B of a compare tab
   // whose side A is this base tab (W2 tier 2).
   const [cmpBase, setCmpBase] = useState<InspectTab | null>(null);
@@ -773,6 +775,7 @@ export function DebugSurface(): JSX.Element {
       path: tb.path,
       hostId: tb.hostId,
       projectId: tb.projectId,
+      repo: tb.repo,
       lang: tb.lang ?? langFromPath(tb.path),
       body: tb.source === 'paste' ? (useInspect.getState().content[tb.id] ?? '') : undefined,
     };
@@ -818,10 +821,10 @@ export function DebugSurface(): JSX.Element {
   // side B of a compare against the base tab.
   function pick(r: PickResult): void {
     if (cmpBase !== null) {
-      makeCompare({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, lang: langFromPath(r.path) });
+      makeCompare({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo, lang: langFromPath(r.path) });
       return;
     }
-    openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId });
+    openTab({ kind: r.kind, source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo });
     setDialog(null);
   }
 
@@ -915,6 +918,9 @@ export function DebugSurface(): JSX.Element {
                       <Icon name="cloud" size={14} /> {t('inspect.fromHub')}
                     </button>
                   )}
+                  <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setRepoDialog(true))}>
+                    <Icon name="git-branch" size={14} /> {t('inspect.fromRepo')}
+                  </button>
                 </div>
               </>
             )}
@@ -1049,6 +1055,7 @@ export function DebugSurface(): JSX.Element {
           </div>
         )}
         {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} onPinRoot={pinRoot} />}
+        {repoDialog && <InspectRepoAddDialog onClose={() => setRepoDialog(false)} onAdd={(r) => (pinRoot(r), setRepoDialog(false))} />}
       </div>
     </WorkbenchSurface>
   );

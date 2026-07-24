@@ -6,6 +6,7 @@ import { useInspectRoots, type InspectRoot } from '../state/inspectRoots';
 import { foldHubDocs, nodeMatches, type TreeNode } from '../state/inspectTree';
 import { localList, treeIndex, type TreeIndexEntry } from '../state/localfs';
 import { sftpBrowse } from '../state/inspectSources';
+import { fetchForgeTree } from '../state/forge';
 import { useSession } from '../state/session';
 import { isShell } from '../platform';
 import type { PickResult } from './InspectOpen';
@@ -47,14 +48,23 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 function sourceIcon(source: InspectRoot['source']): IconName {
-  return source === 'remote' ? 'terminal' : source === 'hub' ? 'cloud' : 'folder';
+  if (source === 'remote') return 'terminal';
+  if (source === 'hub') return 'cloud';
+  if (source === 'github') return 'git-branch';
+  if (source === 'hf') return 'sliders';
+  return 'folder';
+}
+// Sources whose whole tree arrives in one fetch and is folded client-side (hub
+// docs, forge trees) rather than listed one directory per expand.
+function isFolded(source: InspectRoot['source']): boolean {
+  return source === 'hub' || source === 'github' || source === 'hf';
 }
 
 interface Listing {
   nodes: TreeNode[];
   truncated: boolean;
 }
-type Folded = { children: Map<string, TreeNode[]>; files: TreeNode[] };
+type Folded = { children: Map<string, TreeNode[]>; files: TreeNode[]; truncated: boolean };
 
 // ── one directory's rendered children (recursive) ────────────────────────────
 interface BranchCtx {
@@ -149,27 +159,38 @@ export function InspectTree({
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [indexes, setIndexes] = useState<Record<string, { entries: TreeIndexEntry[]; truncated: boolean }>>({});
   const [indexBusy, setIndexBusy] = useState<Set<string>>(new Set());
-  const [hubFiles, setHubFiles] = useState<Record<string, TreeNode[]>>({});
+  const [foldedFiles, setFoldedFiles] = useState<Record<string, TreeNode[]>>({});
   const [renaming, setRenaming] = useState<string | null>(null);
-  const hubPromise = useRef<Record<string, Promise<Folded>>>({});
+  const foldedPromise = useRef<Record<string, Promise<Folded>>>({});
   const seenRoots = useRef<Set<string>>(new Set());
   const mounted = useRef(false);
 
   const ck = (rootId: string, key: string): string => `${rootId} ${key}`;
-  const rootKey = (root: InspectRoot): string => (root.source === 'hub' ? '' : (root.path ?? ''));
+  const rootKey = (root: InspectRoot): string => (isFolded(root.source) ? '' : (root.path ?? ''));
 
-  function ensureHub(root: InspectRoot): Promise<Folded> {
-    let p = hubPromise.current[root.id];
+  // One fetch → folded tree, memoized per root: hub docs, or a forge repo tree at
+  // its pinned SHA (both land in the same TreeNode shape via `foldHubDocs`).
+  function ensureFolded(root: InspectRoot): Promise<Folded> {
+    let p = foldedPromise.current[root.id];
     if (p === undefined) {
-      p =
-        client === null
-          ? Promise.reject(new Error(t('inspect.noHub')))
-          : client
-              .listProjectDocs(root.projectId ?? '')
-              .then((docs) => foldHubDocs(docs.map((d) => ({ path: typeof d.path === 'string' ? d.path : '', is_dir: d.is_dir === true }))));
-      hubPromise.current[root.id] = p;
+      if (root.source === 'hub') {
+        p =
+          client === null
+            ? Promise.reject(new Error(t('inspect.noHub')))
+            : client
+                .listProjectDocs(root.projectId ?? '')
+                .then((docs) => ({ ...foldHubDocs(docs.map((d) => ({ path: typeof d.path === 'string' ? d.path : '', is_dir: d.is_dir === true }))), truncated: false }));
+      } else if (root.source === 'github' || root.source === 'hf') {
+        p =
+          root.repo === undefined
+            ? Promise.reject(new Error('forge root is missing its repo snapshot'))
+            : fetchForgeTree(root.source, root.repo).then((r) => ({ ...foldHubDocs(r.entries), truncated: r.truncated }));
+      } else {
+        p = Promise.reject(new Error(`inspect: source '${root.source}' is not a folded tree`));
+      }
+      foldedPromise.current[root.id] = p;
     }
-    void p.then((folded) => setHubFiles((m) => ({ ...m, [root.id]: folded.files }))).catch(() => undefined);
+    void p.then((folded) => setFoldedFiles((m) => ({ ...m, [root.id]: folded.files }))).catch(() => undefined);
     return p;
   }
 
@@ -183,8 +204,9 @@ export function InspectTree({
       const sorted = es.slice().sort((a, b) => Number(b.is_dir) - Number(a.is_dir) || a.name.localeCompare(b.name));
       return { nodes: sorted.map((e) => ({ name: e.name, key: joinRemote(nodeKey, e.name), is_dir: e.is_dir })), truncated: false };
     }
-    const folded = await ensureHub(root);
-    return { nodes: folded.children.get(nodeKey) ?? [], truncated: false };
+    const folded = await ensureFolded(root);
+    // Surface a truncated forge tree at the root level (the whole tree was capped).
+    return { nodes: folded.children.get(nodeKey) ?? [], truncated: nodeKey === rootKey(root) ? folded.truncated : false };
   }
 
   function loadDir(root: InspectRoot, nodeKey: string): void {
@@ -252,13 +274,13 @@ export function InspectTree({
       drop(n);
       return n;
     });
-    delete hubPromise.current[root.id];
+    delete foldedPromise.current[root.id];
     setIndexes((m) => {
       const n = { ...m };
       delete n[root.id];
       return n;
     });
-    setHubFiles((m) => {
+    setFoldedFiles((m) => {
       const n = { ...m };
       delete n[root.id];
       return n;
@@ -287,12 +309,13 @@ export function InspectTree({
     setFilters((f) => ({ ...f, [root.id]: q }));
     if (q.trim() === '') return;
     if (root.source === 'local') buildIndex(root);
-    else if (root.source === 'hub') void ensureHub(root); // load the flat list for the exact filter
+    else if (isFolded(root.source)) void ensureFolded(root); // load the flat list for the exact filter
   }
 
   function openFile(root: InspectRoot, node: TreeNode): void {
     const kind = kindForInspectFile(extOf(node.name), '');
     if (root.source === 'remote') onPick({ source: 'remote', kind, title: node.name, path: node.key, hostId: root.hostId });
+    else if (root.source === 'github' || root.source === 'hf') onPick({ source: root.source, kind, title: baseName(node.key), path: node.key, repo: root.repo });
     else if (root.source === 'hub') onPick({ source: 'hub', kind, title: baseName(node.key), path: node.key, projectId: root.projectId });
     else onPick({ source: 'local', kind, title: node.name, path: node.key });
   }
@@ -389,7 +412,7 @@ export function InspectTree({
                   index={indexes[root.id]}
                   indexBusy={indexBusy.has(root.id)}
                   indexErr={errors[`idx:${root.id}`]}
-                  hubFiles={hubFiles[root.id]}
+                  foldedFiles={foldedFiles[root.id]}
                   loadedMatches={loadedMatches}
                   onOpen={(n) => openFile(root, n)}
                 />
@@ -412,7 +435,7 @@ function FilterResults({
   index,
   indexBusy,
   indexErr,
-  hubFiles,
+  foldedFiles,
   loadedMatches,
   onOpen,
 }: {
@@ -421,7 +444,7 @@ function FilterResults({
   index: { entries: TreeIndexEntry[]; truncated: boolean } | undefined;
   indexBusy: boolean;
   indexErr: string | undefined;
-  hubFiles: TreeNode[] | undefined;
+  foldedFiles: TreeNode[] | undefined;
   loadedMatches: (root: InspectRoot, qLower: string) => TreeNode[];
   onOpen: (node: TreeNode) => void;
 }): JSX.Element {
@@ -429,7 +452,7 @@ function FilterResults({
   const CAP = 500;
   const rootPath = root.path ?? '';
 
-  // Local: recursive index; remote: loaded nodes only; hub: full flat list.
+  // Local: recursive index; remote: loaded nodes only; hub/forge: full flat list.
   const results = useMemo<{ rows: TreeNode[]; capped: boolean; pending: boolean }>(() => {
     if (root.source === 'local') {
       if (index === undefined) return { rows: [], capped: false, pending: true };
@@ -439,14 +462,14 @@ function FilterResults({
         .map((e) => ({ name: e.rel.slice(e.rel.lastIndexOf('/') + 1), key: `${rootPath.replace(/[\\/]+$/, '')}/${e.rel}`, is_dir: false }));
       return { rows, capped: index.truncated || rows.length >= CAP, pending: false };
     }
-    if (root.source === 'hub') {
-      if (hubFiles === undefined) return { rows: [], capped: false, pending: true };
-      const rows = hubFiles.filter((n) => nodeMatches(n, q)).slice(0, CAP);
+    if (root.source === 'hub' || root.source === 'github' || root.source === 'hf') {
+      if (foldedFiles === undefined) return { rows: [], capped: false, pending: true };
+      const rows = foldedFiles.filter((n) => nodeMatches(n, q)).slice(0, CAP);
       return { rows, capped: rows.length >= CAP, pending: false };
     }
     const rows = loadedMatches(root, q);
     return { rows, capped: rows.length >= CAP, pending: false };
-  }, [root, q, index, hubFiles, loadedMatches, rootPath]);
+  }, [root, q, index, foldedFiles, loadedMatches, rootPath]);
 
   if (root.source === 'local' && indexErr !== undefined)
     return (
@@ -462,12 +485,11 @@ function FilterResults({
       </div>
     );
 
-  // Display the path fragment that helps locate a match: the root-relative path
-  // for local (its `key` is an absolute path), the project-relative path for hub
-  // (`key` already is), the basename for remote (only loaded folders, so the
-  // basename is enough).
+  // Display the path fragment that helps locate a match: the repo/project-
+  // relative path for hub + forge (`key` already is), the root-relative path for
+  // local (its `key` is absolute), the basename for remote (only loaded folders).
   const label = (n: TreeNode): string => {
-    if (root.source === 'hub') return n.key;
+    if (root.source === 'hub' || root.source === 'github' || root.source === 'hf') return n.key;
     if (root.source === 'local') {
       const base = rootPath.replace(/[\\/]+$/, '');
       return n.key.startsWith(base) ? n.key.slice(base.length).replace(/^[\\/]/, '') : n.key;

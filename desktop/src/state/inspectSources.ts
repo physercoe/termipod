@@ -4,7 +4,8 @@ import { sftpList, sftpRead, sshClose, sshConnect, type SftpEntry } from '../ssh
 import { readWorkspaceFile } from './workspaceFiles';
 import { useSession } from './session';
 import { isShell } from '../platform';
-import type { InspectRef, InspectSource, InspectTab } from './inspect';
+import { readForgeBlob } from './forge';
+import type { ForgeRepo, InspectRef, InspectSource, InspectTab } from './inspect';
 
 /// Source-reading for the Inspect (J3) surface — the W1 follow-on that adds the
 /// `workspace`, `remote` (SFTP) and `hub` sources on top of W1's `paste` +
@@ -75,6 +76,7 @@ async function readFrom(loc: {
   path?: string;
   hostId?: string;
   projectId?: string;
+  repo?: ForgeRepo;
   transferId: string;
 }): Promise<string> {
   const native = loc.source === 'local' || loc.source === 'workspace' || loc.source === 'remote';
@@ -94,6 +96,11 @@ async function readFrom(loc: {
       if (client === null) throw new Error('not connected to a hub');
       return client.getProjectDocText(loc.projectId ?? '', loc.path ?? '');
     }
+    case 'github':
+    case 'hf': {
+      if (loc.repo === undefined) throw new Error('inspect: forge tab is missing its repo snapshot');
+      return readForgeBlob(loc.repo, loc.source, loc.path ?? '');
+    }
     default:
       throw new Error(`inspect: source '${loc.source}' is unsupported`);
   }
@@ -102,12 +109,12 @@ async function readFrom(loc: {
 /// Read a tab's current content from its source. `paste` tabs never reach here
 /// (their body is authoritative in the store); the four file-backed sources do.
 export async function readSource(tab: InspectTab): Promise<string> {
-  return readFrom({ source: tab.source, path: tab.path, hostId: tab.hostId, projectId: tab.projectId, transferId: `insp-${tab.id}` });
+  return readFrom({ source: tab.source, path: tab.path, hostId: tab.hostId, projectId: tab.projectId, repo: tab.repo, transferId: `insp-${tab.id}` });
 }
 
 /// Read one side of a two-blob compare. A `paste`/scratch side carries its body
 /// inline (`ref.body`); the file-backed sides go through the same read core.
 export async function readRef(ref: InspectRef, transferId: string): Promise<string> {
   if (ref.body !== undefined) return ref.body;
-  return readFrom({ source: ref.source, path: ref.path, hostId: ref.hostId, projectId: ref.projectId, transferId });
+  return readFrom({ source: ref.source, path: ref.path, hostId: ref.hostId, projectId: ref.projectId, repo: ref.repo, transferId });
 }

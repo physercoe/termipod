@@ -1046,6 +1046,33 @@ button > .ui-icon:not(:only-child):first-child,
 .icon-btn.sm {
   padding: 2px;
 }
+
+/* ── Inspect add-repo dialog (round-3 T3) ───────────────────────────────── */
+.inspect-repoadd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s12) var(--spacing-s16) var(--spacing-s16);
+}
+.inspect-repoadd-label {
+  margin-top: var(--spacing-s4);
+}
+.inspect-repoadd-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.inspect-repoadd-err {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  white-space: normal;
+}
+.inspect-repoadd-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--spacing-s4);
+}
 .inspect-tabs {
   display: flex;
   gap: var(--spacing-s2);

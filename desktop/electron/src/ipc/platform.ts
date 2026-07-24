@@ -80,7 +80,7 @@ function pacToProxyUrl(pac: string): string | null {
 /// system proxy there was invisible). Resolved against a representative public
 /// HTTPS host: the app carries one global proxy string, so a single external
 /// probe is the right granularity (per-host PAC divergence is out of scope here).
-async function resolveSystemProxy(): Promise<string | null> {
+export async function resolveSystemProxy(): Promise<string | null> {
   const fromEnv = envProxy();
   if (fromEnv !== null) return fromEnv;
   try {

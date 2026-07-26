@@ -103,6 +103,7 @@ func (s *Server) handleAdminHostUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 	}
+	normalizeUpdateChannel(&in)
 	if in.Reason == "" {
 		in.Reason = "update-host"
 	}

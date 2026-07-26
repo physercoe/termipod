@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/termipod/hub/internal/buildinfo"
@@ -203,7 +204,10 @@ func (r *Runner) handleHostTokenRotate(env *a2a.TunnelEnvelope) *a2a.TunnelRespo
 // hostUpdatePayload is the verb-args schema for host.update (ADR-028
 // D-2 / plan W8). Every field is optional: an empty Version falls back
 // to Channel, an empty Channel resolves to the selfupdate default
-// (stable), an empty UpstreamRepo resolves to selfupdate.DefaultRepo.
+// (stable — note the hub's admin endpoints normalize their own empty
+// channel to alpha before the verb fires, so only a hand-crafted verb
+// ever lands here channel-less), an empty UpstreamRepo resolves to
+// selfupdate.DefaultRepo.
 type hostUpdatePayload struct {
 	Version      string `json:"version,omitempty"`
 	Channel      string `json:"channel,omitempty"`
@@ -211,16 +215,24 @@ type hostUpdatePayload struct {
 	Reason       string `json:"reason,omitempty"`
 }
 
-// handleHostUpdate runs the host.update verb: fetch + SHA256-verify +
-// install a new host-runner binary via the selfupdate package, then
-// exit 75 so systemd respawns with it (ADR-028 D-2).
+// handleHostUpdate runs the host.update verb in two stages (ADR-028
+// D-2 / plan W8, amended for the progress endpoint):
 //
-// The download runs synchronously so the tunnel response carries the
-// real outcome — a verb that blocks for the length of a download is
-// acceptable here because the host is being bounced anyway, and the
-// hub-side caller (update-all) uses a generous ack timeout. On any
-// failure the verb returns 500 and the host stays up on the OLD
-// binary; it does not exit.
+//  1. Resolve — synchronous, network-light (a dry-run self-update: two
+//     small JSON GETs, no download). The ack therefore still carries
+//     the ops-relevant outcome the original synchronous design wanted:
+//     the release exists, it has this host's asset, and the from/to
+//     versions. A resolve failure returns 500 and the host stays up.
+//  2. Download + verify + install — background goroutine with progress
+//     posts to the hub's per-host progress slot. The tarball download
+//     has no whole-body timeout (slow links are an explicit design
+//     case), so it can legitimately outlive any ack window; making the
+//     verb block for it only produced false "verb: context deadline
+//     exceeded" failures hub-side while the host quietly succeeded.
+//
+// On install success the goroutine exits 75 so systemd respawns with
+// the new binary; on failure it posts an error sample and the host
+// keeps running the OLD binary (the bytes on disk are untouched).
 func (r *Runner) handleHostUpdate(ctx context.Context, env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
 	var p hostUpdatePayload
 	if len(env.Payload) > 0 {
@@ -235,10 +247,11 @@ func (r *Runner) handleHostUpdate(ctx context.Context, env *a2a.TunnelEnvelope) 
 		Repo:    p.UpstreamRepo,
 		Channel: p.Channel,
 		Version: p.Version,
+		DryRun:  true, // resolve-only: the real run happens in finishHostUpdate
 		Log:     r.Log,
 	})
 	if err != nil {
-		r.Log.Error("host.update failed; staying on the current binary", "err", err)
+		r.Log.Error("host.update resolve failed; staying on the current binary", "err", err)
 		body, _ := json.Marshal(map[string]any{
 			"acked": true,
 			"ok":    false,
@@ -252,14 +265,8 @@ func (r *Runner) handleHostUpdate(ctx context.Context, env *a2a.TunnelEnvelope) 
 		}
 	}
 
-	// The new binary is on disk. Schedule exit 75 so the response posts
-	// first, then systemd respawns with the freshly written binary.
-	go func() {
-		time.Sleep(verbExitDelay)
-		r.Log.Info("host.update exiting for respawn",
-			"code", 75, "to", res.ToVersion)
-		verbExit(75)
-	}()
+	// Resolved: ack now, download in the background with progress.
+	go r.finishHostUpdate(p, res)
 
 	body, _ := json.Marshal(map[string]any{
 		"acked":        true,
@@ -267,11 +274,80 @@ func (r *Runner) handleHostUpdate(ctx context.Context, env *a2a.TunnelEnvelope) 
 		"from_version": res.FromVersion,
 		"to_version":   res.ToVersion,
 		"asset":        res.Asset,
+		"started":      true,
 	})
 	return &a2a.TunnelResponseEnvelope{
 		ReqID:   env.ReqID,
 		Status:  http.StatusOK,
 		Headers: map[string]string{"Content-Type": "application/json"},
 		BodyB64: base64.StdEncoding.EncodeToString(body),
+	}
+}
+
+// finishHostUpdate is stage 2 of host.update: download + SHA256-verify
+// + install the resolved release, posting progress samples the hub
+// relays to the operator's admin pane. Runs detached from the verb
+// handler's ctx — that ctx dies when the ack posts, but the download
+// must not — with its own generous cap for a genuinely wedged link.
+func (r *Runner) finishHostUpdate(p hostUpdatePayload, res *selfupdate.Result) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+
+	report := r.updateProgressReporter(ctx, res.ToVersion)
+	_, err := runSelfUpdate(ctx, selfupdate.Options{
+		Binary:     "host-runner",
+		Repo:       p.UpstreamRepo,
+		Channel:    p.Channel,
+		Version:    p.Version,
+		OnProgress: report,
+		Log:        r.Log,
+	})
+	if err != nil {
+		r.Log.Error("host.update failed; staying on the current binary", "err", err)
+		r.postUpdateProgress(ctx, UpdateProgressIn{
+			Phase: "error", ToVersion: res.ToVersion, Error: err.Error(),
+		})
+		return
+	}
+	r.postUpdateProgress(ctx, UpdateProgressIn{Phase: "done", ToVersion: res.ToVersion})
+
+	// The new binary is on disk. Brief delay so the done sample posts
+	// first, then systemd respawns with the freshly written binary.
+	time.Sleep(verbExitDelay)
+	r.Log.Info("host.update exiting for respawn", "code", 75, "to", res.ToVersion)
+	verbExit(75)
+}
+
+// updateProgressReporter adapts selfupdate's OnProgress to throttled
+// hub posts: byte samples at most once a second (a fast link would
+// otherwise POST per 256KiB step), phase transitions always.
+func (r *Runner) updateProgressReporter(ctx context.Context, toVersion string) func(selfupdate.Progress) {
+	var mu sync.Mutex
+	lastPost := time.Time{}
+	lastPhase := ""
+	return func(pr selfupdate.Progress) {
+		mu.Lock()
+		now := time.Now()
+		if pr.Phase == lastPhase && now.Sub(lastPost) < time.Second {
+			mu.Unlock()
+			return
+		}
+		lastPhase, lastPost = pr.Phase, now
+		mu.Unlock()
+		r.postUpdateProgress(ctx, UpdateProgressIn{
+			Phase: pr.Phase, Done: pr.Done, Total: pr.Total, ToVersion: toVersion,
+		})
+	}
+}
+
+// postUpdateProgress ships one sample to the hub, best-effort: a host
+// without a hub client (unit tests) or a hub that is briefly unreachable
+// must not fail the update over a progress bar.
+func (r *Runner) postUpdateProgress(ctx context.Context, in UpdateProgressIn) {
+	if r.Client == nil || r.HostID == "" {
+		return
+	}
+	if err := r.Client.PostUpdateProgress(ctx, r.HostID, in); err != nil {
+		r.Log.Warn("host.update progress post failed (continuing)", "err", err)
 	}
 }

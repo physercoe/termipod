@@ -233,10 +233,23 @@ var (
 type AdminFleetUpdateRequest struct {
 	Target       string `json:"target,omitempty"`        // hosts | hub | both; default both
 	Version      string `json:"version,omitempty"`       // explicit release tag; overrides Channel
-	Channel      string `json:"channel,omitempty"`       // stable | alpha
+	Channel      string `json:"channel,omitempty"`       // stable | alpha; empty = alpha (see normalizeUpdateChannel)
 	UpstreamRepo string `json:"upstream_repo,omitempty"` // owner/name; default physercoe/termipod
 	DryRun       bool   `json:"dry_run,omitempty"`
 	Reason       string `json:"reason,omitempty"`
+}
+
+// normalizeUpdateChannel maps an unset channel to "alpha". Since the
+// release lanes split per component (2026-07-24) every hub-v*/host-v*
+// release is a prerelease by design, so the old "" → stable resolution
+// found nothing and every channel-less caller — the mobile Admin pane
+// sends no channel at all — failed with "no stable host-v* release".
+// Empty now means "latest in the lane"; an explicit "stable" keeps its
+// strict semantics (and its clear error while nothing stable ships).
+func normalizeUpdateChannel(in *AdminFleetUpdateRequest) {
+	if in.Channel == "" {
+		in.Channel = "alpha"
+	}
 }
 
 // AdminFleetUpdateHostResult is the per-host update outcome row.
@@ -276,6 +289,7 @@ func (s *Server) handleAdminFleetUpdate(w http.ResponseWriter, r *http.Request) 
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 	}
+	normalizeUpdateChannel(&in)
 	switch in.Target {
 	case "":
 		in.Target = "both"

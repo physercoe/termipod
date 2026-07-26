@@ -92,6 +92,26 @@ func (c *Client) Heartbeat(ctx context.Context, hostID string) error {
 	return c.post(ctx, fmt.Sprintf("/v1/teams/%s/hosts/%s/heartbeat", c.Team, hostID), in, nil)
 }
 
+// UpdateProgressIn is one self-update progress sample the host posts
+// while a host.update verb downloads/installs in the background
+// (ADR-028 W8 follow-up: the verb acks after resolve, so this is how an
+// operator watches the download). Phase values mirror selfupdate's
+// ("downloading" | "installing") plus the terminal "done" | "error".
+type UpdateProgressIn struct {
+	Phase     string `json:"phase"`
+	Done      int64  `json:"done,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	ToVersion string `json:"to_version,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// PostUpdateProgress reports one self-update progress sample to the
+// hub's per-host progress slot (read back via the owner-scope admin
+// endpoint). Best-effort: callers log and drop errors.
+func (c *Client) PostUpdateProgress(ctx context.Context, hostID string, in UpdateProgressIn) error {
+	return c.post(ctx, fmt.Sprintf("/v1/teams/%s/hosts/%s/update-progress", c.Team, hostID), in, nil)
+}
+
 // PutCapabilities uploads the latest capability probe to the hub. Body is any
 // value that marshals to the shape handleUpdateHostCapabilities accepts;
 // Capabilities{} from capabilities.go is the canonical caller.

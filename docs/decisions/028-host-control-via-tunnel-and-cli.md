@@ -425,6 +425,34 @@ handler — the HTTP response posts before the daemon replaces its
 binary and exits 75, so the CLI reports host outcomes but not the
 hub's (the operator confirms with `hub-server version`).
 
+**Phase 2 amendment (2026-07-26, issue #379).** After the release
+lanes split per component (`hub-v*` / `host-v*` tags, prerelease by
+design so `releases/latest` stays with the mobile lane), three
+follow-ups landed:
+
+- `selfupdate` confines channel resolution to the binary's lane
+  prefix (`lanePrefix`), so a host never resolves a mobile/desktop
+  release that carries no server tarball. The CLI resolution order
+  above (explicit `--version` > `--channel stable` > `--channel
+  alpha`) is unchanged.
+- The **admin update wire** treats an empty `channel` as `alpha`
+  (`normalizeUpdateChannel`): with every hub/host release a
+  prerelease, the old "" → stable resolution found nothing, which
+  had silently broken the mobile Admin pane's update buttons (they
+  send no channel). Explicit `stable` keeps its strict semantics.
+- `host.update` is now **ack-after-resolve**: the verb resolves the
+  release synchronously (a dry-run self-update) and acks with
+  from/to, then downloads + verifies + installs + exits 75 on a
+  background goroutine. D-2's "synchronous outcome" guarantee is
+  deliberately narrowed to the resolve step — the step that proves
+  the release exists and has this host's asset — because the
+  download has no whole-body timeout (the API client's old 120s cap
+  made slow links unwinnable) and can legitimately outlive any ack
+  window. Progress streams to the hub's in-memory per-host slot
+  (`POST /v1/teams/{team}/hosts/{host}/update-progress`, read back
+  owner-scope at `GET /v1/admin/hosts/{host}/update-progress`);
+  the mobile pane polls it for a determinate progress bar.
+
 **Phase 3 — what landed.** `restart-all` is `shutdown-all` with the
 verb swapped: `host.shutdown` and `host.restart` share
 `handleHostExit` (exit 0 vs 75 is the only difference),

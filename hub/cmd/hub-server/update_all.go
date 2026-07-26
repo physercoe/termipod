@@ -34,8 +34,8 @@ func runUpdateAll(args []string, log *slog.Logger) {
 		"update scope: hosts | hub | both.")
 	version := fs.String("version", "",
 		"explicit release tag to install fleet-wide; overrides --channel.")
-	channel := fs.String("channel", "stable",
-		"release channel when --version is unset: stable | alpha.")
+	channel := fs.String("channel", "",
+		"release channel when --version is unset: stable | alpha. Empty inherits the hub's default (currently alpha — hub/host lanes ship prereleases only).")
 	upstreamRepo := fs.String("upstream-repo", "",
 		"GitHub owner/name to fetch releases from (default: physercoe/termipod).")
 	dryRun := fs.Bool("dry-run", false,

@@ -29,7 +29,7 @@ func runSelfUpdate(args []string, log *slog.Logger) {
 	dryRun := fs.Bool("dry-run", false, "resolve and report the target release without downloading or replacing")
 	_ = fs.Parse(args)
 
-	res, err := selfupdate.Run(context.Background(), selfupdate.Options{
+	opt := selfupdate.Options{
 		Binary:      "hub-server",
 		Repo:        *repo,
 		Channel:     *channel,
@@ -37,7 +37,12 @@ func runSelfUpdate(args []string, log *slog.Logger) {
 		InstallPath: *installPath,
 		DryRun:      *dryRun,
 		Log:         log,
-	})
+	}
+	if !*dryRun {
+		// Live progress on stderr so a slow download doesn't read as a hang.
+		opt.OnProgress = selfupdate.NewCLIProgress(os.Stderr)
+	}
+	res, err := selfupdate.Run(context.Background(), opt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "self-update failed: %v\n", err)
 		os.Exit(1)

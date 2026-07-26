@@ -108,6 +108,11 @@ type Server struct {
 	// fold runs off-path. agentID -> pending state.
 	digestDirtyMu sync.Mutex
 	digestDirty   map[string]*digestPending
+	// updateProgress is the per-host self-update progress slot the
+	// host.update verb's background stage posts to and the admin pane
+	// polls (ADR-028 W8 follow-up). In-memory ephemera — see
+	// handlers_admin_update_progress.go.
+	updateProgress updateProgressStore
 }
 
 func New(cfg Config) (*Server, error) {
@@ -409,6 +414,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	r.Post("/v1/admin/hosts/{host}/shutdown", s.handleAdminHostShutdown)
 	r.Post("/v1/admin/hosts/{host}/restart", s.handleAdminHostRestart)
 	r.Post("/v1/admin/hosts/{host}/update", s.handleAdminHostUpdate)
+	r.Get("/v1/admin/hosts/{host}/update-progress", s.handleAdminHostUpdateProgress)
 	r.Get("/v1/admin/agents", s.handleAdminListAgents)
 	r.Post("/v1/admin/agents/{agent}/kill", s.handleAdminKillAgent)
 	r.Post("/v1/admin/tokens/rotate", s.handleAdminTokensRotate)
@@ -443,6 +449,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/", s.handleGetHost)
 				r.Delete("/", s.handleDeleteHost)
 				r.Post("/heartbeat", s.handleHostHeartbeat)
+				r.Post("/update-progress", s.handleHostUpdateProgress)
 				r.Get("/commands", s.handleListHostCommands)
 				r.Patch("/ssh_hint", s.handleUpdateHostSSHHint)
 				r.Put("/capabilities", s.handleUpdateHostCapabilities)

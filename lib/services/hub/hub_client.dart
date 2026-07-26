@@ -488,8 +488,11 @@ class HubClient {
       admin.adminHostRestart(hostId, reason: reason);
 
   Future<Map<String, dynamic>> adminHostUpdate(String hostId,
-          {String? reason}) =>
-      admin.adminHostUpdate(hostId, reason: reason);
+          {String? reason, String? channel}) =>
+      admin.adminHostUpdate(hostId, reason: reason, channel: channel);
+
+  Future<Map<String, dynamic>> adminHostUpdateProgress(String hostId) =>
+      admin.adminHostUpdateProgress(hostId);
 
   Future<Map<String, dynamic>> adminFleetShutdown({String? reason}) =>
       admin.adminFleetShutdown(reason: reason);
@@ -497,8 +500,9 @@ class HubClient {
   Future<Map<String, dynamic>> adminFleetRestart({String? reason}) =>
       admin.adminFleetRestart(reason: reason);
 
-  Future<Map<String, dynamic>> adminFleetUpdate({String? reason}) =>
-      admin.adminFleetUpdate(reason: reason);
+  Future<Map<String, dynamic>> adminFleetUpdate(
+          {String? reason, String? channel}) =>
+      admin.adminFleetUpdate(reason: reason, channel: channel);
 
   Future<Map<String, dynamic>> adminDbVacuum() => admin.adminDbVacuum();
 

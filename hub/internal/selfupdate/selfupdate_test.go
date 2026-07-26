@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -162,6 +163,59 @@ func TestRun_UnknownBinary(t *testing.T) {
 	}
 }
 
+// TestRun_ProgressReports asserts OnProgress fires with monotonic byte
+// counts that end at the asset's declared size, and that installing is
+// the terminal phase sample. The tarball is incompressible random bytes
+// sized past two 256KiB throttle steps so the intermediate reports fire.
+func TestRun_ProgressReports(t *testing.T) {
+	tag := "host-v1.0.999-alpha"
+	asset := artifactName("host-runner", tag)
+	payload := make([]byte, 700<<10)
+	if _, err := rand.Read(payload); err != nil {
+		t.Fatal(err)
+	}
+	tarball := makeTarGz(t, "host-runner", payload)
+	sums := sha256hex(tarball) + "  " + asset + "\n"
+	srv := newReleaseServer(t, releaseFixture{tag: tag, tarAsset: asset, tarball: tarball, sums: sums})
+	defer srv.Close()
+
+	var samples []Progress
+	gh := &ghClient{repo: "x/y", apiBase: srv.URL, http: srv.Client()}
+	_, err := run(context.Background(), Options{
+		Binary: "host-runner", Version: tag,
+		InstallPath: filepath.Join(t.TempDir(), "host-runner"),
+		OnProgress:  func(p Progress) { samples = append(samples, p) },
+	}, gh)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	var downloading []Progress
+	for _, s := range samples {
+		if s.Phase == PhaseDownloading {
+			downloading = append(downloading, s)
+		}
+	}
+	if len(downloading) < 2 {
+		t.Fatalf("downloading samples = %d, want >= 2 (steps + completion): %+v",
+			len(downloading), samples)
+	}
+	for i, s := range downloading {
+		if s.Total != int64(len(tarball)) {
+			t.Errorf("sample %d Total = %d, want asset size %d", i, s.Total, len(tarball))
+		}
+		if i > 0 && s.Done < downloading[i-1].Done {
+			t.Errorf("sample %d Done regressed: %d < %d", i, s.Done, downloading[i-1].Done)
+		}
+	}
+	if got := downloading[len(downloading)-1].Done; got != int64(len(tarball)) {
+		t.Errorf("final Done = %d, want complete %d", got, len(tarball))
+	}
+	if last := samples[len(samples)-1]; last.Phase != PhaseInstalling {
+		t.Errorf("last sample phase = %q, want installing", last.Phase)
+	}
+}
+
 // resolveRelease must confine the channel search to the binary's lane: a
 // host-runner alpha resolve skips newer mobile-v / electron-v / hub-v releases
 // and lands on the newest host-v. (Regression guard — before the split it took
@@ -219,6 +273,7 @@ func newReleaseServer(t *testing.T, f releaseFixture) *httptest.Server {
 		if !f.omitTar {
 			assets = append(assets, map[string]any{
 				"name": f.tarAsset, "browser_download_url": srv.URL + "/dl/tarball",
+				"size": len(f.tarball),
 			})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{

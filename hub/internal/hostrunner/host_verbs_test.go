@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -274,7 +276,160 @@ func TestHandleHostUpdate_SuccessExits75(t *testing.T) {
 	}
 }
 
-// TestHandleHostUpdate_FailureStaysUp stubs a self-update failure and
+// TestHandleHostUpdate_PostsProgress asserts the two-stage shape of
+// host.update: the synchronous resolve is a dry-run, the ack carries
+// started:true, and the background stage streams throttled progress
+// samples to the hub — ending with a terminal "done" before exit 75.
+func TestHandleHostUpdate_PostsProgress(t *testing.T) {
+	prevExit, prevDelay, prevSU := verbExit, verbExitDelay, runSelfUpdate
+	t.Cleanup(func() {
+		verbExit, verbExitDelay, runSelfUpdate = prevExit, prevDelay, prevSU
+	})
+	exitCh := make(chan int, 1)
+	verbExit = func(code int) { exitCh <- code }
+	verbExitDelay = 1 * time.Millisecond
+	var dryRuns []bool
+	runSelfUpdate = func(_ context.Context, opt selfupdate.Options) (*selfupdate.Result, error) {
+		dryRuns = append(dryRuns, opt.DryRun)
+		if !opt.DryRun && opt.OnProgress != nil {
+			opt.OnProgress(selfupdate.Progress{Phase: selfupdate.PhaseDownloading, Done: 5, Total: 10})
+			opt.OnProgress(selfupdate.Progress{Phase: selfupdate.PhaseInstalling, Done: 10, Total: 10})
+		}
+		return &selfupdate.Result{
+			Binary: "host-runner", FromVersion: "v1.0.0", ToVersion: "v1.0.1",
+		}, nil
+	}
+
+	progressCh := make(chan UpdateProgressIn, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost ||
+			req.URL.Path != "/v1/teams/t/hosts/h1/update-progress" {
+			t.Errorf("unexpected call: %s %s", req.Method, req.URL.Path)
+		}
+		var in UpdateProgressIn
+		_ = json.NewDecoder(req.Body).Decode(&in)
+		progressCh <- in
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := &Runner{
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Client: NewClient(srv.URL, "tok", "t"),
+		HostID: "h1",
+	}
+	payload, _ := json.Marshal(map[string]any{"version": "v1.0.1"})
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r-update-prog", Kind: "host.update", Payload: payload,
+	})
+	if resp == nil || resp.Status != http.StatusOK {
+		t.Fatalf("resp = %+v, want 200", resp)
+	}
+	body, _ := base64.StdEncoding.DecodeString(resp.BodyB64)
+	var ack struct {
+		OK      bool   `json:"ok"`
+		Started bool   `json:"started"`
+		ToVer   string `json:"to_version"`
+	}
+	if err := json.Unmarshal(body, &ack); err != nil {
+		t.Fatalf("parse ack %q: %v", string(body), err)
+	}
+	if !ack.OK || !ack.Started || ack.ToVer != "v1.0.1" {
+		t.Errorf("ack = %+v, want ok+started with to_version v1.0.1", ack)
+	}
+
+	select {
+	case code := <-exitCh:
+		if code != 75 {
+			t.Errorf("exit code = %d, want 75", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("verbExit was not called")
+	}
+
+	// The resolve ran as a dry-run; the install ran for real.
+	if len(dryRuns) != 2 || !dryRuns[0] || dryRuns[1] {
+		t.Errorf("self-update calls DryRun = %v, want [true false]", dryRuns)
+	}
+
+	// Progress stream: downloading + installing samples, terminal done.
+	var got []UpdateProgressIn
+	for done := false; !done; {
+		select {
+		case p := <-progressCh:
+			got = append(got, p)
+			if p.Phase == "done" {
+				done = true
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("progress stream stalled at %+v, want a done sample", got)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("progress samples = %+v, want [downloading installing done]", got)
+	}
+	if got[0].Phase != "downloading" || got[0].Done != 5 || got[0].Total != 10 {
+		t.Errorf("first sample = %+v, want downloading 5/10", got[0])
+	}
+	if got[1].Phase != "installing" {
+		t.Errorf("second sample = %+v, want installing", got[1])
+	}
+	for i, p := range got {
+		if p.ToVersion != "v1.0.1" {
+			t.Errorf("sample %d to_version = %q, want v1.0.1", i, p.ToVersion)
+		}
+	}
+}
+
+// TestHandleHostUpdate_BackgroundFailurePostsError stubs a download-stage
+// failure (after a clean resolve) and asserts the host reports the error
+// sample and stays up — no exit, old binary untouched.
+func TestHandleHostUpdate_BackgroundFailurePostsError(t *testing.T) {
+	prevExit, prevDelay, prevSU := verbExit, verbExitDelay, runSelfUpdate
+	t.Cleanup(func() {
+		verbExit, verbExitDelay, runSelfUpdate = prevExit, prevDelay, prevSU
+	})
+	verbExit = func(code int) { t.Errorf("verbExit(%d) on the failure path", code) }
+	verbExitDelay = 1 * time.Millisecond
+	runSelfUpdate = func(_ context.Context, opt selfupdate.Options) (*selfupdate.Result, error) {
+		if opt.DryRun {
+			return &selfupdate.Result{Binary: "host-runner", FromVersion: "v1.0.0", ToVersion: "v1.0.1"}, nil
+		}
+		return nil, errors.New("sha256 mismatch")
+	}
+
+	progressCh := make(chan UpdateProgressIn, 4)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/teams/t/hosts/h1/update-progress", func(w http.ResponseWriter, req *http.Request) {
+		var in UpdateProgressIn
+		_ = json.NewDecoder(req.Body).Decode(&in)
+		progressCh <- in
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r := &Runner{
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Client: NewClient(srv.URL, "tok", "t"),
+		HostID: "h1",
+	}
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r-update-dlfail", Kind: "host.update",
+	})
+	if resp == nil || resp.Status != http.StatusOK {
+		t.Fatalf("resp = %+v, want 200 (resolve succeeded; failure is post-ack)", resp)
+	}
+	select {
+	case p := <-progressCh:
+		if p.Phase != "error" || !strings.Contains(p.Error, "sha256 mismatch") {
+			t.Errorf("sample = %+v, want error mentioning the mismatch", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no error progress sample posted")
+	}
+}
+
 // asserts the verb returns 500 and does NOT exit — the host keeps
 // running on the old binary.
 func TestHandleHostUpdate_FailureStaysUp(t *testing.T) {

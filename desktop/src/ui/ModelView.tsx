@@ -16,7 +16,7 @@ import {
   type TensorInfo,
   type TreeNode,
 } from '../state/checkpoint';
-import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram } from '../state/vram';
+import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram, type Optimizer, type VramMode } from '../state/vram';
 import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph';
 import { buildArchSchematic } from '../state/archSchematic';
 import { useInspect, type InspectTab } from '../state/inspect';
@@ -203,21 +203,38 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
 }
 
 // Precision options as bytes-per-weight (the only thing that matters for the
-// weights term); fp16/bf16 collapse to one 2-byte button.
+// weights/gradient term); fp16/bf16 collapse to one 2-byte button. fp8/int8
+// share 1 B and fp4/int4 share 0.5 B — same memory cost, distinct schemes, so
+// selection tracks the label, not the byte value.
 const PRECISIONS: Array<{ label: string; bytes: number }> = [
+  { label: 'fp32', bytes: 4 },
   { label: '16-bit', bytes: 2 },
   { label: 'fp8', bytes: 1 },
+  { label: 'int8', bytes: 1 },
+  { label: 'fp4', bytes: 0.5 },
   { label: 'int4', bytes: 0.5 },
-  { label: 'fp32', bytes: 4 },
 ];
 const BATCHES = [1, 2, 4, 8, 16, 32];
-const CONTEXTS = [2048, 4096, 8192, 16384, 32768, 131072];
-const ctxLabel = (n: number): string => (n >= 1024 ? `${n / 1024}K` : String(n));
+const CONTEXTS = [2048, 4096, 8192, 16384, 32768, 131072, 262144, 1048576];
+const ctxLabel = (n: number): string => (n >= 1048576 ? `${n / 1048576}M` : n >= 1024 ? `${n / 1024}K` : String(n));
+const OPTIMIZERS: Array<{ id: Optimizer; label: string }> = [
+  { id: 'adamw', label: 'AdamW' },
+  { id: 'adam8bit', label: '8-bit Adam' },
+  { id: 'sgd', label: 'SGD' },
+];
 
-/// VRAM estimator (plan §4b): weights (exact from params × serving precision) +
-/// KV cache (GQA or the compressed MLA latent) + a rough activation term, live on
-/// batch/context/precision. An approximation — real runtimes add framework
-/// overhead and fragmentation on top.
+// Map the checkpoint's own default dtype to a precision-button label.
+function defaultPrecLabel(hist: Record<string, number>): string {
+  const b = DTYPE_BYTES[defaultServingDtype(hist)];
+  return PRECISIONS.find((p) => p.bytes === b)?.label ?? '16-bit';
+}
+
+/// VRAM estimator (plan §4b): **inference** (weights, exact from params × serving
+/// precision, + KV cache (GQA or the compressed MLA latent) + a transient
+/// activation term) or **training** (weights + gradients + optimizer states +
+/// the full backward activation stash), live on batch/context/precision and, in
+/// training, the optimizer + gradient-checkpointing. An approximation — real
+/// runtimes add framework overhead and fragmentation on top.
 function VramCard({
   totalParams,
   dtypeHist,
@@ -232,9 +249,13 @@ function VramCard({
   config: Record<string, unknown> | null;
 }): JSX.Element {
   const t = useT();
-  const [bytes, setBytes] = useState<number>(() => DTYPE_BYTES[defaultServingDtype(dtypeHist)]);
+  const [precLabel, setPrecLabel] = useState<string>(() => defaultPrecLabel(dtypeHist));
   const [batch, setBatch] = useState(1);
   const [context, setContext] = useState(8192);
+  const [mode, setMode] = useState<VramMode>('inference');
+  const [optimizer, setOptimizer] = useState<Optimizer>('adamw');
+  const [gradCkpt, setGradCkpt] = useState(true);
+  const bytes = PRECISIONS.find((p) => p.label === precLabel)?.bytes ?? 2;
 
   const est = useMemo(() => {
     const inputs = deriveVramInputs({
@@ -245,11 +266,36 @@ function VramCard({
       config,
       metadata,
     });
-    return estimateVram(inputs, { batch, context, kvBytes: 2 });
-  }, [totalParams, metadata, card, config, bytes, batch, context]);
+    return estimateVram(inputs, { batch, context, kvBytes: 2, mode, optimizer, gradCheckpoint: gradCkpt });
+  }, [totalParams, metadata, card, config, bytes, batch, context, mode, optimizer, gradCkpt]);
 
   const total = est.totalBytes;
   const seg = (v: number): string => (total > 0 ? `${(v / total) * 100}%` : '0%');
+  const training = mode === 'training';
+
+  // Segments differ by mode: inference = weights + KV cache + activations;
+  // training = weights + gradients + optimizer + activations. The `always` set
+  // is param-based (trustworthy without dims); the `derived` set needs the model
+  // dims, and degrades to an honest note when they're missing.
+  const segs: Array<{ key: string; label: string; v: number }> = training
+    ? [
+        { key: 'weights', label: t('vram.weights'), v: est.weightsBytes },
+        { key: 'grad', label: t('vram.gradients'), v: est.gradientBytes },
+        { key: 'opt', label: t('vram.optimizer'), v: est.optimizerBytes },
+        { key: 'act', label: t('vram.activation'), v: est.activationBytes },
+      ]
+    : [
+        { key: 'weights', label: t('vram.weights'), v: est.weightsBytes },
+        { key: 'kv', label: t('vram.kvCache'), v: est.kvBytes },
+        { key: 'act', label: t('vram.activation'), v: est.activationBytes },
+      ];
+  const alwaysKeys = training ? ['weights', 'grad', 'opt'] : ['weights'];
+  const derivedNote = training ? t('vram.actUnknown') : t('vram.kvUnknown');
+  const legendItem = (s: { key: string; label: string; v: number }): JSX.Element => (
+    <span key={s.key}>
+      <span className={`modelview-vram-dot ${s.key}`} /> {s.label} {humanBytes(s.v)}
+    </span>
+  );
 
   return (
     <div className="modelview-vram">
@@ -262,26 +308,28 @@ function VramCard({
         <span className="modelview-vram-total">{humanBytes(total)}</span>
       </div>
       <div className="modelview-vram-bar" role="img" aria-label={t('vram.total')}>
-        <span className="modelview-vram-seg weights" style={{ width: seg(est.weightsBytes) }} title={`${t('vram.weights')} ${humanBytes(est.weightsBytes)}`} />
-        <span className="modelview-vram-seg kv" style={{ width: seg(est.kvBytes) }} title={`${t('vram.kvCache')} ${humanBytes(est.kvBytes)}`} />
-        <span className="modelview-vram-seg act" style={{ width: seg(est.activationBytes) }} title={`${t('vram.activation')} ${humanBytes(est.activationBytes)}`} />
+        {segs.map((s) => (
+          <span key={s.key} className={`modelview-vram-seg ${s.key}`} style={{ width: seg(s.v) }} title={`${s.label} ${humanBytes(s.v)}`} />
+        ))}
       </div>
       <div className="modelview-vram-legend small muted">
-        <span><span className="modelview-vram-dot weights" /> {t('vram.weights')} {humanBytes(est.weightsBytes)}</span>
-        {est.kvComputable ? (
-          <>
-            <span><span className="modelview-vram-dot kv" /> {t('vram.kvCache')} {humanBytes(est.kvBytes)}</span>
-            <span><span className="modelview-vram-dot act" /> {t('vram.activation')} {humanBytes(est.activationBytes)}</span>
-          </>
-        ) : (
-          <span>{t('vram.kvUnknown')}</span>
-        )}
+        {segs.filter((s) => alwaysKeys.includes(s.key)).map(legendItem)}
+        {est.kvComputable ? segs.filter((s) => !alwaysKeys.includes(s.key)).map(legendItem) : <span>{derivedNote}</span>}
       </div>
       <div className="modelview-vram-ctrls">
         <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.mode')}</span>
+          <button className={`modelview-vram-btn${!training ? ' on' : ''}`} onClick={() => setMode('inference')}>
+            {t('vram.inference')}
+          </button>
+          <button className={`modelview-vram-btn${training ? ' on' : ''}`} onClick={() => setMode('training')}>
+            {t('vram.training')}
+          </button>
+        </span>
+        <span className="modelview-vram-ctrl">
           <span className="small muted">{t('vram.precision')}</span>
           {PRECISIONS.map((p) => (
-            <button key={p.label} className={`modelview-vram-btn${bytes === p.bytes ? ' on' : ''}`} onClick={() => setBytes(p.bytes)}>
+            <button key={p.label} className={`modelview-vram-btn${precLabel === p.label ? ' on' : ''}`} onClick={() => setPrecLabel(p.label)}>
               {p.label}
             </button>
           ))}
@@ -305,6 +353,27 @@ function VramCard({
           ))}
         </span>
       </div>
+      {training && (
+        <div className="modelview-vram-ctrls">
+          <span className="modelview-vram-ctrl">
+            <span className="small muted">{t('vram.optimizerLabel')}</span>
+            {OPTIMIZERS.map((o) => (
+              <button key={o.id} className={`modelview-vram-btn${optimizer === o.id ? ' on' : ''}`} onClick={() => setOptimizer(o.id)}>
+                {o.label}
+              </button>
+            ))}
+          </span>
+          <span className="modelview-vram-ctrl">
+            <button
+              className={`modelview-vram-btn${gradCkpt ? ' on' : ''}`}
+              title={t('vram.gradCheckpointHint')}
+              onClick={() => setGradCkpt((v) => !v)}
+            >
+              {t('vram.gradCheckpoint')}
+            </button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

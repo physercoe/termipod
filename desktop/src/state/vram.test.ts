@@ -4,7 +4,7 @@
 /// documents the expected numbers and pins the GQA vs MLA branches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateVram, deriveVramInputs, defaultServingDtype, DTYPE_BYTES, type VramInputs } from './vram.ts';
+import { estimateVram, deriveVramInputs, defaultServingDtype, DTYPE_BYTES, OPTIMIZER_STATE_BYTES, type VramInputs } from './vram.ts';
 
 const GiB = 1024 ** 3;
 
@@ -123,4 +123,70 @@ test('defaultServingDtype maps the dominant checkpoint precision', () => {
   assert.equal(defaultServingDtype({ float32: 8e9 }), 'fp32');
   assert.equal(defaultServingDtype({ Q4_K: 8e9 }), 'int4');
   assert.equal(defaultServingDtype({ weird: 1 }), 'bf16');
+});
+
+// ── training mode + new precisions ────────────────────────────────────────────
+
+test('new precisions: fp4 = 0.5 B, int8 = 1 B (distinct labels, shared bytes)', () => {
+  assert.equal(DTYPE_BYTES.fp4, 0.5);
+  assert.equal(DTYPE_BYTES.int8, 1);
+  assert.equal(DTYPE_BYTES.int4, 0.5);
+  assert.equal(DTYPE_BYTES.fp8, 1);
+});
+
+test('inference estimate is tagged and carries zero training terms', () => {
+  const e = estimateVram(LLAMA3_8B, { batch: 1, context: 8192, kvBytes: 2 });
+  assert.equal(e.mode, 'inference');
+  assert.equal(e.gradientBytes, 0);
+  assert.equal(e.optimizerBytes, 0);
+});
+
+test('training: weights + gradients + optimizer, no KV cache, mixed-precision 16 B/param', () => {
+  const e = estimateVram(LLAMA3_8B, { batch: 1, context: 8192, kvBytes: 2, mode: 'training', optimizer: 'adamw', gradCheckpoint: true });
+  assert.equal(e.mode, 'training');
+  assert.equal(e.kvBytes, 0);
+  assert.equal(e.weightsBytes, 8.03e9 * 2);
+  assert.equal(e.gradientBytes, 8.03e9 * 2);
+  assert.equal(e.optimizerBytes, 8.03e9 * OPTIMIZER_STATE_BYTES.adamw);
+  // weights(2) + grads(2) + AdamW optimizer(12) = the classic 16 B/param.
+  assert.equal(e.weightsBytes + e.gradientBytes + e.optimizerBytes, 8.03e9 * 16);
+});
+
+test('training optimizer choice moves only the optimizer term', () => {
+  const rt = { batch: 1, context: 8192, kvBytes: 2, mode: 'training' as const, gradCheckpoint: true };
+  const adamw = estimateVram(LLAMA3_8B, { ...rt, optimizer: 'adamw' });
+  const adam8 = estimateVram(LLAMA3_8B, { ...rt, optimizer: 'adam8bit' });
+  const sgd = estimateVram(LLAMA3_8B, { ...rt, optimizer: 'sgd' });
+  assert.equal(adamw.optimizerBytes, 8.03e9 * 12);
+  assert.equal(adam8.optimizerBytes, 8.03e9 * 6);
+  assert.equal(sgd.optimizerBytes, 8.03e9 * 8);
+  assert.equal(adamw.weightsBytes, sgd.weightsBytes);
+  assert.equal(adamw.gradientBytes, sgd.gradientBytes);
+});
+
+test('gradient checkpointing cuts the activation stash; param terms unchanged', () => {
+  const base = { batch: 2, context: 8192, kvBytes: 2, mode: 'training' as const, optimizer: 'adamw' as const };
+  const on = estimateVram(LLAMA3_8B, { ...base, gradCheckpoint: true });
+  const off = estimateVram(LLAMA3_8B, { ...base, gradCheckpoint: false });
+  assert.ok(off.activationBytes > on.activationBytes);
+  // Checkpointed stash = the per-layer input: 2 × layers × ctx × batch × hidden.
+  assert.equal(on.activationBytes, 2 * 32 * 8192 * 2 * 4096);
+  assert.equal(on.weightsBytes, off.weightsBytes);
+  assert.equal(on.optimizerBytes, off.optimizerBytes);
+});
+
+test('training activations grow super-linearly with context (∝ s² attention term)', () => {
+  const base = { batch: 1, kvBytes: 2, mode: 'training' as const, optimizer: 'adamw' as const, gradCheckpoint: false };
+  const a = estimateVram(LLAMA3_8B, { ...base, context: 8192 }).activationBytes;
+  const b = estimateVram(LLAMA3_8B, { ...base, context: 16384 }).activationBytes;
+  assert.ok(b > 2 * a);
+});
+
+test('training with no dims: param terms trustworthy, activations flagged unknown', () => {
+  const bare: VramInputs = { totalParams: 7e9, weightBytes: 2, isMla: false };
+  const e = estimateVram(bare, { batch: 1, context: 8192, kvBytes: 2, mode: 'training', optimizer: 'adamw' });
+  assert.equal(e.weightsBytes, 7e9 * 2);
+  assert.equal(e.optimizerBytes, 7e9 * 12);
+  assert.equal(e.activationBytes, 0);
+  assert.equal(e.kvComputable, false);
 });

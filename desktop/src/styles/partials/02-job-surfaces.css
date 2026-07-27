@@ -2240,6 +2240,14 @@ button > .ui-icon:not(:only-child):first-child,
 .modelview-vram-dot.kv {
   background: color-mix(in srgb, var(--accent) 55%, var(--surface));
 }
+.modelview-vram-seg.grad,
+.modelview-vram-dot.grad {
+  background: color-mix(in srgb, var(--accent) 70%, var(--surface));
+}
+.modelview-vram-seg.opt,
+.modelview-vram-dot.opt {
+  background: color-mix(in srgb, var(--accent) 45%, var(--surface));
+}
 .modelview-vram-seg.act,
 .modelview-vram-dot.act {
   background: color-mix(in srgb, var(--accent) 25%, var(--surface));

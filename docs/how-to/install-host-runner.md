@@ -601,6 +601,32 @@ matching the legacy behavior.
 The default avoids common service ports; override if `41825` collides
 on your host.
 
+## 7.5. Env-profile secrets & host identity (ADR-056)
+
+When an env profile carries `secret_refs`, the secret values are never
+sent to the hub. Instead the host-runner mints an **X25519 identity**
+keypair at first startup (private seed in `<state-dir>/host-identity.json`,
+0600; public key advertised in `capabilities_json`). A client holding the
+team vault key seals the resolved secrets to **this host's** public key;
+the hub stores and forwards only the opaque ciphertext; the host-runner
+unseals it at launch and injects the values into the agent's **process
+environment** — never the command string, the spawn spec, or any log.
+
+This is automatic — there are no flags to enable it. Notes:
+
+- **No `--state-dir` ⇒ no identity ⇒ no secrets.** A host started
+  without persistent state advertises no envelope support, and the hub
+  refuses (422) secret-bearing spawns to it. Track A / Track B both set a
+  state dir by default, so this only bites deliberately-ephemeral runs.
+- **`--rekey`** mints a fresh identity at startup, discarding the
+  persisted one. Use it if the seed may have leaked. A re-key is a **new
+  host identity**: every previously-sealed envelope for this host becomes
+  undecryptable, and affected sessions need a client re-seal or a respawn.
+  Clients that had pinned the old key will prompt to re-confirm the new
+  fingerprint before sealing again.
+- The seed file is a **secret** — back it up with the same care as the
+  host token (or accept that losing it forces a re-seal, which is safe).
+
 ## 8. Backup and restore
 
 The hub keeps all team state in `<data-root>/hub.db` (SQLite) plus

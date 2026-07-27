@@ -36,10 +36,18 @@ func (s StubLauncher) Launch(_ context.Context, sp Spawn) (string, error) {
 	return pane, nil
 }
 
-func (s StubLauncher) LaunchCmd(_ context.Context, sp Spawn, cmd string) (string, error) {
+func (s StubLauncher) LaunchCmd(ctx context.Context, sp Spawn, cmd string) (string, error) {
+	return s.LaunchCmdEnv(ctx, sp, cmd, nil)
+}
+
+// LaunchCmdEnv lets StubLauncher stand in for an env-capable launcher (it
+// implements envLauncher) so secret-bearing spawns route here in tests and
+// bootstrap without tripping launchCmdWithEnv's fail-closed guard. The pane is
+// synthetic, so the env is a no-op beyond the present/absent log.
+func (s StubLauncher) LaunchCmdEnv(_ context.Context, sp Spawn, cmd string, env []string) (string, error) {
 	pane := fmt.Sprintf("hub-agents:%s.0", sp.Handle)
 	if s.Log != nil {
-		s.Log.Info("stub-launch-cmd", "handle", sp.Handle, "cmd", cmd, "pane", pane)
+		s.Log.Info("stub-launch-cmd", "handle", sp.Handle, "cmd", cmd, "pane", pane, "env_keys", len(env))
 	}
 	return pane, nil
 }

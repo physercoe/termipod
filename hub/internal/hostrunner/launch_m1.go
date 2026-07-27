@@ -50,6 +50,11 @@ type M1LaunchConfig struct {
 	// DeriveWorkdir so the derived workdir carries the `<team>` segment
 	// (ADR-037 D6). Empty falls back to the legacy team-less path.
 	Team string
+	// SecretEnv carries this spawn's unsealed env-profile secrets (ADR-056
+	// D-5). M1 is always persistent-stdio ACP; injecting these into the
+	// child's Env slice lands in E3c-2. Until then a secret-bearing M1 spawn
+	// is refused rather than launched without its secrets (fail-closed).
+	SecretEnv []string
 }
 
 // M1LaunchResult — same shape as M2LaunchResult so runner.go's mode
@@ -64,6 +69,14 @@ type M1LaunchResult struct {
 // stdio. On handshake failure (e.g. the engine doesn't actually
 // support `--acp`), the caller is expected to fall back to M2/M4.
 func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
+	// Persistent-stdio secret injection (child Env slice) lands in E3c-2. Until
+	// then, refuse a secret-bearing M1 spawn rather than launch it without the
+	// secrets or force them into the command string (ADR-056 D-5). Fail-closed,
+	// before any process/log setup so runner.go's fallback ladder can try M2/M4.
+	if len(cfg.SecretEnv) > 0 {
+		return M1LaunchResult{}, fmt.Errorf("M1 ACP secret injection not yet implemented (E3c-2); "+
+			"refusing to launch %q with env-profile secrets (kind %q)", cfg.Spawn.Handle, cfg.Spawn.Kind)
+	}
 	if cfg.Spawner == nil {
 		cfg.Spawner = RealProcSpawner{}
 	}

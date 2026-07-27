@@ -192,6 +192,12 @@ type Spawn struct {
 	// derives `~/hub-work/<pid[:8]>/<handle>` so each project gets a
 	// stable folder root and sibling worker handles don't collide.
 	ProjectID string `json:"project_id,omitempty"`
+	// EnvSecretEnvelope is the opaque host-sealed envelope carrying this
+	// spawn's env-profile secrets (ADR-056 D-3). host-runner unseals it with
+	// its private identity at launch and injects the values via PROCESS ENV
+	// only — never the command string. Empty when the profile has no secrets.
+	// Surfaced by the hub to host-kind callers only.
+	EnvSecretEnvelope string `json:"env_secret_envelope,omitempty"`
 }
 
 func (c *Client) ListPendingSpawns(ctx context.Context, hostID string) ([]Spawn, error) {

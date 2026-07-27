@@ -154,6 +154,12 @@ type M2LaunchConfig struct {
 	// DeriveWorkdir so the derived workdir carries the `<team>` segment
 	// (ADR-037 D6). Empty falls back to the legacy team-less path.
 	Team string
+	// SecretEnv carries this spawn's unsealed env-profile secrets as a K=V
+	// slice (ADR-056 D-5), injected via process env — never the command
+	// string. The gemini exec path appends these to the child's Env slice;
+	// the persistent stdio path (codex et al.) is wired in E3c-2 and, until
+	// then, refuses a secret-bearing spawn rather than dropping the secrets.
+	SecretEnv []string
 }
 
 // M2LaunchResult is what launchM2 hands back to runner.go so it can keep
@@ -370,6 +376,11 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		// the `export …` precedence on the shared shell path (env-profiles E1).
 		// exec.Cmd.Env resolves duplicate keys to the last entry.
 		geminiEnv = append(geminiEnv, envKVList(spec.EnvVars)...)
+		// Env-profile SECRETS go last of all — they win over env_vars, template,
+		// and engine-hardcoded env (ADR-056 D-5 merge order). Injected via the
+		// exec Env slice, never the command string; available to the setup
+		// script too (a private index install may need one).
+		geminiEnv = append(geminiEnv, cfg.SecretEnv...)
 		// gemini is exec-per-turn: there's no persistent launch shell to splice
 		// a setup fragment into, so run the setup script once here, synchronously,
 		// in the workdir with the same env (env-profiles E1c). Fail-closed by
@@ -394,6 +405,17 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			return M2LaunchResult{}, fmt.Errorf("exec-resume start: %w", err)
 		}
 		return M2LaunchResult{Driver: drv}, nil
+	}
+
+	// Persistent-stdio secret injection (child Env slice) lands in E3c-2. Until
+	// then, refuse a secret-bearing spawn on this path rather than dropping the
+	// secrets silently — the E1b export-prefix channel is forbidden for secrets
+	// (ADR-056 D-5), so there is nowhere safe to put them here yet. Fail-closed.
+	if len(cfg.SecretEnv) > 0 {
+		_ = logFile.Close()
+		_ = os.Remove(logPath)
+		return M2LaunchResult{}, fmt.Errorf("M2 persistent-stdio secret injection not yet implemented (E3c-2); "+
+			"refusing to launch %q with env-profile secrets (kind %q)", cfg.Spawn.Handle, cfg.Spawn.Kind)
 	}
 
 	stdout, stdin, kill, err := cfg.Spawner.Spawn(ctx, command)

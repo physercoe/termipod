@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -59,6 +60,36 @@ func materializeEnvProfile(specYAML string, prof envProfileOut) string {
 		return specYAML
 	}
 	return string(out)
+}
+
+// projectEnvProfileIDFromYAML parses a project config_yaml's top-level
+// `env_profile_id` (env-profiles plan, E2 — project-level inherit). Empty
+// config, parse failure, or absent key all yield "". Same lenient shape as
+// projectPhasesFromConfig.
+func projectEnvProfileIDFromYAML(configYAML string) string {
+	if configYAML == "" {
+		return ""
+	}
+	var doc struct {
+		EnvProfileID string `yaml:"env_profile_id"`
+	}
+	if yaml.Unmarshal([]byte(configYAML), &doc) != nil {
+		return ""
+	}
+	return doc.EnvProfileID
+}
+
+// projectEnvProfileID reads a project's config_yaml and returns its declared
+// env_profile_id (the profile all spawns in the project inherit unless they set
+// their own). A missing project or DB error yields "" — inheritance is
+// best-effort and must never fail a spawn.
+func (s *Server) projectEnvProfileID(ctx context.Context, projectID string) string {
+	var cfg string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(config_yaml, '') FROM projects WHERE id = ?`, projectID).Scan(&cfg); err != nil {
+		return ""
+	}
+	return projectEnvProfileIDFromYAML(cfg)
 }
 
 // upsertTopKey sets key→val on a mapping node, replacing an existing pair or

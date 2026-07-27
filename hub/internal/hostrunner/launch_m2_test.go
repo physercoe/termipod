@@ -18,6 +18,7 @@ import (
 // exercise input here).
 type fakeProcSpawner struct {
 	cmd      string
+	env      []string       // extra process env passed by the launcher (ADR-056 D-5)
 	child    *io.PipeWriter // test writes here to simulate child stdout
 	childErr *io.PipeWriter // test writes here to simulate child stderr (split-stream mode only)
 	input    *io.PipeReader // test reads here to see what host-runner wrote
@@ -54,8 +55,9 @@ func (f *fakeProcSpawner) waitReady(t *testing.T) {
 	}
 }
 
-func (f *fakeProcSpawner) Spawn(_ context.Context, command string) (io.ReadCloser, io.WriteCloser, func(), error) {
+func (f *fakeProcSpawner) Spawn(_ context.Context, command string, env []string) (io.ReadCloser, io.WriteCloser, func(), error) {
 	f.cmd = command
+	f.env = env
 	outR, outW := io.Pipe()
 	inR, inW := io.Pipe()
 	f.child = outW
@@ -77,8 +79,9 @@ func (f *fakeProcSpawner) Spawn(_ context.Context, command string) (io.ReadClose
 // stdout, stderr, stdin returned as independent pipe pairs. Tests that
 // don't write to childErr leave stderr silent — same outward behavior
 // as the production path when the child writes nothing to stderr.
-func (f *fakeProcSpawner) SpawnWithStderr(_ context.Context, command string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
+func (f *fakeProcSpawner) SpawnWithStderr(_ context.Context, command string, env []string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
 	f.cmd = command
+	f.env = env
 	outR, outW := io.Pipe()
 	errR, errW := io.Pipe()
 	inR, inW := io.Pipe()
@@ -202,6 +205,35 @@ func TestLaunchM2_TeesToLogAndStartsDriver(t *testing.T) {
 	case <-spawner.killed:
 	case <-time.After(time.Second):
 		t.Fatal("Stop did not invoke kill on the child process")
+	}
+}
+
+// The persistent-stdio path injects env-profile secrets into the child's
+// process env (ADR-056 D-5), never the command string (E3c-2).
+func TestLaunchM2_InjectsSecretEnvIntoSpawner(t *testing.T) {
+	spawner := newFakeProcSpawner()
+	_, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn: Spawn{
+			ChildID:   "agent-sec",
+			Handle:    "s",
+			Kind:      "claude-code",
+			SpawnSpec: "backend:\n  cmd: fake-agent\n",
+			Mode:      "M2",
+		},
+		Launcher:  &recordingLauncher{pane: "hub-agents:s.0"},
+		Client:    &fakePoster{},
+		Spawner:   spawner,
+		LogDir:    t.TempDir(),
+		SecretEnv: []string{"SECRET_TOKEN=abc"},
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	if len(spawner.env) != 1 || spawner.env[0] != "SECRET_TOKEN=abc" {
+		t.Fatalf("secret env not passed to spawner: %v", spawner.env)
+	}
+	if strings.Contains(spawner.cmd, "SECRET_TOKEN") {
+		t.Fatalf("secret leaked into command string: %q", spawner.cmd)
 	}
 }
 
@@ -535,16 +567,16 @@ func TestLaunchM2_ContextFilesWithoutAnyIdentifierFails(t *testing.T) {
 
 func TestSafeContextFileName(t *testing.T) {
 	cases := map[string]bool{
-		"CLAUDE.md":            true,
-		"docs/howto.md":        true,
-		".mcp.json":            false, // hidden
-		"":                     false,
-		"/abs":                 false,
-		"../escape":            false,
-		"sub/../etc/passwd":    false,
-		"ok/sub/file":          true,
-		"with\\backslash":      false,
-		"trailing/":            false,
+		"CLAUDE.md":         true,
+		"docs/howto.md":     true,
+		".mcp.json":         false, // hidden
+		"":                  false,
+		"/abs":              false,
+		"../escape":         false,
+		"sub/../etc/passwd": false,
+		"ok/sub/file":       true,
+		"with\\backslash":   false,
+		"trailing/":         false,
 	}
 	for in, want := range cases {
 		if got := safeContextFileName(in); got != want {

@@ -33,15 +33,28 @@ import (
 // Implementations return an io.ReadCloser on the child's combined
 // stdout+stderr, an io.WriteCloser on its stdin, and a Kill func the
 // driver's Stop will invoke.
+// env, when non-empty, is a slice of "K=V" entries appended to the child's
+// process environment (ADR-056 D-5 secret injection) — the required channel for
+// env-profile secrets, which must never appear in the command string. Entries
+// win over the inherited environment (exec.Cmd resolves duplicate keys last).
 type ProcSpawner interface {
-	Spawn(ctx context.Context, command string) (stdout io.ReadCloser, stdin io.WriteCloser, kill func(), err error)
+	Spawn(ctx context.Context, command string, env []string) (stdout io.ReadCloser, stdin io.WriteCloser, kill func(), err error)
 	// SpawnWithStderr returns the child's stdout and stderr as separate
 	// streams. M1 (ACP) launch uses this so non-JSON stderr lines (auth
 	// diagnostics, ripgrep warnings, etc.) don't pollute the JSON-RPC
 	// frame parser the driver runs over stdout. M2 still uses Spawn —
 	// stream-json drivers tolerate stderr garbage on stdout and the
 	// merged stream gives a richer pane tail.
-	SpawnWithStderr(ctx context.Context, command string) (stdout io.ReadCloser, stderr io.ReadCloser, stdin io.WriteCloser, kill func(), err error)
+	SpawnWithStderr(ctx context.Context, command string, env []string) (stdout io.ReadCloser, stderr io.ReadCloser, stdin io.WriteCloser, kill func(), err error)
+}
+
+// applyExtraEnv sets cmd.Env only when there are secrets to inject: an unset
+// cmd.Env inherits the parent environment (the exact current behaviour), while
+// a set one must repeat it. Secrets go LAST so they win over the inherited env.
+func applyExtraEnv(cmd *exec.Cmd, env []string) {
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 }
 
 // RealProcSpawner runs the command under `bash -c`. Spawn merges
@@ -49,8 +62,9 @@ type ProcSpawner interface {
 // (M1 path) so the ACP driver's frame parser only sees clean JSON-RPC.
 type RealProcSpawner struct{}
 
-func (RealProcSpawner) Spawn(ctx context.Context, command string) (io.ReadCloser, io.WriteCloser, func(), error) {
+func (RealProcSpawner) Spawn(ctx context.Context, command string, env []string) (io.ReadCloser, io.WriteCloser, func(), error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	applyExtraEnv(cmd, env)
 	// Run bash + its descendants in a fresh process group so kill()
 	// reaches the engine the bash invocation actually exec'd. Without
 	// Setpgid, `cmd.Process.Kill()` SIGKILLs only the bash parent; the
@@ -82,8 +96,9 @@ func (RealProcSpawner) Spawn(ctx context.Context, command string) (io.ReadCloser
 	return stdout, stdin, kill, nil
 }
 
-func (RealProcSpawner) SpawnWithStderr(ctx context.Context, command string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
+func (RealProcSpawner) SpawnWithStderr(ctx context.Context, command string, env []string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	applyExtraEnv(cmd, env)
 	// See Spawn() for why the process group matters. M1 spawn relies on
 	// this so a hung gemini-cli daemon dies on Stop() instead of leaking
 	// into the next launch's `initialize` window.
@@ -156,9 +171,8 @@ type M2LaunchConfig struct {
 	Team string
 	// SecretEnv carries this spawn's unsealed env-profile secrets as a K=V
 	// slice (ADR-056 D-5), injected via process env — never the command
-	// string. The gemini exec path appends these to the child's Env slice;
-	// the persistent stdio path (codex et al.) is wired in E3c-2 and, until
-	// then, refuses a secret-bearing spawn rather than dropping the secrets.
+	// string. Both the gemini exec path and the persistent-stdio path
+	// (codex et al.) append these to the child's process environment.
 	SecretEnv []string
 }
 
@@ -407,18 +421,9 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		return M2LaunchResult{Driver: drv}, nil
 	}
 
-	// Persistent-stdio secret injection (child Env slice) lands in E3c-2. Until
-	// then, refuse a secret-bearing spawn on this path rather than dropping the
-	// secrets silently — the E1b export-prefix channel is forbidden for secrets
-	// (ADR-056 D-5), so there is nowhere safe to put them here yet. Fail-closed.
-	if len(cfg.SecretEnv) > 0 {
-		_ = logFile.Close()
-		_ = os.Remove(logPath)
-		return M2LaunchResult{}, fmt.Errorf("M2 persistent-stdio secret injection not yet implemented (E3c-2); "+
-			"refusing to launch %q with env-profile secrets (kind %q)", cfg.Spawn.Handle, cfg.Spawn.Kind)
-	}
-
-	stdout, stdin, kill, err := cfg.Spawner.Spawn(ctx, command)
+	// Env-profile secrets ride the child's process env (ADR-056 D-5), never the
+	// command string. cfg.SecretEnv is empty for a secret-free spawn.
+	stdout, stdin, kill, err := cfg.Spawner.Spawn(ctx, command, cfg.SecretEnv)
 	if err != nil {
 		_ = logFile.Close()
 		_ = os.Remove(logPath)

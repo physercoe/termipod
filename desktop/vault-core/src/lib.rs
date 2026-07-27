@@ -15,7 +15,7 @@
 //!     out=32, raw salt; password = code stripped of [\s-] and upper-cased.
 //!   - all envelopes base64 (standard, padded).
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::engine::general_purpose::STANDARD;
@@ -193,6 +193,124 @@ pub fn generate_recovery_code() -> String {
         .join("-")
 }
 
+// ---- env-secret envelope (ADR-056 D-3) ---------------------------------------
+//
+// The client side of env-profile secret delivery, byte-compatible with the Go
+// OPEN implementation in `hub/internal/envseal` (locked by that package's
+// testdata/envseal_kat.json). Same sealed-box primitive as the vault device
+// wrap above, with two deltas: a domain-separated HKDF info and a NON-empty
+// AEAD AAD binding "tp-env1" | team | host | profile (0x1F separated). Only the
+// host holding the target private key can open the result; the AAD stops a
+// malicious hub re-targeting it.
+
+const ENV_INFO: &[u8] = b"termipod-env-host-v1";
+const ENV_AAD_PREFIX: &[u8] = b"tp-env1";
+const ENV_AAD_SEP: u8 = 0x1f;
+
+fn hkdf_env_key(shared: &[u8]) -> Result<[u8; 32], String> {
+    let hk = Hkdf::<Sha256>::new(None, shared);
+    let mut okm = [0u8; 32];
+    hk.expand(ENV_INFO, &mut okm).map_err(|e| e.to_string())?;
+    Ok(okm)
+}
+
+fn env_aad(team_id: &str, host_id: &str, profile_id: &str) -> Vec<u8> {
+    let mut a = Vec::new();
+    a.extend_from_slice(ENV_AAD_PREFIX);
+    a.push(ENV_AAD_SEP);
+    a.extend_from_slice(team_id.as_bytes());
+    a.push(ENV_AAD_SEP);
+    a.extend_from_slice(host_id.as_bytes());
+    a.push(ENV_AAD_SEP);
+    a.extend_from_slice(profile_id.as_bytes());
+    a
+}
+
+/// AES-256-GCM with an explicit nonce and AAD; returns ct‖tag (the nonce is
+/// carried separately in the envelope).
+fn aes_seal_aad(key: &[u8; 32], nonce: &[u8; 12], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, String> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
+    cipher
+        .encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
+        .map_err(|e| e.to_string())
+}
+
+/// json_string quotes and escapes a string for embedding in the envelope JSON.
+/// host_id/profile_id are slugs in practice, but escape defensively so a value
+/// with a quote/backslash/control byte can't produce malformed JSON.
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn build_env_json(host_id: &str, profile_id: &str, eph_pub: &[u8], nonce: &[u8], ct: &[u8]) -> String {
+    format!(
+        r#"{{"v":1,"host_id":{},"profile_id":{},"epk":"{}","nonce":"{}","ct":"{}"}}"#,
+        json_string(host_id),
+        json_string(profile_id),
+        b64e(eph_pub),
+        b64e(nonce),
+        b64e(ct),
+    )
+}
+
+fn seal_env_common(
+    shared: &[u8],
+    eph_pub: &[u8; 32],
+    nonce: &[u8; 12],
+    team_id: &str,
+    host_id: &str,
+    profile_id: &str,
+    plaintext: &[u8],
+) -> Result<String, String> {
+    let wrap_key = hkdf_env_key(shared)?;
+    let aad = env_aad(team_id, host_id, profile_id);
+    let ct = aes_seal_aad(&wrap_key, nonce, plaintext, &aad)?;
+    Ok(build_env_json(host_id, profile_id, eph_pub, nonce, &ct))
+}
+
+/// Seal `plaintext` (the canonical JSON of the resolved `{KEY: value}` secret
+/// map — sorted keys, compact, matching Go's `json.Marshal`) to the target
+/// host's public key, returning the envelope JSON stored on the spawn row.
+/// The caller (TS/desktop) is responsible for the canonical plaintext so the
+/// three implementations agree byte-for-byte.
+pub fn seal_env_secret(
+    host_pub_b64: &str,
+    team_id: &str,
+    host_id: &str,
+    profile_id: &str,
+    plaintext: &str,
+) -> Result<String, String> {
+    let host_pub = key32(host_pub_b64)?;
+    let eph = EphemeralSecret::random_from_rng(OsRng);
+    let eph_pub = PublicKey::from(&eph);
+    let shared = eph.diffie_hellman(&PublicKey::from(host_pub));
+    let mut nonce = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce);
+    seal_env_common(
+        shared.as_bytes(),
+        eph_pub.as_bytes(),
+        &nonce,
+        team_id,
+        host_id,
+        profile_id,
+        plaintext.as_bytes(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +376,64 @@ mod tests {
         let code = generate_recovery_code();
         assert_eq!(code.len(), 32 + 7); // 32 base32 chars + 7 dashes
         assert_eq!(code.split('-').count(), 8);
+    }
+
+    // ---- env-secret envelope KAT (ADR-056 D-3) --------------------------------
+    // Byte-for-byte interop with the Go host OPEN side. These are the fixed
+    // inputs from hub/internal/envseal/testdata/envseal_kat.json; sealing with
+    // the same host key, ephemeral key and nonce MUST reproduce the fixture's
+    // epk + ct. A drift in HKDF info, AAD encoding, plaintext bytes, or the
+    // AES-GCM core fails here. (The full envelope JSON framing is not asserted —
+    // Go opens by parsing, so only the crypto values are the contract.)
+    const KAT_HOST_SEED: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    const KAT_EPH_SEED: &str = "IB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgE=";
+    const KAT_NONCE: &str = "AAECAwQFBgcICQoL";
+    const KAT_TEAM: &str = "team_kat";
+    const KAT_HOST: &str = "host_kat";
+    const KAT_PROFILE: &str = "envp_kat";
+    // Canonical plaintext = Go json.Marshal(map[string]string) — sorted keys,
+    // compact. The client must reproduce these exact bytes.
+    const KAT_PLAINTEXT: &str =
+        r#"{"DATABASE_URL":"postgres://kat/db","OPENAI_API_KEY":"sk-kat-0123456789"}"#;
+    const KAT_EXPECT_EPK: &str = "DXmWAPb/ruLhIea496Bdxmh0tR2zEC0NcfeZoJy0xGE=";
+    const KAT_EXPECT_CT: &str =
+        "8VAHXTTmaZ/oFU5T9nGqF0FAwMValMz0f5CmdBNDx6BYwavfkOqbTMlqtt20JGTkbhytOeWiCRf7iSkWM9ima9jK/Np91l+s2Zy9A7Rd4ea7C1hChGlPXis=";
+
+    fn parse_env_field(env: &str, key: &str) -> String {
+        // Minimal JSON field extractor for the test (avoids a serde dep).
+        let needle = format!("\"{}\":\"", key);
+        let start = env.find(&needle).expect("field present") + needle.len();
+        let rest = &env[start..];
+        let end = rest.find('"').expect("closing quote");
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn env_secret_kat_matches_go_fixture() {
+        // Seal deterministically with the fixed ephemeral key + nonce.
+        let host_pub_bytes = {
+            let seed = key32(KAT_HOST_SEED).unwrap();
+            let secret = StaticSecret::from(seed);
+            b64e(PublicKey::from(&secret).as_bytes())
+        };
+        let eph = StaticSecret::from(key32(KAT_EPH_SEED).unwrap());
+        let eph_pub = PublicKey::from(&eph);
+        let shared = eph.diffie_hellman(&PublicKey::from(key32(&host_pub_bytes).unwrap()));
+        let nonce_v = b64d(KAT_NONCE).unwrap();
+        let nonce: [u8; 12] = nonce_v.as_slice().try_into().unwrap();
+
+        let env = seal_env_common(
+            shared.as_bytes(),
+            eph_pub.as_bytes(),
+            &nonce,
+            KAT_TEAM,
+            KAT_HOST,
+            KAT_PROFILE,
+            KAT_PLAINTEXT.as_bytes(),
+        )
+        .unwrap();
+
+        assert_eq!(parse_env_field(&env, "epk"), KAT_EXPECT_EPK, "epk drift");
+        assert_eq!(parse_env_field(&env, "ct"), KAT_EXPECT_CT, "ct drift — construction mismatch");
     }
 }

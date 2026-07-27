@@ -157,7 +157,14 @@ const NON_GATED_FFN = new Set(['gpt2', 'gptj', 'gpt_neox', 'gpt_bigcode', 'bloom
 /// be badged as such. Returns null only when a load-bearing field (hidden /
 /// layers / heads / vocab, or a gated FFN's width) is absent; legacy non-gated
 /// configs that omit the width get the transformers 4·hidden default.
-export function estimateParamsFromConfig(config: Record<string, unknown>): number | null {
+///
+/// `opts.activeOnly` returns the **active** parameter count — the params that
+/// actually do work for a single token. For a dense model that equals the total;
+/// for MoE it counts only the `num_experts_per_tok` routed experts (plus the
+/// always-on shared experts and the full router), which is what the FLOPS
+/// estimator's `2·N`/`6·N` compute rule needs (a 235B-total / 22B-active MoE
+/// costs 22B, not 235B, of matmul per token).
+export function estimateParamsFromConfig(config: Record<string, unknown>, opts?: { activeOnly?: boolean }): number | null {
   const hidden = num(config, 'hidden_size', 'n_embd', 'd_model');
   const layers = num(config, 'num_hidden_layers', 'n_layer');
   const heads = num(config, 'num_attention_heads', 'n_head');
@@ -206,7 +213,10 @@ export function estimateParamsFromConfig(config: Record<string, unknown>): numbe
     if (expInter === undefined) return null; // can't size the experts
     const shared = num(config, 'n_shared_experts', 'num_shared_experts') ?? 0;
     const sharedInter = num(config, 'shared_expert_intermediate_size') ?? expInter;
-    const moeFfn = experts * mult * hidden * expInter + hidden * experts /* router */ + shared * mult * hidden * sharedInter;
+    // Active count fires only the top-k routed experts per token; the router gate
+    // (hidden × experts) and shared experts are always on either way.
+    const routed = opts?.activeOnly === true ? (num(config, 'num_experts_per_tok', 'moe_topk') ?? experts) : experts;
+    const moeFfn = routed * mult * hidden * expInter + hidden * experts /* router */ + shared * mult * hidden * sharedInter;
     // Some stacks (DeepSeek-V3) keep the first K layers dense, the rest MoE.
     const denseLayers = Math.min(num(config, 'first_k_dense_replace') ?? 0, layers);
     const denseInter = inter ?? expInter;
@@ -225,17 +235,46 @@ export function estimateParamsFromConfig(config: Record<string, unknown>): numbe
   return embed + lmHead + attn * layers + ffnAcrossLayers + norms;
 }
 
+// Multimodal wrappers (mistral3, gemma3, llama4, qwen*_omni, …) don't put the
+// decoder dims at the top level — they nest the language-model config under one
+// of these keys and keep only vision/wrapper fields (and `architectures`) up
+// top. Ordered most- to least-common.
+const NESTED_LM_CONFIG_KEYS = ['text_config', 'llm_config', 'language_config', 'thinker_config', 'decoder'];
+
+/// Flatten a multimodal wrapper config so every reader sees a single LM config.
+/// If the top level already carries the decoder depth it's returned untouched;
+/// otherwise the first nested sub-config that does is merged **over** the top
+/// level (its `model_type`/dims win, wrapper-only fields like
+/// `quantization_config` and `architectures` survive as fallback). Idempotent —
+/// safe to call at every ingest point. Without this, a `mistral3`/`gemma3`/
+/// `llama4` config reads as "no dims" and the whole arch/VRAM/FLOPS surface goes
+/// blank. (See the nested-config survey: DeepSeek/Qwen3/Kimi/GLM/gpt-oss are
+/// flat; the vision-wrapper families are the ones that nest.)
+export function normalizeModelConfig(rec: Record<string, unknown>): Record<string, unknown> {
+  if (num(rec, 'num_hidden_layers', 'n_layer') !== undefined) return rec;
+  for (const key of NESTED_LM_CONFIG_KEYS) {
+    const sub = rec[key];
+    if (sub !== null && typeof sub === 'object' && !Array.isArray(sub)) {
+      const s = sub as Record<string, unknown>;
+      if (num(s, 'num_hidden_layers', 'n_layer') !== undefined) return { ...rec, ...s };
+    }
+  }
+  return rec;
+}
+
 /// Whether some text is a transformers `config.json` — parses to an object
 /// carrying `model_type` or `architectures` (round-3 §5a). Used to gate the
 /// "View architecture" flip on a JSON code tab from any source. Deliberately
 /// strict (not "any JSON") since `config.json` is a generic name; no auto-hijack.
+/// The parsed config is normalized (nested LM config flattened up) so downstream
+/// readers never have to know about multimodal wrappers.
 export function parseHfConfig(text: string | undefined): Record<string, unknown> | null {
   if (text === undefined || text.trim() === '') return null;
   try {
     const o: unknown = JSON.parse(text);
     if (o !== null && typeof o === 'object' && !Array.isArray(o)) {
       const rec = o as Record<string, unknown>;
-      if (typeof rec.model_type === 'string' || Array.isArray(rec.architectures)) return rec;
+      if (typeof rec.model_type === 'string' || Array.isArray(rec.architectures)) return normalizeModelConfig(rec);
     }
   } catch {
     /* not JSON */

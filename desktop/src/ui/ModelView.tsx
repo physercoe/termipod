@@ -8,6 +8,7 @@ import {
   classifyArch,
   collapseRepeats,
   estimateParamsFromConfig,
+  normalizeModelConfig,
   humanBytes,
   humanCount,
   TEMPLATE_LABEL,
@@ -17,6 +18,16 @@ import {
   type TreeNode,
 } from '../state/checkpoint';
 import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram, type Optimizer, type VramMode } from '../state/vram';
+import {
+  DEFAULT_MFU,
+  GPU_PRESETS,
+  effectiveDeviceFlops,
+  estimateFlops,
+  humanDuration,
+  humanFlops,
+  peakTflops,
+  type ComputePrecision,
+} from '../state/flops';
 import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph';
 import { buildArchSchematic } from '../state/archSchematic';
 import { useInspect, type InspectTab } from '../state/inspect';
@@ -195,6 +206,7 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
       </div>
       {card !== null ? <ArchCardView card={card} /> : <div className="muted region-pad">{t('model.notAConfig')}</div>}
       {params !== null && <VramCard totalParams={params} dtypeHist={{}} card={card} config={config} />}
+      {params !== null && <FlopsCard totalParams={params} card={card} config={config} />}
       <div className="modelview-confignote small muted">
         <Icon name="alert" size={13} /> {t('model.configOnlyNote')}
       </div>
@@ -378,6 +390,216 @@ function VramCard({
   );
 }
 
+const MFUS = [0.2, 0.3, 0.4, 0.5, 0.6];
+const GPU_COUNTS = [1, 2, 4, 8, 16, 32, 64];
+const COMPUTE_PRECISIONS: ComputePrecision[] = ['bf16', 'fp8', 'fp4'];
+
+// Round a tokens/sec rate for display (integers above 1, else 2 decimals).
+function fmtRate(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  return n >= 1 ? Math.round(n).toLocaleString() : n.toFixed(2);
+}
+
+/// FLOPS / throughput estimator (companion to the VRAM card). Given a GPU spec
+/// (preset or custom TFLOP/s), compute precision, MFU and device count, estimate
+/// how fast the model runs: **inference** = prefill time + decode latency;
+/// **training** = one forward+backward step time + throughput. Uses the active
+/// parameter count (MoE fires only its top-k experts) and the causal-attention
+/// (∝ context²) term. Order-of-magnitude, like the VRAM card.
+function FlopsCard({
+  totalParams,
+  metadata,
+  card,
+  config,
+}: {
+  totalParams: number;
+  metadata?: Record<string, string | number>;
+  card: ArchCard | null;
+  config: Record<string, unknown> | null;
+}): JSX.Element {
+  const t = useT();
+  const [gpuId, setGpuId] = useState('h100');
+  const [customTf, setCustomTf] = useState('');
+  const [precision, setPrecision] = useState<ComputePrecision>('bf16');
+  const [mfu, setMfu] = useState(DEFAULT_MFU);
+  const [numGpus, setNumGpus] = useState(1);
+  const [mode, setMode] = useState<VramMode>('inference');
+  const [batch, setBatch] = useState(1);
+  const [context, setContext] = useState(8192);
+
+  // Active params = exact total × the config's active/total fraction (MoE fires
+  // only top-k experts). Dense or config-less → the whole param count works.
+  const active = useMemo(() => {
+    if (config === null) return totalParams;
+    const total = estimateParamsFromConfig(config);
+    const act = estimateParamsFromConfig(config, { activeOnly: true });
+    return total !== null && act !== null && total > 0 ? totalParams * (act / total) : totalParams;
+  }, [config, totalParams]);
+  const isMoe = card?.template === 'moe' || card?.template === 'mla-moe';
+
+  // Reuse the VRAM input derivation for layers + attention width (heads×headDim).
+  const dims = useMemo(
+    () => deriveVramInputs({ totalParams, weightBytes: 1, template: card?.template ?? 'unknown', card, config, metadata }),
+    [totalParams, metadata, card, config],
+  );
+  const attnDim =
+    dims.heads !== undefined && dims.heads > 0
+      ? dims.heads * (dims.headDim ?? (dims.hidden !== undefined ? dims.hidden / dims.heads : 0))
+      : undefined;
+
+  const gpu = GPU_PRESETS.find((g) => g.id === gpuId) ?? GPU_PRESETS[0];
+  const custom = customTf.trim() !== '' && Number.isFinite(Number(customTf)) && Number(customTf) > 0 ? Number(customTf) : null;
+  const presetPeak = peakTflops(gpu, precision);
+  const peak = custom ?? presetPeak;
+  const deviceFlops = peak !== undefined && peak > 0 ? effectiveDeviceFlops(peak, numGpus, mfu) : 0;
+
+  const est = useMemo(
+    () => estimateFlops({ activeParams: active, layers: dims.layers, attnDim }, { mode, context, batch, deviceFlops }),
+    [active, dims.layers, attnDim, mode, context, batch, deviceFlops],
+  );
+  const training = mode === 'training';
+  const supported = peak !== undefined && peak > 0;
+
+  const readout = (label: string, value: string, sub?: string): JSX.Element => (
+    <div className="modelview-flops-out" key={label}>
+      <span className="small muted">{label}</span>
+      <span className="modelview-flops-val">{value}</span>
+      {sub !== undefined && <span className="small muted">{sub}</span>}
+    </div>
+  );
+
+  return (
+    <div className="modelview-vram">
+      <div className="modelview-vram-head">
+        <span className="modelview-vram-title small muted">{t('flops.title')}</span>
+        <span className="modelview-vram-approx small muted" title={t('flops.approxNote')}>
+          {t('vram.approximate')}
+        </span>
+        <span className="spacer" />
+        <span className="small muted">
+          {t('flops.activeParams')} {humanCount(active)}
+          {isMoe ? ` / ${humanCount(totalParams)}` : ''}
+        </span>
+      </div>
+
+      <div className="modelview-flops-outs">
+        {!supported ? (
+          <span className="small muted">{t('flops.unsupportedPrec')}</span>
+        ) : training ? (
+          <>
+            {readout(t('flops.step'), humanDuration(est.stepSeconds), `${batch}×${ctxLabel(context)}`)}
+            {readout(t('flops.throughput'), `${fmtRate(est.tokensPerSecond)} ${t('flops.tokPerSecUnit')}`)}
+            {readout(t('flops.perDay'), `${humanCount(est.tokensPerSecond * 86400)} tok`)}
+          </>
+        ) : (
+          <>
+            {readout(t('flops.prefill'), humanDuration(est.stepSeconds), `${ctxLabel(context)} · ${fmtRate(est.tokensPerSecond)} ${t('flops.tokPerSecUnit')}`)}
+            {readout(
+              t('flops.decode'),
+              `${(est.decodeMsPerToken ?? 0).toFixed(2)} ${t('flops.msPerTokUnit')}`,
+              est.decodeMsPerToken !== undefined && est.decodeMsPerToken > 0 ? `${fmtRate(1000 / est.decodeMsPerToken)} ${t('flops.tokPerSecUnit')}` : undefined,
+            )}
+            {readout(t('flops.perToken'), humanFlops(est.linearFlopsPerToken + est.attnFlopsPerToken))}
+          </>
+        )}
+      </div>
+      {supported && !est.attnComputable && <span className="small muted">{t('flops.attnUnknown')}</span>}
+
+      <div className="modelview-vram-ctrls">
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.mode')}</span>
+          <button className={`modelview-vram-btn${!training ? ' on' : ''}`} onClick={() => setMode('inference')}>
+            {t('vram.inference')}
+          </button>
+          <button className={`modelview-vram-btn${training ? ' on' : ''}`} onClick={() => setMode('training')}>
+            {t('vram.training')}
+          </button>
+        </span>
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('flops.gpu')}</span>
+          {GPU_PRESETS.map((g) => (
+            <button
+              key={g.id}
+              className={`modelview-vram-btn${custom === null && gpuId === g.id ? ' on' : ''}`}
+              title={`${g.memGb} GB`}
+              onClick={() => {
+                setGpuId(g.id);
+                setCustomTf('');
+              }}
+            >
+              {g.label}
+            </button>
+          ))}
+          <input
+            className="modelview-flops-num"
+            value={customTf}
+            inputMode="decimal"
+            placeholder={t('flops.customTflops')}
+            onChange={(e) => setCustomTf(e.target.value)}
+          />
+        </span>
+      </div>
+
+      <div className="modelview-vram-ctrls">
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('flops.compute')}</span>
+          {COMPUTE_PRECISIONS.map((p) => {
+            const ok = custom !== null || peakTflops(gpu, p) !== undefined;
+            return (
+              <button
+                key={p}
+                className={`modelview-vram-btn${precision === p ? ' on' : ''}`}
+                disabled={!ok}
+                title={ok ? undefined : t('flops.unsupportedPrec')}
+                onClick={() => setPrecision(p)}
+              >
+                {p}
+              </button>
+            );
+          })}
+        </span>
+        <span className="modelview-vram-ctrl">
+          <span className="small muted" title={t('flops.mfuHint')}>
+            {t('flops.mfu')}
+          </span>
+          {MFUS.map((m) => (
+            <button key={m} className={`modelview-vram-btn${mfu === m ? ' on' : ''}`} onClick={() => setMfu(m)}>
+              {m}
+            </button>
+          ))}
+        </span>
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('flops.devices')}</span>
+          {GPU_COUNTS.map((n) => (
+            <button key={n} className={`modelview-vram-btn${numGpus === n ? ' on' : ''}`} onClick={() => setNumGpus(n)}>
+              {n}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      <div className="modelview-vram-ctrls">
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.batch')}</span>
+          {BATCHES.map((b) => (
+            <button key={b} className={`modelview-vram-btn${batch === b ? ' on' : ''}`} onClick={() => setBatch(b)}>
+              {b}
+            </button>
+          ))}
+        </span>
+        <span className="modelview-vram-ctrl">
+          <span className="small muted">{t('vram.context')}</span>
+          {CONTEXTS.map((c) => (
+            <button key={c} className={`modelview-vram-btn${context === c ? ' on' : ''}`} onClick={() => setContext(c)}>
+              {ctxLabel(c)}
+            </button>
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function TensorRow({ tensor }: { tensor: TensorInfo }): JSX.Element {
   return (
     <div className="modelview-trow">
@@ -481,7 +703,10 @@ export function ModelView({ path }: { path: string }): JSX.Element {
         if (ck.format !== 'gguf') {
           try {
             const r = await invoke<{ content: string }>('doc_read', { path: join(dirOf(path), 'config.json') });
-            if (!cancelled) setConfig(JSON.parse(r.content) as Record<string, unknown>);
+            // Flatten any multimodal wrapper (text_config/…) so the arch/VRAM/
+            // FLOPS readers see a single LM config — same normalization the
+            // paste/tab path gets via parseHfConfig.
+            if (!cancelled) setConfig(normalizeModelConfig(JSON.parse(r.content) as Record<string, unknown>));
           } catch {
             /* no sidecar — the card falls back to tensor-name inference */
           }
@@ -565,6 +790,7 @@ export function ModelView({ path }: { path: string }): JSX.Element {
       {info.ops !== undefined && <OpsBar ops={info.ops} />}
       {card !== null && <ArchCardView card={card} />}
       <VramCard totalParams={info.totalParams} dtypeHist={info.dtypeHistogram} metadata={info.metadata} card={card} config={config} />
+      <FlopsCard totalParams={info.totalParams} metadata={info.metadata} card={card} config={config} />
       <div className="modelview-split">
         <div className="modelview-tree">
           <div className="modelview-pane-head small muted">

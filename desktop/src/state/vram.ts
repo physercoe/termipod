@@ -201,15 +201,31 @@ export function deriveVramInputs(opts: {
   const gguf = (suffix: string): number | undefined => (md ? readNum(md as Record<string, unknown>, `${arch}.${suffix}`) : undefined);
 
   const isMla = opts.template === 'mla' || opts.template === 'mla-moe';
+  const heads = card?.heads ?? readNum(config, 'num_attention_heads', 'n_head') ?? gguf('attention.head_count');
+  const kvHeads = card?.kvHeads ?? readNum(config, 'num_key_value_heads', 'num_kv_heads', 'n_head_kv') ?? gguf('attention.head_count_kv');
+  const headDim = readNum(config, 'head_dim') ?? gguf('attention.key_length');
+
+  // MLA latent size. DeepSeek-V2/V3 name it `kv_lora_rank`; DeepSeek-V4 dropped
+  // that key and instead expresses the compressed KV as a single KV head
+  // (`num_key_value_heads: 1`, `head_dim: 512`). When the explicit rank is
+  // absent, fall back to `kvHeads × headDim` so the (still-MLA) cache stays
+  // sizeable instead of collapsing to the unhelpful "can't derive" hint. This is
+  // an upper bound for sparse/compressed-attention variants (V4's sliding window
+  // + per-layer compression cache even less) — safe for a "will it fit?" check.
+  const kvLoraRank =
+    readNum(config, 'kv_lora_rank') ??
+    gguf('attention.kv_lora_rank') ??
+    (isMla && pos(kvHeads) && pos(headDim) ? kvHeads * headDim : undefined);
+
   return {
     totalParams: opts.totalParams,
     weightBytes: opts.weightBytes,
     layers: card?.layers ?? readNum(config, 'num_hidden_layers', 'n_layer') ?? gguf('block_count'),
-    hidden: card?.hidden ?? readNum(config, 'hidden_size', 'n_embd') ?? gguf('embedding_length'),
-    heads: card?.heads ?? readNum(config, 'num_attention_heads') ?? gguf('attention.head_count'),
-    kvHeads: card?.kvHeads ?? readNum(config, 'num_key_value_heads') ?? gguf('attention.head_count_kv'),
-    headDim: readNum(config, 'head_dim') ?? gguf('attention.key_length'),
-    kvLoraRank: readNum(config, 'kv_lora_rank') ?? gguf('attention.kv_lora_rank'),
+    hidden: card?.hidden ?? readNum(config, 'hidden_size', 'n_embd', 'd_model') ?? gguf('embedding_length'),
+    heads,
+    kvHeads,
+    headDim,
+    kvLoraRank,
     qkRopeHeadDim: readNum(config, 'qk_rope_head_dim') ?? gguf('attention.qk_rope_head_dim'),
     isMla,
   };

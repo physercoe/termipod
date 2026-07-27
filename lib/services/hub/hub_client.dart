@@ -6,6 +6,7 @@ import 'attention_api.dart';
 import 'blobs_api.dart';
 import 'deliverables_api.dart';
 import 'documents_api.dart';
+import 'env_profiles_api.dart';
 import 'events_api.dart';
 import 'hosts_api.dart';
 import 'hub_snapshot_cache.dart';
@@ -73,6 +74,10 @@ class HubClient {
 
   /// Host registry: list (live + cached), delete, SSH-hint + capabilities.
   late final HostsApi hosts = HostsApi(_t);
+
+  /// Environment profiles: reusable {setup_script + env_vars + secret_refs +
+  /// network_policy} a spawn attaches via env_profile_id (env-profiles plan).
+  late final EnvProfilesApi envProfiles = EnvProfilesApi(_t);
 
   /// Sessions: list (live + cached), open/rename/archive/resume/fork/
   /// delete, per-session cost, transcript search.
@@ -751,6 +756,7 @@ class HubClient {
     String? permissionMode,
     String? sessionId,
     String? mode,
+    String? envProfileId,
     bool autoOpenSession = false,
   }) =>
       agents.spawnAgent(
@@ -763,6 +769,7 @@ class HubClient {
         permissionMode: permissionMode,
         sessionId: sessionId,
         mode: mode,
+        envProfileId: envProfileId,
         autoOpenSession: autoOpenSession,
       );
 

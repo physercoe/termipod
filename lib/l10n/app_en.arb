@@ -1710,6 +1710,8 @@
   "handleLabel": "Handle",
   "handleHint": "e.g. worker-fe",
   "hostLabel": "Host",
+  "spawnEnvProfileLabel": "Environment profile",
+  "spawnEnvProfileInherit": "Inherit project / none",
   "spawnSpecYamlLabel": "Spawn spec (YAML)",
   "saveAsPreset": "Save as preset",
   "loadTemplateTooltip": "Load template",

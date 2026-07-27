@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import { useT } from '../i18n';
 import { invoke } from '../bridge';
@@ -32,6 +32,11 @@ import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph
 import { buildArchSchematic } from '../state/archSchematic';
 import { useInspect, type InspectTab } from '../state/inspect';
 import { readRef } from '../state/inspectSources';
+
+// React Flow (schematic) and CodeMirror (source) are heavy — keep them on their
+// own lazy chunks so switching panes pulls them on demand, never at boot.
+const ArchSchematicView = lazy(() => import('./ArchSchematicView').then((m) => ({ default: m.ArchSchematicView })));
+const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })));
 
 function dirOf(p: string): string {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
@@ -137,10 +142,17 @@ function ArchCardView({ card }: { card: ArchCard }): JSX.Element {
 /// the tab already read. When a sibling `model.safetensors.index.json` is
 /// readable from the same source, its tensor-name map corroborates MoE/MLA and
 /// its `total_size` gives the weights figure — still without reading a weight.
-export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab; config: Record<string, unknown>; onViewSource: () => void }): JSX.Element {
+type ConfigPane = 'params' | 'schema' | 'source';
+
+export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Record<string, unknown> }): JSX.Element {
   const t = useT();
   const [tensorNames, setTensorNames] = useState<string[]>([]);
   const [totalSize, setTotalSize] = useState<number | null>(null);
+  const [pane, setPane] = useState<ConfigPane>('params');
+  // The raw config text drives the Source pane (falls back to a re-stringify when
+  // the store hasn't cached the body — e.g. a freshly derived config).
+  const rawContent = useInspect((s) => s.content[tab.id]);
+  const raw = rawContent ?? JSON.stringify(config, null, 2);
 
   // Best-effort sibling index.json corroboration from the same source.
   useEffect(() => {
@@ -170,11 +182,14 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
   // stackable (a hidden size + a positive layer count).
   const schematic = useMemo(() => (card !== null ? buildArchSchematic(card, config) : null), [card, config]);
 
+  // Schema is only offered when the config is a stackable transformer; if the
+  // user is on it when that stops being true (edited config), fall back to params.
+  const schemaPane = pane === 'schema' && schematic !== null;
+
   return (
     <div className="modelview">
       <div className="modelview-summary">
         <span className="modelview-fmt">config</span>
-        <span className="small muted">{t('model.configOnly')}</span>
         {params !== null && (
           <span className="modelview-stat" title={t('model.paramsApproxNote')}>
             <span className="modelview-stat-v">≈{humanCount(params)}</span> <span className="small muted">{t('model.paramsApprox')}</span>
@@ -186,30 +201,53 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
           </span>
         )}
         <span className="spacer" />
-        {schematic !== null && (
-          <button
-            className="import-btn modelview-graph-btn"
-            title={t('model.viewArchitectureHint')}
-            onClick={() =>
-              useInspect.getState().open(
-                { kind: 'archgraph', source: 'paste', title: `${t('archgraph.tab')}: ${card?.family ?? ''}`.trim(), ephemeral: true },
-                JSON.stringify(config),
-              )
-            }
-          >
-            <Icon name="sitemap" size={13} /> {t('model.viewArchitecture')}
+        {/* Three in-place panes — no more spawning a fresh schematic tab per click. */}
+        <div className="modelview-panes" role="tablist">
+          <button className={`modelview-pane-btn${pane === 'params' ? ' on' : ''}`} role="tab" aria-selected={pane === 'params'} onClick={() => setPane('params')}>
+            <Icon name="sliders" size={13} /> {t('model.paneParams')}
           </button>
-        )}
-        <button className="import-btn" onClick={onViewSource}>
-          <Icon name="code" size={13} /> {t('inspect.viewSource')}
-        </button>
+          <button
+            className={`modelview-pane-btn${schemaPane ? ' on' : ''}`}
+            role="tab"
+            aria-selected={schemaPane}
+            disabled={schematic === null}
+            title={schematic === null ? t('archgraph.cannotDerive') : undefined}
+            onClick={() => setPane('schema')}
+          >
+            <Icon name="sitemap" size={13} /> {t('model.paneSchema')}
+          </button>
+          <button className={`modelview-pane-btn${pane === 'source' ? ' on' : ''}`} role="tab" aria-selected={pane === 'source'} onClick={() => setPane('source')}>
+            <Icon name="code" size={13} /> {t('model.paneSource')}
+          </button>
+        </div>
       </div>
-      {card !== null ? <ArchCardView card={card} /> : <div className="muted region-pad">{t('model.notAConfig')}</div>}
-      {params !== null && <VramCard totalParams={params} dtypeHist={{}} card={card} config={config} />}
-      {params !== null && <FlopsCard totalParams={params} card={card} config={config} />}
-      <div className="modelview-confignote small muted">
-        <Icon name="alert" size={13} /> {t('model.configOnlyNote')}
-      </div>
+
+      {pane === 'params' && (
+        <>
+          {card !== null ? <ArchCardView card={card} /> : <div className="muted region-pad">{t('model.notAConfig')}</div>}
+          {params !== null && <VramCard totalParams={params} dtypeHist={{}} card={card} config={config} />}
+          {params !== null && <FlopsCard totalParams={params} card={card} config={config} />}
+          <div className="modelview-confignote small muted">
+            <Icon name="alert" size={13} /> {t('model.configOnlyNote')}
+          </div>
+        </>
+      )}
+
+      {schemaPane && (
+        <div className="modelview-pane-body">
+          <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
+            <ArchSchematicView schematic={schematic} config={config} card={card} />
+          </Suspense>
+        </div>
+      )}
+
+      {pane === 'source' && (
+        <div className="modelview-pane-body">
+          <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+            <CodeView value={raw} filename="config.json" />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

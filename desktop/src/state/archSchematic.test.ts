@@ -4,7 +4,7 @@
 /// React Flow. Run with `node --test` (Node strips the type annotations).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildArchSchematic, type ArchSchematic } from './archSchematic.ts';
+import { archNodeDetails, buildArchSchematic, type ArchSchematic } from './archSchematic.ts';
 import { classifyArch } from './checkpoint.ts';
 
 // Build the way the tab does: classify then synthesize.
@@ -101,4 +101,41 @@ test('MHA (kv == q heads) labelled multi-head, LayerNorm variant', () => {
   assert.equal(byId(s, 'norm1').label, 'LayerNorm');
   // With no GQA split, attention reads as MHA.
   assert.match(subOf(s, 'attn'), /MHA|heads/);
+});
+
+// ── per-node detail rows (the schematic's click-to-inspect panel) ──
+const detailMap = (rows: { label: string; value: string }[]): Record<string, string> => Object.fromEntries(rows.map((r) => [r.label, r.value]));
+
+test('archNodeDetails: MLA+MoE attention & FFN expose the full config facts', () => {
+  const config = {
+    model_type: 'deepseek_v3', num_hidden_layers: 61, hidden_size: 7168, num_attention_heads: 128,
+    kv_lora_rank: 512, q_lora_rank: 1536, qk_rope_head_dim: 64, v_head_dim: 128,
+    n_routed_experts: 256, num_experts_per_tok: 8, n_shared_experts: 1, moe_intermediate_size: 2048,
+    first_k_dense_replace: 3, vocab_size: 129280, hidden_act: 'silu',
+  };
+  const card = classifyArch({ config, tensorNames: [] })!;
+  const s = buildArchSchematic(card, config)!;
+  const attn = detailMap(archNodeDetails(s.nodes.find((n) => n.id === 'attn')!, config, card));
+  assert.equal(attn['Type'], 'Multi-head Latent (MLA)');
+  assert.equal(attn['kv_lora_rank'], '512');
+  assert.equal(attn['qk_rope_head_dim'], '64');
+  const ffn = detailMap(archNodeDetails(s.nodes.find((n) => n.id === 'ffn')!, config, card));
+  assert.equal(ffn['Type'], 'Mixture-of-Experts');
+  assert.equal(ffn['Routed experts'], '256');
+  assert.equal(ffn['Active per token'], '8');
+  assert.equal(ffn['Shared experts'], '1');
+  assert.equal(ffn['Dense first-K layers'], '3');
+});
+
+test('archNodeDetails: dense GQA — no MLA rows; embed shows vocab/hidden', () => {
+  const config = { model_type: 'llama', num_hidden_layers: 32, hidden_size: 4096, num_attention_heads: 32, num_key_value_heads: 8, head_dim: 128, intermediate_size: 11008, vocab_size: 32000 };
+  const card = classifyArch({ config, tensorNames: [] })!;
+  const s = buildArchSchematic(card, config)!;
+  const attn = detailMap(archNodeDetails(s.nodes.find((n) => n.id === 'attn')!, config, card));
+  assert.equal(attn['Type'], 'Grouped-query (GQA)');
+  assert.equal(attn['KV heads'], '8');
+  assert.equal(attn['Head dim'], '128');
+  assert.equal(attn['kv_lora_rank'], undefined); // GQA has no MLA latent
+  const embed = detailMap(archNodeDetails(s.nodes.find((n) => n.id === 'embed')!, config, card));
+  assert.equal(embed['Vocab size'], '32.0K');
 });

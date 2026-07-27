@@ -1,8 +1,20 @@
-import { useMemo } from 'react';
-import { Background, Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  Background,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+  type ReactFlowInstance,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useT } from '../i18n';
-import type { ArchNode, ArchSchematic } from '../state/archSchematic';
+import { Icon } from './Icon';
+import type { ArchCard } from '../state/checkpoint';
+import { archNodeDetails, type ArchNode, type ArchSchematic } from '../state/archSchematic';
 
 /// Config-only architecture schematic renderer (round-3 §5a follow-on). Lays out
 /// the pure `ArchSchematic` (state/archSchematic.ts) as a paper-style stacked
@@ -11,6 +23,10 @@ import type { ArchNode, ArchSchematic } from '../state/archSchematic';
 /// A fixed vertical layout (the architecture is a known template — no auto-layout
 /// engine needed); the heavy React Flow dep rides this lazy chunk only, exactly
 /// like ModuleGraphView.
+///
+/// Interactive: click a card to open a detail panel (the full config facts for
+/// that block), right-click for a context menu (copy details / fit view), click
+/// empty canvas to dismiss. Pan/zoom as before.
 
 // Card geometry (kept in sync with the CSS so the container box wraps correctly).
 const W = 260;
@@ -21,14 +37,15 @@ const PAD = 20;
 
 interface CardData extends Record<string, unknown> {
   node: ArchNode;
+  selected: boolean;
 }
 
 /// One component card. Four handles (top/bottom for the main stack, left/right
 /// for the residual skips) — all invisible; ids let the edges pick sides.
 function ArchCardNode({ data }: NodeProps): JSX.Element {
-  const { node } = data as CardData;
+  const { node, selected } = data as CardData;
   return (
-    <div className="archgraph-card" data-kind={node.kind}>
+    <div className="archgraph-card" data-kind={node.kind} data-selected={selected ? 'true' : undefined}>
       <Handle type="target" id="t" position={Position.Top} className="archgraph-h" />
       <Handle type="target" id="rin" position={Position.Right} className="archgraph-h" />
       <div className="archgraph-card-label">{node.label}</div>
@@ -55,7 +72,7 @@ function ContainerNode({ data }: NodeProps): JSX.Element {
 
 const NODE_TYPES = { archCard: ArchCardNode, archContainer: ContainerNode };
 
-function layoutSchematic(s: ArchSchematic, containerLabel: string): { nodes: Node[]; edges: Edge[] } {
+function layoutSchematic(s: ArchSchematic, containerLabel: string, selectedId: string | null): { nodes: Node[]; edges: Edge[] } {
   const yOf = (i: number): number => i * (H + GAP);
   const nodes: Node[] = [];
 
@@ -82,9 +99,9 @@ function layoutSchematic(s: ArchSchematic, containerLabel: string): { nodes: Nod
       id: n.id,
       type: 'archCard',
       position: { x: X, y: yOf(i) },
-      data: { node: n } satisfies CardData,
+      data: { node: n, selected: n.id === selectedId } satisfies CardData,
       style: { width: W, height: H },
-      selectable: false,
+      selectable: true,
       draggable: false,
       zIndex: 1,
     });
@@ -120,27 +137,123 @@ function layoutSchematic(s: ArchSchematic, containerLabel: string): { nodes: Nod
   return { nodes, edges };
 }
 
-export function ArchSchematicView({ schematic }: { schematic: ArchSchematic }): JSX.Element {
+interface MenuState {
+  x: number;
+  y: number;
+  nodeId: string;
+}
+
+export function ArchSchematicView({
+  schematic,
+  config,
+  card,
+}: {
+  schematic: ArchSchematic;
+  config?: Record<string, unknown> | null;
+  card?: ArchCard | null;
+}): JSX.Element {
   const t = useT();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const rf = useRef<ReactFlowInstance | null>(null);
+
   const containerLabel = schematic.layers > 0 ? `×${schematic.layers} ${t('archgraph.layers')}` : t('archgraph.decoderBlock');
-  const { nodes, edges } = useMemo(() => layoutSchematic(schematic, containerLabel), [schematic, containerLabel]);
+  const { nodes, edges } = useMemo(() => layoutSchematic(schematic, containerLabel, selectedId), [schematic, containerLabel, selectedId]);
+
+  const selectedNode = selectedId !== null ? schematic.nodes.find((n) => n.id === selectedId) ?? null : null;
+  const details = useMemo(
+    () => (selectedNode !== null && config !== null && config !== undefined && card !== null && card !== undefined ? archNodeDetails(selectedNode, config, card) : []),
+    [selectedNode, config, card],
+  );
+
+  const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
+    if (node.id.startsWith('__')) return;
+    setSelectedId(node.id);
+    setMenu(null);
+  }, []);
+  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    if (node.id.startsWith('__')) return;
+    e.preventDefault();
+    setSelectedId(node.id);
+    setMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
+  }, []);
+  const dismiss = useCallback(() => {
+    setSelectedId(null);
+    setMenu(null);
+  }, []);
+
+  const copyDetails = useCallback(() => {
+    if (selectedNode === null) return;
+    const text = [selectedNode.label, ...details.map((d) => `${d.label}: ${d.value}`)].join('\n');
+    void navigator.clipboard?.writeText(text);
+    setMenu(null);
+  }, [selectedNode, details]);
+  const fitView = useCallback(() => {
+    rf.current?.fitView({ duration: 200 });
+    setMenu(null);
+  }, []);
+
   return (
     <div className="archgraph-wrap">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
+        onInit={(inst) => (rf.current = inst)}
+        onNodeClick={onNodeClick}
+        onNodeContextMenu={onNodeContextMenu}
+        onPaneClick={dismiss}
+        onPaneContextMenu={(e) => {
+          e.preventDefault();
+          setMenu(null);
+        }}
         fitView
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
-        elementsSelectable={false}
+        elementsSelectable
         panOnScroll
       >
         <Background />
       </ReactFlow>
+
+      {selectedNode !== null && (
+        <div className="archgraph-detail" role="dialog" aria-label={selectedNode.label}>
+          <div className="archgraph-detail-head">
+            <span className="archgraph-detail-kind" data-kind={selectedNode.kind} />
+            <span className="archgraph-detail-title">{selectedNode.label}</span>
+            <span className="spacer" />
+            <button className="archgraph-detail-close" onClick={dismiss} aria-label={t('archgraph.close')}>
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+          {details.length > 0 ? (
+            <dl className="archgraph-detail-rows">
+              {details.map((d) => (
+                <div className="archgraph-detail-row" key={d.label}>
+                  <dt className="small muted">{d.label}</dt>
+                  <dd className="mono">{d.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <div className="small muted archgraph-detail-empty">{t('archgraph.noDetail')}</div>
+          )}
+        </div>
+      )}
+
+      {menu !== null && (
+        <div className="archgraph-menu" style={{ left: menu.x, top: menu.y }} role="menu">
+          <button className="archgraph-menu-item" role="menuitem" onClick={copyDetails}>
+            <Icon name="copy" size={13} /> {t('archgraph.copyDetails')}
+          </button>
+          <button className="archgraph-menu-item" role="menuitem" onClick={fitView}>
+            <Icon name="fit-page" size={13} /> {t('archgraph.fitView')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

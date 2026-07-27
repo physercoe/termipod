@@ -344,7 +344,7 @@ function CodeTab({
           )}
           {isHfConfig && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'model')}>
-              <Icon name="sliders" size={14} /> {t('model.viewArch')}
+              <Icon name="sliders" size={14} /> {t('model.analyze')}
             </button>
           )}
           {isPython && (
@@ -579,7 +579,6 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
 function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
   const content = useInspect((s) => s.content[tab.id]);
-  const setKind = useInspect((s) => s.setKind);
   // §5a — a model tab flipped from a JSON config code tab (any source) renders
   // the config-only architecture view from the text already in the store; no
   // `checkpoint_inspect`, no local path required.
@@ -587,7 +586,7 @@ function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   if (cfg !== null) {
     return (
       <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
-        <ConfigArchView tab={tab} config={cfg} onViewSource={() => setKind(tab.id, 'code')} />
+        <ConfigArchView tab={tab} config={cfg} />
       </Suspense>
     );
   }
@@ -720,13 +719,14 @@ function MEGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
 function ArchGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
   const t = useT();
   const content = useInspect((s) => s.content[tab.id]);
-  const schematic = useMemo(() => {
+  const built = useMemo(() => {
     const config = parseHfConfig(content);
     if (config === null) return null;
     const card = classifyArch({ config, tensorNames: [] });
-    return card !== null ? buildArchSchematic(card, config) : null;
+    const schematic = card !== null ? buildArchSchematic(card, config) : null;
+    return schematic !== null ? { schematic, config, card } : null;
   }, [content]);
-  if (schematic === null)
+  if (built === null)
     return (
       <div className="inspect-error region-pad">
         <Icon name="alert" size={16} /> {t('archgraph.cannotDerive')}
@@ -734,7 +734,7 @@ function ArchGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
     );
   return (
     <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
-      <ArchSchematicView schematic={schematic} />
+      <ArchSchematicView schematic={built.schematic} config={built.config} card={built.card} />
     </Suspense>
   );
 }

@@ -355,7 +355,7 @@ jobs:
             *)       CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
           esac
           gh release create "$TAG" --prerelease --verify-tag \
-            --title "TermiPod Desktop (Electron) $V — $CH" \
+            --title "Desktop $V — $CH" \
             --notes "Electron desktop build $V ($CH). $NOTE Not the update feed — promote to \`electron-latest\` to go live (see desktop/electron/README.md)." \
             || echo "release $TAG exists — refreshing assets"
           echo "downloaded assets:"; ls -R assets

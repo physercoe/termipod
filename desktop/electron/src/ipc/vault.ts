@@ -29,6 +29,10 @@ interface VaultWasm {
   vault_wrap_for_recovery(key: string, code: string): string;
   vault_unwrap_recovery(code: string, envelope: string): string;
   vault_generate_recovery_code(): string;
+  // Env-secret envelope (ADR-056 D-3): seal a canonical secret-map JSON to a
+  // host X25519 key; fingerprint a host key for the trust dialog (D-2).
+  vault_seal_env_secret(host_pub: string, team_id: string, host_id: string, profile_id: string, plaintext: string): string;
+  vault_env_fingerprint(host_pub: string): string;
 }
 
 // Resolved lazily (not a module const) so a packaged build's
@@ -81,4 +85,15 @@ export const vaultHandlers: Record<string, Handler> = {
     (await loadVault()).vault_unwrap_recovery(s(args.code), s(args.envelope)),
 
   vault_generate_recovery_code: async (): Promise<string> => (await loadVault()).vault_generate_recovery_code(),
+
+  vault_seal_env_secret: async (args): Promise<string> =>
+    (await loadVault()).vault_seal_env_secret(
+      s(args.hostPub),
+      s(args.teamId),
+      s(args.hostId),
+      s(args.profileId),
+      s(args.plaintext),
+    ),
+
+  vault_env_fingerprint: async (args): Promise<string> => (await loadVault()).vault_env_fingerprint(s(args.hostPub)),
 };

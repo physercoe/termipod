@@ -215,6 +215,11 @@ export class HubClient {
     // and its setup_script run before the agent cmd. Omit to inherit the bound
     // project's config_yaml env_profile_id.
     env_profile_id?: string;
+    // Opaque sealed env-secret envelope (ADR-056 E3b-3): the client resolves the
+    // profile's secret_refs from the vault and seals them to the target host's
+    // key. Required by the hub (422) when the profile carries secret_refs; the
+    // hub stores + forwards the ciphertext without opening it.
+    env_secret_envelope?: string;
     // Link the spawn to an existing task (ADR-029 D-2). Mutually exclusive with
     // `task` below — the hub 4xxs if both are set. The task's status then flips
     // todo→in_progress via the existing derivation, not a client PATCH.

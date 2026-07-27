@@ -701,6 +701,19 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				})
 			})
 		})
+		// Environment profiles (plan env-profiles-and-session-teleport, E1) —
+		// team-scoped reusable {setup script + env vars + secret refs + net
+		// policy} a spawn attaches. Metadata only; secret values stay in the
+		// zero-knowledge vault (profiles carry references, not values).
+		r.Route("/env-profiles", func(r chi.Router) {
+			r.Get("/", s.handleListEnvProfiles)
+			r.Post("/", s.handleCreateEnvProfile)
+			r.Route("/{profile}", func(r chi.Router) {
+				r.Get("/", s.handleGetEnvProfile)
+				r.Patch("/", s.handleUpdateEnvProfile)
+				r.Delete("/", s.handleDeleteEnvProfile)
+			})
+		})
 		r.Route("/documents", func(r chi.Router) {
 			r.Get("/", s.handleListDocuments)
 			r.Post("/", s.handleCreateDocument)

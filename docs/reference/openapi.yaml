@@ -69,6 +69,8 @@ tags:
     description: Project + agent + step templates
   - name: MCP
     description: Single MCP service entry point
+  - name: EnvProfiles
+    description: Reusable environment profiles attached to spawns (setup script + env + secret refs + net policy)
 
 paths:
 
@@ -117,6 +119,79 @@ paths:
   # ======================================================================
   # Hosts + A2A
   # ======================================================================
+
+  /v1/teams/{team}/env-profiles:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [EnvProfiles]
+      operationId: listEnvProfiles
+      summary: List the team's environment profiles (env-profiles plan, E1)
+      responses:
+        "200":
+          description: Environment profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EnvProfile" }
+    post:
+      tags: [EnvProfiles]
+      operationId: createEnvProfile
+      summary: Create an environment profile (unique name per team → 409 on duplicate)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnvProfile" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvProfile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: A profile with that name already exists }
+
+  /v1/teams/{team}/env-profiles/{profile}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: profile, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [EnvProfiles]
+      operationId: getEnvProfile
+      summary: Get one environment profile
+      responses:
+        "200":
+          description: Environment profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvProfile" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [EnvProfiles]
+      operationId: updateEnvProfile
+      summary: Partially update a profile (present fields replace; env_vars replaced wholesale)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnvProfile" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvProfile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [EnvProfiles]
+      operationId: deleteEnvProfile
+      summary: Delete an environment profile
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/teams/{team}/references:
     parameters:
@@ -2725,6 +2800,49 @@ components:
         runner_build_time: { type: string }
         runner_modified: { type: boolean }
         created_at: { type: string, format: date-time }
+
+    EnvProfile:
+      type: object
+      description: >
+        A reusable environment profile (plan env-profiles-and-session-teleport, E1),
+        team-scoped. Metadata only (blueprint §4): env_vars + setup_script are
+        hub-visible; secret_refs are REFERENCES into the team's zero-knowledge
+        vault, never values. In E1 secret_refs + network_policy are stored and
+        round-tripped but not yet consumed at spawn (host-key envelopes = E3,
+        egress enforcement = E4).
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        name: { type: string, description: "unique within the team" }
+        description: { type: string }
+        setup_script:
+          type: string
+          description: bash run in the workdir before the agent cmd (hub-visible; no secrets)
+        setup_failure_policy:
+          type: string
+          enum: [fail, continue]
+          default: fail
+          description: whether a non-zero setup script aborts the spawn (default fail-closed)
+        env_vars:
+          type: object
+          additionalProperties: { type: string }
+          description: "plain KEY=value map; keys must match ^[A-Za-z_][A-Za-z0-9_]*$"
+        secret_refs:
+          type: array
+          description: references into the team vault — never values
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              vault_item: { type: string }
+        network_policy:
+          type: object
+          description: declarative in E1; enforced in E4
+          properties:
+            mode: { type: string, enum: [open, allowlist, offline], default: open }
+            allowlist: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
     Reference:
       type: object

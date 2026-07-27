@@ -706,11 +706,18 @@ type spawnIn struct {
 	// EnvProfileID attaches a team env_profiles row (env-profiles plan, E1).
 	// DoSpawn resolves it and materializes the profile's plain env_vars into
 	// the rendered spawn_spec_yaml (snapshot semantics) so host-runner exports
-	// them before the agent cmd. secret_refs are NOT consumed yet (E3) — a
-	// referenced profile carrying them spawns with a loud warning log.
-	EnvProfileID string          `json:"env_profile_id,omitempty"`
-	SpawnSpec    string          `json:"spawn_spec_yaml"`
-	Authority    json.RawMessage `json:"spawn_authority,omitempty"`
+	// them before the agent cmd.
+	EnvProfileID string `json:"env_profile_id,omitempty"`
+	// EnvSecretEnvelope is the opaque host-sealed envelope carrying the
+	// profile's resolved secret_refs (ADR-056 D-3). Only a resolving client
+	// holding the vault key can produce it. The hub stores it on the spawn row
+	// and forwards it to the target host, never decrypting it. When the
+	// resolved profile carries secret_refs, DoSpawn REQUIRES this (D-4): a spawn
+	// without it is refused 422, so headless/API spawns of secret-bearing
+	// profiles fail by design.
+	EnvSecretEnvelope string          `json:"env_secret_envelope,omitempty"`
+	SpawnSpec         string          `json:"spawn_spec_yaml"`
+	Authority         json.RawMessage `json:"spawn_authority,omitempty"`
 	// LegacyTaskJSON is the pre-ADR-029 orchestrator-worker handoff blob
 	// that lands in `agent_spawns.task_json`. No caller populates it today
 	// (mcp_orchestrate uses its own DoSpawn shape). Kept on the struct so
@@ -1342,9 +1349,18 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		case perr != nil:
 			return spawnOut{}, http.StatusInternalServerError, perr
 		default:
-			if len(prof.SecretRefs) > 0 && s.log != nil {
-				s.log.Warn("env profile secret_refs not applied at spawn (E3 pending)",
-					"env_profile_id", effProfileID, "secret_ref_count", len(prof.SecretRefs))
+			// ADR-056 D-4: a profile carrying secret_refs REQUIRES a client-
+			// sealed envelope. The hub cannot resolve the refs (it never holds
+			// the vault key), so a secret-bearing spawn without an envelope is
+			// refused — headless/API spawns of such profiles fail by design.
+			// The hub verifies presence only; it never opens the ciphertext.
+			// This holds whether the profile was named explicitly or inherited
+			// from the project.
+			if len(prof.SecretRefs) > 0 && in.EnvSecretEnvelope == "" {
+				return spawnOut{}, http.StatusUnprocessableEntity,
+					fmt.Errorf("env_profile_id %q carries secret_refs; a client holding the vault key "+
+						"must seal them into env_secret_envelope (ADR-056). Headless/API spawns of "+
+						"secret-bearing profiles are refused by design", effProfileID)
 			}
 			in.SpawnSpec = materializeEnvProfile(in.SpawnSpec, prof)
 		}
@@ -1610,11 +1626,11 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		INSERT INTO agent_spawns (
 			id, parent_agent_id, child_agent_id, spawn_spec_yaml,
 			spawn_authority_json, task_json, spawned_at, worktree_path,
-			mcp_token_plaintext, task_id
-		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''))`,
+			mcp_token_plaintext, task_id, env_secret_envelope
+		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''))`,
 		spawnID, in.ParentID, agentID, in.SpawnSpec,
 		string(authority), nullBytes(in.LegacyTaskJSON), now, in.WorktreePath,
-		mcpTokenPlaintext, linkedTaskID); err != nil {
+		mcpTokenPlaintext, linkedTaskID, in.EnvSecretEnvelope); err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
 	}
 
@@ -1750,6 +1766,12 @@ type spawnListOut struct {
 	// host-runner reads this in launch_m2 to derive the project-
 	// scoped workdir when the template's default_workdir is empty.
 	ProjectID string `json:"project_id,omitempty"`
+	// EnvSecretEnvelope is the opaque host-sealed envelope for this spawn's
+	// env-profile secrets (ADR-056 D-3). Surfaced to host-kind callers only
+	// (like McpToken) — host-runner unseals it at launch (E3c). It is
+	// ciphertext the hub cannot read; empty when the profile carries no
+	// secrets or the spawn predates the column.
+	EnvSecretEnvelope string `json:"env_secret_envelope,omitempty"`
 	// TaskID is the task this spawn executes (ADR-029 D-2); empty for
 	// ad-hoc spawns. Set for the ?task_id= attempts listing.
 	TaskID string `json:"task_id,omitempty"`
@@ -1785,6 +1807,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(a.driving_mode, ''),
 		       COALESCE(sp.mcp_token_plaintext, ''),
 		       COALESCE(a.project_id, ''),
+		       COALESCE(sp.env_secret_envelope, ''),
 		       COALESCE(sp.task_id, ''),
 		       COALESCE(sp.terminated_at, a.terminated_at, ''),
 		       COALESCE(sp.terminated_reason, '')
@@ -1828,7 +1851,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 			&sp.Handle, &sp.Kind, &sp.HostID, &sp.Status,
 			&sp.SpawnSpec, &authority, &task,
 			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode,
-			&sp.McpToken, &sp.ProjectID,
+			&sp.McpToken, &sp.ProjectID, &sp.EnvSecretEnvelope,
 			&sp.TaskID, &sp.TerminatedAt, &sp.TerminatedReason); err != nil {
 			s.writeDBErr(w, err)
 			return
@@ -1839,6 +1862,9 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		}
 		if !revealMcpToken {
 			sp.McpToken = ""
+			// The envelope is host-only too: only the target host-runner
+			// unseals it, and dashboard callers have no use for ciphertext.
+			sp.EnvSecretEnvelope = ""
 		}
 		out = append(out, sp)
 	}

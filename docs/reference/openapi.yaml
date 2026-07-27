@@ -652,6 +652,12 @@ paths:
                 properties:
                   attention_id: { type: string }
                   status: { type: string, enum: [pending_approval] }
+        "422":
+          description: >
+            The resolved env profile carries secret_refs but the request has no
+            env_secret_envelope (ADR-056 D-4). Only a client holding the vault
+            key can seal one, so headless/API spawns of secret-bearing profiles
+            are refused by design.
 
   /v1/teams/{team}/agents/spawns:
     parameters:
@@ -3079,7 +3085,19 @@ components:
             host-runner exports the vars and runs the script before the agent
             cmd. Omit to inherit the bound project's config_yaml env_profile_id
             (E2). Unknown explicit id → 400 (an inherited-but-stale id is
-            skipped with a warning). secret_refs are not applied yet (E3).
+            skipped with a warning). If the resolved profile carries secret_refs,
+            env_secret_envelope is REQUIRED (ADR-056 D-4) → otherwise 422.
+        env_secret_envelope:
+          type: string
+          description: >
+            Opaque host-sealed envelope carrying the profile's resolved
+            secret_refs (ADR-056 D-3). Produced only by a client holding the
+            vault key (the hub never resolves refs or decrypts this). REQUIRED
+            when the resolved env profile carries secret_refs — a secret-bearing
+            spawn without it is refused 422, so headless/API spawns of such
+            profiles fail by design. The hub stores it verbatim on the spawn row
+            and forwards it to the target host (host-kind callers only), which
+            unseals it at launch and injects via process env.
         task_json: { type: object }
 
     AgentSpawn:
@@ -3097,6 +3115,12 @@ components:
         terminated_reason: { type: string, nullable: true }
         worktree_path: { type: string, nullable: true }
         mcp_token: { type: string }
+        env_secret_envelope:
+          type: string
+          description: >
+            Opaque host-sealed env-secret envelope for this spawn (ADR-056 D-3).
+            Surfaced to host-kind callers only (like mcp_token); ciphertext the
+            hub cannot read. Empty when the profile carries no secrets.
 
     AgentPatch:
       type: object

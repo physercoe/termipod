@@ -120,6 +120,51 @@ function wellKnownBinDirs(env: NodeJS.ProcessEnv = process.env, home: string = o
   return dirs;
 }
 
+/// The launcher filenames a kimi install creates, in cmd-runnable order. npm's
+/// global install writes `kimi.cmd` (the Windows shim); an installer may drop a
+/// `.exe`. `.ps1` is excluded — `cmd /C x.ps1` opens it, it doesn't run it.
+const WIN_KIMI_NAMES = ['kimi.cmd', 'kimi.exe', 'kimi.bat'];
+
+/// Resolve kimi to an ABSOLUTE path by scanning the given PATH value (+ extra
+/// dirs) for a known launcher filename. We do this ourselves instead of handing
+/// `cmd.exe` a bare `kimi.cmd`, so a stale/minimal inherited PATH can't cause the
+/// Windows "'kimi.cmd' is not recognized as an internal or external command"
+/// failure — and when nothing is found we can raise a clean, decodable error
+/// rather than surfacing cmd's OEM-codepage bytes as mojibake. Pure + exported
+/// for the unit tests. Returns null when no candidate exists.
+export function findKimiOnPath(
+  pathValue: string | undefined,
+  extraDirs: string[] = [],
+  exists: (p: string) => boolean = fs.existsSync,
+): string | null {
+  const names = process.platform === 'win32' ? WIN_KIMI_NAMES : ['kimi'];
+  const dirs = [...(pathValue ?? '').split(path.delimiter), ...extraDirs];
+  for (const raw of dirs) {
+    const dir = raw.trim();
+    if (dir === '') continue;
+    for (const name of names) {
+      const p = path.join(dir, name);
+      if (exists(p)) return p;
+    }
+  }
+  return null;
+}
+
+/// Strip the mojibake a Windows OEM-codepage stderr (e.g. cp936) turns into when
+/// decoded as UTF-8 — replacement chars and control bytes — so a surfaced error
+/// tail stays clean ASCII instead of a run of garbled replacement characters.
+export function sanitizeTail(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const c = ch.codePointAt(0) ?? 0;
+    // Drop the U+FFFD replacement char + C0/DEL controls (what cp936 mojibake
+    // decodes to); everything else passes. No control chars in a regex → no
+    // literal NUL can end up in this source file.
+    out += c === 0xfffd || c < 0x20 || c === 0x7f ? ' ' : ch;
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 /// The user's real login-shell PATH (unix) — spawns `$SHELL -ilc` so the same
 /// startup files a terminal sources are read. Markers strip startup noise.
 async function loginShellPath(): Promise<string | null> {
@@ -221,13 +266,20 @@ function resetIfCurrent(child: ChildProcess): void {
 /// the banner prints it. Rejects with a clear error when the binary is missing,
 /// the server exits early, or the token never prints (timeout).
 async function spawnServer(): Promise<string> {
-  const bin = resolveKimiBinary();
+  // Build the spawn env first (platform-recovered PATH), then resolve kimi to an
+  // ABSOLUTE path against it: the well-known install path if present, else the
+  // first launcher found on the recovered PATH + well-known bin dirs. Handing
+  // cmd.exe an absolute path — instead of a bare `kimi.cmd` — is what stops the
+  // Windows "'kimi.cmd' is not recognized" failure when the inherited PATH is
+  // stale, and lets us raise a clean error (not cmd's mojibake) when it's absent.
+  const env = await buildSpawnEnv();
+  const explicit = kimiBinaryPath(env);
+  const bin = fs.existsSync(explicit) ? explicit : findKimiOnPath(env.PATH, wellKnownBinDirs(env));
+  if (bin === null) {
+    throw new Error('kimi launcher not found — install kimi-code, or set KIMI_CODE_HOME to its install dir (searched the well-known path and PATH)');
+  }
   const port = await pickFreePort();
   const cmd = spawnCmd(bin, ['web', '--no-open', '--port', String(port)]);
-  // Inject the platform-recovered PATH so a GUI launch resolves `kimi` even when
-  // the inherited PATH is minimal/stale (the Windows "'kimi.cmd' is not
-  // recognized" failure).
-  const env = await buildSpawnEnv();
   const child = spawn(cmd.file, cmd.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
   proc = child;
   // A later exit (user Ctrl+C in a stray terminal, crash) invalidates the
@@ -257,7 +309,7 @@ async function spawnServer(): Promise<string> {
     });
     // An exit before the URL printed means the server never came up.
     child.once('exit', (code) => {
-      const tailOut = (errBuf + buf).trim().split('\n').slice(-3).join(' | ');
+      const tailOut = sanitizeTail((errBuf + buf).trim().split('\n').slice(-3).join(' | '));
       fail(`kimi web exited (code ${String(code)}) before printing its server URL${tailOut !== '' ? `: ${tailOut}` : ''}`);
     });
     child.stdout?.on('data', (d: Buffer) => {

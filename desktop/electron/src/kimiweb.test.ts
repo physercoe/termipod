@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { extractServerUrl, kimiBinaryPath, resolveKimiBinary, pickFreePort, expandWinVars, mergePathDirs } from './kimiweb.ts';
+import { extractServerUrl, kimiBinaryPath, resolveKimiBinary, findKimiOnPath, sanitizeTail, pickFreePort, expandWinVars, mergePathDirs } from './kimiweb.ts';
 
 // The banner as actually printed by `kimi web --no-open --port 17331`
 // (kimi-code 0.28.1), captured 2026-07-23.
@@ -92,4 +92,31 @@ test('pickFreePort: returns a bindable loopback port', async () => {
     srv.once('error', reject);
     srv.listen(port, '127.0.0.1', () => srv.close(() => resolve()));
   });
+});
+
+// ── findKimiOnPath: absolute self-resolution (the Windows PATH fix) ──
+test('findKimiOnPath: returns the first PATH dir that has the launcher', () => {
+  // On this (non-win32) test host the candidate name is bare `kimi`.
+  const files = new Set([path.join('/opt/kimi/bin', 'kimi'), path.join('/usr/local/bin', 'kimi')]);
+  const exists = (p: string): boolean => files.has(p);
+  // First matching PATH dir wins (order preserved).
+  assert.equal(findKimiOnPath(`/nope${path.delimiter}/opt/kimi/bin${path.delimiter}/usr/local/bin`, [], exists), path.join('/opt/kimi/bin', 'kimi'));
+  // Falls through PATH into the extra (well-known) dirs.
+  assert.equal(findKimiOnPath('/nope', ['/opt/kimi/bin'], exists), path.join('/opt/kimi/bin', 'kimi'));
+  // An undefined/empty PATH still searches the extra dirs.
+  assert.equal(findKimiOnPath(undefined, ['/usr/local/bin'], exists), path.join('/usr/local/bin', 'kimi'));
+  // Nothing anywhere -> null (the caller raises a clean, decodable error).
+  assert.equal(findKimiOnPath(`/nope${path.delimiter}/also-nope`, ['/still-nope'], exists), null);
+});
+
+// ── sanitizeTail: kill cp936-mojibake in a surfaced error tail ──
+test('sanitizeTail: replaces U+FFFD + control bytes and collapses whitespace', () => {
+  const FFFD = String.fromCharCode(0xfffd);
+  // A run of replacement chars (what a cp936 "not recognized" decodes to as UTF-8).
+  assert.equal(sanitizeTail(`'kimi.cmd' ${FFFD}${FFFD}${FFFD}${FFFD} not recognized`), "'kimi.cmd' not recognized");
+  // C0 controls (incl. a stray NUL at 0x00) and DEL (0x7f) become spaces, collapsed.
+  const controls = 'a' + String.fromCharCode(0) + 'b' + String.fromCharCode(7) + 'c' + String.fromCharCode(0x7f) + 'd';
+  assert.equal(sanitizeTail(controls), 'a b c d');
+  // Clean ASCII is returned trimmed but otherwise untouched.
+  assert.equal(sanitizeTail('  already clean  '), 'already clean');
 });

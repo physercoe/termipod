@@ -35,6 +35,18 @@ const Webview = 'webview' as unknown as React.FC<
 
 type Phase = 'starting' | 'ready' | 'error';
 
+// The "external UI" caveat is worth showing once, but a permanent strip costs
+// vertical space every session. Persist a dismissal so it stays hidden after the
+// user has read it (per-device, like the other localStorage UI prefs).
+const NOTICE_DISMISSED_KEY = 'termipod.webpanel.noticeDismissed';
+function noticeInitiallyDismissed(): boolean {
+  try {
+    return localStorage.getItem(NOTICE_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function WebPanel({ panel }: { panel: WebPanelDef }): JSX.Element {
   const t = useT();
   const viewRef = useRef<WebviewEl | null>(null);
@@ -43,6 +55,16 @@ export function WebPanel({ panel }: { panel: WebPanelDef }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   // Bump to re-attempt a failed start (the Retry button).
   const [attempt, setAttempt] = useState(0);
+  const [noticeDismissed, setNoticeDismissed] = useState(noticeInitiallyDismissed);
+
+  const dismissNotice = useCallback(() => {
+    setNoticeDismissed(true);
+    try {
+      localStorage.setItem(NOTICE_DISMISSED_KEY, '1');
+    } catch {
+      /* private mode / storage disabled — dismiss for this mount only */
+    }
+  }, []);
 
   // Start the backing server and mount the guest at the returned embed URL.
   // Failures (binary missing, token never printed, early exit) land in the
@@ -104,10 +126,16 @@ export function WebPanel({ panel }: { panel: WebPanelDef }): JSX.Element {
 
   return (
     <div className="web-panel">
-      <div className="web-panel-notice muted small">
-        <Icon name="globe" size={12} />
-        <span>{t(panel.noticeKey)}</span>
-      </div>
+      {!noticeDismissed && (
+        <div className="web-panel-notice muted small">
+          <Icon name="globe" size={12} />
+          <span>{t(panel.noticeKey)}</span>
+          <span className="spacer" />
+          <button className="icon-btn sm web-panel-notice-close" title={t('webpanel.dismissNotice')} onClick={dismissNotice}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
       {phase === 'ready' && url !== null && (
         <Webview ref={viewRef as unknown as React.Ref<HTMLElement>} className="web-panel-guest" src={url} partition={panel.partition} />
       )}

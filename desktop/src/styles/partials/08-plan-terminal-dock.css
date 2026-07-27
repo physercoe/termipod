@@ -1093,3 +1093,129 @@
   padding: 0 var(--spacing-s4);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Assistant dock — the terminal dock's shape for the app-level kimi panel.
+   Always mounted once started; `.hidden` hides without unmounting so the SPA
+   (and the kimi web server it holds) keeps running. Anchored to
+   .workbench-main like .term-panel.dock. */
+.assistant-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+}
+/* Hidden = invisible + inert, NOT display:none — an Electron <webview> guest
+   under display:none is the classic white-screen-on-reshow hazard, and this
+   dock's whole point is that the guest keeps living while hidden. The dock is
+   an absolute overlay, so staying in layout costs nothing. */
+.assistant-dock.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+.assistant-dock.right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  border-top: none;
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+}
+.assistant-dock-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+.assistant-dock.right .assistant-dock-resize {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 5px;
+  height: auto;
+  cursor: ew-resize;
+}
+.assistant-dock-resize:hover {
+  background: var(--accent-line);
+}
+.assistant-dock-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.assistant-dock-title {
+  font-size: var(--font-size-body-small);
+  font-weight: 600;
+}
+.assistant-dock-close:hover {
+  color: var(--danger);
+}
+.assistant-dock-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.assistant-dock-body .web-panel {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-dock-detached {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s8);
+}
+
+/* Settings → Assistant config rows. */
+.assistant-cfg-h {
+  margin: var(--spacing-s12) 0 var(--spacing-s4);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+.assistant-cfg-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s6) 0;
+  border-bottom: 1px solid var(--border);
+}
+.assistant-cfg-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.assistant-cfg-label {
+  font-size: var(--font-size-body-small);
+  font-weight: 500;
+}
+.assistant-cfg-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-cfg-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+  max-width: 45%;
+}

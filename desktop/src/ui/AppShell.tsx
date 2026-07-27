@@ -25,6 +25,8 @@ import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { SettingsSurface } from '../surfaces/Settings';
 import { TerminalPanel } from '../terminal/TerminalPanel';
+import { AssistantDock } from './AssistantDock';
+import { useAssistant } from '../state/assistant';
 import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -109,6 +111,11 @@ export function AppShell(): JSX.Element {
         // only shows/hides it — sessions keep running underneath.
         e.preventDefault();
         useTerminals.getState().toggle();
+      } else if (mod && e.key === '.') {
+        // The app-level assistant dock — same persistent-dock semantics as the
+        // terminal: toggling only shows/hides it, the SPA keeps running.
+        e.preventDefault();
+        useAssistant.getState().toggle();
       } else if (mod && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
         // VS Code's Cmd/Ctrl+<n> tab jump — switch the active job by rail index.
         const target = ordered[Number(e.key) - 1];
@@ -148,6 +155,7 @@ export function AppShell(): JSX.Element {
     { id: 'me', label: t('cmd.history'), run: () => setMeOpen(true) },
     { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
+    { id: 'assistant', label: t('cmd.assistant'), hint: `${modKey}.`, run: () => useAssistant.getState().toggle() },
     { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal'), hint: `${modKey}8` },
     { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings'), hint: `${modKey}9` },
     client === null
@@ -235,6 +243,7 @@ export function AppShell(): JSX.Element {
           </ErrorBoundary>
           </div>
           <TerminalPanel />
+          <AssistantDock />
         </main>
       </div>
 

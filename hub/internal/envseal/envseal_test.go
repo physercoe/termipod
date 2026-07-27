@@ -133,6 +133,29 @@ func TestOpenRejectsTamperedCiphertext(t *testing.T) {
 	}
 }
 
+// TestFingerprint_KAT locks the host-key fingerprint short code (ADR-056 D-2).
+// The Rust (vault-core) and Dart (vault_crypto) trust dialogs must compute the
+// SAME code for the KAT host public key, and the host-runner prints it on its
+// console banner.
+func TestFingerprint_KAT(t *testing.T) {
+	const katHostPub = "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw="
+	got, err := Fingerprint(katHostPub)
+	if err != nil {
+		t.Fatalf("Fingerprint: %v", err)
+	}
+	const want = "VKUP-75YD-WUFS-FF7U"
+	if got != want {
+		t.Fatalf("fingerprint = %q, want %q", got, want)
+	}
+	// Shape: four groups of four base32 chars.
+	if _, err := Fingerprint("not-base64!!"); err == nil {
+		t.Fatal("expected error on bad base64")
+	}
+	if _, err := Fingerprint(b64.EncodeToString(make([]byte, 5))); err == nil {
+		t.Fatal("expected error on short key")
+	}
+}
+
 func TestPublicFromSeed(t *testing.T) {
 	seed, pub, err := GenerateIdentity()
 	if err != nil {

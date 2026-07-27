@@ -17,6 +17,7 @@ import (
 	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/buildinfo"
+	"github.com/termipod/hub/internal/envseal"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 	"github.com/termipod/hub/internal/hostrunner/tbreader"
 	"github.com/termipod/hub/internal/hostrunner/trackio"
@@ -277,8 +278,14 @@ func (a *Runner) Start(ctx context.Context) error {
 		a.Log.Warn("host identity unavailable; env-profile secrets disabled on this host", "err", err)
 	} else if pub != "" {
 		a.hostPubKey, a.hostSeed = pub, seed
-		// Public key only in logs — the seed is never logged (ADR-056 D-5).
-		a.Log.Info("host identity ready", "pubkey", pub, "env_envelope_v", EnvEnvelopeVersion, "rekey", a.Rekey)
+		// Public key + fingerprint only in logs — the seed is never logged
+		// (ADR-056 D-5). The fingerprint is the short code the operator compares
+		// against the client's trust dialog before secrets are sealed to this
+		// host (ADR-056 D-2).
+		fp, _ := envseal.Fingerprint(pub)
+		a.Log.Info("host identity ready",
+			"pubkey", pub, "fingerprint", fp,
+			"env_envelope_v", EnvEnvelopeVersion, "rekey", a.Rekey)
 	} else {
 		a.Log.Info("no state-dir; env-profile secrets disabled on this host")
 	}

@@ -1031,3 +1031,16 @@ button.search-result-link:hover {
 .pw-field > .pw-field-eye:hover {
   color: var(--text);
 }
+/* Host-key trust dialog (ADR-056 D-2): the fingerprint short code the operator
+   compares against the host console banner before secrets are sealed to it. */
+.spawn-fingerprint {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-title);
+  letter-spacing: 0.14em;
+  text-align: center;
+  padding: var(--spacing-s12);
+  margin: var(--spacing-s8) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  user-select: all;
+}

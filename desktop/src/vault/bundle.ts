@@ -6,6 +6,7 @@ import {
 import { listConnections, type Connection } from '../state/connections';
 import { listKeys, type SshKeyMeta } from '../state/keys';
 import { collectItemSecrets, exportItems, type VaultItemMeta } from '../state/vaultItems';
+import { listHostPins, replaceHostPins, type HostPins } from '../state/hostPins';
 import { loadJson, saveJson, secretGet, secretSetMany } from '../state/persist';
 
 /// The plaintext vault bundle (parity Phase 2b). The core shape matches the
@@ -34,6 +35,13 @@ export interface VaultBundle {
   // TermiPod's own integration config + secrets (WebDAV/S3 sync, voice API key).
   // Additive + optional, same forward-compat contract as `items`.
   app?: AppIntegrationsExport;
+  // Pinned host env-keys (ADR-056 D-2): host_id → base64 X25519 pubkey the
+  // operator has trusted. Carried IN the vault so the trust decision syncs
+  // across devices hub-blind. Additive + optional — a client that predates it
+  // omits the field and importBundle then keeps the local pins rather than
+  // wiping them (same forward-compat contract as `items`), so a phone push
+  // never drops a desktop's pins.
+  pinnedHostKeys?: HostPins;
 }
 
 export async function assembleBundle(): Promise<VaultBundle> {
@@ -59,8 +67,9 @@ export async function assembleBundle(): Promise<VaultBundle> {
 
   const { items, itemSecrets } = await exportItems();
   const app = await exportAppIntegrations();
+  const pinnedHostKeys = listHostPins();
 
-  return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets, app };
+  return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets, app, pinnedHostKeys };
 }
 
 /** Merge a decrypted bundle into local storage + the keychain (restore/sync
@@ -93,6 +102,13 @@ export async function importBundle(bundle: VaultBundle): Promise<void> {
   if (bundle.app !== undefined && bundle.app !== null) {
     Object.assign(secrets, collectAppIntegrationSecrets(bundle.app.config, bundle.app.secrets));
   }
+  // Host-key pins are trust decisions shared across devices — replace the local
+  // map from the vault when the bundle carries it. Only when PRESENT (a client
+  // that predates the field omits it), so pulling an older/mobile bundle keeps
+  // the local pins rather than clearing them.
+  if (bundle.pinnedHostKeys !== undefined && bundle.pinnedHostKeys !== null) {
+    replaceHostPins(bundle.pinnedHostKeys);
+  }
   await secretSetMany(secrets);
   // Sync-down wrote the connection/key/integration lists straight to
   // localStorage, bypassing React. Views that read those lists once at mount
@@ -121,6 +137,10 @@ export function parseBundle(json: string): VaultBundle {
     items: Array.isArray(b.items) ? b.items : undefined,
     itemSecrets: b.itemSecrets,
     app: b.app,
+    // Preserved as-is (undefined when the bundle predates the field) so
+    // importBundle can tell "no pins field" from "an empty pin map".
+    pinnedHostKeys:
+      typeof b.pinnedHostKeys === 'object' && b.pinnedHostKeys !== null ? b.pinnedHostKeys : undefined,
   };
 }
 

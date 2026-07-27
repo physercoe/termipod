@@ -2,10 +2,19 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useHubAction } from '../hub/action';
 import { useEnvProfiles, useHosts, useProjects } from '../hub/queries';
-import { arr, str } from '../hub/types';
+import { arr, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
+import {
+  EnvSecretError,
+  inspectHostKey,
+  resolveSecretRefs,
+  sealEnvSecrets,
+  secretRefsOf,
+  trustHostKey,
+  type HostKeyInfo,
+} from '../vault/envSecrets';
 
 // The engine families (CLAUDE.md / ADR-035 / ADR-054). gemini-cli is deprecated
 // but still spawnable until retirement; antigravity is its successor. kimi-code-ts
@@ -55,6 +64,17 @@ export function AgentSpawn({
   const [envProfileId, setEnvProfileId] = useState('');
   const [task, setTask] = useState('');
   const [pending, setPending] = useState(false);
+  // Env-secret sealing (ADR-056 E3b-3): resolving refs + sealing runs before the
+  // spawn POST; `sealing` covers that async work and `secretError` shows a coded
+  // failure (unresolved ref / no host key / key mismatch) the run() error can't.
+  const [sealing, setSealing] = useState(false);
+  const [secretError, setSecretError] = useState<string | null>(null);
+  // A first-sight (or re-trust) host key awaiting the operator's confirmation.
+  // While set, the trust dialog is shown; confirming pins the key and continues
+  // the held spawn, cancelling drops back to the sheet.
+  const [trust, setTrust] = useState<{ info: HostKeyInfo; secrets: Record<string, string>; profileId: string } | null>(
+    null,
+  );
 
   const effectiveHost = hostId !== '' ? hostId : (hosts[0] !== undefined ? str(hosts[0], 'id') ?? '' : '');
   const canSubmit = handle.trim() !== '' && effectiveHost !== '';
@@ -75,25 +95,27 @@ export function AgentSpawn({
   // Snap back to Auto when the picked engine can't run the previous choice.
   const effectiveMode = engineModes.includes(mode) ? mode : '';
 
-  async function submit(): Promise<void> {
-    if (client === null || !canSubmit) return;
-    const res = await run(
-      () =>
-        client.spawnAgent({
-          child_handle: handle.trim(),
-          kind: engine,
-          host_id: effectiveHost,
-          project_id: projectId !== '' ? projectId : undefined,
-          mode: effectiveMode !== '' ? effectiveMode : undefined,
-          env_profile_id: envProfileId !== '' ? envProfileId : undefined,
-          // task_id and the inline task are mutually exclusive hub-side. In
-          // assign mode we link the existing task; otherwise the free-text
-          // field mints a new one.
-          task_id: assignMode ? taskId : undefined,
-          task: !assignMode && task.trim() !== '' ? { title: task.trim() } : undefined,
-        }),
-      { invalidate: [['agents'], ['attention']] },
-    );
+  // The spawn body minus the env-secret envelope, shared by the no-secret and
+  // sealed paths.
+  function spawnBody(envelope?: string): Parameters<NonNullable<typeof client>['spawnAgent']>[0] {
+    return {
+      child_handle: handle.trim(),
+      kind: engine,
+      host_id: effectiveHost,
+      project_id: projectId !== '' ? projectId : undefined,
+      mode: effectiveMode !== '' ? effectiveMode : undefined,
+      env_profile_id: envProfileId !== '' ? envProfileId : undefined,
+      env_secret_envelope: envelope,
+      // task_id and the inline task are mutually exclusive hub-side. In assign
+      // mode we link the existing task; otherwise the free-text field mints one.
+      task_id: assignMode ? taskId : undefined,
+      task: !assignMode && task.trim() !== '' ? { title: task.trim() } : undefined,
+    };
+  }
+
+  async function doSpawn(envelope?: string): Promise<void> {
+    if (client === null) return;
+    const res = await run(() => client.spawnAgent(spawnBody(envelope)), { invalidate: [['agents'], ['attention']] });
     if (res === undefined) return;
     if (str(res, 'status') === 'pending_approval') {
       setPending(true);
@@ -103,7 +125,82 @@ export function AgentSpawn({
     }
   }
 
+  /// Map an env-secret failure to its localized message. Codes are stable i18n
+  /// suffixes (spawn.secretErr.*).
+  function secretErrMessage(code: string): string {
+    return t(`spawn.secretErr.${code}`);
+  }
+
+  async function submit(): Promise<void> {
+    if (client === null || !canSubmit) return;
+    setSecretError(null);
+
+    // Resolve + seal the profile's secret_refs, if any, before the spawn POST.
+    // We can only do this for an EXPLICITLY picked profile — an inherited one
+    // (env_profile_id === '') is resolved hub-side, and if it carries secret_refs
+    // the hub returns 422; pick the profile explicitly to seal secrets.
+    const profile = envProfileId !== '' ? envProfiles.find((p) => str(p, 'id') === envProfileId) : undefined;
+    const refs = secretRefsOf(profile);
+    if (refs.length === 0) {
+      await doSpawn();
+      return;
+    }
+
+    setSealing(true);
+    try {
+      const secrets = await resolveSecretRefs(refs);
+      const host = hosts.find((h) => str(h, 'id') === effectiveHost) as Entity | undefined;
+      if (host === undefined) {
+        setSecretError(secretErrMessage('noHostKey'));
+        return;
+      }
+      const info = await inspectHostKey(host, effectiveHost);
+      if (!info.trusted) {
+        // First sight (or a re-trust): hold the spawn until the operator
+        // confirms the fingerprint against the host console banner.
+        setTrust({ info, secrets, profileId: envProfileId });
+        return;
+      }
+      await sealAndSpawn(info, secrets, envProfileId);
+    } catch (e) {
+      if (e instanceof EnvSecretError) {
+        setSecretError(secretErrMessage(e.code));
+      } else {
+        throw e;
+      }
+    } finally {
+      setSealing(false);
+    }
+  }
+
+  async function sealAndSpawn(info: HostKeyInfo, secrets: Record<string, string>, profileId: string): Promise<void> {
+    if (client === null) return;
+    const envelope = await sealEnvSecrets(secrets, info, client.transport.teamId, profileId);
+    await doSpawn(envelope);
+  }
+
+  async function confirmTrust(): Promise<void> {
+    if (trust === null) return;
+    const held = trust;
+    setTrust(null);
+    setSealing(true);
+    setSecretError(null);
+    try {
+      trustHostKey(held.info.hostId, held.info.pubkey);
+      await sealAndSpawn(held.info, held.secrets, held.profileId);
+    } catch (e) {
+      if (e instanceof EnvSecretError) {
+        setSecretError(secretErrMessage(e.code));
+      } else {
+        throw e;
+      }
+    } finally {
+      setSealing(false);
+    }
+  }
+
   return (
+    <>
     <Modal onClose={onClose} className="task-detail" ariaLabel={assignMode ? t('spawn.assignTitle') : t('spawn.title')}>
         <div className="admin-tabs">
           <strong>{assignMode ? t('spawn.assignTitle') : t('spawn.title')}</strong>
@@ -204,6 +301,7 @@ export function AgentSpawn({
           )}
           {hosts.length === 0 && <div className="muted small wide">{t('spawn.noHost')}</div>}
           {pending && <div className="wide sev sev-medium">{t('spawn.pending')}</div>}
+          {secretError !== null && <div className="error wide">{secretError}</div>}
           {error !== null && <div className="error wide">{error}</div>}
           <div className="wide task-form-actions">
             {pending ? (
@@ -211,12 +309,33 @@ export function AgentSpawn({
                 {t('admin.close')}
               </button>
             ) : (
-              <button className="primary" disabled={busy || !canSubmit} onClick={() => void submit()}>
-                {t('spawn.submit')}
+              <button className="primary" disabled={busy || sealing || !canSubmit} onClick={() => void submit()}>
+                {sealing ? t('spawn.sealing') : t('spawn.submit')}
               </button>
             )}
           </div>
         </div>
     </Modal>
+    {trust !== null && (
+      <Modal onClose={() => setTrust(null)} className="task-detail" ariaLabel={t('spawn.trustTitle')}>
+        <div className="admin-tabs">
+          <strong>{t('spawn.trustTitle')}</strong>
+          <span className="spacer" />
+        </div>
+        <div className="task-form">
+          <div className="wide">{t('spawn.trustBody')}</div>
+          <div className="wide spawn-fingerprint">{trust.info.fingerprint}</div>
+          <div className="wide muted small">{t('spawn.trustHint')}</div>
+          <div className="wide task-form-actions">
+            <button onClick={() => setTrust(null)}>{t('admin.close')}</button>
+            <span className="spacer" />
+            <button className="primary" disabled={sealing} onClick={() => void confirmTrust()}>
+              {t('spawn.trustConfirm')}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 }

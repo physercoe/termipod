@@ -672,3 +672,80 @@ func TestShellEscape(t *testing.T) {
 		}
 	}
 }
+
+// A project-less spawn with NO context_files and NO MCP token used to derive
+// no workdir at all — and since the env-profile export/setup prefix only
+// exists inside the `cd <wd> && …` string, an attached profile was silently
+// dropped (env-profiles E1 review). env_vars/setup_script must now force
+// workdir derivation exactly like context_files/mcp_token do.
+func TestLaunchM2_EnvProfileForcesWorkdirDerivation(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	spawner := newFakeProcSpawner()
+
+	sp := Spawn{
+		ChildID: "agent-env-1",
+		Handle:  "env-steward",
+		Kind:    "claude-code",
+		// No project_id, no context_files, no MCP token — pre-fix this
+		// derived wd == "" and the export prefix never rendered.
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"env_vars:\n" +
+			"  FOO: bar\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: StubLauncher{Log: slog.Default()},
+		Client:   &fakePoster{},
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	wantDir := filepath.Join(homeDir, "hub-work", "_team", "env-steward")
+	wantPrefix := "cd '" + wantDir + "' && export FOO='bar' && "
+	if !strings.HasPrefix(spawner.cmd, wantPrefix) {
+		t.Fatalf("spawner.cmd = %q; want prefix %q", spawner.cmd, wantPrefix)
+	}
+}
+
+// The residual corner — env profile attached but no handle/childID to derive
+// a workdir from — must fail loudly (mirroring the context_files guard), not
+// silently start the agent without the operator's environment.
+func TestLaunchM2_EnvProfileWithoutWorkdirErrors(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	sp := Spawn{
+		// No ChildID, no Handle → DeriveWorkdir has nothing to name the
+		// _team dir with and yields "".
+		Kind: "claude-code",
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"env_vars:\n" +
+			"  FOO: bar\n",
+		Mode: "M2",
+	}
+
+	_, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: StubLauncher{Log: slog.Default()},
+		Client:   &fakePoster{},
+		Spawner:  newFakeProcSpawner(),
+		LogDir:   logDir,
+	})
+	if err == nil {
+		t.Fatal("want error for env profile without derivable workdir; got nil")
+	}
+	if !strings.Contains(err.Error(), "env profile") {
+		t.Fatalf("err = %v; want mention of env profile", err)
+	}
+}

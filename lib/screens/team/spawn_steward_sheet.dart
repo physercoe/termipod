@@ -106,6 +106,14 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   // when 'steward' is taken.
   Set<String> _liveStewardHandles = const {};
 
+  // Env-profile picker (env-profiles E2) — mirrors spawn_agent_sheet.dart:
+  // stewards spawn through the same client.spawnAgent path and are usually
+  // project-less, so without an explicit picker there is no inherit fallback
+  // and a steward could never attach a profile from mobile (desktop's single
+  // spawn surface already offers it — parity).
+  String? _envProfileId;
+  List<Map<String, dynamic>> _envProfiles = const [];
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +124,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       _hostId = (online.isNotEmpty ? online.first : widget.hosts.first)['id']
           ?.toString();
     }
+    _loadEnvProfiles();
     _handleCtrl = TextEditingController();
     // Pull live stewards from the cached hub state — avoids a second
     // round-trip when the sheet opens. Empty when hub state isn't
@@ -148,6 +157,18 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
     _handleCtrl.text =
         _liveStewardHandles.contains('steward') ? '' : 'steward';
     _loadTemplates();
+  }
+
+  Future<void> _loadEnvProfiles() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final items = await client.envProfiles.listEnvProfiles();
+      if (!mounted) return;
+      setState(() => _envProfiles = items);
+    } catch (_) {
+      // Non-fatal — the picker just stays hidden if profiles can't load.
+    }
   }
 
   Future<void> _loadTemplates() async {
@@ -352,6 +373,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         kind: kindForSpawn,
         spawnSpecYaml: yaml,
         hostId: _hostId,
+        envProfileId: _envProfileId,
         personaSeed: _personaCtrl.text,
         permissionMode: _permissionMode,
         sessionId: widget.sessionId,
@@ -592,6 +614,30 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   onChanged: (v) => setState(() => _hostId = v),
                 ),
                 const SizedBox(height: 12),
+                if (_envProfiles.isNotEmpty) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: _envProfileId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: l10n.spawnEnvProfileLabel,
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem<String>(
+                        value: null,
+                        child: Text(l10n.spawnEnvProfileInherit),
+                      ),
+                      ..._envProfiles.map(
+                        (p) => DropdownMenuItem<String>(
+                          value: p['id']?.toString(),
+                          child: Text(p['name']?.toString() ?? '?'),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) => setState(() => _envProfileId = v),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 // Backend display — derived from the selected template's
                 // `backend.kind`. Stewards can pick claude-code, codex, or
                 // gemini-cli today (steward.{codex,gemini}.v1.yaml ship

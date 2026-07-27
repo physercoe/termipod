@@ -115,6 +115,14 @@ func validateEnvProfile(b *envProfileBody) string {
 		}
 	}
 	b.SetupFailurePolicy = normalizeFailurePolicy(b.SetupFailurePolicy)
+	// An unknown non-empty mode is a caller error, not something to
+	// normalize: normalizeNetworkPolicy maps it to "open" — the most
+	// permissive mode — so a typo'd "allowlist" would silently store a
+	// fail-OPEN policy that E4's enforcement would then honor. Reject at
+	// the boundary; empty still defaults to "open" (declared default).
+	if b.NetworkPolicy.Mode != "" && !netPolicyModes[b.NetworkPolicy.Mode] {
+		return "invalid network policy mode: " + b.NetworkPolicy.Mode
+	}
 	b.NetworkPolicy = normalizeNetworkPolicy(b.NetworkPolicy)
 	return ""
 }

@@ -99,13 +99,21 @@ func TestEnvProfileValidation(t *testing.T) {
 	if msg := validateEnvProfile(&b); msg == "" {
 		t.Fatalf("expected secret ref without vault_item to be rejected")
 	}
-	// Unknown network mode normalized to open; nil maps defaulted.
+	// Unknown non-empty network mode is a caller error — normalizing it
+	// would silently store fail-OPEN policy ("bogus" → "open") that E4's
+	// enforcement would honor.
 	b = envProfileBody{Name: "x", NetworkPolicy: networkPolicy{Mode: "bogus"}}
+	if msg := validateEnvProfile(&b); msg == "" {
+		t.Fatalf("expected unknown network mode to be rejected")
+	}
+	// Empty mode still defaults to open (the declared schema default);
+	// nil maps defaulted.
+	b = envProfileBody{Name: "x"}
 	if msg := validateEnvProfile(&b); msg != "" {
 		t.Fatalf("clean body rejected: %q", msg)
 	}
 	if b.NetworkPolicy.Mode != "open" {
-		t.Fatalf("unknown mode should normalize to open, got %q", b.NetworkPolicy.Mode)
+		t.Fatalf("empty mode should default to open, got %q", b.NetworkPolicy.Mode)
 	}
 	if b.EnvVars == nil || b.SecretRefs == nil {
 		t.Fatalf("nil maps/slices should default to empty")

@@ -111,7 +111,15 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	// there (the codex M2 smoke fix reported on v1.0.709 applied here
 	// for symmetry; M1 has the identical context_files/mcp_token
 	// invariants).
-	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != ""
+	// An env profile's exports + setup script are spliced into the
+	// `cd <wd> && …` launch string, which only exists when a workdir
+	// derives — so a profile-bearing spawn must force derivation, or a
+	// project-less spawn without context_files/mcp_token would silently
+	// start WITHOUT the environment the operator attached (env-profiles
+	// E1 is fail-closed by design; the residual no-handle case errors
+	// below).
+	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != "" ||
+		len(spec.EnvVars) > 0 || spec.SetupScript != ""
 	rawWD := DeriveWorkdir(
 		cfg.Team,
 		spec.Backend.DefaultWorkdir,
@@ -120,6 +128,12 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		cfg.Spawn.ChildID,
 		needsWorkdir,
 	)
+	if rawWD == "" && (len(spec.EnvVars) > 0 || spec.SetupScript != "") {
+		// Mirrors the context_files guard below: the profile's env/setup
+		// can only apply through the launch-shell prefix, and silently
+		// dropping an operator-attached environment is worse than failing.
+		return M1LaunchResult{}, fmt.Errorf("env profile env_vars/setup_script set but no workdir could be derived")
+	}
 	expandedWorkdir := ""
 	if rawWD != "" {
 		// Establish the per-team root (0o700) before the full workdir so

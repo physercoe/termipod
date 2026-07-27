@@ -211,7 +211,8 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	//   2. cfg.Spawn.ProjectID set       — derive ~/hub-work/<pid8>/<handle>
 	//      so workers in the same project share a folder root and sibling
 	//      handles don't collide across projects.
-	//   3. needsWorkdir (context_files or mcp_token will be materialised)
+	//   3. needsWorkdir (context_files, mcp_token, or an env profile's
+	//      env_vars/setup_script will be materialised)
 	//                                    — derive ~/hub-work/_team/<handle>
 	//      so a team/general steward spawned outside any project gets a
 	//      stable per-handle workdir without forcing every such template
@@ -219,7 +220,17 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	//      reported on v1.0.709).
 	//   4. neither                       — empty, command runs from
 	//      host-runner's cwd (legacy single-host demo path).
-	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != ""
+	//
+	// Env-profile exports + setup ride the `cd <wd> && …` launch string
+	// (or, for gemini, run against expandedWorkdir), so a profile-bearing
+	// spawn must force derivation — otherwise a project-less spawn with
+	// no context_files/mcp_token would silently start WITHOUT the
+	// environment the operator attached, and the gemini setup script
+	// would run in the host-runner's own cwd (the wrong-tree leak the
+	// context_files comment below warns about). Fail-closed: the
+	// residual no-handle case errors instead of dropping the profile.
+	needsWorkdir := len(spec.ContextFiles) > 0 || cfg.Spawn.MCPToken != "" ||
+		len(spec.EnvVars) > 0 || spec.SetupScript != ""
 	wd := DeriveWorkdir(
 		cfg.Team,
 		spec.Backend.DefaultWorkdir,
@@ -228,6 +239,9 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		cfg.Spawn.ChildID,
 		needsWorkdir,
 	)
+	if wd == "" && (len(spec.EnvVars) > 0 || spec.SetupScript != "") {
+		return M2LaunchResult{}, fmt.Errorf("env profile env_vars/setup_script set but no workdir could be derived")
+	}
 	expandedWorkdir := ""
 	if wd != "" {
 		// Per-team root (0o700) before the full workdir so cross-team

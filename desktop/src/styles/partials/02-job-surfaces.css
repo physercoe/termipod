@@ -2293,6 +2293,35 @@ button > .ui-icon:not(:only-child):first-child,
   border-color: var(--accent);
   color: var(--text);
 }
+.modelview-vram-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.modelview-flops-outs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8) var(--spacing-s16);
+}
+.modelview-flops-out {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  min-width: 0;
+}
+.modelview-flops-val {
+  font-size: var(--font-size-body-large);
+  font-weight: 600;
+  color: var(--text);
+}
+.modelview-flops-num {
+  width: 6.5em;
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+}
 .modelview-card-head {
   display: flex;
   align-items: baseline;

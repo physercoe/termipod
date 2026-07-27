@@ -3,7 +3,7 @@
 /// `node --test src/state/checkpoint.test.ts` from `desktop/`. tsc covers types.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree, collapseRepeats, parseHfConfig, classifyArch, estimateParamsFromConfig, type TensorInfo, type TreeNode } from './checkpoint.ts';
+import { buildTree, collapseRepeats, parseHfConfig, classifyArch, estimateParamsFromConfig, normalizeModelConfig, type TensorInfo, type TreeNode } from './checkpoint.ts';
 
 function tensors(names: Array<[string, number[]]>, dtype = 'F16'): TensorInfo[] {
   return names.map(([name, shape]) => ({ name, dtype, shape, params: shape.reduce((a, b) => a * b, 1) }));
@@ -181,4 +181,42 @@ test('estimateParamsFromConfig: GLM-4.5-Air (glm4_moe, GQA+MoE+first_k_dense) is
   const cfg = { model_type: 'glm4_moe', hidden_size: 4096, num_hidden_layers: 46, num_attention_heads: 96, num_key_value_heads: 8, intermediate_size: 10944, moe_intermediate_size: 1408, n_routed_experts: 128, n_shared_experts: 1, num_experts_per_tok: 8, first_k_dense_replace: 1, vocab_size: 151552, tie_word_embeddings: false };
   const p = estimateParamsFromConfig(cfg)!;
   assert.ok(p > 80e9 && p < 130e9, `expected ~106B, got ${(p / 1e9).toFixed(1)}B`);
+});
+
+// ── active vs total params (powers the FLOPS estimator's per-token compute) ──
+test('estimateParamsFromConfig activeOnly: MoE active « total, dense unchanged', () => {
+  // Qwen3-235B-A22B: 128 experts, top-8 → ~22B active of ~235B total.
+  const moe = { model_type: 'qwen3_moe', hidden_size: 4096, num_hidden_layers: 94, num_attention_heads: 64, num_key_value_heads: 4, head_dim: 128, moe_intermediate_size: 1536, num_experts: 128, num_experts_per_tok: 8, vocab_size: 151936, tie_word_embeddings: false };
+  const total = estimateParamsFromConfig(moe)!;
+  const active = estimateParamsFromConfig(moe, { activeOnly: true })!;
+  assert.ok(active < total * 0.2, `active ${(active / 1e9).toFixed(1)}B should be «total ${(total / 1e9).toFixed(1)}B`);
+  assert.ok(active > 15e9 && active < 30e9, `expected ~22B active, got ${(active / 1e9).toFixed(1)}B`);
+  // Dense model: active === total (no routed experts to gate).
+  const dense = { model_type: 'llama', hidden_size: 4096, num_hidden_layers: 32, num_attention_heads: 32, num_key_value_heads: 8, head_dim: 128, intermediate_size: 14336, vocab_size: 128256, tie_word_embeddings: false };
+  assert.equal(estimateParamsFromConfig(dense, { activeOnly: true }), estimateParamsFromConfig(dense));
+});
+
+// ── multimodal wrapper flattening (Mistral3/Gemma-3/Llama-4 nest the LM config) ──
+test('normalizeModelConfig: flattens a nested text_config up', () => {
+  const wrapper = {
+    model_type: 'mistral3',
+    architectures: ['Mistral3ForConditionalGeneration'],
+    vision_config: { hidden_size: 1024 },
+    text_config: { model_type: 'mistral', num_hidden_layers: 40, hidden_size: 5120, num_attention_heads: 32, num_key_value_heads: 8, head_dim: 128 },
+  };
+  const flat = normalizeModelConfig(wrapper);
+  assert.equal(flat.num_hidden_layers, 40); // decoder depth surfaced
+  assert.equal(flat.model_type, 'mistral'); // sub model_type wins
+  assert.deepEqual(flat.architectures, ['Mistral3ForConditionalGeneration']); // wrapper metadata survives
+});
+
+test('normalizeModelConfig: an already-flat config is returned untouched', () => {
+  const flat = { model_type: 'llama', num_hidden_layers: 32, hidden_size: 4096 };
+  assert.equal(normalizeModelConfig(flat), flat); // same reference, no wrapping
+});
+
+test('parseHfConfig: a multimodal wrapper parses to a flattened LM config', () => {
+  const text = JSON.stringify({ model_type: 'gemma3', architectures: ['Gemma3ForConditionalGeneration'], text_config: { num_hidden_layers: 62, hidden_size: 5376, num_attention_heads: 32 } });
+  const cfg = parseHfConfig(text)!;
+  assert.equal(cfg.num_hidden_layers, 62);
 });

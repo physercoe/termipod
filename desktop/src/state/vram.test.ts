@@ -97,6 +97,36 @@ test('deriveVramInputs prefers the card, fills MLA ranks from config', () => {
   assert.equal(inp.isMla, true);
 });
 
+test('deriveVramInputs: DeepSeek-V4 MLA (no kv_lora_rank) falls back to kvHeads×headDim', () => {
+  // V4 dropped kv_lora_rank; it expresses the compressed KV as num_key_value_heads:1 + head_dim:512.
+  const inp = deriveVramInputs({
+    totalParams: 685e9,
+    weightBytes: 1,
+    template: 'mla-moe',
+    card: { family: 'DeepSeek-V4', template: 'mla-moe', layers: 61, hidden: 7168, heads: 128, kvHeads: 1, chips: [], provenance: 'config' },
+    config: { num_key_value_heads: 1, head_dim: 512, qk_rope_head_dim: 64, q_lora_rank: 1536 },
+  });
+  assert.equal(inp.isMla, true);
+  assert.equal(inp.kvLoraRank, 512); // 1 × 512 derived, since kv_lora_rank is absent
+  assert.equal(inp.qkRopeHeadDim, 64);
+  // And the estimate is now computable (latent 512 + rope 64 = 576 / token / layer).
+  const e = estimateVram(inp, { batch: 1, context: 8192, kvBytes: 2 });
+  assert.equal(e.kvComputable, true);
+  assert.equal(e.kvBytes, 61 * 8192 * 1 * (512 + 64) * 2);
+});
+
+test('deriveVramInputs: fallback does NOT fire for dense-GQA (kvHeads×headDim is the real cache)', () => {
+  const inp = deriveVramInputs({
+    totalParams: 8e9,
+    weightBytes: 2,
+    template: 'dense-gqa',
+    card: null,
+    config: { num_hidden_layers: 32, hidden_size: 4096, num_attention_heads: 32, num_key_value_heads: 8, head_dim: 128 },
+  });
+  assert.equal(inp.isMla, false);
+  assert.equal(inp.kvLoraRank, undefined); // no MLA latent invented for a GQA model
+});
+
 test('deriveVramInputs reads gguf metadata with the arch prefix', () => {
   const inp = deriveVramInputs({
     totalParams: 8e9,

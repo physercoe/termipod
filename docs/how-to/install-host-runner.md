@@ -614,6 +614,15 @@ environment** — never the command string, the spawn spec, or any log.
 
 This is automatic — there are no flags to enable it. Notes:
 
+- **First-sight trust (D-2).** On startup the runner prints a short
+  **key fingerprint** (four groups of four, e.g. `VKUP-75YD-WUFS-FF7U`)
+  on its console banner. The first time a director seals secrets to this
+  host, the client (desktop today) shows the same code in a trust dialog;
+  the operator compares the two and confirms once. The client then
+  **pins** the key inside the zero-knowledge vault, so the confirmation
+  syncs across the director's devices and a later mismatch (a possible
+  hub key substitution) hard-fails until a deliberate re-trust. The hub
+  only relays the public key — it can never make itself a recipient.
 - **No `--state-dir` ⇒ no identity ⇒ no secrets.** A host started
   without persistent state advertises no envelope support, and the hub
   refuses (422) secret-bearing spawns to it. Track A / Track B both set a

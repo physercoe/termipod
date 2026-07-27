@@ -19,7 +19,7 @@ import { looksLikeDot } from './dotGraph';
 /// activate (open question 1's proposed answer), so a huge log or checkpoint is
 /// never copied into `localStorage`.
 
-export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph';
+export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph' | 'archgraph';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub' | 'github' | 'hf';
 
 /// A pinned forge snapshot (round-3 T3). `id` is `owner/repo` (GitHub) or the

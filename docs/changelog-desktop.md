@@ -41,6 +41,20 @@ This complements:
 
 ## Unreleased
 
+### Added
+
+- **Config-only architecture schematic (Inspect §5a follow-on).** The
+  config-only model view (an HF `config.json` from any source) gains a **View
+  architecture** button that renders a paper-style transformer block diagram
+  synthesized from the config alone — token embedding → a dashed **×N** decoder
+  block {norm → attention → norm → MLP/MoE, with residual skips} → final norm →
+  LM head — with colour-coded component cards, GQA/MHA/**MLA** attention labels,
+  and MoE expert counts. Rendered via React Flow (reusing the module-graph
+  pattern; own lazy chunk), a new `archgraph` tab kind. A `config.json` cannot
+  yield a true compute/tensor graph (no weights, no ONNX export); this is the
+  honest schematic the config *can* describe. Block-diagram spec is pure and
+  unit-tested (`state/archSchematic.ts`).
+
 ### Fixed
 
 - **Right-click context menu in embedded web views (kimiweb + the Read web

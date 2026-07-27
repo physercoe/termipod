@@ -41,6 +41,14 @@
   --ok: var(--color-success);
   --warn: var(--color-warning);
   --danger: var(--color-error);
+  /* Architecture-schematic component bands (config-only arch view) — one hue per
+   * transformer component kind. Theme-invariant (the terminal palette is fixed),
+   * so defined once here and consumed by the .archgraph-card left border. */
+  --archgraph-io: var(--accent);
+  --archgraph-attention: var(--color-terminal-blue);
+  --archgraph-ffn: var(--color-terminal-green);
+  --archgraph-moe: var(--color-terminal-magenta);
+  --archgraph-norm: var(--color-terminal-yellow);
   /* Code syntax palette — the Inspect (J3) CodeView maps lezer highlight tags
    * to these aliases, so code highlighting stays theme-aware and on-token (no
    * per-editor hex). Restrained: accent for keywords, one hue each for

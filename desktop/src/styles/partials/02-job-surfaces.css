@@ -1876,6 +1876,90 @@ button > .ui-icon:not(:only-child):first-child,
 .react-flow__edge.modgraph-edge.inheritance .react-flow__edge-path {
   stroke-dasharray: 4 3;
 }
+
+/* Config-only architecture schematic (§5a follow-on). Colour-coded component
+   cards, a dashed ×N container, side-routed residual skips. */
+.archgraph-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.archgraph-card {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s2) var(--spacing-s6);
+  color: var(--text);
+  overflow: hidden;
+}
+.archgraph-card-label {
+  font-weight: 600;
+  font-size: var(--font-size-body-small);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.archgraph-card-sub {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Colour band per component kind (left border), reusing the terminal palette
+   tokens so both themes resolve. */
+.archgraph-card[data-kind='embed'],
+.archgraph-card[data-kind='head'] {
+  border-left-color: var(--archgraph-io);
+}
+.archgraph-card[data-kind='attention'] {
+  border-left-color: var(--archgraph-attention);
+}
+.archgraph-card[data-kind='ffn'] {
+  border-left-color: var(--archgraph-ffn);
+}
+.archgraph-card[data-kind='moe'] {
+  border-left-color: var(--archgraph-moe);
+}
+.archgraph-card[data-kind='norm'],
+.archgraph-card[data-kind='finalnorm'] {
+  border-left-color: var(--archgraph-norm);
+}
+.archgraph-h {
+  opacity: 0;
+}
+.archgraph-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--accent-tint);
+}
+.archgraph-container-tag {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  padding: 0 var(--spacing-s2);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.react-flow__edge.archgraph-edge.residual .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-dasharray: 5 3;
+}
+
 .dotgraph {
   flex: 1;
   min-height: 0;

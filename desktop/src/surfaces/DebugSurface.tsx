@@ -6,7 +6,8 @@ import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
-import { parseHfConfig } from '../state/checkpoint';
+import { classifyArch, parseHfConfig } from '../state/checkpoint';
+import { buildArchSchematic } from '../state/archSchematic';
 import { useInspectRoots } from '../state/inspectRoots';
 import { looksLikeDot } from '../state/dotGraph';
 import type { GraphCollection } from '../state/modelGraph';
@@ -51,6 +52,10 @@ const ModelExplorerView = lazy(() => import('../ui/ModelExplorerView').then((m) 
 // W4b — the interactive class-composition graph (React Flow + elkjs), its own lazy
 // chunk (neither heavy dep touches the boot bundle), loaded when a modgraph tab opens.
 const ModuleGraphView = lazy(() => import('../ui/ModuleGraphView').then((m) => ({ default: m.ModuleGraphView })));
+// §5a follow-on — the config-only architecture **schematic** (React Flow + the
+// pure block-diagram spec), its own lazy chunk (React Flow shared with the module
+// graph), loaded when an archgraph tab opens.
+const ArchSchematicView = lazy(() => import('../ui/ArchSchematicView').then((m) => ({ default: m.ArchSchematicView })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -125,6 +130,8 @@ function kindIcon(kind: InspectKind): IconName {
       return 'canvas';
     case 'modgraph':
       return 'git-branch';
+    case 'archgraph':
+      return 'sitemap';
     default:
       return 'code';
   }
@@ -704,6 +711,34 @@ function MEGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
   );
 }
 
+// ── config-only architecture schematic tab (§5a follow-on) ────────────────────
+// An `archgraph` tab carries a parsed HF `config.json` (paste body) and renders
+// the paper-style block diagram synthesized from it — no weights, no compute
+// graph (a config can't yield either), just the canonical transformer stack the
+// classifier already describes. Available from every source the config-only view
+// is (local/workspace/remote/hub/github/hf), since it only needs the config text.
+function ArchGraphTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const schematic = useMemo(() => {
+    const config = parseHfConfig(content);
+    if (config === null) return null;
+    const card = classifyArch({ config, tensorNames: [] });
+    return card !== null ? buildArchSchematic(card, config) : null;
+  }, [content]);
+  if (schematic === null)
+    return (
+      <div className="inspect-error region-pad">
+        <Icon name="alert" size={16} /> {t('archgraph.cannotDerive')}
+      </div>
+    );
+  return (
+    <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
+      <ArchSchematicView schematic={schematic} />
+    </Suspense>
+  );
+}
+
 // ── interactive module (class-composition) graph tab (W4b) ────────────────────
 // A `modgraph` tab reads a file-backed Python module's class hierarchy on its venue
 // (stdlib `ast`) and renders the React-Flow/elkjs class graph. `onReveal` scrolls the
@@ -1067,6 +1102,8 @@ export function DebugSurface(): JSX.Element {
             <MEGraphTab key={active.id} tab={active} />
           ) : active.kind === 'modgraph' ? (
             <ModGraphTab key={active.id} tab={active} onReveal={(l) => revealModeling(active, l)} />
+          ) : active.kind === 'archgraph' ? (
+            <ArchGraphTab key={active.id} tab={active} />
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}

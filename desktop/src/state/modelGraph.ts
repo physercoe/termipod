@@ -195,7 +195,7 @@ export function graphCollectionToDot(gc: GraphCollection): string {
   const seen = new Set<string>();
   for (const n of g.nodes) {
     for (const e of n.incomingEdges ?? []) {
-      const key = `${e.sourceNodeId} ${n.id}`;
+      const key = `${e.sourceNodeId}\u0000${n.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       lines.push(`  "${dotEscape(e.sourceNodeId)}" -> "${dotEscape(n.id)}";`);

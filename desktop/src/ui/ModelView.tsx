@@ -18,6 +18,7 @@ import {
 } from '../state/checkpoint';
 import { DTYPE_BYTES, defaultServingDtype, deriveVramInputs, estimateVram } from '../state/vram';
 import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph';
+import { buildArchSchematic } from '../state/archSchematic';
 import { useInspect, type InspectTab } from '../state/inspect';
 import { readRef } from '../state/inspectSources';
 
@@ -154,6 +155,9 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
   // Analytic param count from the config (dense/GQA/MoE); null for MLA or when a
   // field is missing. Approximate — feeds the VRAM estimator, badged as such.
   const params = useMemo(() => estimateParamsFromConfig(config), [config]);
+  // The paper-style architecture schematic — offered only when the config is
+  // stackable (a hidden size + a positive layer count).
+  const schematic = useMemo(() => (card !== null ? buildArchSchematic(card, config) : null), [card, config]);
 
   return (
     <div className="modelview">
@@ -171,6 +175,20 @@ export function ConfigArchView({ tab, config, onViewSource }: { tab: InspectTab;
           </span>
         )}
         <span className="spacer" />
+        {schematic !== null && (
+          <button
+            className="import-btn modelview-graph-btn"
+            title={t('model.viewArchitectureHint')}
+            onClick={() =>
+              useInspect.getState().open(
+                { kind: 'archgraph', source: 'paste', title: `${t('archgraph.tab')}: ${card?.family ?? ''}`.trim(), ephemeral: true },
+                JSON.stringify(config),
+              )
+            }
+          >
+            <Icon name="sitemap" size={13} /> {t('model.viewArchitecture')}
+          </button>
+        )}
         <button className="import-btn" onClick={onViewSource}>
           <Icon name="code" size={13} /> {t('inspect.viewSource')}
         </button>

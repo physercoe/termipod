@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useAgents, useHosts } from '../hub/queries';
 import { num, obj, str, type Entity } from '../hub/types';
 import { useT, type TLookup } from '../i18n';
 import { useFocus } from '../state/focus';
+import { InsightsView } from '../ui/InsightsView';
 
 /// Focus-region detail for a single host (the machine a host-runner is on).
 /// There's no single-host endpoint, so this reads the host out of the cached
@@ -75,6 +77,9 @@ export function HostBoard({ hostId }: { hostId: string }): JSX.Element {
   const hostsQ = useHosts();
   const agentsQ = useAgents();
   const selectAgent = useFocus((s) => s.selectAgent);
+  // Overview = the facts board; Insight = the per-host analytics rollup
+  // (`getInsights({ host_id })`), mirroring the project board's Insight tab.
+  const [tab, setTab] = useState<'overview' | 'insight'>('overview');
 
   const host = (hostsQ.data ?? []).find((h) => str(h, 'id') === hostId);
   if (host === undefined) {
@@ -149,8 +154,21 @@ export function HostBoard({ hostId }: { hostId: string }): JSX.Element {
         <span className={`dot ${statusClass(status)}`} />
         <h2 className="host-board-name">{name}</h2>
         <span className={`pill ${statusClass(status)} small`}>{status ?? t('host.unknown')}</span>
+        <span className="spacer" />
+        <div className="tabs">
+          <button className={tab === 'overview' ? 'tab active' : 'tab'} onClick={() => setTab('overview')}>
+            {t('host.tabOverview')}
+          </button>
+          <button className={tab === 'insight' ? 'tab active' : 'tab'} onClick={() => setTab('insight')}>
+            {t('host.tabInsight')}
+          </button>
+        </div>
       </div>
 
+      {tab === 'insight' && <InsightsView scope={{ host_id: hostId }} />}
+
+      {tab === 'overview' && (
+        <>
       <div className="host-facts">
         {facts.map((f) => (
           <Field key={f.label} label={f.label} value={f.value} />
@@ -193,6 +211,8 @@ export function HostBoard({ hostId }: { hostId: string }): JSX.Element {
           </div>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

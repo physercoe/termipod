@@ -11,6 +11,7 @@ import { AgentSpawn } from './AgentSpawn';
 import { AgentTranscript } from './AgentTranscript';
 import { ActivityTab, CriteriaTab, DeliverableDetail, DocumentsTab, FilesTab } from './ProjectPanels';
 import { ProjectHero } from './ProjectHero';
+import { InsightsView } from '../ui/InsightsView';
 import { PhaseSummary } from './PhaseSummary';
 import { PlanDetail } from './PlanDetail';
 import { RunDetail } from './RunDetail';
@@ -21,7 +22,7 @@ import { TaskDetail, TaskDetailBody, firstLine, pipClass, relTime } from './Task
 // then accepts → done or sends back → in_progress.
 const COLUMNS = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'med', 'high', 'urgent'];
-type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'plans' | 'criteria' | 'documents' | 'files' | 'activity';
+type Tab = 'overview' | 'agents' | 'tasks' | 'runs' | 'insight' | 'plans' | 'criteria' | 'documents' | 'files' | 'activity';
 
 function AgentsTab({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
@@ -869,6 +870,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
     { v: 'tasks', label: t('proj.tasks') },
     { v: 'criteria', label: t('proj.criteria') },
     { v: 'runs', label: t('proj.runs') },
+    { v: 'insight', label: t('proj.insight') },
     { v: 'plans', label: t('proj.plans') },
     { v: 'documents', label: t('proj.documents') },
     { v: 'files', label: t('proj.files') },
@@ -891,6 +893,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
         {tab === 'tasks' && <TasksTab projectId={projectId} />}
         {tab === 'criteria' && <CriteriaTab projectId={projectId} />}
         {tab === 'runs' && <RunsTab projectId={projectId} />}
+        {tab === 'insight' && <InsightsView scope={{ project_id: projectId }} />}
         {tab === 'plans' && <PlansTab projectId={projectId} />}
         {tab === 'documents' && <DocumentsTab projectId={projectId} />}
         {tab === 'files' && <FilesTab projectId={projectId} />}

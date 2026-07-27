@@ -710,6 +710,14 @@ th {
   color: var(--color-primary);
   border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
 }
+/* Embeddable insights rollup (project Insight tab, host Insight tab). The host
+   container scrolls; this just spaces the stat grid + breakdown tables. */
+.insights-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s12);
+}
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

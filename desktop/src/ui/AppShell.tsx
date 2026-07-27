@@ -16,7 +16,6 @@ import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
 import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
-import { InsightsPanel } from '../surfaces/InsightsPanel';
 import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectsSurface } from '../surfaces/ProjectsSurface';
@@ -53,7 +52,6 @@ export function AppShell(): JSX.Element {
   const [adminOpen, setAdminOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
-  const [insightsOpen, setInsightsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [meOpen, setMeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -92,7 +90,6 @@ export function AppShell(): JSX.Element {
     setAdminOpen(false);
     setSessionsOpen(false);
     setChannelsOpen(false);
-    setInsightsOpen(false);
     setDocsOpen(false);
     setMeOpen(false);
     setSearchOpen(false);
@@ -147,7 +144,6 @@ export function AppShell(): JSX.Element {
     { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
     { id: 'sessions', label: t('cmd.sessions'), run: () => setSessionsOpen(true) },
     { id: 'channels', label: t('cmd.channels'), run: () => setChannelsOpen(true) },
-    { id: 'insights', label: t('cmd.insights'), run: () => setInsightsOpen(true) },
     { id: 'docs', label: t('cmd.docs'), run: () => setDocsOpen(true) },
     { id: 'me', label: t('cmd.history'), run: () => setMeOpen(true) },
     { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
@@ -214,7 +210,6 @@ export function AppShell(): JSX.Element {
                   </button>
                   <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
                   <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-                  <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
                   <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
                   <span className="spacer" />
                   <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
@@ -249,7 +244,6 @@ export function AppShell(): JSX.Element {
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
       {sessionsOpen && <SessionsPanel onClose={() => setSessionsOpen(false)} />}
       {channelsOpen && <ChannelsPanel onClose={() => setChannelsOpen(false)} />}
-      {insightsOpen && <InsightsPanel onClose={() => setInsightsOpen(false)} />}
       {docsOpen && <DocsPanel onClose={() => setDocsOpen(false)} />}
       {meOpen && <MePanel onClose={() => setMeOpen(false)} />}
       {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}

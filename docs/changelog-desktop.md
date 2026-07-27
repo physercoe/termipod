@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-27)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.727.432 / electron-v2026.727.432-alpha
+> **Last verified vs code:** desktop 2026.727.807 / electron-v2026.727.807-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -38,6 +38,52 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## 2026.727.807 — 2026-07-27
+
+**Inspect model view — FLOPS estimator, config-key robustness, unified panes.**
+The config-only model view gains a compute/throughput estimator beside the VRAM
+card, reads the newest 2026 model configs correctly, and folds source / schematic
+/ parameters into one in-place pane switcher. `electron-v2026.727.807-alpha`
+(unsigned alpha channel).
+
+### Added
+
+- **FLOPS / throughput estimator.** A new card beside the VRAM estimator answers
+  "how fast will this run, and how long is a training step on this GPU?" — the
+  textbook `2·N` (inference) / `6·N` (training-step) matmul FLOPs per token on the
+  model's **active** parameter count (MoE fires only its top-k experts), plus the
+  causal-attention term that grows with context². GPU presets carry verified dense
+  peak TFLOP/s (A100 / H100 / H200 / B200 / RTX 4090) alongside a custom rate,
+  compute precision, MFU and device-count controls; inference shows prefill time +
+  decode latency, training shows step time + throughput + tokens/day. Pure
+  arithmetic, unit-tested (`state/flops.ts`).
+
+### Changed
+
+- **Config view — one in-place `Parameters / Schema / Source` switcher.** The
+  config-only model view no longer spawns a fresh schematic **tab** on every
+  click (and the two identically-named "View architecture" buttons are gone). The
+  three representations are now panes toggled by a segmented control; the entry
+  button from a raw JSON tab is renamed **Analyze model**.
+- **Interactive architecture schematic.** Was drag-only. Click a block to open a
+  detail panel with that block's full config facts (heads / KV heads / head_dim,
+  MLA ranks, expert counts, norm epsilon, vocab, tied-embedding); right-click for
+  a context menu (copy details / fit to view); click empty canvas to dismiss.
+
+### Fixed
+
+- **Newest 2026 model configs read correctly.** Config readers were brittle to
+  key-name evolution: multimodal wrappers nest the language-model config under
+  `text_config` (Mistral-Small-3.2, Gemma-3, Llama-4, **Kimi-K2.7-Code**,
+  **Qwen3.6**), and **DeepSeek-V4** dropped `kv_lora_rank` (expressing the
+  compressed MLA KV via `num_key_value_heads` + `head_dim`) — both cases produced
+  a "KV cache needs layer/attention dims" hint on models whose config *does* carry
+  the dims. A parse-time `normalizeModelConfig` flattens the nested LM config, and
+  the MLA latent falls back to `kvHeads × head_dim` when the explicit rank is
+  absent. Verified against live HF configs for DeepSeek-V4-Pro, GLM-5.2,
+  Kimi-K2.7-Code and Qwen3.6; family-name mapping extended to the new
+  `model_type`s. Regression-tested (`state/checkpoint.ts`, `state/vram.ts`).
 
 ## 2026.727.432 — 2026-07-27
 

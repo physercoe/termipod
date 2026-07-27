@@ -70,6 +70,113 @@ func TestDoSpawn_EnvProfile_MaterializedIntoSpec(t *testing.T) {
 	}
 }
 
+func TestProjectEnvProfileIDFromYAML(t *testing.T) {
+	if got := projectEnvProfileIDFromYAML(""); got != "" {
+		t.Fatalf("empty: %q", got)
+	}
+	if got := projectEnvProfileIDFromYAML("phases: [a, b]\n"); got != "" {
+		t.Fatalf("absent key: %q", got)
+	}
+	if got := projectEnvProfileIDFromYAML("env_profile_id: prof-9\nphases: [x]\n"); got != "prof-9" {
+		t.Fatalf("present: %q", got)
+	}
+	if got := projectEnvProfileIDFromYAML("{not: valid: yaml"); got != "" {
+		t.Fatalf("parse-fail should yield empty: %q", got)
+	}
+}
+
+func seedProjectWithConfig(t *testing.T, s *Server, name, configYAML string) string {
+	t.Helper()
+	id := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO projects (id, team_id, name, config_yaml, created_at, kind)
+		VALUES (?, ?, ?, ?, ?, 'goal')`,
+		id, defaultTeamID, name, configYAML, NowUTC()); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	return id
+}
+
+func TestDoSpawn_EnvProfile_ProjectInherit(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+
+	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name:    "proj-default",
+		EnvVars: map[string]string{"TEAM_ENV": "prod"},
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	projID := seedProjectWithConfig(t, s, "inherit-proj", "env_profile_id: "+prof.ID+"\n")
+
+	// Spawn bound to the project, WITHOUT an explicit env_profile_id — it
+	// should inherit the project's.
+	out, status, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle: "inherit-worker",
+		Kind:        "claude-code",
+		SpawnSpec:   "project_id: " + projID + "\nbackend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+	parsed, err := hostrunner.ParseSpec(querySpawnSpec(t, s, out.AgentID))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if parsed.EnvVars["TEAM_ENV"] != "prod" {
+		t.Fatalf("project env profile not inherited: %v", parsed.EnvVars)
+	}
+}
+
+func TestDoSpawn_EnvProfile_ExplicitBeatsProject(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+
+	projProf, _ := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name: "proj-prof", EnvVars: map[string]string{"WHICH": "project"}})
+	spawnProf, _ := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name: "spawn-prof", EnvVars: map[string]string{"WHICH": "spawn"}})
+	projID := seedProjectWithConfig(t, s, "override-proj", "env_profile_id: "+projProf.ID+"\n")
+
+	out, _, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle:  "override-worker",
+		Kind:         "claude-code",
+		EnvProfileID: spawnProf.ID,
+		SpawnSpec:    "project_id: " + projID + "\nbackend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+	parsed, _ := hostrunner.ParseSpec(querySpawnSpec(t, s, out.AgentID))
+	if parsed.EnvVars["WHICH"] != "spawn" {
+		t.Fatalf("explicit env_profile_id should beat project's: %v", parsed.EnvVars)
+	}
+}
+
+func TestDoSpawn_EnvProfile_InheritedMissingIsLenient(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+
+	// Project references a profile id that doesn't exist (e.g. deleted after).
+	projID := seedProjectWithConfig(t, s, "stale-proj", "env_profile_id: ghost-profile\n")
+
+	// The spawn must succeed (no 400) — inheritance is best-effort.
+	out, status, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle: "stale-worker",
+		Kind:        "claude-code",
+		SpawnSpec:   "project_id: " + projID + "\nbackend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("inherited-missing profile should not fail spawn: %v (status=%d)", err, status)
+	}
+	parsed, _ := hostrunner.ParseSpec(querySpawnSpec(t, s, out.AgentID))
+	if parsed.EnvProfileID != "" || len(parsed.EnvVars) != 0 {
+		t.Fatalf("stale inherit should materialize nothing: id=%q vars=%v",
+			parsed.EnvProfileID, parsed.EnvVars)
+	}
+}
+
 func TestDoSpawn_EnvProfile_NotFound(t *testing.T) {
 	s, _ := newTestServer(t)
 

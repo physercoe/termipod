@@ -1310,25 +1310,44 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	in.SpawnSpec = rendered
 
 	// Materialize an attached env profile into the rendered spec (env-profiles
-	// plan E1): the profile's plain env_vars + setup_script + a provenance id
+	// plan E1/E2): the profile's plain env_vars + setup_script + a provenance id
 	// are copied in as a snapshot so host-runner exports the vars and runs the
 	// script before the agent cmd. Both are hub-visible (blueprint §4);
 	// secret_refs are NOT applied yet (E3) — a referenced profile that carries
 	// them spawns with a loud warning.
-	if in.EnvProfileID != "" {
-		prof, perr := s.getEnvProfileByID(ctx, team, in.EnvProfileID)
-		if errors.Is(perr, sql.ErrNoRows) {
-			return spawnOut{}, http.StatusBadRequest,
-				fmt.Errorf("env_profile_id %q not found", in.EnvProfileID)
+	//
+	// Resolution: an explicit spawn env_profile_id wins; otherwise the spawn
+	// inherits the project's config_yaml env_profile_id (E2). The two differ on
+	// a missing profile — an explicit unknown id is a caller error (400), but an
+	// inherited-but-stale id (profile deleted after the project referenced it)
+	// must not fail every spawn in the project, so it warns and spawns without.
+	effProfileID, inheritedProfile := in.EnvProfileID, false
+	if effProfileID == "" && projectID != "" {
+		if pid := s.projectEnvProfileID(ctx, projectID); pid != "" {
+			effProfileID, inheritedProfile = pid, true
 		}
-		if perr != nil {
+	}
+	if effProfileID != "" {
+		prof, perr := s.getEnvProfileByID(ctx, team, effProfileID)
+		switch {
+		case errors.Is(perr, sql.ErrNoRows):
+			if !inheritedProfile {
+				return spawnOut{}, http.StatusBadRequest,
+					fmt.Errorf("env_profile_id %q not found", effProfileID)
+			}
+			if s.log != nil {
+				s.log.Warn("project env_profile_id references a missing profile; spawning without it",
+					"project_id", projectID, "env_profile_id", effProfileID)
+			}
+		case perr != nil:
 			return spawnOut{}, http.StatusInternalServerError, perr
+		default:
+			if len(prof.SecretRefs) > 0 && s.log != nil {
+				s.log.Warn("env profile secret_refs not applied at spawn (E3 pending)",
+					"env_profile_id", effProfileID, "secret_ref_count", len(prof.SecretRefs))
+			}
+			in.SpawnSpec = materializeEnvProfile(in.SpawnSpec, prof)
 		}
-		if len(prof.SecretRefs) > 0 && s.log != nil {
-			s.log.Warn("env profile secret_refs not applied at spawn (E3 pending)",
-				"env_profile_id", in.EnvProfileID, "secret_ref_count", len(prof.SecretRefs))
-		}
-		in.SpawnSpec = materializeEnvProfile(in.SpawnSpec, prof)
 	}
 
 	// Resolve the driving mode before we open the tx so a 400 exits

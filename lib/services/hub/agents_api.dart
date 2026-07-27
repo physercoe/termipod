@@ -119,6 +119,7 @@ class AgentsApi {
     String? permissionMode,
     String? sessionId,
     String? mode,
+    String? envProfileId,
     bool autoOpenSession = false,
   }) async {
     final body = <String, dynamic>{
@@ -141,6 +142,12 @@ class AgentsApi {
     // + billing. Omitted = the template's driving_mode resolves.
     if (mode != null && mode.isNotEmpty) {
       body['mode'] = mode;
+    }
+    // Attach a team env profile (env-profiles E2): its env_vars are exported
+    // and its setup_script run before the agent cmd. Omitted → the bound
+    // project's config_yaml env_profile_id is inherited hub-side.
+    if (envProfileId != null && envProfileId.isNotEmpty) {
+      body['env_profile_id'] = envProfileId;
     }
     // sessionId attaches the spawn to an existing session — used by
     // the "Replace steward" / "Switch engine" flow on the project

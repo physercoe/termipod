@@ -46,11 +46,13 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
   final _kindCtl = TextEditingController(text: 'claude-code');
   late final TextEditingController _yamlCtl;
   String? _hostId;
+  String? _envProfileId;
   bool _busy = false;
   String? _error;
   List<Map<String, dynamic>>? _templates;
   final _presetSvc = SpawnPresetService();
   List<SpawnPreset> _presets = const [];
+  List<Map<String, dynamic>> _envProfiles = const [];
 
   @override
   void initState() {
@@ -72,12 +74,25 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
           ?.toString();
     }
     _loadPresets();
+    _loadEnvProfiles();
   }
 
   Future<void> _loadPresets() async {
     final items = await _presetSvc.load();
     if (!mounted) return;
     setState(() => _presets = items);
+  }
+
+  Future<void> _loadEnvProfiles() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final items = await client.envProfiles.listEnvProfiles();
+      if (!mounted) return;
+      setState(() => _envProfiles = items);
+    } catch (_) {
+      // Non-fatal — the picker just stays hidden if profiles can't load.
+    }
   }
 
   void _applyPreset(SpawnPreset p) {
@@ -284,6 +299,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
         kind: kind,
         spawnSpecYaml: yaml,
         hostId: _hostId,
+        envProfileId: _envProfileId,
       );
       if (!mounted) return;
       final status = res['status']?.toString() ?? '';
@@ -422,6 +438,30 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                         .toList(),
                     onChanged: (v) => setState(() => _hostId = v),
                   ),
+                  if (_envProfiles.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _envProfileId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: l10n.spawnEnvProfileLabel,
+                        border: const OutlineInputBorder(),
+                      ),
+                      items: [
+                        DropdownMenuItem<String>(
+                          value: null,
+                          child: Text(l10n.spawnEnvProfileInherit),
+                        ),
+                        ..._envProfiles.map(
+                          (p) => DropdownMenuItem<String>(
+                            value: p['id']?.toString(),
+                            child: Text(p['name']?.toString() ?? '?'),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setState(() => _envProfileId = v),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     children: [

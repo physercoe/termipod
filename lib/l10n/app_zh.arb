@@ -1520,6 +1520,8 @@
   "handleLabel": "句柄",
   "handleHint": "例如 worker-fe",
   "hostLabel": "主机",
+  "spawnEnvProfileLabel": "环境配置",
+  "spawnEnvProfileInherit": "继承项目 / 无",
   "spawnSpecYamlLabel": "生成规格（YAML）",
   "saveAsPreset": "另存为预设",
   "loadTemplateTooltip": "加载模板",

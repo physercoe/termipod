@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-27)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.727.807 / electron-v2026.727.807-alpha
+> **Last verified vs code:** desktop 2026.727.938 / electron-v2026.727.938-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -38,6 +38,36 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## 2026.727.938 — 2026-07-27
+
+**Inspect VLA/policy configs, roots context menus, Windows kimi-web fix.**
+`electron-v2026.727.938-alpha` (unsigned alpha channel).
+
+### Added
+- **LeRobot policy / VLA config support** in the model inspector. A policy
+  `config.json` (`pi0`/`pi05`/`pi0fast`/`smolvla`/`vla_jepa`/`act`/…) is a
+  different schema from a transformers config — it keys on `type` +
+  `input_features`/`output_features` and names its backbone rather than inlining
+  it — so it previously rendered nothing. It now gets a dedicated **policy card**
+  (sensor I/O, action horizon, named backbone(s), inlined head dims), with an
+  honest note that param/VRAM/FLOPS need the backbone's own config.
+- **Context menus in the Inspect roots panel** — right-click a root (Diff working
+  tree / Rename / Refresh / Copy path / Remove) or the blank panel (Add folder /
+  Refresh all / Collapse all).
+
+### Changed
+- **Inspect root rows are static** — the hover-revealed action buttons (which
+  caused a layout shift on cursor-over) are gone; actions live in the right-click
+  menu.
+- The **"External UI" notice** on the kimi web panel is now dismissable (persists
+  per-device).
+
+### Fixed
+- **kimi web on Windows** no longer fails with `'kimi.cmd' is not recognized`
+  (previously surfaced as garbled cp936 text). The launcher is now resolved to an
+  absolute path against the recovered PATH before spawning; a missing install
+  gives a clean English error.
 
 ## 2026.727.807 — 2026-07-27
 

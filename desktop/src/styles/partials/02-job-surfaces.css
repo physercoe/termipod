@@ -1959,6 +1959,132 @@ button > .ui-icon:not(:only-child):first-child,
   stroke: var(--accent);
   stroke-dasharray: 5 3;
 }
+/* Interactive schematic: clickable cards, selection highlight, detail panel and
+   a right-click context menu — all overlaid inside the (now relative) wrap. */
+.archgraph-wrap {
+  position: relative;
+}
+.archgraph-card {
+  cursor: pointer;
+  transition:
+    border-color 0.1s ease,
+    box-shadow 0.1s ease;
+}
+.archgraph-card[data-selected='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+.archgraph-detail {
+  position: absolute;
+  top: var(--spacing-s8);
+  right: var(--spacing-s8);
+  width: 250px;
+  max-height: calc(100% - 2 * var(--spacing-s8));
+  overflow-y: auto;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu, 0 8px 24px rgba(0, 0, 0, 0.28));
+}
+.archgraph-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+}
+.archgraph-detail-kind {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  flex: 0 0 auto;
+}
+.archgraph-detail-kind[data-kind='embed'],
+.archgraph-detail-kind[data-kind='head'] {
+  background: var(--archgraph-io);
+}
+.archgraph-detail-kind[data-kind='attention'] {
+  background: var(--archgraph-attention);
+}
+.archgraph-detail-kind[data-kind='ffn'] {
+  background: var(--archgraph-ffn);
+}
+.archgraph-detail-kind[data-kind='moe'] {
+  background: var(--archgraph-moe);
+}
+.archgraph-detail-kind[data-kind='norm'],
+.archgraph-detail-kind[data-kind='finalnorm'] {
+  background: var(--archgraph-norm);
+}
+.archgraph-detail-title {
+  font-weight: 600;
+  font-size: var(--font-size-body-small);
+  color: var(--text);
+}
+.archgraph-detail-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+}
+.archgraph-detail-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  margin: 0;
+}
+.archgraph-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+}
+.archgraph-detail-row dt {
+  margin: 0;
+}
+.archgraph-detail-row dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  text-align: right;
+  word-break: break-word;
+}
+.archgraph-detail-empty {
+  padding: var(--spacing-s4) 0;
+}
+.archgraph-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu, 0 8px 24px rgba(0, 0, 0, 0.28));
+}
+.archgraph-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.archgraph-menu-item:hover {
+  background: var(--surface-hover);
+}
 
 .dotgraph {
   flex: 1;
@@ -2296,6 +2422,47 @@ button > .ui-icon:not(:only-child):first-child,
 .modelview-vram-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+/* Segmented Parameters / Schema / Source switcher in the config view header. */
+.modelview-panes {
+  display: inline-flex;
+  gap: var(--spacing-s2);
+  padding: 2px;
+  background: var(--surface-sunken, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.modelview-pane-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-body-small);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.modelview-pane-btn.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.modelview-pane-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Schema/Source panes fill the remaining height of the model view. */
+.modelview-pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: var(--spacing-s8) var(--spacing-s12) var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 .modelview-flops-outs {
   display: flex;

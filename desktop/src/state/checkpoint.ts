@@ -106,10 +106,18 @@ const FAMILY: Record<string, string> = {
   qwen2_moe: 'Qwen2-MoE',
   qwen3: 'Qwen3',
   qwen3_moe: 'Qwen3-MoE',
+  // Qwen3.6 ships its arch as model_type `qwen3_5(_moe)`; the multimodal wrapper
+  // nests an LM config typed `qwen3_5(_moe)_text`, so map both forms.
+  qwen3_5: 'Qwen3.6',
+  qwen3_5_text: 'Qwen3.6',
+  qwen3_5_moe: 'Qwen3.6-MoE',
+  qwen3_5_moe_text: 'Qwen3.6-MoE',
   deepseek: 'DeepSeek',
   deepseek_v2: 'DeepSeek-V2',
   deepseek_v3: 'DeepSeek-V3',
+  deepseek_v4: 'DeepSeek-V4',
   kimi_k2: 'Kimi K2',
+  kimi_k25: 'Kimi K2.5',
   gemma: 'Gemma',
   gemma2: 'Gemma 2',
   gemma3: 'Gemma 3',
@@ -120,6 +128,7 @@ const FAMILY: Record<string, string> = {
   glm: 'GLM',
   glm4: 'GLM-4',
   glm4_moe: 'GLM-4.5-MoE',
+  glm_moe_dsa: 'GLM-5', // GLM-5.x MoE with DeepSeek-style sparse attention (DSA/IndexShare)
 };
 
 function familyName(id: string): string {

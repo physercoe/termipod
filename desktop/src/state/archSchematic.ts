@@ -120,3 +120,79 @@ export function buildArchSchematic(card: ArchCard, config: Record<string, unknow
 
   return { nodes, residuals, layers };
 }
+
+/// A key/value row in the schematic's per-node detail panel.
+export interface ArchDetailRow {
+  label: string;
+  value: string;
+}
+
+/// The facts to show when a schematic node is selected — pulled from the same
+/// card + config the diagram was built from, but at full detail (the cards only
+/// have room for one sub-line). Pure + English (like the rest of the schematic
+/// spec), so it's unit-tested without React. Empty rows are dropped.
+export function archNodeDetails(node: ArchNode, config: Record<string, unknown>, card: ArchCard): ArchDetailRow[] {
+  const rows: ArchDetailRow[] = [];
+  const push = (label: string, v: string | number | undefined): void => {
+    if (v !== undefined && v !== '') rows.push({ label, value: typeof v === 'number' ? String(v) : v });
+  };
+  const hidden = card.hidden ?? readNum(config, 'hidden_size', 'n_embd', 'd_model', 'n_embed');
+  const heads = card.heads ?? readNum(config, 'num_attention_heads', 'n_head');
+  const kvHeads = card.kvHeads ?? readNum(config, 'num_key_value_heads', 'num_kv_heads', 'n_head_kv');
+  const vocab = card.vocab ?? readNum(config, 'vocab_size');
+  const act = typeof config.hidden_act === 'string' ? config.hidden_act : undefined;
+
+  switch (node.kind) {
+    case 'embed':
+      push('Vocab size', vocab !== undefined ? humanCount(vocab) : undefined);
+      push('Hidden size', hidden !== undefined ? humanCount(hidden) : undefined);
+      push('Max context', readNum(config, 'max_position_embeddings', 'n_positions'));
+      break;
+    case 'attention': {
+      const isMla = card.template === 'mla' || card.template === 'mla-moe';
+      const type = isMla
+        ? 'Multi-head Latent (MLA)'
+        : heads !== undefined && kvHeads !== undefined && kvHeads < heads
+          ? 'Grouped-query (GQA)'
+          : 'Multi-head (MHA)';
+      push('Type', type);
+      push('Attention heads', heads);
+      push('KV heads', kvHeads);
+      push('Head dim', readNum(config, 'head_dim') ?? (hidden !== undefined && heads !== undefined && heads > 0 ? hidden / heads : undefined));
+      push('kv_lora_rank', readNum(config, 'kv_lora_rank'));
+      push('q_lora_rank', readNum(config, 'q_lora_rank'));
+      push('qk_rope_head_dim', readNum(config, 'qk_rope_head_dim'));
+      push('v_head_dim', readNum(config, 'v_head_dim'));
+      break;
+    }
+    case 'ffn':
+      push('Type', 'Dense MLP');
+      push('Hidden size', hidden !== undefined ? humanCount(hidden) : undefined);
+      push('Intermediate size', readNum(config, 'intermediate_size', 'ffn_dim', 'n_inner'));
+      push('Activation', act);
+      break;
+    case 'moe': {
+      push('Type', 'Mixture-of-Experts');
+      push('Routed experts', card.experts);
+      push('Active per token', card.expertsPerTok);
+      push('Shared experts', card.sharedExperts !== undefined && card.sharedExperts > 0 ? card.sharedExperts : undefined);
+      push('Expert intermediate', readNum(config, 'moe_intermediate_size'));
+      const denseK = readNum(config, 'first_k_dense_replace');
+      push('Dense first-K layers', denseK !== undefined && denseK > 0 ? denseK : undefined);
+      push('Activation', act);
+      break;
+    }
+    case 'norm':
+    case 'finalnorm': {
+      push('Type', node.label.replace(/^Final /, ''));
+      const eps = readNum(config, 'rms_norm_eps', 'layer_norm_epsilon', 'layer_norm_eps');
+      push('Epsilon', eps !== undefined ? eps.toExponential() : undefined);
+      break;
+    }
+    case 'head':
+      push('Output logits', vocab !== undefined ? humanCount(vocab) : undefined);
+      push('Tied to embedding', config.tie_word_embeddings === true ? 'yes' : 'no');
+      break;
+  }
+  return rows;
+}

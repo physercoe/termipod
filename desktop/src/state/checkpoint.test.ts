@@ -220,3 +220,15 @@ test('parseHfConfig: a multimodal wrapper parses to a flattened LM config', () =
   const cfg = parseHfConfig(text)!;
   assert.equal(cfg.num_hidden_layers, 62);
 });
+
+// ── newest 2026 families (verified against live HF configs) ──
+test('classifyArch: newest model_types map to clean family names', () => {
+  const fam = (config: Record<string, unknown>): string => classifyArch({ config, tensorNames: [] })!.family;
+  // GLM-5.2 (flat, glm_moe_dsa, MLA+MoE via kv_lora_rank)
+  assert.equal(fam({ model_type: 'glm_moe_dsa', num_hidden_layers: 78, hidden_size: 6144, num_attention_heads: 64, kv_lora_rank: 512, n_routed_experts: 256, num_experts_per_tok: 8 }), 'GLM-5');
+  // DeepSeek-V4
+  assert.equal(fam({ model_type: 'deepseek_v4', num_hidden_layers: 61, hidden_size: 7168, num_attention_heads: 128, q_lora_rank: 1536, n_routed_experts: 384 }), 'DeepSeek-V4');
+  // Qwen3.6 dense + MoE (post-normalize the model_type is the inner *_text form)
+  assert.equal(fam({ model_type: 'qwen3_5_text', num_hidden_layers: 64, hidden_size: 5120, num_attention_heads: 24, num_key_value_heads: 4 }), 'Qwen3.6');
+  assert.equal(fam({ model_type: 'qwen3_5_moe_text', num_hidden_layers: 62, hidden_size: 4096, num_attention_heads: 64, num_experts: 128, num_experts_per_tok: 8, moe_intermediate_size: 1536 }), 'Qwen3.6-MoE');
+});

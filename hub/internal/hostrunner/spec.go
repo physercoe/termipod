@@ -82,6 +82,18 @@ type SpawnSpec struct {
 	// a sealed host-key envelope in E3.
 	EnvVars map[string]string `yaml:"env_vars"`
 
+	// SetupScript is a bash snippet the hub copied from the attached env
+	// profile (env-profiles plan, E1c). It runs once in the workdir, after the
+	// env exports and before the agent cmd, as a subshell (`bash <file>`) — so
+	// it prepares the environment (deps, dirs, fetches) but vars it sets are
+	// NOT inherited by the agent (that's what EnvVars is for). Empty = skipped.
+	SetupScript string `yaml:"setup_script"`
+
+	// SetupFailurePolicy is `fail` (default — a non-zero setup script aborts
+	// the spawn, so a broken env never runs the agent) or `continue` (run the
+	// agent regardless). Only meaningful when SetupScript is set.
+	SetupFailurePolicy string `yaml:"setup_failure_policy"`
+
 	// AuthMethod is the steward-template-declared override for the ACP
 	// `authenticate` method id (ADR-021 D3 / W1.4). Empty falls through
 	// to the family default (Family.DefaultAuthMethod) and finally to

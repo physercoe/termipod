@@ -3074,10 +3074,10 @@ components:
           type: string
           description: >
             Attach a team env_profiles row (env-profiles plan, E1). The hub
-            resolves it and materializes the profile's plain env_vars into the
-            rendered spawn_spec_yaml (snapshot) so host-runner exports them
-            before the agent cmd. Unknown id → 400. secret_refs are not applied
-            yet (E3).
+            resolves it and materializes the profile's plain env_vars +
+            setup_script into the rendered spawn_spec_yaml (snapshot) so
+            host-runner exports the vars and runs the script before the agent
+            cmd. Unknown id → 400. secret_refs are not applied yet (E3).
         task_json: { type: object }
 
     AgentSpawn:

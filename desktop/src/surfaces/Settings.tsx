@@ -12,6 +12,7 @@ import { PROXY_CONNS, useProxy, type ProxyConn } from '../state/proxy';
 import { PasswordInput } from '../ui/PasswordInput';
 import { Icon } from '../ui/Icon';
 import { useConfirm } from '../ui/ConfirmModal';
+import { EnvProfilesManager } from './EnvProfilesManager';
 import { UpdateSection } from './UpdateSection';
 import { VaultManager } from './VaultManager';
 import { VaultPanel } from './VaultPanel';
@@ -400,7 +401,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'vault' | 'about';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'env-profiles' | 'vault' | 'about';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -419,6 +420,10 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
     { id: 'account', label: t('settings.catAccount'), render: () => <AccountSettings onConnect={onConnect} /> },
     { id: 'display', label: t('settings.catDisplay'), render: () => <AppearanceSettings /> },
     ...(tauri ? [{ id: 'input' as const, label: t('settings.catInput'), render: () => <VoiceSettings /> }] : []),
+    // Environment profiles — team-scoped hub entity (pure REST), so it's shown
+    // in every build (not tauri-gated like vault). Reusable {env + setup} the
+    // spawn sheet's picker attaches (env-profiles plan, E2).
+    { id: 'env-profiles', label: t('settings.catEnvProfiles'), render: () => <EnvProfilesManager /> },
     {
       id: 'data',
       label: t('settings.catData'),

@@ -272,6 +272,43 @@ button.search-result-link:hover {
   display: flex;
   justify-content: flex-end;
 }
+/* Environment-profile manager (env-profiles plan, E2b-2) */
+.envprof-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-s8);
+}
+.envprof-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) 0;
+  border-bottom: 1px solid var(--border);
+}
+.envprof-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  min-width: 0;
+}
+.envprof-kv-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+}
+.envprof-kv {
+  display: flex;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+}
+.envprof-kv input {
+  flex: 1;
+  min-width: 0;
+}
+.envprof-actions {
+  gap: var(--spacing-s8);
+}
 /* Read-only task title shown in the assign-to-task spawn sheet (W3). */
 .spawn-task-context {
   padding: var(--spacing-s8);

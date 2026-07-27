@@ -25,18 +25,20 @@
 ///   - permission requests are denied (except fullscreen on webtab); downloads
 ///     land through a save dialog until W2b wires them to the
 ///     managed-attachment flow.
-import { app, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, Menu, session, shell, type MenuItemConstructorOptions } from 'electron';
 import path from 'node:path';
 import type { Handler } from './ipc/dispatch';
 import { isSafeExternal } from './ipc/platform';
 import { emit } from './events';
 import {
+  buildGuestMenuTemplate,
   KIMIWEB_PARTITION,
   PARTITION_POLICIES,
   WEBTAB_PARTITION,
   isHttpUrl,
   isLoopbackHttpUrl,
   partitionPolicy,
+  type GuestMenuAction,
   type PartitionPolicy,
 } from './webtab_policy';
 
@@ -77,6 +79,78 @@ function stockChromeUA(): string {
 async function applyProxy(proxy: string | null): Promise<void> {
   const ses = webtabSession();
   await ses.setProxy(proxy === null || proxy === '' ? { mode: 'system' } : { proxyRules: proxy });
+}
+
+// ── Guest context menu ───────────────────────────────────────────────────────
+// A `<webview>` guest's `context-menu` fires in THIS (main) process, not the
+// renderer DOM that src/nativeContextMenu.ts listens on — see
+// buildGuestMenuTemplate. Labels are pushed from the renderer's i18n
+// (`webtab_set_menu_labels`) at boot and on every language change; the English
+// defaults below cover the pre-push window (a guest can't exist before the
+// renderer has mounted and pushed) and the unit-test path.
+const guestMenuLabels: Record<GuestMenuAction, string> = {
+  openLink: 'Open link in browser',
+  copyLink: 'Copy link address',
+  copyImage: 'Copy image',
+  cut: 'Cut',
+  copy: 'Copy',
+  paste: 'Paste',
+  selectAll: 'Select all',
+};
+
+/// Perform a guest menu action against the guest's OWN webContents (explicit
+/// methods, not menu ROLES — a role acts on the focused webContents and can miss
+/// a guest, so target `wc` directly).
+function runGuestMenuAction(wc: Electron.WebContents, action: GuestMenuAction, params: Electron.ContextMenuParams): void {
+  switch (action) {
+    case 'openLink':
+      if (isSafeExternal(params.linkURL)) void shell.openExternal(params.linkURL);
+      break;
+    case 'copyLink':
+      clipboard.writeText(params.linkURL);
+      break;
+    case 'copyImage':
+      wc.copyImageAt(params.x, params.y);
+      break;
+    case 'cut':
+      wc.cut();
+      break;
+    case 'copy':
+      wc.copy();
+      break;
+    case 'paste':
+      wc.paste();
+      break;
+    case 'selectAll':
+      wc.selectAll();
+      break;
+  }
+}
+
+/// Build + pop the native context menu for a `<webview>` guest (kimiweb + the
+/// Read web tab). Distils Electron's params into the pure template, then maps it
+/// to a native menu whose items act on the guest. Pops on the guest's owning
+/// window so the menu is anchored correctly across multiple windows.
+function popupGuestContextMenu(wc: Electron.WebContents, params: Electron.ContextMenuParams): void {
+  const items = buildGuestMenuTemplate({
+    linkURL: isSafeExternal(params.linkURL) ? params.linkURL : '',
+    isImage: params.mediaType === 'image' && params.hasImageContents,
+    isEditable: params.isEditable,
+    selectionText: params.selectionText,
+    canCut: params.editFlags.canCut,
+    canCopy: params.editFlags.canCopy,
+    canPaste: params.editFlags.canPaste,
+    canSelectAll: params.editFlags.canSelectAll,
+  });
+  if (items.length === 0) return;
+  const template: MenuItemConstructorOptions[] = items.map((it) =>
+    it === 'separator'
+      ? { type: 'separator' }
+      : { label: guestMenuLabels[it.action], enabled: it.enabled, click: () => runGuestMenuAction(wc, it.action, params) },
+  );
+  const host = wc.hostWebContents ?? null;
+  const win = host !== null ? BrowserWindow.fromWebContents(host) : null;
+  Menu.buildFromTemplate(template).popup(win !== null ? { window: win } : {});
 }
 
 /// Wire the webtab partition + the embedder/guest hardening. Called once from
@@ -181,6 +255,9 @@ export function setupWebtab(): void {
       wc.on('will-navigate', (e, url) => {
         if (policy === null || !policy.allowTopFrame(url)) e.preventDefault();
       });
+      // Chromium ships no default context menu, and a guest's right-click never
+      // reaches the renderer's DOM fallback — build one here, main-side.
+      wc.on('context-menu', (_e, params) => popupGuestContextMenu(wc, params));
     }
   });
 }
@@ -198,6 +275,18 @@ export const webtabHandlers: Record<string, Handler> = {
   /// Settings → Network "Clear web-tab browsing data".
   webtab_clear_data: async (): Promise<void> => {
     await webtabSession().clearStorageData();
+  },
+
+  /// Cache the renderer's localized labels for the `<webview>` guest context
+  /// menu (kimiweb + the Read web tab). The guest's `context-menu` fires in the
+  /// main process, where the renderer i18n isn't reachable — so the renderer
+  /// pushes the labels here at boot and on every language change
+  /// (src/nativeContextMenu.ts). Missing/blank keys keep the current value.
+  webtab_set_menu_labels: (args): void => {
+    for (const k of Object.keys(guestMenuLabels) as GuestMenuAction[]) {
+      const v = args[k];
+      if (typeof v === 'string' && v !== '') guestMenuLabels[k] = v;
+    }
   },
 
   /// The Read-surface chooser answers a `webtab:download` (W2b): 'attach' (cancel

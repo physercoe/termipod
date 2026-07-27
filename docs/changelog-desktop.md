@@ -39,6 +39,22 @@ This complements:
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Right-click context menu in embedded web views (kimiweb + the Read web
+  tab).** A `<webview>` guest runs in its own process, so its right-click
+  `context-menu` fires in the main process and never reached the renderer's
+  document-level menu fallback (`src/nativeContextMenu.ts`) — the kimiweb panel
+  and the Read browser tab had **no** context menu at all (no Copy/Paste). A
+  main-side handler (`electron/src/webtab.ts`) now builds a native menu for the
+  guest — Cut/Copy/Paste/Select-all over an editable field or a live selection,
+  Copy image over a raster image, and Open-in-browser / Copy-link-address over a
+  link — with actions targeting the guest's own `webContents` and labels pushed
+  from the renderer i18n (`ctx.*`, re-synced on language change). Menu shape is
+  unit-tested (`webtab_policy.test.ts`).
+
 ## 2026.727.206 — 2026-07-27
 
 **Inspect round 3 — project trees.** The Inspect tab graduates from opening

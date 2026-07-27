@@ -217,6 +217,8 @@ const en: Dict = {
   'ctx.copy': 'Copy',
   'ctx.paste': 'Paste',
   'ctx.selectAll': 'Select all',
+  'ctx.copyLink': 'Copy link address',
+  'ctx.openLink': 'Open link in browser',
   'ctx.addNote': 'Add note here',
 
   'audit.loading': 'Loading audit…',
@@ -1853,6 +1855,8 @@ const zh: Dict = {
   'ctx.copy': '复制',
   'ctx.paste': '粘贴',
   'ctx.selectAll': '全选',
+  'ctx.copyLink': '复制链接地址',
+  'ctx.openLink': '在浏览器中打开链接',
   'ctx.addNote': '在此添加便签',
 
   'audit.loading': '加载审计…',

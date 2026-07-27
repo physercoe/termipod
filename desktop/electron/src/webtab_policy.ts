@@ -59,3 +59,63 @@ export const PARTITION_POLICIES: readonly PartitionPolicy[] = [
 export function partitionPolicy(partition: string): PartitionPolicy | null {
   return PARTITION_POLICIES.find((p) => p.partition === partition) ?? null;
 }
+
+// ── Guest context-menu template (pure) ───────────────────────────────────────
+// A `<webview>` guest's right-click fires its `context-menu` event in the MAIN
+// process, NOT in the renderer DOM that the app's own menu listener
+// (src/nativeContextMenu.ts) watches — a guest is a separate WebContents in its
+// own process, so nothing reachable from the host DOM ever sees it. Without a
+// main-side handler, kimiweb + the Read web tab had no context menu at all (no
+// Copy/Paste). webtab.ts wires the event to a native menu built from this pure
+// descriptor, whose item set / ordering / enabled-state is exercised by
+// webtab_policy.test.ts without booting Electron.
+
+export type GuestMenuAction = 'openLink' | 'copyLink' | 'copyImage' | 'cut' | 'copy' | 'paste' | 'selectAll';
+
+export type GuestMenuItem = { action: GuestMenuAction; enabled: boolean } | 'separator';
+
+/// The context relevant to building a guest menu, distilled from Electron's
+/// `ContextMenuParams`. `linkURL` is already emptied by the caller when the URL
+/// isn't a safe external, so this pure logic needn't know the scheme rules.
+export interface GuestMenuContext {
+  linkURL: string;
+  isImage: boolean;
+  isEditable: boolean;
+  selectionText: string;
+  canCut: boolean;
+  canCopy: boolean;
+  canPaste: boolean;
+  canSelectAll: boolean;
+}
+
+/// Build the ordered guest context-menu descriptor. Empty ⇒ no menu (nothing
+/// useful to offer — e.g. a right-click on non-editable whitespace with no
+/// selection, link, or image). Ordering mirrors a browser's: link, image, text.
+export function buildGuestMenuTemplate(ctx: GuestMenuContext): GuestMenuItem[] {
+  const out: GuestMenuItem[] = [];
+  const sep = (): void => {
+    if (out.length > 0) out.push('separator');
+  };
+
+  if (ctx.linkURL !== '') {
+    out.push({ action: 'openLink', enabled: true }, { action: 'copyLink', enabled: true });
+  }
+  if (ctx.isImage) {
+    sep();
+    out.push({ action: 'copyImage', enabled: true });
+  }
+  if (ctx.isEditable) {
+    sep();
+    out.push(
+      { action: 'cut', enabled: ctx.canCut },
+      { action: 'copy', enabled: ctx.canCopy },
+      { action: 'paste', enabled: ctx.canPaste },
+      'separator',
+      { action: 'selectAll', enabled: ctx.canSelectAll },
+    );
+  } else if (ctx.selectionText !== '') {
+    sep();
+    out.push({ action: 'copy', enabled: true }, 'separator', { action: 'selectAll', enabled: true });
+  }
+  return out;
+}

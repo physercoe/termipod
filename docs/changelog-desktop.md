@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-07-27)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.727.206 / electron-v2026.727.206-alpha
+> **Last verified vs code:** desktop 2026.727.432 / electron-v2026.727.432-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -39,7 +39,12 @@ This complements:
 
 ---
 
-## Unreleased
+## 2026.727.432 — 2026-07-27
+
+**Inspect model view + embedded web UX.** The config-only model view gains a
+config-derived architecture schematic and a training-aware VRAM estimator, and
+embedded `<webview>` panels (kimiweb + the Read web tab) get a real right-click
+menu. `electron-v2026.727.432-alpha` (unsigned alpha channel).
 
 ### Added
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,6 +50,19 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   /// Key of the action whose network call is in flight, so the matching
   /// tile shows a spinner and the rest stay inert. Null when idle.
   String? _busyKey;
+
+  /// Latest self-update progress per host id, seeded by [_trackUpdate]
+  /// when this screen fires an update and refreshed by the 2s poller
+  /// until the sample turns terminal (done | error). `started_ms` is a
+  /// local-only watchdog timestamp merged into each entry.
+  final Map<String, Map<String, dynamic>> _updateProgress = {};
+  Timer? _updatePollTimer;
+
+  @override
+  void dispose() {
+    _updatePollTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -104,11 +119,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
 
   /// Runs one admin action: marks [key] busy, awaits [action], shows the
   /// outcome in a snackbar, then reloads so the rows reflect reality.
+  /// [onSuccess], when given, runs with the raw response after a clean
+  /// call — the update actions use it to start progress tracking.
   Future<void> _run(
     String key,
     Future<Map<String, dynamic>> Function(HubClient) action,
-    String Function(Map<String, dynamic>) summarise,
-  ) async {
+    String Function(Map<String, dynamic>) summarise, {
+    void Function(Map<String, dynamic>)? onSuccess,
+  }) async {
     final l10n = AppLocalizations.of(context)!;
     final client = _client;
     if (client == null || _busyKey != null) return;
@@ -117,6 +135,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     try {
       final res = await action(client);
       message = summarise(res);
+      onSuccess?.call(res);
     } on HubApiError catch (e) {
       message = e.status == 403
           ? l10n.adminOperatorTokenRequired
@@ -130,6 +149,67 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
     await _load();
+  }
+
+  // ---- update progress tracking ----
+
+  /// Marks [hostId] as updating (a "starting" placeholder until the
+  /// host's first sample lands) and starts the 2s poller so the host
+  /// card shows the hub-reported download state instead of nothing.
+  void _trackUpdate(String hostId) {
+    if (hostId.isEmpty) return;
+    _updateProgress[hostId] = {
+      'phase': 'starting',
+      'started_ms': DateTime.now().millisecondsSinceEpoch,
+    };
+    _updatePollTimer ??= Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollUpdateProgress(),
+    );
+  }
+
+  /// One poll round over every non-terminal tracked host. Terminal
+  /// samples (done | error) stop that host's polling but stay rendered
+  /// until the next update overwrites them; the timer stops when nothing
+  /// is active. A 15-minute watchdog ends hosts that went silent — a
+  /// host that dies mid-download never posts its error sample.
+  Future<void> _pollUpdateProgress() async {
+    final client = _client;
+    if (client == null || !mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    final vocab = ref.read(vocabularyProvider);
+    final hostLower = vocab.term(VocabAxis.entityHost).lower;
+    var active = 0;
+    for (final id in _updateProgress.keys.toList()) {
+      final cur = _updateProgress[id]!;
+      final phase = cur['phase'] as String? ?? '';
+      if (phase == 'done' || phase == 'error') continue;
+      final startedMs = cur['started_ms'] as int? ?? 0;
+      final elapsed = DateTime.now().millisecondsSinceEpoch - startedMs;
+      if (elapsed > 15 * 60 * 1000) {
+        setState(() => _updateProgress[id] = {
+              'phase': 'error',
+              'error': l10n.adminUpdateNoProgress(hostLower),
+            });
+        continue;
+      }
+      active++;
+      try {
+        final p = await client.adminHostUpdateProgress(id);
+        if (!mounted) return;
+        final serverPhase = p['phase'] as String? ?? 'idle';
+        if (serverPhase == 'idle') continue; // no host sample yet
+        p['started_ms'] = startedMs;
+        setState(() => _updateProgress[id] = p);
+      } catch (_) {
+        // Transient (hub bouncing for its own update, network blip) —
+        // keep polling until the watchdog or a terminal sample ends it.
+      }
+    }
+    if (active == 0) {
+      _updatePollTimer?.cancel();
+      _updatePollTimer = null;
+    }
   }
 
   // ---- action summarisers ----
@@ -270,7 +350,15 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                       l10n.adminVerbUpdate,
                       hostsLower,
                       r,
-                    )),
+                    ),
+                onSuccess: (r) {
+                  for (final h in (r['hosts'] as List?) ?? const []) {
+                    final m = h as Map;
+                    if (m['acked'] == true) {
+                      _trackUpdate((m['host_id'] as String?) ?? '');
+                    }
+                  }
+                }),
           )),
           _bottomGap(ConfirmActionTile(
             label: l10n.adminRestartAllHosts(hostsLower),
@@ -315,6 +403,65 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
 
   Widget _bottomGap(Widget child) =>
       Padding(padding: const EdgeInsets.only(bottom: 8), child: child);
+
+  /// The live self-update status line on a host card: a determinate bar
+  /// while the hub reports download bytes, an indeterminate one for the
+  /// starting/installing phases, and coloured text for terminal states.
+  Widget _updateProgressLine(
+      Map<String, dynamic> p, String hostLower, Color muted) {
+    final l10n = AppLocalizations.of(context)!;
+    final phase = p['phase'] as String? ?? '';
+    final done = (p['done'] as num?)?.toInt() ?? 0;
+    final total = (p['total'] as num?)?.toInt() ?? 0;
+    String text;
+    double? value;
+    var isError = false;
+    switch (phase) {
+      case 'starting':
+        text = l10n.adminUpdateStarting;
+      case 'downloading':
+        text = total > 0
+            ? l10n.adminUpdateDownloading(_fmtMB(done), _fmtMB(total))
+            : l10n.adminUpdateDownloadingBytes(_fmtMB(done));
+        value = total > 0 ? done / total : null;
+      case 'installing':
+        text = l10n.adminUpdateInstalling(hostLower);
+      case 'done':
+        text = l10n.adminUpdateDone((p['to_version'] as String?) ?? '');
+      case 'error':
+        text = l10n.adminUpdateFailed((p['error'] as String?) ?? '');
+        isError = true;
+      default:
+        text = phase;
+    }
+    final color = isError
+        ? DesignColors.error
+        : phase == 'done'
+            ? DesignColors.success
+            : muted;
+    final inFlight =
+        phase == 'starting' || phase == 'downloading' || phase == 'installing';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (inFlight)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: LinearProgressIndicator(value: value, minHeight: 3),
+          ),
+        Text(
+          text,
+          style: GoogleFonts.jetBrainsMono(
+              fontSize: FontSizes.label, color: color),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  static String _fmtMB(int bytes) =>
+      '${(bytes / 1048576).toStringAsFixed(1)} MB';
 
   Widget _hostCard(Map<String, dynamic> h) {
     final l10n = AppLocalizations.of(context)!;
@@ -382,6 +529,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
               style: GoogleFonts.jetBrainsMono(fontSize: FontSizes.label, color: muted),
             ),
           ),
+          if (_updateProgress[id] != null) ...[
+            const SizedBox(height: 8),
+            _updateProgressLine(_updateProgress[id]!, host, muted),
+          ],
           const SizedBox(height: 10),
           ConfirmActionTile(
             label: l10n.adminRestartNamedHost(name),
@@ -403,7 +554,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
             hint: l10n.adminUpdateHostHint(host),
             onConfirmed: () => _run('host.update.$id',
                 (c) => c.adminHostUpdate(id),
-                (r) => _hostSummary(l10n, l10n.adminVerbUpdate, r)),
+                (r) => _hostSummary(l10n, l10n.adminVerbUpdate, r),
+                onSuccess: (r) {
+                  if (r['acked'] == true) _trackUpdate(id);
+                }),
           ),
           const SizedBox(height: 8),
           ConfirmActionTile(

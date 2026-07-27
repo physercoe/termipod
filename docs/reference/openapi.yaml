@@ -345,6 +345,22 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
 
+  /v1/teams/{team}/hosts/{host}/update-progress:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    post:
+      tags: [Hosts]
+      operationId: hostUpdateProgress
+      summary: Report self-update progress (latest sample per host wins)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HostUpdateProgress" }
+      responses:
+        "200": { description: Sample stored }
+        "400": { description: Unknown phase / malformed body }
+
   /v1/teams/{team}/hosts/{host}/commands:
     parameters:
       - $ref: "#/components/parameters/Team"
@@ -2804,6 +2820,24 @@ components:
         runner_build_time: { type: string }
         runner_modified: { type: boolean }
         capabilities_json: { type: object }
+
+    HostUpdateProgress:
+      type: object
+      description: >
+        One self-update progress sample posted by a host-runner mid-update
+        (host.update acks after resolve; the download runs in the background
+        and streams these). The hub keeps only the latest sample per host,
+        stamps `at` server-side, and serves it owner-scope at
+        GET /v1/admin/hosts/{host}/update-progress (phase "idle" when the
+        host never reported).
+      properties:
+        phase: { type: string, enum: [downloading, installing, done, error] }
+        done: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+        to_version: { type: string }
+        error: { type: string }
+        at: { type: string, format: date-time }
+      required: [phase]
 
     SSHHint:
       type: object

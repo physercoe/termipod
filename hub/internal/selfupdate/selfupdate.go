@@ -50,7 +50,28 @@ type Options struct {
 	Version     string // explicit release tag, with or without leading "v"
 	InstallPath string // file to replace; empty = this binary's resolved path
 	DryRun      bool   // resolve + report only; touch nothing on disk
-	Log         *slog.Logger
+	// OnProgress, when set, is called while the tarball downloads
+	// (PhaseDownloading, throttled to ~256KiB steps plus completion) and
+	// once with PhaseInstalling before the verified bytes are extracted.
+	// It runs on the download goroutine — keep it cheap and non-blocking.
+	OnProgress func(Progress)
+	Log        *slog.Logger
+}
+
+// Phase names reported through Options.OnProgress. Terminal outcomes
+// (done / error) are the caller's to report — Run's return value is the
+// source of truth for those.
+const (
+	PhaseDownloading = "downloading"
+	PhaseInstalling  = "installing"
+)
+
+// Progress is one self-update progress sample. Total is the release
+// asset's declared size (0 when unknown); Done is bytes fetched so far.
+type Progress struct {
+	Phase string
+	Done  int64
+	Total int64
 }
 
 // Result reports what a (successful or dry-run) Run resolved.
@@ -126,7 +147,12 @@ func run(ctx context.Context, opt Options, gh *ghClient) (*Result, error) {
 	}
 
 	tarPath := filepath.Join(stageDir, "."+opt.Binary+".selfupdate.tar.gz")
-	gotSum, err := downloadToFile(ctx, gh, tarAsset.DownloadURL, tarPath)
+	gotSum, err := downloadToFile(ctx, gh, tarAsset.DownloadURL, tarPath,
+		func(done int64) {
+			if opt.OnProgress != nil {
+				opt.OnProgress(Progress{Phase: PhaseDownloading, Done: done, Total: tarAsset.Size})
+			}
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +166,9 @@ func run(ctx context.Context, opt Options, gh *ghClient) (*Result, error) {
 
 	// Extract the single binary next to the install path, then rename
 	// over it. Verify-before-extract means the tar bytes are trusted.
+	if opt.OnProgress != nil {
+		opt.OnProgress(Progress{Phase: PhaseInstalling, Done: tarAsset.Size, Total: tarAsset.Size})
+	}
 	stagedBin := filepath.Join(stageDir, "."+opt.Binary+".selfupdate.bin")
 	if err := extractBinary(tarPath, opt.Binary, stagedBin); err != nil {
 		return nil, err
@@ -237,8 +266,9 @@ func parseSHA256SUMS(data, name string) (string, bool) {
 }
 
 // downloadToFile streams an asset to dest while hashing it, returning
-// the hex SHA256 of the bytes written.
-func downloadToFile(ctx context.Context, gh *ghClient, url, dest string) (string, error) {
+// the hex SHA256 of the bytes written. report, when non-nil, is invoked
+// with the byte count after each ~256KiB step and once at completion.
+func downloadToFile(ctx context.Context, gh *ghClient, url, dest string, report func(done int64)) (string, error) {
 	body, err := gh.download(ctx, url)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", filepath.Base(dest), err)
@@ -250,16 +280,43 @@ func downloadToFile(ctx context.Context, gh *ghClient, url, dest string) (string
 		return "", err
 	}
 	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(f, h), body); err != nil {
+	w := io.MultiWriter(f, h)
+	var pw *progressWriter
+	if report != nil {
+		pw = &progressWriter{report: report}
+		w = io.MultiWriter(w, pw)
+	}
+	if _, err := io.Copy(w, body); err != nil {
 		f.Close()
 		os.Remove(dest)
 		return "", fmt.Errorf("write %s: %w", dest, err)
+	}
+	if pw != nil {
+		report(pw.done) // completion total, possibly below the step size
 	}
 	if err := f.Close(); err != nil {
 		os.Remove(dest)
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// progressWriter throttles byte-count reports to ~256KiB steps; the
+// final Write carries the completion total through like any other step.
+type progressWriter struct {
+	report func(done int64)
+	done   int64
+	last   int64
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.done += int64(n)
+	if w.done-w.last >= 256<<10 {
+		w.report(w.done)
+		w.last = w.done
+	}
+	return n, nil
 }
 
 // extractBinary pulls the single file named want out of the .tar.gz at

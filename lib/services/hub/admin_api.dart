@@ -34,11 +34,25 @@ class AdminApi {
     return _t.decodeMap(out);
   }
 
-  /// Fires host.update (fetch + verify + install + respawn) at one host.
+  /// Fires host.update (resolve-ack, then background download + verify +
+  /// install + respawn) at one host. [channel] selects the release lane
+  /// channel ("stable" | "alpha"); when null the hub's default applies —
+  /// currently alpha, since the hub/host lanes ship prereleases only.
   Future<Map<String, dynamic>> adminHostUpdate(String hostId,
-      {String? reason}) async {
-    final out = await _t.post('/v1/admin/hosts/$hostId/update',
-        reason == null ? {} : {'reason': reason});
+      {String? reason, String? channel}) async {
+    final body = <String, dynamic>{};
+    if (reason != null) body['reason'] = reason;
+    if (channel != null) body['channel'] = channel;
+    final out = await _t.post('/v1/admin/hosts/$hostId/update', body);
+    return _t.decodeMap(out);
+  }
+
+  /// The latest self-update progress sample a host reported mid-update
+  /// (`{phase, done, total, to_version?, error?}`; phase is
+  /// downloading | installing | done | error, or "idle" when the host
+  /// never reported). Polled by the Admin pane while an update runs.
+  Future<Map<String, dynamic>> adminHostUpdateProgress(String hostId) async {
+    final out = await _t.get('/v1/admin/hosts/$hostId/update-progress');
     return _t.decodeMap(out);
   }
 
@@ -56,9 +70,12 @@ class AdminApi {
     return _t.decodeMap(out);
   }
 
-  Future<Map<String, dynamic>> adminFleetUpdate({String? reason}) async {
-    final out = await _t.post('/v1/admin/fleet/update',
-        reason == null ? {} : {'reason': reason});
+  Future<Map<String, dynamic>> adminFleetUpdate(
+      {String? reason, String? channel}) async {
+    final body = <String, dynamic>{};
+    if (reason != null) body['reason'] = reason;
+    if (channel != null) body['channel'] = channel;
+    final out = await _t.post('/v1/admin/fleet/update', body);
     return _t.decodeMap(out);
   }
 

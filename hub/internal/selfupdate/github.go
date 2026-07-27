@@ -44,6 +44,7 @@ type ghClient struct {
 	repo    string // "owner/name"
 	apiBase string // overridable in tests
 	http    *http.Client
+	httpDL  *http.Client
 	token   string
 }
 
@@ -51,10 +52,19 @@ func newGHClient(repo string) *ghClient {
 	if repo == "" {
 		repo = DefaultRepo
 	}
+	// Downloads get their own client: the API client's 120s whole-body
+	// timeout is sized for JSON, but applied to a multi-MB tarball it
+	// makes self-update unwinnable on a slow link (the update-all CLI
+	// budgets 10 minutes for exactly that case). httpDL caps only the
+	// response-header wait; the body streams as long as it keeps making
+	// progress, and the caller's ctx is the cancellation path.
+	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
+	dlTransport.ResponseHeaderTimeout = 30 * time.Second
 	return &ghClient{
 		repo:    repo,
 		apiBase: defaultAPIBase,
 		http:    &http.Client{Timeout: 120 * time.Second},
+		httpDL:  &http.Client{Transport: dlTransport},
 		token:   os.Getenv("GITHUB_TOKEN"),
 	}
 }
@@ -128,7 +138,9 @@ func (c *ghClient) getJSON(ctx context.Context, path string, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// download GETs an asset URL; the caller closes the returned body.
+// download GETs an asset URL via the uncapped download client; the
+// caller closes the returned body. Cancellation is the caller's ctx —
+// there is deliberately no whole-body timeout (see newGHClient).
 func (c *ghClient) download(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -137,7 +149,11 @@ func (c *ghClient) download(ctx context.Context, url string) (io.ReadCloser, err
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	resp, err := c.http.Do(req)
+	httpDL := c.httpDL
+	if httpDL == nil {
+		httpDL = c.http // tests that build ghClient literal-only
+	}
+	resp, err := httpDL.Do(req)
 	if err != nil {
 		return nil, err
 	}

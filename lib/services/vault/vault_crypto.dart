@@ -1,3 +1,4 @@
+import 'dart:collection' show SplayTreeMap;
 import 'dart:convert';
 import 'dart:math' show Random;
 import 'dart:typed_data';
@@ -144,6 +145,110 @@ class VaultCrypto {
       info: utf8.encode(_deviceInfo),
     );
     return crypto.SecretKeyData(await derived.extractBytes());
+  }
+
+  // ===== env-secret envelope (ADR-056 D-3) =====
+
+  static const String _envInfo = 'termipod-env-host-v1';
+
+  /// Seal resolved env-profile secrets to a target host's X25519 public key
+  /// (ADR-056 D-3), returning the envelope JSON stored on the spawn row. Only
+  /// the host holding the matching private key can open it. Byte-compatible
+  /// with the Go host OPEN side (`hub/internal/envseal`) and the Rust
+  /// `vault-core` seal — same sealed-box primitive as [wrapForDevice] with a
+  /// domain-separated HKDF info and a context-binding AAD
+  /// (`"tp-env1" | team | host | profile`, 0x1F separated).
+  Future<String> sealEnvSecret({
+    required Map<String, String> secrets,
+    required List<int> hostPublicKeyBytes,
+    required String teamId,
+    required String hostId,
+    required String profileId,
+  }) async {
+    final eph = await _x25519.newKeyPair();
+    final ephPub = await eph.extractPublicKey();
+    final nonce = _randomBytes(_nonceLen);
+    return _sealEnvWith(
+        secrets, hostPublicKeyBytes, teamId, hostId, profileId, eph, ephPub, nonce);
+  }
+
+  /// Deterministic core, exposed for the byte-for-byte KAT (a fixed ephemeral
+  /// key + nonce reproduce the Go fixture). Production callers use
+  /// [sealEnvSecret], which supplies a random ephemeral key and nonce.
+  Future<String> sealEnvSecretWith({
+    required Map<String, String> secrets,
+    required List<int> hostPublicKeyBytes,
+    required String teamId,
+    required String hostId,
+    required String profileId,
+    required crypto.SimpleKeyPair ephemeral,
+    required List<int> nonce,
+  }) async {
+    final ephPub = await ephemeral.extractPublicKey();
+    return _sealEnvWith(secrets, hostPublicKeyBytes, teamId, hostId, profileId,
+        ephemeral, ephPub, nonce);
+  }
+
+  Future<String> _sealEnvWith(
+    Map<String, String> secrets,
+    List<int> hostPublicKeyBytes,
+    String teamId,
+    String hostId,
+    String profileId,
+    crypto.SimpleKeyPair ephemeral,
+    crypto.SimplePublicKey ephPub,
+    List<int> nonce,
+  ) async {
+    final wrapKey = await _envWrapKey(
+      ephemeral,
+      crypto.SimplePublicKey(hostPublicKeyBytes, type: crypto.KeyPairType.x25519),
+    );
+    // Canonical plaintext: sorted keys, compact JSON — matches Go's
+    // json.Marshal(map[string]string) so the three implementations agree.
+    final sorted = SplayTreeMap<String, String>.from(secrets);
+    final plaintext = utf8.encode(jsonEncode(sorted));
+    final box = await _aead.encrypt(
+      plaintext,
+      secretKey: wrapKey,
+      nonce: nonce,
+      aad: _envAad(teamId, hostId, profileId),
+    );
+    // Envelope ct = ciphertext || tag (nonce carried separately).
+    final ct = <int>[...box.cipherText, ...box.mac.bytes];
+    return jsonEncode(<String, dynamic>{
+      'v': 1,
+      'host_id': hostId,
+      'profile_id': profileId,
+      'epk': base64Encode(ephPub.bytes),
+      'nonce': base64Encode(nonce),
+      'ct': base64Encode(ct),
+    });
+  }
+
+  Future<crypto.SecretKey> _envWrapKey(
+      crypto.SimpleKeyPair local, crypto.SimplePublicKey remote) async {
+    final shared =
+        await _x25519.sharedSecretKey(keyPair: local, remotePublicKey: remote);
+    final hkdf = crypto.Hkdf(hmac: crypto.Hmac.sha256(), outputLength: 32);
+    final derived = await hkdf.deriveKey(
+      secretKey: shared,
+      info: utf8.encode(_envInfo),
+    );
+    return crypto.SecretKeyData(await derived.extractBytes());
+  }
+
+  /// AAD = "tp-env1" 0x1F team 0x1F host 0x1F profile (0x1F = Unit Separator).
+  List<int> _envAad(String teamId, String hostId, String profileId) {
+    const sep = 0x1f;
+    return <int>[
+      ...utf8.encode('tp-env1'),
+      sep,
+      ...utf8.encode(teamId),
+      sep,
+      ...utf8.encode(hostId),
+      sep,
+      ...utf8.encode(profileId),
+    ];
   }
 
   // ===== wrap / unwrap under a recovery code (Argon2id) =====

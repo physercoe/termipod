@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:cryptography/cryptography.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:termipod/services/vault/vault_crypto.dart';
@@ -122,6 +124,47 @@ void main() {
     test('is different each call', () {
       expect(vault.generateRecoveryCode(),
           isNot(equals(vault.generateRecoveryCode())));
+    });
+  });
+
+  group('env-secret envelope (ADR-056)', () {
+    // Byte-for-byte interop with the Go host OPEN side + Rust vault-core:
+    // sealing with the fixed host key, ephemeral key and nonce from
+    // hub/internal/envseal/testdata/envseal_kat.json MUST reproduce the
+    // fixture's epk + ct. (Envelope JSON framing isn't asserted — Go opens by
+    // parsing, so only the crypto values are the contract.)
+    const hostSeedB64 = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=';
+    const ephSeedB64 = 'IB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgE=';
+    const nonceB64 = 'AAECAwQFBgcICQoL';
+    const expectEpk = 'DXmWAPb/ruLhIea496Bdxmh0tR2zEC0NcfeZoJy0xGE=';
+    const expectCt =
+        '8VAHXTTmaZ/oFU5T9nGqF0FAwMValMz0f5CmdBNDx6BYwavfkOqbTMlqtt20JGTkbhytOeWiCRf7iSkWM9ima9jK/Np91l+s2Zy9A7Rd4ea7C1hChGlPXis=';
+
+    test('KAT matches the Go/Rust fixture byte-for-byte', () async {
+      final x = crypto.X25519();
+      final hostKp = await x.newKeyPairFromSeed(base64Decode(hostSeedB64));
+      final hostPub = await hostKp.extractPublicKey();
+      final eph = await x.newKeyPairFromSeed(base64Decode(ephSeedB64));
+
+      // Keys deliberately in NON-sorted insertion order: canonicalization must
+      // sort them to match Go's json.Marshal.
+      final envJson = await vault.sealEnvSecretWith(
+        secrets: const {
+          'OPENAI_API_KEY': 'sk-kat-0123456789',
+          'DATABASE_URL': 'postgres://kat/db',
+        },
+        hostPublicKeyBytes: hostPub.bytes,
+        teamId: 'team_kat',
+        hostId: 'host_kat',
+        profileId: 'envp_kat',
+        ephemeral: eph,
+        nonce: base64Decode(nonceB64),
+      );
+
+      final env = jsonDecode(envJson) as Map<String, dynamic>;
+      expect(env['epk'], expectEpk);
+      expect(env['ct'], expectCt,
+          reason: 'ct drift — construction mismatch vs Go/Rust');
     });
   });
 }

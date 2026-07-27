@@ -74,6 +74,7 @@ next sequential number — don't reserve, don't skip.
 | [053](053-hub-reference-library-entity.md) | Hub-owned reference library entity (agent-accessible) | Accepted 2026-07-11 | — |
 | [054](054-kimi-code-ts-engine.md) | kimi-code-ts: the TypeScript Kimi Code is a separate family, M1-only | In review | — |
 | [055](055-desktop-electron-shell.md) | Desktop shell — **Electron** (one pinned Chromium) replacing the Tauri OS-webview matrix; IPC contract preserved behind a runtime-agnostic bridge; Rust core ported to the TS main process **except vault crypto (Rust→WASM, byte-compat with mobile)**; electron-builder/-updater distribution with a data-egress handoff release | Proposed 2026-07-21 | supersedes [051](051-desktop-client-stack.md) **D-1** (shell only; D-2–D-5 stand) |
+| [056](056-env-secret-host-envelopes.md) | Env-profile secrets (E3) — **host-sealed envelopes**: per-host X25519 identity (private key never leaves `StateDir`), client-side seal with the vault's existing sealed-box, **operator-confirmed pins stored in the zero-knowledge vault** (never silent TOFU, never hub-side), AAD host-binding, process-env-only injection (never the launch string), teleport re-seal | Proposed 2026-07-27 | extends [052](052-breakglass-ssh-and-key-vault.md) D-4/D-5 |
 
 ---
 

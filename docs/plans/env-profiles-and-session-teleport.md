@@ -183,8 +183,14 @@ existing `env`/`script` vault item types finally get a consumer).
   No secrets yet (`secret_refs` accepted, ignored with a loud log line).
 - **E2 — Attach points + UI.** Project config field, spawn-sheet picker,
   desktop/mobile profile management, vault-env-item import.
-- **E3 — Secret refs with host envelopes (needs its own ADR).** Host key
-  enrollment via capabilities, client-side seal, host-side unseal+inject.
+- **E3 — Secret refs with host envelopes.** ADR:
+  [ADR-056](../decisions/056-env-secret-host-envelopes.md) (Proposed
+  2026-07-27 — D-1 host keypair in `StateDir`, D-2 vault-pinned explicit
+  trust, D-3 AAD-bound envelope v1 on the vault's sealed-box, D-4 hub
+  rejects secret-bearing spawns without an envelope, D-5 process-env-only
+  injection — never `envExportPrefix`, D-6 teleport re-seal, D-7
+  snapshot/rotation). Host key enrollment via capabilities, client-side
+  seal, host-side unseal+inject.
 - **E4 — Network policy enforcement.** Egress-proxy per-agent allowlist
   rules + offline mode (env scrubbing); jointly designed with the deferred
   sandbox work (`permission-model.md:98`).

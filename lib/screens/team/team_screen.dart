@@ -10,6 +10,7 @@ import '../../theme/design_colors.dart';
 import '../../theme/tokens.dart';
 import 'budget_screen.dart';
 import 'councils_screen.dart';
+import 'env_profiles_screen.dart';
 import 'governed_actions_policy_screen.dart';
 import 'steward_config_screen.dart';
 import 'team_channel_screen.dart';
@@ -771,6 +772,18 @@ class _SettingsView extends ConsumerWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const GovernedActionsPolicyScreen(),
+          )),
+        ),
+        // Environment profiles (env-profiles plan, E2) — reusable
+        // {env vars + setup script} a spawn attaches; the spawn sheet's picker
+        // lists what's defined here.
+        ListTile(
+          leading: const Icon(Icons.tune_outlined),
+          title: Text(l10n.envProfilesTitle),
+          subtitle: Text(l10n.envProfilesSubtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const EnvProfilesScreen(),
           )),
         ),
       ],

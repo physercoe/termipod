@@ -11,16 +11,33 @@
 /// labels itself approximate; it answers order-of-magnitude, not to-the-MB.
 import type { ArchCard, ArchTemplate } from './checkpoint';
 
-export type ServingDtype = 'fp32' | 'bf16' | 'fp16' | 'fp8' | 'int8' | 'int4';
+export type ServingDtype = 'fp32' | 'bf16' | 'fp16' | 'fp8' | 'int8' | 'fp4' | 'int4';
 
-/// Bytes per element for each serving precision (int4 is 0.5 = 4-bit packed).
+/// Bytes per element for each serving precision (int4/fp4 are 0.5 = 4-bit packed).
 export const DTYPE_BYTES: Record<ServingDtype, number> = {
   fp32: 4,
   bf16: 2,
   fp16: 2,
   fp8: 1,
   int8: 1,
+  fp4: 0.5,
   int4: 0.5,
+};
+
+/// Inference (KV cache + a transient activation buffer) vs training (weights +
+/// gradients + optimizer states + the full backward activation stash).
+export type VramMode = 'inference' | 'training';
+
+/// The optimizer sets the per-parameter state cost under the standard
+/// mixed-precision recipe (an fp32 master weight copy + the optimizer moments):
+///   - AdamW: master(4) + m(4) + v(4) = 12 B/param
+///   - 8-bit Adam (bitsandbytes): master(4) + m(1) + v(1) = 6 B/param
+///   - SGD w/ momentum: master(4) + momentum(4) = 8 B/param
+export type Optimizer = 'adamw' | 'adam8bit' | 'sgd';
+export const OPTIMIZER_STATE_BYTES: Record<Optimizer, number> = {
+  adamw: 12,
+  adam8bit: 6,
+  sgd: 8,
 };
 
 export interface VramInputs {
@@ -45,25 +62,79 @@ export interface VramRuntime {
   context: number;
   /// Bytes per element held in the KV cache (usually 2 — fp16/bf16).
   kvBytes: number;
+  /// Inference (default) or training. Training swaps the KV-cache term for the
+  /// gradient + optimizer + full-backward-activation terms.
+  mode?: VramMode;
+  /// Training only — the optimizer whose per-param state cost applies (default
+  /// AdamW). Ignored for inference.
+  optimizer?: Optimizer;
+  /// Training only — gradient (activation) checkpointing: recompute activations
+  /// in the backward pass instead of stashing them, trading compute for a large
+  /// activation-memory cut.
+  gradCheckpoint?: boolean;
 }
 
 export interface VramEstimate {
   weightsBytes: number;
+  /// Inference: the KV cache. Training: 0 (no decode-time cache).
   kvBytes: number;
   activationBytes: number;
+  /// Training only (0 for inference): the gradient buffer and the optimizer
+  /// state (fp32 master + moments).
+  gradientBytes: number;
+  optimizerBytes: number;
   totalBytes: number;
   /// True when we had enough dims (layers + attention or MLA rank) to size the
-  /// KV cache; false → only the weights term is trustworthy.
+  /// KV cache — or, in training, the activation stash; false → only the
+  /// weights/gradient/optimizer terms are trustworthy.
   kvComputable: boolean;
+  mode: VramMode;
 }
 
 function pos(n: number | undefined): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0;
 }
 
-/// Estimate inference-time VRAM for a batch/context point.
+/// Training activation memory (bytes). The dominant, most variable training
+/// term. Without recomputation we use the Megatron-LM per-layer formula
+/// `s·b·h·(34 + 5·a·s/h)` (the constant already assumes 2-byte activations, i.e.
+/// the bf16/fp16 compute the mixed-precision recipe uses); the `5·a·s/h` term is
+/// the ∝s² attention-score stash. With gradient (activation) checkpointing only
+/// each layer's input is kept (`2·s·b·h`), recomputed in the backward pass — the
+/// standard memory/compute trade. `a` falls back to a hidden/128 head estimate.
+function trainingActivationBytes(inp: VramInputs, rt: VramRuntime): number {
+  if (!pos(inp.hidden) || !pos(inp.layers)) return 0;
+  const s = rt.context;
+  const b = rt.batch;
+  const h = inp.hidden;
+  const a = pos(inp.heads) ? inp.heads : Math.max(1, Math.round(h / 128));
+  const perLayer = rt.gradCheckpoint === true ? 2 * s * b * h : s * b * h * (34 + (5 * a * s) / h);
+  return inp.layers * perLayer;
+}
+
+/// Estimate VRAM for a batch/context point — inference (weights + KV cache +
+/// transient activations) or training (weights + gradients + optimizer states +
+/// the full backward activation stash).
 export function estimateVram(inp: VramInputs, rt: VramRuntime): VramEstimate {
   const weightsBytes = inp.totalParams * inp.weightBytes;
+
+  if (rt.mode === 'training') {
+    // Gradients ride the compute precision (same bytes as the weights copy);
+    // optimizer state is set by the optimizer (fp32 master + moments).
+    const gradientBytes = inp.totalParams * inp.weightBytes;
+    const optimizerBytes = inp.totalParams * OPTIMIZER_STATE_BYTES[rt.optimizer ?? 'adamw'];
+    const activationBytes = trainingActivationBytes(inp, rt);
+    return {
+      weightsBytes,
+      kvBytes: 0,
+      activationBytes,
+      gradientBytes,
+      optimizerBytes,
+      totalBytes: weightsBytes + gradientBytes + optimizerBytes + activationBytes,
+      kvComputable: pos(inp.hidden) && pos(inp.layers),
+      mode: 'training',
+    };
+  }
 
   let kvBytes = 0;
   let kvComputable = false;
@@ -95,8 +166,11 @@ export function estimateVram(inp: VramInputs, rt: VramRuntime): VramEstimate {
     weightsBytes,
     kvBytes,
     activationBytes,
+    gradientBytes: 0,
+    optimizerBytes: 0,
     totalBytes: weightsBytes + kvBytes + activationBytes,
     kvComputable,
+    mode: 'inference',
   };
 }
 

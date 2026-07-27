@@ -43,6 +43,15 @@ This complements:
 
 ### Added
 
+- **VRAM estimator — training mode + wider precision/context.** The model
+  view's VRAM card gains an **Inference / Training** toggle. Training sums the
+  standard mixed-precision terms — weights + gradients (compute precision) +
+  optimizer states (AdamW / 8-bit Adam / SGD, fp32 master + moments) + the
+  backward activation stash (Megatron formula, with a **gradient-checkpointing**
+  toggle that collapses it to the per-layer input). Context options extend to
+  **256K** and **1M**; precision adds **fp4** and **int8** (selection now tracks
+  the dtype label, since fp8/int8 and fp4/int4 share a byte cost). Pure
+  arithmetic, unit-tested (`state/vram.ts`).
 - **Config-only architecture schematic (Inspect §5a follow-on).** The
   config-only model view (an HF `config.json` from any source) gains a **View
   architecture** button that renders a paper-style transformer block diagram

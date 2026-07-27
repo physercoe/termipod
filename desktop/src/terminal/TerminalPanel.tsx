@@ -15,8 +15,10 @@ import {
   setConnectionGroup,
   type Connection,
 } from '../state/connections';
-import { importSshConfig } from '../ssh/config';
+import { exportSshConfig, importSshConfig } from '../ssh/config';
 import { sshDuplicate } from '../ssh/native';
+import { listKeys } from '../state/keys';
+import { invoke } from '../bridge';
 import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
@@ -300,6 +302,32 @@ export function TerminalPanel(): JSX.Element {
     }
   }
 
+  // Export saved connections as an OpenSSH client config via the native save
+  // dialog. Secrets stay in the vault (see exportSshConfig); key-auth hosts get
+  // a comment naming their vault key, resolved here from the key store.
+  async function onExportConfig(): Promise<void> {
+    setError(null);
+    const all = listConnections();
+    if (all.length === 0) {
+      setNotice(t('term.exportConfigEmpty'));
+      setTimeout(() => setNotice(null), 4000);
+      return;
+    }
+    try {
+      const keyNames = Object.fromEntries(listKeys().map((k) => [k.id, k.name]));
+      const path = await invoke<string | null>('doc_save', {
+        content: exportSshConfig(all, keyNames),
+        defaultName: 'ssh_config',
+      });
+      if (path !== null) {
+        setNotice(t('term.exportedConfig'));
+        setTimeout(() => setNotice(null), 4000);
+      }
+    } catch (ex) {
+      setError(msg(ex));
+    }
+  }
+
   function onConnected(sessionId: string, title: string, connId?: string): void {
     addTab({ kind: 'ssh', sessionId, title, connId });
     setConnecting(false);
@@ -469,6 +497,15 @@ export function TerminalPanel(): JSX.Element {
             onClick={() => cfgRef.current?.click()}
           >
             <Icon name="external" size={13} />
+          </button>
+          <button
+            className="term-nav-import"
+            disabled={!tauri}
+            aria-label={t('term.exportConfig')}
+            title={t('term.exportConfigHint')}
+            onClick={() => void onExportConfig()}
+          >
+            <Icon name="download" size={13} />
           </button>
           {/* No `accept` filter — the OpenSSH config file is literally named
               `config` with no extension, which an extension filter would hide;
@@ -696,6 +733,10 @@ export function TerminalPanel(): JSX.Element {
             setNavMenu(null);
             cfgRef.current?.click();
           }}
+          onExportConfig={() => {
+            setNavMenu(null);
+            void onExportConfig();
+          }}
           onNewGroup={promptNewGroup}
           onRenameGroup={promptRenameGroup}
           onDeleteGroup={doDeleteGroup}
@@ -741,15 +782,16 @@ function ConnRow({
   );
 }
 
-// The nav right-click menu — blank space (new connection / new group / import),
-// a group header menu (new / rename / delete), or a connection menu (edit /
-// move-to-group / new group / delete).
+// The nav right-click menu — blank space (new connection / new group /
+// import / export), a group header menu (new / rename / delete), or a
+// connection menu (edit / move-to-group / new group / delete).
 function NavContextMenu({
   menu,
   groups,
   conns,
   onNewConnection,
   onImportConfig,
+  onExportConfig,
   onNewGroup,
   onRenameGroup,
   onDeleteGroup,
@@ -762,6 +804,7 @@ function NavContextMenu({
   conns: Connection[];
   onNewConnection: () => void;
   onImportConfig: () => void;
+  onExportConfig: () => void;
   onNewGroup: (assignId?: string) => void;
   onRenameGroup: (from: string) => void;
   onDeleteGroup: (name: string) => void;
@@ -791,6 +834,9 @@ function NavContextMenu({
           <div className="read-ctx-sep" />
           <button className="read-ctx-item" onClick={onImportConfig}>
             <Icon name="external" size={14} /> {t('term.importConfig')}
+          </button>
+          <button className="read-ctx-item" onClick={onExportConfig}>
+            <Icon name="download" size={14} /> {t('term.exportConfig')}
           </button>
         </>
       ) : target.kind === 'group' ? (

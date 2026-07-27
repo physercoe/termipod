@@ -2,6 +2,7 @@ package hostrunner
 
 import (
 	"context"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -148,16 +149,35 @@ func TestResolveSecretEnv_NoIdentity_FailsClosed(t *testing.T) {
 	}
 }
 
-func TestLaunchM1_SecretsFailClosed(t *testing.T) {
-	// M1 persistent-stdio secret injection lands in E3c-2; until then a
-	// secret-bearing M1 spawn is refused before any setup (fail-closed) so the
-	// runner's fallback ladder can try M2/M4.
-	_, err := launchM1(context.Background(), M1LaunchConfig{
-		Spawn:     Spawn{Handle: "h", Kind: "codex"},
-		SecretEnv: []string{"S=x"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "E3c-2") {
-		t.Fatalf("expected E3c-2 fail-closed error, got %v", err)
+// TestRealProcSpawner_InjectsEnv proves the secret actually reaches the child
+// process environment (M1/M2 persistent-stdio channel, ADR-056 D-5) — and that
+// it is NOT in the command string.
+func TestRealProcSpawner_InjectsEnv(t *testing.T) {
+	stdout, _, kill, err := RealProcSpawner{}.Spawn(
+		context.Background(), "printenv E3C2_SECRET", []string{"E3C2_SECRET=injected-ok"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	defer kill()
+	b, _ := io.ReadAll(stdout)
+	if !strings.Contains(string(b), "injected-ok") {
+		t.Fatalf("secret not visible in child env; child printed %q", string(b))
+	}
+}
+
+func TestRealProcSpawner_NoEnv_InheritsParent(t *testing.T) {
+	// With no extra env, cmd.Env stays unset so the child inherits the parent's
+	// environment — the exact pre-E3c behaviour. printenv of an unset var yields
+	// empty output (and a non-zero exit we don't inspect).
+	stdout, _, kill, err := RealProcSpawner{}.Spawn(
+		context.Background(), "printenv E3C2_SECRET || true", nil)
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	defer kill()
+	b, _ := io.ReadAll(stdout)
+	if strings.Contains(string(b), "injected-ok") {
+		t.Fatalf("unexpected leaked value: %q", string(b))
 	}
 }
 

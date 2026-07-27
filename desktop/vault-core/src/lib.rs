@@ -22,7 +22,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
 const DEVICE_INFO: &[u8] = b"termipod-vault-device-v1";
@@ -311,6 +311,25 @@ pub fn seal_env_secret(
     )
 }
 
+/// env_fingerprint is the human-comparable short code for a host public key
+/// (ADR-056 D-2): base32(SHA-256(pubkey)[:10]) in four dash-separated groups of
+/// four. Identical to the Go (`envseal.Fingerprint`) and Dart implementations;
+/// the operator compares the client's code against the host console banner
+/// before secrets are sealed to the host.
+pub fn env_fingerprint(pub_b64: &str) -> Result<String, String> {
+    let pub_bytes = key32(pub_b64)?;
+    let mut hasher = Sha256::new();
+    hasher.update(pub_bytes);
+    let digest = hasher.finalize();
+    let enc = data_encoding::BASE32_NOPAD.encode(&digest[..10]);
+    Ok(enc
+        .as_bytes()
+        .chunks(4)
+        .map(|c| std::str::from_utf8(c).unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("-"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +454,16 @@ mod tests {
 
         assert_eq!(parse_env_field(&env, "epk"), KAT_EXPECT_EPK, "epk drift");
         assert_eq!(parse_env_field(&env, "ct"), KAT_EXPECT_CT, "ct drift — construction mismatch");
+    }
+
+    #[test]
+    fn env_fingerprint_kat() {
+        // Must match Go envseal.Fingerprint + Dart envFingerprint for the KAT
+        // host public key (ADR-056 D-2 trust short code).
+        let host_pub = {
+            let secret = StaticSecret::from(key32(KAT_HOST_SEED).unwrap());
+            b64e(PublicKey::from(&secret).as_bytes())
+        };
+        assert_eq!(env_fingerprint(&host_pub).unwrap(), "VKUP-75YD-WUFS-FF7U");
     }
 }

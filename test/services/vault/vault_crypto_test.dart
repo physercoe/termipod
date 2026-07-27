@@ -166,5 +166,13 @@ void main() {
       expect(env['ct'], expectCt,
           reason: 'ct drift — construction mismatch vs Go/Rust');
     });
+
+    test('fingerprint matches the Go/Rust short code', () async {
+      final x = crypto.X25519();
+      final hostKp = await x.newKeyPairFromSeed(base64Decode(hostSeedB64));
+      final hostPub = await hostKp.extractPublicKey();
+      final fp = await VaultCrypto.envFingerprint(hostPub.bytes);
+      expect(fp, 'VKUP-75YD-WUFS-FF7U');
+    });
   });
 }

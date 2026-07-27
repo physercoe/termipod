@@ -237,6 +237,21 @@ class VaultCrypto {
     return crypto.SecretKeyData(await derived.extractBytes());
   }
 
+  /// The host-key trust short code (ADR-056 D-2): base32(SHA-256(pubkey)[:10])
+  /// in four dash-separated groups of four. Identical to the Go
+  /// (`envseal.Fingerprint`) and Rust (`env_fingerprint`) implementations; shown
+  /// in the trust dialog for the operator to compare against the host console
+  /// banner before secrets are sealed to the host.
+  static Future<String> envFingerprint(List<int> hostPublicKeyBytes) async {
+    final digest = await crypto.Sha256().hash(hostPublicKeyBytes);
+    final b32 = _base32Encode(digest.bytes.sublist(0, 10)); // 80 bits -> 16 chars
+    final groups = <String>[];
+    for (var i = 0; i < b32.length; i += 4) {
+      groups.add(b32.substring(i, i + 4));
+    }
+    return groups.join('-');
+  }
+
   /// AAD = "tp-env1" 0x1F team 0x1F host 0x1F profile (0x1F = Unit Separator).
   List<int> _envAad(String teamId, String hostId, String profileId) {
     const sep = 0x1f;

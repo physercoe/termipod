@@ -57,3 +57,25 @@ pub fn vault_unwrap_recovery(code: String, envelope: String) -> Result<String, J
 pub fn vault_generate_recovery_code() -> String {
     vc::generate_recovery_code()
 }
+
+/// Seal resolved env-profile secrets to a target host's X25519 public key
+/// (ADR-056 D-3). `plaintext` is the canonical (sorted-compact) JSON of the
+/// `{KEY: value}` secret map; returns the envelope JSON stored on the spawn row.
+#[wasm_bindgen]
+pub fn vault_seal_env_secret(
+    host_pub: String,
+    team_id: String,
+    host_id: String,
+    profile_id: String,
+    plaintext: String,
+) -> Result<String, JsError> {
+    vc::seal_env_secret(&host_pub, &team_id, &host_id, &profile_id, &plaintext)
+        .map_err(|e| JsError::new(&e))
+}
+
+/// The host-key trust short code (ADR-056 D-2) the client shows for the operator
+/// to compare against the host console banner before sealing to it.
+#[wasm_bindgen]
+pub fn vault_env_fingerprint(host_pub: String) -> Result<String, JsError> {
+    vc::env_fingerprint(&host_pub).map_err(|e| JsError::new(&e))
+}

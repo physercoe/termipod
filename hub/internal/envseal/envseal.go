@@ -54,11 +54,13 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
@@ -96,6 +98,34 @@ func GenerateIdentity() (seedB64, pubB64 string, err error) {
 		return "", "", err
 	}
 	return b64.EncodeToString(priv.Bytes()), b64.EncodeToString(priv.PublicKey().Bytes()), nil
+}
+
+// Fingerprint is the human-comparable short code for a host public key, used
+// by the operator trust step (ADR-056 D-2): the host-runner prints it on its
+// console banner and the client shows it in the trust dialog; the operator
+// confirms they match before the client seals secrets to the host. Format:
+// base32(SHA-256(pubkey)[:10]) in four dash-separated groups of four, e.g.
+// "K5J2-8QH4-M3PX-9ZTB". Must be identical across the Go, Rust, and Dart
+// implementations (there is no security in the truncation itself — the pin is
+// the pubkey; the code is only what a human eyeballs).
+func Fingerprint(pubB64 string) (string, error) {
+	pub, err := b64.DecodeString(pubB64)
+	if err != nil {
+		return "", err
+	}
+	if len(pub) != pubLen {
+		return "", fmt.Errorf("envseal: expected %d-byte public key, got %d", pubLen, len(pub))
+	}
+	sum := sha256.Sum256(pub)
+	enc := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:10]) // 16 chars
+	var b strings.Builder
+	for i, c := range enc {
+		if i > 0 && i%4 == 0 {
+			b.WriteByte('-')
+		}
+		b.WriteRune(c)
+	}
+	return b.String(), nil
 }
 
 // PublicFromSeed derives the base64 X25519 public key from a base64 32-byte

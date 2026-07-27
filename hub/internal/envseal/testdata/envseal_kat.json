@@ -1,0 +1,15 @@
+{
+  "note": "Env-secret envelope KAT (ADR-056 D-3). Rust (desktop/vault-core) and Dart (lib/services/vault) must reproduce `envelope` byte-for-byte sealing with these fixed host_seed/eph_seed/nonce. Regenerate with ENVSEAL_WRITE_KAT=1 go test ./internal/envseal",
+  "host_seed_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "host_pub_b64": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+  "eph_seed_b64": "IB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgE=",
+  "nonce_b64": "AAECAwQFBgcICQoL",
+  "team_id": "team_kat",
+  "host_id": "host_kat",
+  "profile_id": "envp_kat",
+  "secrets": {
+    "DATABASE_URL": "postgres://kat/db",
+    "OPENAI_API_KEY": "sk-kat-0123456789"
+  },
+  "envelope": "{\"v\":1,\"host_id\":\"host_kat\",\"profile_id\":\"envp_kat\",\"epk\":\"DXmWAPb/ruLhIea496Bdxmh0tR2zEC0NcfeZoJy0xGE=\",\"nonce\":\"AAECAwQFBgcICQoL\",\"ct\":\"8VAHXTTmaZ/oFU5T9nGqF0FAwMValMz0f5CmdBNDx6BYwavfkOqbTMlqtt20JGTkbhytOeWiCRf7iSkWM9ima9jK/Np91l+s2Zy9A7Rd4ea7C1hChGlPXis=\"}"
+}

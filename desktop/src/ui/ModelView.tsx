@@ -185,8 +185,10 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
   const schematic = useMemo(() => (card !== null ? buildArchSchematic(card, config) : null), [card, config]);
 
   // Schema is only offered when the config is a stackable transformer; if the
-  // user is on it when that stops being true (edited config), fall back to params.
-  const schemaPane = pane === 'schema' && schematic !== null;
+  // user is on it when that stops being true (edited config), fall back to params
+  // — `effectivePane` (not just un-highlighting the tab) so the body never blanks.
+  const effectivePane: ConfigPane = pane === 'schema' && schematic === null ? 'params' : pane;
+  const schemaPane = effectivePane === 'schema';
 
   return (
     <div className="modelview">
@@ -205,7 +207,12 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
         <span className="spacer" />
         {/* Three in-place panes — no more spawning a fresh schematic tab per click. */}
         <div className="modelview-panes" role="tablist">
-          <button className={`modelview-pane-btn${pane === 'params' ? ' on' : ''}`} role="tab" aria-selected={pane === 'params'} onClick={() => setPane('params')}>
+          <button
+            className={`modelview-pane-btn${effectivePane === 'params' ? ' on' : ''}`}
+            role="tab"
+            aria-selected={effectivePane === 'params'}
+            onClick={() => setPane('params')}
+          >
             <Icon name="sliders" size={13} /> {t('model.paneParams')}
           </button>
           <button
@@ -224,7 +231,7 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
         </div>
       </div>
 
-      {pane === 'params' && (
+      {effectivePane === 'params' && (
         <>
           {card !== null ? <ArchCardView card={card} /> : <div className="muted region-pad">{t('model.notAConfig')}</div>}
           {params !== null && <VramCard totalParams={params} dtypeHist={{}} card={card} config={config} />}
@@ -235,7 +242,7 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
         </>
       )}
 
-      {schemaPane && (
+      {schemaPane && schematic !== null && (
         <div className="modelview-pane-body">
           <Suspense fallback={<div className="muted region-pad">{t('graph.rendering')}</div>}>
             <ArchSchematicView schematic={schematic} config={config} card={card} />

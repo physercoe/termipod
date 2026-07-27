@@ -13,8 +13,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
+import { useContextMenu } from './ContextMenu';
 import type { ArchCard } from '../state/checkpoint';
-import { archNodeDetails, type ArchNode, type ArchSchematic } from '../state/archSchematic';
+import { archNodeDetails, type ArchDetailRow, type ArchNode, type ArchSchematic } from '../state/archSchematic';
 
 /// Config-only architecture schematic renderer (round-3 §5a follow-on). Lays out
 /// the pure `ArchSchematic` (state/archSchematic.ts) as a paper-style stacked
@@ -137,12 +138,6 @@ function layoutSchematic(s: ArchSchematic, containerLabel: string, selectedId: s
   return { nodes, edges };
 }
 
-interface MenuState {
-  x: number;
-  y: number;
-  nodeId: string;
-}
-
 export function ArchSchematicView({
   schematic,
   config,
@@ -154,44 +149,45 @@ export function ArchSchematicView({
 }): JSX.Element {
   const t = useT();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [menu, setMenu] = useState<MenuState | null>(null);
   const rf = useRef<ReactFlowInstance | null>(null);
+  // The shared app-wide primitive (viewport-clamped, keyboard-navigable,
+  // backdrop-dismissed) — same one the Inspect tree menus use.
+  const menu = useContextMenu();
 
   const containerLabel = schematic.layers > 0 ? `×${schematic.layers} ${t('archgraph.layers')}` : t('archgraph.decoderBlock');
   const { nodes, edges } = useMemo(() => layoutSchematic(schematic, containerLabel, selectedId), [schematic, containerLabel, selectedId]);
 
   const selectedNode = selectedId !== null ? schematic.nodes.find((n) => n.id === selectedId) ?? null : null;
-  const details = useMemo(
-    () => (selectedNode !== null && config !== null && config !== undefined && card !== null && card !== undefined ? archNodeDetails(selectedNode, config, card) : []),
-    [selectedNode, config, card],
+  const detailsFor = useCallback(
+    (n: ArchNode): ArchDetailRow[] => (config !== null && config !== undefined && card !== null && card !== undefined ? archNodeDetails(n, config, card) : []),
+    [config, card],
   );
+  const details = useMemo(() => (selectedNode !== null ? detailsFor(selectedNode) : []), [selectedNode, detailsFor]);
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
     if (node.id.startsWith('__')) return;
     setSelectedId(node.id);
-    setMenu(null);
   }, []);
-  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
-    if (node.id.startsWith('__')) return;
-    e.preventDefault();
-    setSelectedId(node.id);
-    setMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
-  }, []);
-  const dismiss = useCallback(() => {
-    setSelectedId(null);
-    setMenu(null);
-  }, []);
-
-  const copyDetails = useCallback(() => {
-    if (selectedNode === null) return;
-    const text = [selectedNode.label, ...details.map((d) => `${d.label}: ${d.value}`)].join('\n');
-    void navigator.clipboard?.writeText(text);
-    setMenu(null);
-  }, [selectedNode, details]);
-  const fitView = useCallback(() => {
-    rf.current?.fitView({ duration: 200 });
-    setMenu(null);
-  }, []);
+  const onNodeContextMenu = useCallback(
+    (e: React.MouseEvent, node: Node) => {
+      if (node.id.startsWith('__')) return;
+      const arch = schematic.nodes.find((n) => n.id === node.id);
+      if (arch === undefined) return;
+      setSelectedId(node.id);
+      menu.open(e, [
+        {
+          label: t('archgraph.copyDetails'),
+          onClick: () => {
+            const text = [arch.label, ...detailsFor(arch).map((d) => `${d.label}: ${d.value}`)].join('\n');
+            void navigator.clipboard?.writeText(text);
+          },
+        },
+        { label: t('archgraph.fitView'), onClick: () => rf.current?.fitView({ duration: 200 }) },
+      ]);
+    },
+    [schematic, menu, t, detailsFor],
+  );
+  const dismiss = useCallback(() => setSelectedId(null), []);
 
   return (
     <div className="archgraph-wrap">
@@ -203,10 +199,7 @@ export function ArchSchematicView({
         onNodeClick={onNodeClick}
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={dismiss}
-        onPaneContextMenu={(e) => {
-          e.preventDefault();
-          setMenu(null);
-        }}
+        onPaneContextMenu={(e) => e.preventDefault()}
         fitView
         minZoom={0.2}
         maxZoom={2}
@@ -244,16 +237,7 @@ export function ArchSchematicView({
         </div>
       )}
 
-      {menu !== null && (
-        <div className="archgraph-menu" style={{ left: menu.x, top: menu.y }} role="menu">
-          <button className="archgraph-menu-item" role="menuitem" onClick={copyDetails}>
-            <Icon name="copy" size={13} /> {t('archgraph.copyDetails')}
-          </button>
-          <button className="archgraph-menu-item" role="menuitem" onClick={fitView}>
-            <Icon name="fit-page" size={13} /> {t('archgraph.fitView')}
-          </button>
-        </div>
-      )}
+      {menu.node}
     </div>
   );
 }

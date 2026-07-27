@@ -2049,35 +2049,6 @@ button > .ui-icon:not(:only-child):first-child,
 .archgraph-detail-empty {
   padding: var(--spacing-s4) 0;
 }
-.archgraph-menu {
-  position: fixed;
-  z-index: 20;
-  min-width: 150px;
-  display: flex;
-  flex-direction: column;
-  padding: var(--spacing-s4);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-menu, 0 8px 24px rgba(0, 0, 0, 0.28));
-}
-.archgraph-menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-s6);
-  padding: var(--spacing-s4) var(--spacing-s8);
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-size: var(--font-size-body-small);
-  text-align: left;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.archgraph-menu-item:hover {
-  background: var(--surface-hover);
-}
-
 .dotgraph {
   flex: 1;
   min-height: 0;

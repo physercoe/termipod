@@ -94,11 +94,24 @@ class SecureStorageService {
     return await _storage.read(key: 'vault_key');
   }
 
+  /// Pinned host env-keys (ADR-056 D-2), stored as a JSON `{host_id: pubkey}`
+  /// map. Mobile has no UI to create pins (no local secret-item store to seal
+  /// from); it only preserves the map round-trip through the vault bundle so a
+  /// phone push never drops the desktop-authored trust decisions.
+  Future<void> saveVaultPinnedHostKeys(String json) async {
+    await _storage.write(key: 'vault_pinned_host_keys', value: json);
+  }
+
+  Future<String?> getVaultPinnedHostKeys() async {
+    return await _storage.read(key: 'vault_pinned_host_keys');
+  }
+
   /// Forget this device's vault enrolment (leaves the remote vault intact).
   Future<void> clearVaultLocal() async {
     await _storage.delete(key: 'vault_device_id');
     await _storage.delete(key: 'vault_device_seed');
     await _storage.delete(key: 'vault_key');
+    await _storage.delete(key: 'vault_pinned_host_keys');
   }
 
   // ===== ユーティリティ =====

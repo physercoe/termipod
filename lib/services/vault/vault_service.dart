@@ -221,11 +221,23 @@ class VaultService {
   Future<Map<String, dynamic>> _assembleBundle() async {
     final full = await _dataPort.exportData();
     final data = (full['data'] as Map).cast<String, dynamic>();
-    return {
+    final bundle = <String, dynamic>{
       'connections': data['connections'],
       'sshKeys': data['sshKeys'],
       'passwords': data['passwords'],
     };
+    // Preserve pinned host env-keys (ADR-056 D-2) round-trip. Mobile can't
+    // create pins (no local secret-item store to seal from), so it only carries
+    // the desktop-authored trust map through — non-empty, so a phone push never
+    // wipes it. (Deletion propagates desktop→desktop, which replaces wholesale.)
+    final pins = await _secure.getVaultPinnedHostKeys();
+    if (pins != null && pins.isNotEmpty) {
+      final decoded = jsonDecode(pins);
+      if (decoded is Map && decoded.isNotEmpty) {
+        bundle['pinnedHostKeys'] = decoded;
+      }
+    }
+    return bundle;
   }
 
   Future<void> _restoreBundle(Map<String, dynamic> bundle) async {
@@ -235,6 +247,13 @@ class VaultService {
       {'format': 'termipod-backup', 'version': 1, 'data': bundle},
       categories: const {ImportCategory.connections, ImportCategory.sshKeys},
     );
+    // Stash pinned host env-keys (ADR-056 D-2) when the bundle carries a
+    // non-empty map, so a later assemble re-emits them (preservation only — see
+    // _assembleBundle). Absent/empty leaves any local map untouched.
+    final pins = bundle['pinnedHostKeys'];
+    if (pins is Map && pins.isNotEmpty) {
+      await _secure.saveVaultPinnedHostKeys(jsonEncode(pins));
+    }
     _ref.read(connectionsProvider.notifier).reload();
     _ref.read(keysProvider.notifier).reload();
   }

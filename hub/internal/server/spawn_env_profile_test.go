@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -31,8 +32,6 @@ func TestDoSpawn_EnvProfile_MaterializedIntoSpec(t *testing.T) {
 		Name:        "gpu",
 		EnvVars:     map[string]string{"HF_HOME": "/data/hf", "CUDA_VISIBLE_DEVICES": "0"},
 		SetupScript: "pip install -r requirements.txt",
-		// secret_refs present → should spawn (with a warning), not fail.
-		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
 	})
 	if err != nil {
 		t.Fatalf("create profile: %v", err)
@@ -67,6 +66,73 @@ func TestDoSpawn_EnvProfile_MaterializedIntoSpec(t *testing.T) {
 	}
 	if parsed.Backend.Cmd != "echo test" {
 		t.Fatalf("existing backend.cmd clobbered: %q", parsed.Backend.Cmd)
+	}
+}
+
+// ADR-056 D-4: a profile carrying secret_refs REQUIRES a client-sealed
+// env_secret_envelope. A spawn without one is refused 422 — headless/API spawns
+// of secret-bearing profiles fail by design.
+func TestDoSpawn_SecretProfile_WithoutEnvelope_Refused(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+
+	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name:       "prod-secrets",
+		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+
+	_, status, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle:  "w",
+		Kind:         "claude-code",
+		EnvProfileID: prof.ID,
+		SpawnSpec:    "backend:\n  cmd: echo test\n",
+		// No env_secret_envelope.
+	})
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got status=%d err=%v", status, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "secret_refs") {
+		t.Fatalf("expected a secret_refs 422 error, got %v", err)
+	}
+}
+
+// With an envelope, a secret-bearing spawn succeeds and the opaque envelope is
+// stored verbatim on the spawn row (the hub never decrypts it).
+func TestDoSpawn_SecretProfile_WithEnvelope_Stored(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+
+	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name:       "prod-secrets",
+		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+
+	const envelope = `{"v":1,"host_id":"h1","profile_id":"p1","epk":"AAAA","nonce":"BBBB","ct":"CCCC"}`
+	out, status, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle:       "w",
+		Kind:              "claude-code",
+		EnvProfileID:      prof.ID,
+		EnvSecretEnvelope: envelope,
+		SpawnSpec:         "backend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+
+	var stored string
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(env_secret_envelope, '') FROM agent_spawns WHERE child_agent_id = ?`,
+		out.AgentID).Scan(&stored); err != nil {
+		t.Fatalf("query envelope: %v", err)
+	}
+	if stored != envelope {
+		t.Fatalf("stored envelope mismatch:\n got %s\nwant %s", stored, envelope)
 	}
 }
 

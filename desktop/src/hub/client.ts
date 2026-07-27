@@ -163,6 +163,28 @@ export class HubClient {
     return this.transport.delete(this.transport.team(`/references/${refId}/annotations/${annId}`));
   }
 
+  // --- environment profiles (env-profiles plan, E1/E2) ---
+  /** List the team's environment profiles — reusable {setup_script + env_vars +
+   *  secret_refs + network_policy} a spawn attaches via `env_profile_id`. The
+   *  hub holds env_vars + setup_script (non-secret); secret_refs point into the
+   *  zero-knowledge vault. */
+  async listEnvProfiles(): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/env-profiles'));
+    return asArray(out);
+  }
+  getEnvProfile(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/env-profiles/${id}`)) as Promise<Entity>;
+  }
+  createEnvProfile(body: Json): Promise<Entity> {
+    return this.transport.post(this.transport.team('/env-profiles'), body) as Promise<Entity>;
+  }
+  updateEnvProfile(id: string, patch: Json): Promise<Entity> {
+    return this.transport.patch(this.transport.team(`/env-profiles/${id}`), patch) as Promise<Entity>;
+  }
+  deleteEnvProfile(id: string): Promise<Json> {
+    return this.transport.delete(this.transport.team(`/env-profiles/${id}`));
+  }
+
   /** Spawn the project's bound domain steward (`handleStartProject`) — direct
    * principal action, materialize-then-start (ADR-046). */
   startProject(id: string): Promise<Entity> {
@@ -189,6 +211,10 @@ export class HubClient {
     // engine family's supports + host capabilities. Omitted = the engine's
     // default mode resolves.
     mode?: string;
+    // Attach a team env profile (env-profiles E2): its env_vars are exported
+    // and its setup_script run before the agent cmd. Omit to inherit the bound
+    // project's config_yaml env_profile_id.
+    env_profile_id?: string;
     // Link the spawn to an existing task (ADR-029 D-2). Mutually exclusive with
     // `task` below — the hub 4xxs if both are set. The task's status then flips
     // todo→in_progress via the existing derivation, not a client PATCH.

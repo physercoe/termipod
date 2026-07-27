@@ -248,7 +248,11 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			return M2LaunchResult{}, fmt.Errorf("mkdir workdir %q: %w", expanded, err)
 		}
 		expandedWorkdir = expanded
-		command = fmt.Sprintf("cd %s && %s%s", shellEscape(expanded), envExportPrefix(spec.EnvVars), command)
+		setupPrefix, _, serr := setupScriptPrefix(spec.SetupScript, spec.SetupFailurePolicy, cfg.Spawn.ChildID)
+		if serr != nil {
+			return M2LaunchResult{}, fmt.Errorf("setup script: %w", serr)
+		}
+		command = fmt.Sprintf("cd %s && %s%s%s", shellEscape(expanded), envExportPrefix(spec.EnvVars), setupPrefix, command)
 	}
 
 	// Materialize context_files (CLAUDE.md, etc.) into the workdir so
@@ -352,6 +356,14 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		// the `export …` precedence on the shared shell path (env-profiles E1).
 		// exec.Cmd.Env resolves duplicate keys to the last entry.
 		geminiEnv = append(geminiEnv, envKVList(spec.EnvVars)...)
+		// gemini is exec-per-turn: there's no persistent launch shell to splice
+		// a setup fragment into, so run the setup script once here, synchronously,
+		// in the workdir with the same env (env-profiles E1c). Fail-closed by
+		// default — don't start the driver on a broken env.
+		if serr := runSetupScriptOnce(ctx, spec.SetupScript, spec.SetupFailurePolicy,
+			expandedWorkdir, geminiEnv, cfg.Spawn.ChildID); serr != nil {
+			return M2LaunchResult{}, fmt.Errorf("setup script: %w", serr)
+		}
 		drv := &ExecResumeDriver{
 			AgentID:        cfg.Spawn.ChildID,
 			Handle:         cfg.Spawn.Handle,

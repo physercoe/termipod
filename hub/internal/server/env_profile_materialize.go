@@ -17,13 +17,15 @@ import (
 // design (blueprint §4); secret_refs are NOT materialized here (they stay in
 // the zero-knowledge vault — host-key envelopes land in E3).
 
-// materializeEnvProfile injects a top-level `env_profile_id` scalar and a
-// top-level `env_vars` mapping into specYAML, following the defensive
+// materializeEnvProfile injects the profile's snapshot into specYAML as
+// top-level keys — `env_profile_id` (provenance), the `env_vars` mapping, and
+// (when set) `setup_script` + `setup_failure_policy` — following the defensive
 // yaml.Node idiom of spliceACPResume: a parse failure returns the spec
 // unchanged rather than failing the spawn (better a spawn without the profile
 // than a 500). Existing keys of the same name are replaced (idempotent
-// re-materialize). env_vars is omitted when empty so the spec stays clean.
-func materializeEnvProfile(specYAML, profileID string, env map[string]string) string {
+// re-materialize). Empty env_vars / setup_script are omitted so the spec stays
+// clean. secret_refs are NOT materialized — they stay in the vault (E3).
+func materializeEnvProfile(specYAML string, prof envProfileOut) string {
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(specYAML), &root); err != nil {
 		return specYAML
@@ -39,12 +41,18 @@ func materializeEnvProfile(specYAML, profileID string, env map[string]string) st
 		doc.Tag = "!!map"
 		doc.Content = nil
 	}
-	if profileID != "" {
+	if prof.ID != "" {
 		upsertTopKey(doc, "env_profile_id",
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: profileID})
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: prof.ID})
 	}
-	if len(env) > 0 {
-		upsertTopKey(doc, "env_vars", envVarsMapNode(env))
+	if len(prof.EnvVars) > 0 {
+		upsertTopKey(doc, "env_vars", envVarsMapNode(prof.EnvVars))
+	}
+	if prof.SetupScript != "" {
+		upsertTopKey(doc, "setup_script",
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: prof.SetupScript})
+		upsertTopKey(doc, "setup_failure_policy",
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: normalizeFailurePolicy(prof.SetupFailurePolicy)})
 	}
 	out, err := yaml.Marshal(&root)
 	if err != nil {

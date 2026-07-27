@@ -185,7 +185,11 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// by cwd, and the adapter looks the session up by this same
 	// workdir, so the two MUST agree (the claude/agy M4 paths do the
 	// same).
-	cmd = fmt.Sprintf("cd %s && %s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), cmd)
+	setupPrefix, _, serr := setupScriptPrefix(spec.SetupScript, spec.SetupFailurePolicy, cfg.Spawn.ChildID)
+	if serr != nil {
+		return nil, fmt.Errorf("kimi wire-tail M4: setup script: %w", serr)
+	}
+	cmd = fmt.Sprintf("cd %s && %s%s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), setupPrefix, cmd)
 
 	// Everything fallible is behind us. Launch the pane, then start the
 	// driver; adapter.Start is async (resolver + tails spin up in the

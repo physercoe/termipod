@@ -28,8 +28,9 @@ func TestDoSpawn_EnvProfile_MaterializedIntoSpec(t *testing.T) {
 	ctx := context.Background()
 
 	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
-		Name:    "gpu",
-		EnvVars: map[string]string{"HF_HOME": "/data/hf", "CUDA_VISIBLE_DEVICES": "0"},
+		Name:        "gpu",
+		EnvVars:     map[string]string{"HF_HOME": "/data/hf", "CUDA_VISIBLE_DEVICES": "0"},
+		SetupScript: "pip install -r requirements.txt",
 		// secret_refs present → should spawn (with a warning), not fail.
 		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
 	})
@@ -57,6 +58,12 @@ func TestDoSpawn_EnvProfile_MaterializedIntoSpec(t *testing.T) {
 	}
 	if parsed.EnvVars["HF_HOME"] != "/data/hf" || parsed.EnvVars["CUDA_VISIBLE_DEVICES"] != "0" {
 		t.Fatalf("env_vars not materialized: %v", parsed.EnvVars)
+	}
+	if parsed.SetupScript != "pip install -r requirements.txt" {
+		t.Fatalf("setup_script not materialized: %q", parsed.SetupScript)
+	}
+	if parsed.SetupFailurePolicy != "fail" {
+		t.Fatalf("setup_failure_policy should default to fail, got %q", parsed.SetupFailurePolicy)
 	}
 	if parsed.Backend.Cmd != "echo test" {
 		t.Fatalf("existing backend.cmd clobbered: %q", parsed.Backend.Cmd)

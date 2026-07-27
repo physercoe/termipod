@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-24)
+> **Status:** Current (2026-07-27)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.724.335-alpha
+> **Last verified vs code:** 2026.727.206-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -38,6 +38,45 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## 2026.727.206-alpha — 2026-07-27
+
+**Fleet updates work from mobile again, with live progress.** The
+release-lane split had left the Admin pane's "Update" buttons resolving an
+empty release channel as `stable`, which matched nothing now that every
+hub/host release is a prerelease — so every update attempt failed. The
+`host.update` verb also blocked for the whole tarball fetch (no progress,
+and a slow link could trip a false ack-timeout failure). Fixed in #380
+(with a follow-up watchdog fix in #382). Hub-side changes take effect when
+the hub binary is redeployed; the mobile app ships in this release.
+
+### Added
+- **Admin update progress.** A host-update in flight now renders a live
+  status line on the host card — a determinate bar (`Downloading update —
+  4.2 / 17.1 MB`) → `Installing — host will restart…` → done / error —
+  polled every 2s from a new owner-scope hub endpoint
+  (`GET /v1/admin/hosts/{host}/update-progress`, fed by the host-runner via
+  `POST …/update-progress`). Single-host and fleet updates both tracked.
+  (#380)
+
+### Fixed
+- **Admin "Update" buttons resolve the alpha lane again.** An empty update
+  channel now normalizes to `alpha` hub-side (`normalizeUpdateChannel`), so
+  the mobile buttons — which send no channel — resolve the prerelease lanes
+  instead of failing with "no stable host-v* release"; an explicit `stable`
+  keeps its strict semantics. (#380)
+- **`host.update` acks after resolve, downloads in the background.** The
+  verb resolves the release synchronously (cheap dry-run) and acks with
+  from/to versions, then downloads + SHA256-verifies + installs on a
+  background goroutine — so a slow-but-healthy download can't trip the 180s
+  ack window into a false failure. Asset downloads also lost the 120s
+  whole-body cap that made slow links unwinnable (a dedicated download
+  client keeps only a 30s response-header timeout; ctx governs). (#380)
+- **Update-progress watchdog measures silence, not total elapsed.** A
+  healthy slow download (the host allows up to 60min) is no longer falsely
+  marked "No progress reported — check host logs" at the 15-minute mark;
+  the watchdog now fires only after 15 minutes of *silence* since the last
+  sample. (#382)
 
 ## 2026.724.335-alpha — 2026-07-24
 

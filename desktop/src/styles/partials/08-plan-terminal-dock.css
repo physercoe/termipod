@@ -949,6 +949,12 @@
   border-bottom: 1px solid var(--border);
   flex: none;
 }
+/* The dismiss button sits flush-right (via the .spacer) without growing the
+   strip's height. */
+.web-panel-notice-close {
+  flex: none;
+  margin: -2px 0;
+}
 .web-panel-guest {
   flex: 1;
   min-width: 0;

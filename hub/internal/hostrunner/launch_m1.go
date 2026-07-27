@@ -140,7 +140,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 			return M1LaunchResult{}, fmt.Errorf("mkdir workdir %q: %w", expanded, err)
 		}
 		expandedWorkdir = expanded
-		command = fmt.Sprintf("cd %s && %s", shellEscape(expanded), command)
+		command = fmt.Sprintf("cd %s && %s%s", shellEscape(expanded), envExportPrefix(spec.EnvVars), command)
 	}
 
 	if len(spec.ContextFiles) > 0 {

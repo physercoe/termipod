@@ -68,6 +68,20 @@ type SpawnSpec struct {
 	// --conversation similarly via spliceAntigravityResume.
 	ResumeSessionID string `yaml:"resume_session_id"`
 
+	// EnvProfileID is the id of the env_profiles row the hub materialized
+	// into this spec (env-profiles plan, E1). Provenance only — the resolved
+	// values below are the snapshot host-runner actually applies, so a later
+	// edit to the profile never mutates a running agent's environment.
+	EnvProfileID string `yaml:"env_profile_id"`
+
+	// EnvVars are plain KEY=value pairs the hub copied from the attached env
+	// profile. They are exported into the launch shell (before the agent cmd)
+	// so the agent process sees them. Keys are POSIX env-var names, validated
+	// hub-side; envExportPrefix re-checks defensively before it builds the
+	// `export` clause. Secrets never ride here — vault-backed values arrive as
+	// a sealed host-key envelope in E3.
+	EnvVars map[string]string `yaml:"env_vars"`
+
 	// AuthMethod is the steward-template-declared override for the ACP
 	// `authenticate` method id (ADR-021 D3 / W1.4). Empty falls through
 	// to the family default (Family.DefaultAuthMethod) and finally to

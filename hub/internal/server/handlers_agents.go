@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -701,9 +702,15 @@ type spawnIn struct {
 	// canonical site every template + mobile sheet writes to). This
 	// body field is a precedence-low fallback for callers that build
 	// the YAML elsewhere and want to pass the binding out-of-band.
-	ProjectID string          `json:"project_id,omitempty"`
-	SpawnSpec string          `json:"spawn_spec_yaml"`
-	Authority json.RawMessage `json:"spawn_authority,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	// EnvProfileID attaches a team env_profiles row (env-profiles plan, E1).
+	// DoSpawn resolves it and materializes the profile's plain env_vars into
+	// the rendered spawn_spec_yaml (snapshot semantics) so host-runner exports
+	// them before the agent cmd. secret_refs are NOT consumed yet (E3) — a
+	// referenced profile carrying them spawns with a loud warning log.
+	EnvProfileID string          `json:"env_profile_id,omitempty"`
+	SpawnSpec    string          `json:"spawn_spec_yaml"`
+	Authority    json.RawMessage `json:"spawn_authority,omitempty"`
 	// LegacyTaskJSON is the pre-ADR-029 orchestrator-worker handoff blob
 	// that lands in `agent_spawns.task_json`. No caller populates it today
 	// (mcp_orchestrate uses its own DoSpawn shape). Kept on the struct so
@@ -1301,6 +1308,27 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusBadRequest, err
 	}
 	in.SpawnSpec = rendered
+
+	// Materialize an attached env profile into the rendered spec (env-profiles
+	// plan E1): the profile's plain env_vars + a provenance id are copied in
+	// as a snapshot so host-runner exports them before the agent cmd. env_vars
+	// are hub-visible (blueprint §4); secret_refs are NOT applied yet (E3) — a
+	// referenced profile that carries them spawns with a loud warning.
+	if in.EnvProfileID != "" {
+		prof, perr := s.getEnvProfileByID(ctx, team, in.EnvProfileID)
+		if errors.Is(perr, sql.ErrNoRows) {
+			return spawnOut{}, http.StatusBadRequest,
+				fmt.Errorf("env_profile_id %q not found", in.EnvProfileID)
+		}
+		if perr != nil {
+			return spawnOut{}, http.StatusInternalServerError, perr
+		}
+		if len(prof.SecretRefs) > 0 && s.log != nil {
+			s.log.Warn("env profile secret_refs not applied at spawn (E3 pending)",
+				"env_profile_id", in.EnvProfileID, "secret_ref_count", len(prof.SecretRefs))
+		}
+		in.SpawnSpec = materializeEnvProfile(in.SpawnSpec, in.EnvProfileID, prof.EnvVars)
+	}
 
 	// Resolve the driving mode before we open the tx so a 400 exits
 	// without a rollback. Empty mode is legal (opt-in): DoSpawn stores

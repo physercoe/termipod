@@ -248,7 +248,7 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 			return M2LaunchResult{}, fmt.Errorf("mkdir workdir %q: %w", expanded, err)
 		}
 		expandedWorkdir = expanded
-		command = fmt.Sprintf("cd %s && %s", shellEscape(expanded), command)
+		command = fmt.Sprintf("cd %s && %s%s", shellEscape(expanded), envExportPrefix(spec.EnvVars), command)
 	}
 
 	// Materialize context_files (CLAUDE.md, etc.) into the workdir so
@@ -348,6 +348,10 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		// into trust for it explicitly. Prepended to os.Environ() so a
 		// host-runner-level override (operator unsetting it) still wins.
 		geminiEnv := append([]string{"GEMINI_CLI_TRUST_WORKSPACE=true"}, os.Environ()...)
+		// Env-profile vars go LAST so they win over ambient host env, matching
+		// the `export …` precedence on the shared shell path (env-profiles E1).
+		// exec.Cmd.Env resolves duplicate keys to the last entry.
+		geminiEnv = append(geminiEnv, envKVList(spec.EnvVars)...)
 		drv := &ExecResumeDriver{
 			AgentID:        cfg.Spawn.ChildID,
 			Handle:         cfg.Spawn.Handle,

@@ -214,7 +214,7 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 	// agree. M1/M2 launch paths do the same (launch_m2.go); the M4
 	// LocalLogTail path leaves cwd to the template, but agy can't tolerate
 	// that ambiguity.
-	cmd = fmt.Sprintf("cd %s && %s", shellEscape(workdir), cmd)
+	cmd = fmt.Sprintf("cd %s && %s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), cmd)
 	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("antigravity M4: tmux launch: %w", err)

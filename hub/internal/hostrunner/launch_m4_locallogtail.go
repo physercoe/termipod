@@ -301,7 +301,7 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// prefix claude lands in the host-runner's cwd and writes its JSONL
 	// somewhere the adapter's pathresolver never looks → the tail wait
 	// stalls → "M4 LocalLogTail launch failed".
-	cmd = fmt.Sprintf("cd %s && %s", shellEscape(workdir), cmd)
+	cmd = fmt.Sprintf("cd %s && %s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), cmd)
 	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
 	if err != nil {
 		return nil, gatewayTeardown(gwCleanup, fmt.Errorf("locallogtail M4: tmux launch: %w", err))

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon, type IconName } from '../ui/Icon';
+import { useContextMenu, type MenuItem } from '../ui/ContextMenu';
 import { kindForInspectFile } from '../state/inspect';
 import { useInspectRoots, type InspectRoot } from '../state/inspectRoots';
 import { foldHubDocs, nodeMatches, type TreeNode } from '../state/inspectTree';
@@ -372,6 +373,35 @@ export function InspectTree({
     if (expanded.has(ck(root.id, key))) loadDir(root, key);
   }
 
+  // Refresh / collapse every root at once — the panel-level (blank-space) menu.
+  function refreshAll(): void {
+    for (const r of roots) refreshRoot(r);
+  }
+  function collapseAll(): void {
+    setExpanded(new Set());
+  }
+
+  // Right-click actions moved off the (jumpy) hover row into a context menu:
+  // the root row surfaces its own actions, the blank body surfaces panel actions.
+  const menu = useContextMenu();
+  function rootMenu(root: InspectRoot): MenuItem[] {
+    const info = gitInfos[root.id];
+    const items: MenuItem[] = [];
+    if (info?.isRepo === true && info.dirty > 0) items.push({ label: t('inspect.diffWorkingTree'), onClick: () => diffWorkingTree(root) });
+    items.push({ label: t('inspect.rename'), onClick: () => setRenaming(root.id) });
+    items.push({ label: t('inspect.refresh'), onClick: () => refreshRoot(root) });
+    if (root.path !== undefined) items.push({ label: t('inspect.copyPath'), onClick: () => void navigator.clipboard.writeText(root.path ?? '').catch(() => undefined) });
+    items.push({ label: t('inspect.remove'), danger: true, onClick: () => (dropRootCaches(root), removeRoot(root.id)) });
+    return items;
+  }
+  function panelMenu(): MenuItem[] {
+    return [
+      { label: t('inspect.addFolder'), onClick: onAddFolder },
+      { label: t('inspect.refreshAll'), disabled: roots.length === 0, onClick: refreshAll },
+      { label: t('inspect.collapseAll'), disabled: roots.length === 0, onClick: collapseAll },
+    ];
+  }
+
   function buildIndex(root: InspectRoot): void {
     if (root.source !== 'local' || root.path === undefined || indexes[root.id] !== undefined || indexBusy.has(root.id)) return;
     setIndexBusy((s) => new Set(s).add(root.id));
@@ -436,7 +466,7 @@ export function InspectTree({
           <Icon name="sidebar" size={14} />
         </button>
       </div>
-      <div className="inspect-tree-body">
+      <div className="inspect-tree-body" onContextMenu={(e) => menu.open(e, panelMenu())}>
         {roots.map((root) => {
           const q = (filters[root.id] ?? '').trim().toLowerCase();
           const key = rootKey(root);
@@ -452,7 +482,13 @@ export function InspectTree({
           };
           return (
             <div key={root.id} className="inspect-tree-root">
-              <div className="inspect-tree-rootrow">
+              <div
+                className="inspect-tree-rootrow"
+                onContextMenu={(e) => {
+                  e.stopPropagation(); // don't also open the panel (blank-space) menu
+                  menu.open(e, rootMenu(root));
+                }}
+              >
                 <button className="inspect-tree-roottoggle" onClick={() => toggleDir(root, key)} title={root.path ?? root.label}>
                   <Icon name={expanded.has(ck(root.id, key)) ? 'chevron-down' : 'chevron-right'} size={12} />
                   <Icon name={sourceIcon(root.source)} size={13} />
@@ -483,22 +519,6 @@ export function InspectTree({
                     {gitInfos[root.id].dirty > 0 && <span className="inspect-tree-git-dirty">●{gitInfos[root.id].dirty}</span>}
                   </span>
                 )}
-                <div className="inspect-tree-rootactions">
-                  {gitInfos[root.id]?.isRepo === true && gitInfos[root.id].dirty > 0 && (
-                    <button className="icon-btn sm" title={t('inspect.diffWorkingTree')} onClick={() => diffWorkingTree(root)}>
-                      <Icon name="git-compare" size={12} />
-                    </button>
-                  )}
-                  <button className="icon-btn sm" title={t('inspect.rename')} onClick={() => setRenaming(root.id)}>
-                    <Icon name="pen" size={12} />
-                  </button>
-                  <button className="icon-btn sm" title={t('inspect.refresh')} onClick={() => refreshRoot(root)}>
-                    <Icon name="refresh" size={12} />
-                  </button>
-                  <button className="icon-btn sm" title={t('inspect.remove')} onClick={() => (dropRootCaches(root), removeRoot(root.id))}>
-                    <Icon name="close" size={12} />
-                  </button>
-                </div>
               </div>
               {gitMsgs[root.id] !== undefined && (
                 <div className="inspect-tree-msg err" style={{ paddingLeft: '8px' }}>
@@ -532,6 +552,7 @@ export function InspectTree({
         })}
         {roots.length === 0 && <div className="inspect-tree-msg muted" style={{ paddingLeft: '8px' }}>{t('inspect.noRoots')}</div>}
       </div>
+      {menu.node}
     </aside>
   );
 }

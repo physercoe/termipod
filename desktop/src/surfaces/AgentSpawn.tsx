@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useHubAction } from '../hub/action';
-import { useHosts, useProjects } from '../hub/queries';
+import { useEnvProfiles, useHosts, useProjects } from '../hub/queries';
 import { arr, str } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
@@ -42,14 +42,17 @@ export function AgentSpawn({
   const { run, busy, error } = useHubAction();
   const hostsQ = useHosts();
   const projectsQ = useProjects();
+  const envProfilesQ = useEnvProfiles();
   const hosts = hostsQ.data ?? [];
   const projects = projectsQ.data ?? [];
+  const envProfiles = envProfilesQ.data ?? [];
 
   const [handle, setHandle] = useState('');
   const [engine, setEngine] = useState('claude-code');
   const [mode, setMode] = useState('');
   const [hostId, setHostId] = useState('');
   const [projectId, setProjectId] = useState(presetProjectId ?? '');
+  const [envProfileId, setEnvProfileId] = useState('');
   const [task, setTask] = useState('');
   const [pending, setPending] = useState(false);
 
@@ -82,6 +85,7 @@ export function AgentSpawn({
           host_id: effectiveHost,
           project_id: projectId !== '' ? projectId : undefined,
           mode: effectiveMode !== '' ? effectiveMode : undefined,
+          env_profile_id: envProfileId !== '' ? envProfileId : undefined,
           // task_id and the inline task are mutually exclusive hub-side. In
           // assign mode we link the existing task; otherwise the free-text
           // field mints a new one.
@@ -153,6 +157,22 @@ export function AgentSpawn({
               })}
             </select>
           </label>
+          {envProfiles.length > 0 && (
+            <label>
+              {t('spawn.envProfile')}
+              <select value={envProfileId} onChange={(e) => setEnvProfileId(e.target.value)}>
+                <option value="">{t('spawn.envProfileInherit')}</option>
+                {envProfiles.map((p) => {
+                  const id = str(p, 'id') ?? '';
+                  return (
+                    <option key={id} value={id}>
+                      {str(p, 'name') ?? id}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+          )}
           {assignMode ? (
             /* Project is fixed to the task's project; the task is the one being
                assigned — shown read-only, not authored here. */

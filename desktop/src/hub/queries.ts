@@ -35,6 +35,18 @@ export function useProjects(): UseQueryResult<Entity[]> {
   });
 }
 
+/// Team environment profiles (env-profiles plan) — the reusable
+/// {setup_script + env_vars + secret_refs + net_policy} bundles a spawn attaches.
+/// Feeds the spawn-sheet picker and (E2b-2) the management surface.
+export function useEnvProfiles(): UseQueryResult<Entity[]> {
+  const client = useSession((s) => s.client);
+  return useQuery({
+    queryKey: ['env-profiles', client?.transport.teamId],
+    enabled: client !== null,
+    queryFn: () => client!.listEnvProfiles(),
+  });
+}
+
 /// Team-scope insights — ONE call feeds the whole Projects nav with each
 /// project's phase-weighted progress, open-AC count, phase, and open-attention
 /// rollup (`by_project[]`, populated only on team scope — `handlers_insights.go`).

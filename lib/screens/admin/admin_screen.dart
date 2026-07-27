@@ -53,8 +53,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
 
   /// Latest self-update progress per host id, seeded by [_trackUpdate]
   /// when this screen fires an update and refreshed by the 2s poller
-  /// until the sample turns terminal (done | error). `started_ms` is a
-  /// local-only watchdog timestamp merged into each entry.
+  /// until the sample turns terminal (done | error). `activity_ms` is a
+  /// local-only silence-watchdog timestamp merged into each entry.
   final Map<String, Map<String, dynamic>> _updateProgress = {};
   Timer? _updatePollTimer;
 
@@ -156,11 +156,17 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   /// Marks [hostId] as updating (a "starting" placeholder until the
   /// host's first sample lands) and starts the 2s poller so the host
   /// card shows the hub-reported download state instead of nothing.
+  ///
+  /// `activity_ms` is the watchdog anchor: the last time this host showed
+  /// life (update start, then refreshed on every fresh sample). The
+  /// watchdog fires on *silence* since that moment, never on total
+  /// duration — a slow-but-live download that legitimately runs past the
+  /// window (the host allows 60min) keeps posting and stays alive.
   void _trackUpdate(String hostId) {
     if (hostId.isEmpty) return;
     _updateProgress[hostId] = {
       'phase': 'starting',
-      'started_ms': DateTime.now().millisecondsSinceEpoch,
+      'activity_ms': DateTime.now().millisecondsSinceEpoch,
     };
     _updatePollTimer ??= Timer.periodic(
       const Duration(seconds: 2),
@@ -171,8 +177,11 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
   /// One poll round over every non-terminal tracked host. Terminal
   /// samples (done | error) stop that host's polling but stay rendered
   /// until the next update overwrites them; the timer stops when nothing
-  /// is active. A 15-minute watchdog ends hosts that went silent — a
-  /// host that dies mid-download never posts its error sample.
+  /// is active. A 15-minute *silence* watchdog ends hosts that stopped
+  /// reporting — a host that dies mid-download never posts its error
+  /// sample — while a slow-but-live download that keeps posting samples
+  /// refreshes the anchor and is never cut off (the host itself allows
+  /// up to 60min).
   Future<void> _pollUpdateProgress() async {
     final client = _client;
     if (client == null || !mounted) return;
@@ -184,9 +193,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       final cur = _updateProgress[id]!;
       final phase = cur['phase'] as String? ?? '';
       if (phase == 'done' || phase == 'error') continue;
-      final startedMs = cur['started_ms'] as int? ?? 0;
-      final elapsed = DateTime.now().millisecondsSinceEpoch - startedMs;
-      if (elapsed > 15 * 60 * 1000) {
+      final activityMs = cur['activity_ms'] as int? ?? 0;
+      final silence = DateTime.now().millisecondsSinceEpoch - activityMs;
+      if (silence > 15 * 60 * 1000) {
         setState(() => _updateProgress[id] = {
               'phase': 'error',
               'error': l10n.adminUpdateNoProgress(hostLower),
@@ -199,7 +208,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
         if (!mounted) return;
         final serverPhase = p['phase'] as String? ?? 'idle';
         if (serverPhase == 'idle') continue; // no host sample yet
-        p['started_ms'] = startedMs;
+        // A fresh sample is a sign of life — reset the silence watchdog.
+        p['activity_ms'] = DateTime.now().millisecondsSinceEpoch;
         setState(() => _updateProgress[id] = p);
       } catch (_) {
         // Transient (hub bouncing for its own update, network blip) —

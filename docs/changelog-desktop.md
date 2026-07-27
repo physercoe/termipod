@@ -1,9 +1,9 @@
 # Desktop Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-24)
+> **Status:** Current (2026-07-27)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.724.405 / electron-v2026.724.405-alpha
+> **Last verified vs code:** desktop 2026.727.206 / electron-v2026.727.206-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -39,7 +39,12 @@ This complements:
 
 ---
 
-## Unreleased
+## 2026.727.206 — 2026-07-27
+
+**Inspect round 3 — project trees.** The Inspect tab graduates from opening
+single files to browsing whole projects across six source kinds, with a
+content-search + read-only git lens and a config-only architecture/params
+view. `electron-v2026.727.206-alpha` (unsigned alpha channel).
 
 ### Added
 

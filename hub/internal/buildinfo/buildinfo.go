@@ -13,7 +13,7 @@ import (
 // mobile and hub use the same x.y.z-alpha numbering. Use
 // `make bump VERSION=...` from the repo root to update both files
 // atomically.
-const Version = "2026.724.335-alpha"
+const Version = "2026.727.206-alpha"
 
 var (
 	Commit    string

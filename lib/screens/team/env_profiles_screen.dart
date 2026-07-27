@@ -5,6 +5,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/tokens.dart';
 
 /// Team environment-profile manager (env-profiles plan, E2c-2). List +
 /// create/edit/delete over the hub REST surface; the spawn sheet's picker
@@ -165,7 +166,7 @@ class _EnvProfilesScreenState extends ConsumerState<EnvProfilesScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, Spacing.s24 * 4),
         itemCount: _rows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (_, i) {
@@ -317,7 +318,7 @@ class _EnvProfileEditScreenState extends ConsumerState<_EnvProfileEditScreen> {
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, Spacing.s24 * 4),
         children: [
           TextField(
             controller: _nameCtl,

@@ -983,14 +983,6 @@ button > .ui-icon:not(:only-child):first-child,
   color: var(--accent);
   flex: 0 0 auto;
 }
-.inspect-tree-rootactions {
-  display: none;
-  gap: 2px;
-  flex: 0 0 auto;
-}
-.inspect-tree-rootrow:hover .inspect-tree-rootactions {
-  display: flex;
-}
 .inspect-tree-rename {
   flex: 1;
   min-width: 0;

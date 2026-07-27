@@ -16,8 +16,25 @@
 /// Inert under Tauri (which keeps its custom-menu-everywhere model — a native
 /// menu there would double up) and in the browser build.
 import { invoke, shellKind } from './bridge';
-import { tStatic } from './i18n';
+import { tStatic, useLang } from './i18n';
 import { svgElementToPngDataUrl } from './ui/rasterizeSvg';
+
+/// Push the localized labels for the `<webview>` guest context menu to the main
+/// process. A guest's right-click fires its `context-menu` in main (never in
+/// the host DOM this module listens on), so that menu is built main-side and
+/// can't read the renderer i18n — it needs the labels from here. Called at boot
+/// and re-pushed on every language change (the labels are cached main-side).
+function syncGuestMenuLabels(): void {
+  void invoke('webtab_set_menu_labels', {
+    openLink: tStatic('ctx.openLink'),
+    copyLink: tStatic('ctx.copyLink'),
+    copyImage: tStatic('common.copyImage'),
+    cut: tStatic('ctx.cut'),
+    copy: tStatic('ctx.copy'),
+    paste: tStatic('ctx.paste'),
+    selectAll: tStatic('ctx.selectAll'),
+  }).catch(() => undefined);
+}
 
 function editableHost(el: EventTarget | null): boolean {
   const node = el as Element | null;
@@ -38,6 +55,10 @@ function hasSelection(el: EventTarget | null): boolean {
 
 export function installNativeContextMenu(): void {
   if (shellKind() !== 'electron') return;
+  // Prime the guest-webview menu labels (kimiweb + Read web tab) and keep them
+  // fresh across language switches.
+  syncGuestMenuLabels();
+  useLang.subscribe(syncGuestMenuLabels);
   window.addEventListener('contextmenu', (e) => {
     if (e.defaultPrevented) return; // a component's own menu already handled it
     const el = e.target as Element | null;

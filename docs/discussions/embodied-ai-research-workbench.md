@@ -201,14 +201,26 @@ the scheduler.
 
 1. **Rerun-over-A2A relay** — gRPC/WebSocket bridging a NAT'd GPU box's Rerun sink
    to the desktop; latency + auth through the existing tunnel.
+   *→ Deferred (2026-07-27): the J8 Replay plan's Rerun companion is
+   `.rrd`-file-first ([replay plan](../plans/replay-datasets-episodes.md) §7),
+   which needs no relay; revisit with live sim streams / the sim-run adapter.*
 2. **Robotics-run digest shape** — how much of the `logs/` tree to normalize vs.
    pointer-and-fetch; checkpoint/video as elements from the start.
+   *→ Resolved (2026-07-27): pointer-and-fetch per the hub-index/host-bytes
+   law — normalize scalars + outcome + refs only; the episode element carries
+   the rest ([replay plan](../plans/replay-datasets-episodes.md) §3,
+   [environments plan](../plans/environments-and-embodiments.md)).*
 3. **Adapter surface** — Isaac Lab first; how generic to make the "simulator run"
    adapter for MuJoCo/ManiSkill later (per-sim adapter vs. a config contract).
 4. **OSMO vs. our own dispatch** — when multi-box sim training arrives, integrate
    OSMO or extend the host-runner adapters directly.
 5. **Pilot scope** — locomotion vs. manipulation vs. VLA as the concrete first
    demo (drives which datasets/sims to wire first).
+   *→ Resolved (2026-07-27): **manipulation with a VLA policy**
+   (SO-100/ALOHA-class tabletop + pi0/smolvla) — LeRobot-native, exercises
+   every J8 wedge (multi-cam, language tasks, eval rollouts), matches the
+   field's 2026 center of gravity and the Inspect policy families (#392);
+   locomotion second.*
 
 ## Related
 

@@ -172,6 +172,15 @@ tab never says "replay" about transcripts and vice versa.
 - **Edges**: `run.dataset_id` (sniffed from run config where present,
   settable), eval run → produced episodes (W5), J6 records → episodes/datasets
   (existing element provenance).
+- **Reserved from day one — `env_ref`** (decision, 2026-07-27): runs,
+  datasets and the episode element carry an opaque string
+  `env_ref = "family:env_id@version"` (nullable, unvalidated). The
+  Environment entity itself is a separate plan
+  ([environments-and-embodiments.md](environments-and-embodiments.md));
+  reserving the field now means provenance accumulates before the registry
+  exists and later *resolves* into rows instead of being backfilled by
+  guesswork. W1 writes it where cheaply derivable (LeRobot `info.json`
+  robot/task hints); everything else leaves it null.
 
 ## 4. W1 — Dataset entity, library rail, episodes table (BUILD, no player yet)
 
@@ -228,10 +237,14 @@ work — don't spend a big chart dep on a cursor-synced strip chart.
 ## 6. W3 — 3D pose panel (EMBED: three.js + `urdf-loader`)
 
 A third pane in the player (toggleable): the robot's articulated pose driven
-by the state/action series at the timeline cursor. URDF source: a per-dataset
-setting (path/URL; LeRobot `info.json` names the robot type — map the common
-ones to bundled URDFs where licensing allows, else user-supplied path
-through the existing roots machinery). Point clouds / scene geometry are
+by the state/action series at the timeline cursor. URDF source (decision,
+2026-07-27): **a manifest, not a bundle** — a registry-row manifest mapping
+LeRobot `robot_type` → known OSS robot descriptions (SO-100/101, ALOHA,
+Koch, Franka…; license checked per entry), fetched + cached through the
+existing forge machinery (GitHub roots), user-supplied path as fallback.
+Bundling would bloat installers and freeze licensing; the manifest is also
+the **embodiment registry's first form**
+([environments-and-embodiments.md](environments-and-embodiments.md) E1). Point clouds / scene geometry are
 **out of round 1** (formats vary too much; Rerun companion covers them, §7).
 This is the landscape's "reference base" EMBED and the first deep-embedded
 3D primitive the design system gains — keep it a self-contained panel
@@ -316,22 +329,40 @@ UI + tests) before the next.
   in round 1.
 - J5 multi-seed video grid (on W2's sync primitive).
 
-## 11. Open questions
+## 11. Decisions (2026-07-27 — resolved from the draft's open questions)
 
-1. **Video path for v3.0 chunked mp4s** — byte-range slicing vs. host-side
-   remux per episode; decide on real files at W2 (range math from episode
-   offsets is the risk).
-2. **URDF sourcing** — bundle the common OSS robot descriptions (SO-100,
-   ALOHA, Franka…) vs. always user-supplied; licensing check per model.
-3. **Rerun exporter shape** — depend on LeRobot's visualize path (Python on
-   host) vs. a minimal Go/rust `.rrd` writer; version lock-step management.
-4. **Dataset digest refresh trigger** — manual-only vs. on-open staleness
-   check (mtime of `meta/`); start manual (`Refresh` action), revisit.
-5. **Tab icon/position** — after J6 Record or grouped with J5 Compare
-   (analysis cluster)? Cosmetic; director's call at implementation.
+1. **v3.0 video path — host-side per-episode extraction with a capped LRU
+   cache, not client byte-range slicing.** Raw ranges into a concatenated
+   mp4 aren't playable at arbitrary episode boundaries (`<video>` needs a
+   valid container; seeking needs keyframe alignment). `ffmpeg -ss/-to -c
+   copy` is near-free when episodes start on keyframes — **verify on real
+   v3 files at W2**; if they don't, re-encode the head GOP only. Keeps the
+   privileged Electron media protocol dumb (serve a local file with
+   ranges). Recorded fallback: MSE/fMP4 remux in the renderer.
+2. **URDF sourcing — manifest, not bundle** (folded into §6; seeds the
+   embodiment registry).
+3. **Rerun exporter — INTEGRATE LeRobot's own Python/rerun path; no
+   bespoke `.rrd` writer.** A custom writer inherits the SDK↔viewer
+   lock-step problem the deep survey warned about, doubled (tracking
+   rerun's format AND LeRobot's internals). Host-side pinned venv/uvx with
+   one recorded `(lerobot, rerun-sdk)` version pair; the `rerunweb` panel
+   loads the matching viewer. Exporter missing → soft-degrade notice (the
+   #394 missing-kimi-binary pattern).
+4. **Digest refresh — manual, with a one-syscall staleness indicator.**
+   Store `meta/` mtime+hash at fold time; on open, a stat-only check
+   drives "digest may be stale — Refresh". No auto-refresh (no-surprise-
+   scans posture; v3 parquet refolds aren't free). Same honesty pattern as
+   RunReportCard's "as of ts · live".
+5. **Tab position — between J5 Compare and J6 Record.** The rail reads as
+   the lifecycle: Read/Author → Inspect → Canvas → Compare (runs) →
+   **Replay** (episodes) → Record (conclusions); the two analysis jobs sit
+   adjacent. Director may override at implementation (cosmetic).
 
 ## Related
 
+- [environments-and-embodiments.md](environments-and-embodiments.md) — the
+  Environment/Site entity + embodiment registry this plan reserves fields
+  for (`env_ref`, §3; URDF manifest, §6).
 - [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
   — pilot directive, viewer postures, register (§8).
 - [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)

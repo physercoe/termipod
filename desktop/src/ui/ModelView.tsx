@@ -14,6 +14,8 @@ import {
   TEMPLATE_LABEL,
   type ArchCard,
   type CheckpointInfo,
+  type PolicyCard,
+  type PolicyFeature,
   type TensorInfo,
   type TreeNode,
 } from '../state/checkpoint';
@@ -239,6 +241,145 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
             <ArchSchematicView schematic={schematic} config={config} card={card} />
           </Suspense>
         </div>
+      )}
+
+      {pane === 'source' && (
+        <div className="modelview-pane-body">
+          <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+            <CodeView value={raw} filename="config.json" />
+          </Suspense>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── LeRobot policy config view (VLA / robot policies) ──────────────────────────
+// A policy config describes sensor I/O + a NAMED backbone, not inlined weights —
+// so there's no param/VRAM/FLOPS to derive here (those need the backbone's own
+// config). We show what the config honestly carries: inputs, outputs, action
+// horizon, the referenced backbone(s), and any head dims it does inline.
+
+// Camera shape `[C, H, W]` → `H×W`; a state/action `[D]` → `D`. Robust to odd ranks.
+function featureShape(f: PolicyFeature): string {
+  if (f.shape.length >= 2) return f.shape.slice(-2).join('×');
+  if (f.shape.length === 1) return `${f.shape[0]}`;
+  return '—';
+}
+// `observation.images.top` → `top`; `observation.state` → `state`.
+function featureShort(key: string): string {
+  const segs = key.split('.');
+  return segs[segs.length - 1] || key;
+}
+
+function PolicyCardView({ card }: { card: PolicyCard }): JSX.Element {
+  const t = useT();
+  const row = (label: string, value: string): JSX.Element => (
+    <div className="modelview-field" key={label + value}>
+      <span className="modelview-field-l small muted">{label}</span>
+      <span className="modelview-field-v">{value}</span>
+    </div>
+  );
+  return (
+    <div className="modelview-card modelview-policy">
+      <div className="modelview-card-head">
+        <span className="modelview-family">{card.family}</span>
+        <span className="modelview-template">{card.type}</span>
+        <span className="spacer" />
+        <span className="modelview-prov config" title={t('model.provNote')}>
+          {t('model.provConfig')}
+        </span>
+      </div>
+
+      {(card.cameras.length > 0 || card.states.length > 0) && (
+        <div className="modelview-policy-sec">
+          <span className="modelview-policy-h small muted">{t('model.policyInputs')}</span>
+          <div className="modelview-fields">
+            {card.cameras.map((c) => row(`📷 ${featureShort(c.key)}`, featureShape(c)))}
+            {card.states.map((s) => row(`▦ ${featureShort(s.key)}`, `${featureShape(s)} ${t('model.policyStateUnit')}`))}
+          </div>
+        </div>
+      )}
+
+      {card.actions.length > 0 && (
+        <div className="modelview-policy-sec">
+          <span className="modelview-policy-h small muted">{t('model.policyOutputs')}</span>
+          <div className="modelview-fields">{card.actions.map((a) => row(`➜ ${featureShort(a.key)}`, `${featureShape(a)} ${t('model.policyActionUnit')}`))}</div>
+        </div>
+      )}
+
+      {(card.chunkSize !== undefined || card.nActionSteps !== undefined || card.nObsSteps !== undefined) && (
+        <div className="modelview-policy-sec">
+          <span className="modelview-policy-h small muted">{t('model.policyHorizon')}</span>
+          <div className="modelview-fields">
+            <Field label={t('model.policyChunk')} value={card.chunkSize} />
+            <Field label={t('model.policyActionSteps')} value={card.nActionSteps} />
+            <Field label={t('model.policyObsSteps')} value={card.nObsSteps} />
+          </div>
+        </div>
+      )}
+
+      {card.backbones.length > 0 && (
+        <div className="modelview-policy-sec">
+          <span className="modelview-policy-h small muted">{t('model.policyBackbone')}</span>
+          <div className="modelview-fields">{card.backbones.map((b) => row(b.role, b.name))}</div>
+        </div>
+      )}
+
+      {card.dims.length > 0 && (
+        <div className="modelview-policy-sec">
+          <span className="modelview-policy-h small muted">{t('model.policyDims')}</span>
+          <div className="modelview-fields">{card.dims.map((d) => row(d.label, d.value))}</div>
+        </div>
+      )}
+
+      {card.chips.length > 0 && (
+        <div className="modelview-chips">
+          {card.chips.map((c) => (
+            <span key={c} className="modelview-chip">
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// The config-only view for a LeRobot policy config. Same 3-pane shell as
+/// `ConfigArchView` but no arch/VRAM/FLOPS panes (not derivable) — just the
+/// policy card and the raw source.
+export function PolicyConfigView({ tab, card }: { tab: InspectTab; card: PolicyCard }): JSX.Element {
+  const t = useT();
+  const [pane, setPane] = useState<'params' | 'source'>('params');
+  const rawContent = useInspect((s) => s.content[tab.id]);
+  const raw = rawContent ?? '';
+
+  return (
+    <div className="modelview">
+      <div className="modelview-summary">
+        <span className="modelview-fmt">policy</span>
+        <span className="modelview-stat">
+          <span className="modelview-stat-v">{card.family}</span> <span className="small muted">{t('model.policyKind')}</span>
+        </span>
+        <span className="spacer" />
+        <div className="modelview-panes" role="tablist">
+          <button className={`modelview-pane-btn${pane === 'params' ? ' on' : ''}`} role="tab" aria-selected={pane === 'params'} onClick={() => setPane('params')}>
+            <Icon name="sliders" size={13} /> {t('model.paneParams')}
+          </button>
+          <button className={`modelview-pane-btn${pane === 'source' ? ' on' : ''}`} role="tab" aria-selected={pane === 'source'} onClick={() => setPane('source')}>
+            <Icon name="code" size={13} /> {t('model.paneSource')}
+          </button>
+        </div>
+      </div>
+
+      {pane === 'params' && (
+        <>
+          <PolicyCardView card={card} />
+          <div className="modelview-confignote small muted">
+            <Icon name="alert" size={13} /> {t('model.policyNote')}
+          </div>
+        </>
       )}
 
       {pane === 'source' && (

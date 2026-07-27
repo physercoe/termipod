@@ -2543,6 +2543,21 @@ button > .ui-icon:not(:only-child):first-child,
   background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   color: var(--text);
 }
+/* LeRobot policy card — sectioned observation/action/backbone rows. */
+.modelview-policy-sec {
+  margin-top: var(--spacing-s12);
+  padding-top: var(--spacing-s8);
+  border-top: 1px solid var(--border);
+}
+.modelview-policy-sec:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.modelview-policy-h {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .modelview-split {
   flex: 1;
   min-height: 0;

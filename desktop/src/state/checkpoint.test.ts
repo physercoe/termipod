@@ -3,7 +3,7 @@
 /// `node --test src/state/checkpoint.test.ts` from `desktop/`. tsc covers types.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree, collapseRepeats, parseHfConfig, classifyArch, estimateParamsFromConfig, normalizeModelConfig, type TensorInfo, type TreeNode } from './checkpoint.ts';
+import { buildTree, collapseRepeats, parseHfConfig, parsePolicyConfig, classifyPolicy, classifyArch, estimateParamsFromConfig, normalizeModelConfig, type TensorInfo, type TreeNode } from './checkpoint.ts';
 
 function tensors(names: Array<[string, number[]]>, dtype = 'F16'): TensorInfo[] {
   return names.map(([name, shape]) => ({ name, dtype, shape, params: shape.reduce((a, b) => a * b, 1) }));
@@ -231,4 +231,84 @@ test('classifyArch: newest model_types map to clean family names', () => {
   // Qwen3.6 dense + MoE (post-normalize the model_type is the inner *_text form)
   assert.equal(fam({ model_type: 'qwen3_5_text', num_hidden_layers: 64, hidden_size: 5120, num_attention_heads: 24, num_key_value_heads: 4 }), 'Qwen3.6');
   assert.equal(fam({ model_type: 'qwen3_5_moe_text', num_hidden_layers: 62, hidden_size: 4096, num_attention_heads: 64, num_experts: 128, num_experts_per_tok: 8, moe_intermediate_size: 1536 }), 'Qwen3.6-MoE');
+});
+
+// ── LeRobot policy configs (VLA / robot policies) — verified vs live HF configs ──
+test('parsePolicyConfig: pi0.5 reads I/O features, horizon, and named backbones', () => {
+  const cfg = {
+    type: 'pi05',
+    input_features: {
+      'observation.images.base_0_rgb': { type: 'VISUAL', shape: [3, 224, 224] },
+      'observation.images.left_wrist_0_rgb': { type: 'VISUAL', shape: [3, 224, 224] },
+      'observation.state': { type: 'STATE', shape: [32] },
+    },
+    output_features: { action: { type: 'ACTION', shape: [32] } },
+    chunk_size: 50,
+    n_action_steps: 50,
+    n_obs_steps: 1,
+    paligemma_variant: 'gemma_2b',
+    action_expert_variant: 'gemma_300m',
+  };
+  const card = parsePolicyConfig(JSON.stringify(cfg))!;
+  assert.equal(card.family, 'π0.5 (Pi0.5)');
+  assert.equal(card.type, 'pi05');
+  assert.equal(card.cameras.length, 2); // two VISUAL inputs
+  assert.equal(card.states.length, 1);
+  assert.deepEqual(card.actions[0].shape, [32]);
+  assert.equal(card.chunkSize, 50);
+  // both named backbones surface with their roles
+  assert.deepEqual(
+    card.backbones.map((b) => b.name).sort(),
+    ['gemma_2b', 'gemma_300m'],
+  );
+  assert.ok(card.chips.includes('VLA') && card.chips.includes('flow-matching'));
+});
+
+test('classifyPolicy: ACT inlines encoder/decoder dims (surfaced as dim rows)', () => {
+  const card = classifyPolicy({
+    type: 'act',
+    input_features: { 'observation.state': { type: 'STATE', shape: [14] } },
+    output_features: { action: { type: 'ACTION', shape: [14] } },
+    dim_model: 512,
+    n_heads: 8,
+    n_encoder_layers: 4,
+    n_decoder_layers: 1,
+    vision_backbone: 'resnet18',
+    use_vae: true,
+  })!;
+  assert.equal(card.family, 'ACT (Action Chunking Transformer)');
+  const dims = Object.fromEntries(card.dims.map((d) => [d.label, d.value]));
+  assert.equal(dims['Model dim'], '512');
+  assert.equal(dims['Encoder layers'], '4');
+  assert.ok(card.chips.includes('action chunking') && card.chips.includes('CVAE'));
+});
+
+test('classifyPolicy: VLA-JEPA reads world-model backbone + head dims', () => {
+  const card = classifyPolicy({
+    type: 'vla_jepa',
+    input_features: { 'observation.images.image': { type: 'VISUAL', shape: [3, 224, 224] } },
+    output_features: { action: { type: 'ACTION', shape: [7] } },
+    qwen_model_name: 'Qwen/Qwen3-VL-2B-Instruct',
+    jepa_encoder_name: 'facebook/vjepa2-vitl-fpc64-256',
+    action_hidden_size: 1024,
+    action_num_layers: 16,
+    enable_world_model: true,
+  })!;
+  assert.ok(card.backbones.some((b) => b.name.includes('Qwen3-VL')));
+  assert.ok(card.backbones.some((b) => b.role === 'World-model encoder'));
+  assert.ok(card.chips.includes('JEPA world-model'));
+});
+
+test('classifyPolicy: a minimal VLA stub that only names a backbone still resolves', () => {
+  // robbyant/lingbot-vla-v2-6b ships literally `{"vlm_family":"qwen3_vl"}`.
+  const card = classifyPolicy({ vlm_family: 'qwen3_vl' })!;
+  assert.equal(card.family, 'VLA policy');
+  assert.deepEqual(card.backbones, [{ role: 'VLM family', name: 'qwen3_vl' }]);
+});
+
+test('parsePolicyConfig: a transformer config is NOT mistaken for a policy', () => {
+  // Has model_type + decoder dims → belongs to parseHfConfig, not the policy path.
+  assert.equal(parsePolicyConfig(JSON.stringify({ model_type: 'llama', num_hidden_layers: 32, hidden_size: 4096, num_attention_heads: 32 })), null);
+  // Random JSON with neither a policy `type`+features nor a backbone key → null.
+  assert.equal(parsePolicyConfig(JSON.stringify({ foo: 1, bar: [1, 2, 3] })), null);
 });

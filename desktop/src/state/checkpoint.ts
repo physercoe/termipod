@@ -291,6 +291,205 @@ export function parseHfConfig(text: string | undefined): Record<string, unknown>
   return null;
 }
 
+// ── LeRobot policy configs (VLA / robot policies) ──────────────────────────────
+// A LeRobot policy `config.json` is a DIFFERENT schema from a transformers
+// config: no `model_type`/`architectures`, no inlined decoder dims. It uses
+// `type` (the policy id) + `input_features`/`output_features` (sensor→action
+// feature specs) and references its vision/language backbone by NAME
+// (`vlm_model_name`, `qwen_model_name`, `paligemma_variant`, …) rather than
+// inlining it. So the transformer arch/VRAM/FLOPS path can't read it — it gets a
+// dedicated **policy card** instead (honest: I/O + named backbone, not weights).
+
+const POLICY_FAMILY: Record<string, string> = {
+  pi0: 'π0 (Pi0)',
+  pi05: 'π0.5 (Pi0.5)',
+  pi0fast: 'π0-FAST',
+  smolvla: 'SmolVLA',
+  vla_jepa: 'VLA-JEPA',
+  xvla: 'X-VLA',
+  x_vla: 'X-VLA',
+  gr00t: 'GR00T',
+  act: 'ACT (Action Chunking Transformer)',
+  diffusion: 'Diffusion Policy',
+  tdmpc: 'TD-MPC',
+  vqbet: 'VQ-BeT',
+  sac: 'SAC',
+  reward_classifier: 'Reward Classifier',
+};
+
+export interface PolicyFeature {
+  /// The LeRobot feature key, e.g. `observation.images.top` or `action`.
+  key: string;
+  /// VISUAL | STATE | ENV | ACTION.
+  ftype: string;
+  /// Tensor shape as declared (`[3, 224, 224]` for a camera, `[7]` for state).
+  shape: number[];
+}
+
+export interface PolicyBackbone {
+  /// What the backbone plays — VLM, vision encoder, action expert, …
+  role: string;
+  /// Its referenced name/variant (`Qwen/Qwen3-VL-2B-Instruct`, `gemma_2b`, …).
+  name: string;
+}
+
+export interface PolicyCard {
+  family: string;
+  /// The raw policy `type` (`pi05`, `smolvla`, …).
+  type: string;
+  cameras: PolicyFeature[];
+  states: PolicyFeature[];
+  actions: PolicyFeature[];
+  chunkSize?: number;
+  nActionSteps?: number;
+  nObsSteps?: number;
+  backbones: PolicyBackbone[];
+  /// Transformer dims the policy DOES inline (ACT's encoder/decoder, VLA-JEPA's
+  /// action head, SmolVLA's expert stack) — shown as raw key/value rows.
+  dims: Array<{ label: string; value: string }>;
+  chips: string[];
+  provenance: 'config';
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// A LeRobot `*_features` dict → typed feature list (keeping only the wanted
+// feature types). Each value is `{ type, shape }`.
+function readFeatures(obj: unknown, want: (t: string) => boolean): PolicyFeature[] {
+  if (!isObj(obj)) return [];
+  const out: PolicyFeature[] = [];
+  for (const [key, v] of Object.entries(obj)) {
+    if (!isObj(v)) continue;
+    const ftype = typeof v.type === 'string' ? v.type : '';
+    const shape = Array.isArray(v.shape) ? (v.shape.filter((n) => typeof n === 'number') as number[]) : [];
+    if (want(ftype)) out.push({ key, ftype, shape });
+  }
+  return out;
+}
+
+// Named backbone references — role + config key. A policy names its heavy
+// components (never inlines them), so this is how we surface "what it's built on".
+const BACKBONE_KEYS: Array<{ key: string; role: string }> = [
+  { key: 'vlm_model_name', role: 'VLM' },
+  { key: 'qwen_model_name', role: 'VLM' },
+  { key: 'paligemma_variant', role: 'VLM (PaliGemma)' },
+  { key: 'action_expert_variant', role: 'Action expert' },
+  { key: 'jepa_encoder_name', role: 'World-model encoder' },
+  { key: 'vision_backbone', role: 'Vision encoder' },
+  { key: 'action_model_type', role: 'Action head' },
+  { key: 'vlm_family', role: 'VLM family' },
+];
+
+function readBackbones(config: Record<string, unknown>): PolicyBackbone[] {
+  const out: PolicyBackbone[] = [];
+  for (const { key, role } of BACKBONE_KEYS) {
+    const v = config[key];
+    if (typeof v === 'string' && v.trim() !== '') out.push({ role, name: v });
+  }
+  return out;
+}
+
+// Transformer/head dims a policy sometimes inlines — surfaced as raw rows when
+// present (absent for a pure "names a backbone" policy).
+const POLICY_DIM_KEYS: Array<{ key: string; label: string }> = [
+  { key: 'dim_model', label: 'Model dim' },
+  { key: 'n_heads', label: 'Attention heads' },
+  { key: 'n_encoder_layers', label: 'Encoder layers' },
+  { key: 'n_decoder_layers', label: 'Decoder layers' },
+  { key: 'dim_feedforward', label: 'FFN dim' },
+  { key: 'num_vlm_layers', label: 'VLM layers' },
+  { key: 'num_expert_layers', label: 'Expert layers' },
+  { key: 'action_hidden_size', label: 'Action-head dim' },
+  { key: 'action_num_layers', label: 'Action-head layers' },
+  { key: 'action_num_heads', label: 'Action-head heads' },
+  { key: 'predictor_depth', label: 'Predictor depth' },
+  { key: 'proj_width', label: 'Projection width' },
+];
+
+const VLA_TYPES = new Set(['pi0', 'pi05', 'pi0fast', 'smolvla', 'vla_jepa']);
+const FLOW_TYPES = new Set(['pi0', 'pi05', 'smolvla']);
+
+function policyChips(type: string, config: Record<string, unknown>): string[] {
+  const chips: string[] = [];
+  if (VLA_TYPES.has(type)) chips.push('VLA');
+  if (FLOW_TYPES.has(type)) chips.push('flow-matching');
+  if (type === 'pi0fast') chips.push('FAST action tokens');
+  if (type === 'vla_jepa') chips.push('JEPA world-model');
+  if (type === 'diffusion') chips.push('diffusion');
+  if (type === 'act') {
+    chips.push('action chunking');
+    if (config.use_vae === true) chips.push('CVAE');
+  }
+  return chips;
+}
+
+/// Classify a parsed LeRobot policy config → a policy card, or null if it isn't
+/// one. Two shapes are recognised: (1) a full policy config (`type` + I/O
+/// features); (2) a minimal VLA stub that only names a backbone family
+/// (`{"vlm_family":"qwen3_vl"}` — robbyant/lingbot-vla-v2-6b) whose real shape
+/// lives in the referenced backbone, not this file. Deliberately disjoint from
+/// `parseHfConfig` (transformer configs carry `model_type`+dims, never these).
+export function classifyPolicy(config: Record<string, unknown>): PolicyCard | null {
+  const type = typeof config.type === 'string' ? config.type : '';
+  const hasFeatures = isObj(config.input_features) || isObj(config.output_features) || isObj(config.normalization_mapping);
+
+  if (type !== '' && hasFeatures) {
+    const dims: Array<{ label: string; value: string }> = [];
+    for (const { key, label } of POLICY_DIM_KEYS) {
+      const v = num(config, key);
+      if (v !== undefined) dims.push({ label, value: String(v) });
+    }
+    return {
+      family: POLICY_FAMILY[type.toLowerCase()] ?? familyName(type),
+      type,
+      cameras: readFeatures(config.input_features, (t) => t === 'VISUAL'),
+      states: readFeatures(config.input_features, (t) => t === 'STATE' || t === 'ENV'),
+      actions: readFeatures(config.output_features, (t) => t === 'ACTION'),
+      chunkSize: num(config, 'chunk_size'),
+      nActionSteps: num(config, 'n_action_steps'),
+      nObsSteps: num(config, 'n_obs_steps'),
+      backbones: readBackbones(config),
+      dims,
+      chips: policyChips(type.toLowerCase(), config),
+      provenance: 'config',
+    };
+  }
+
+  // Minimal stub: only names a backbone (no I/O, no transformer dims). Still
+  // worth recognising so the surface isn't blank — but gate on "no decoder
+  // depth" so a real transformer config never falls in here.
+  const backbones = readBackbones(config);
+  if (backbones.length > 0 && num(config, 'num_hidden_layers', 'n_layer') === undefined) {
+    return {
+      family: 'VLA policy',
+      type: type || 'vla',
+      cameras: [],
+      states: [],
+      actions: [],
+      backbones,
+      dims: [],
+      chips: ['VLA'],
+      provenance: 'config',
+    };
+  }
+  return null;
+}
+
+/// Whether some text is a LeRobot policy `config.json` → the parsed policy card,
+/// else null. Mirrors `parseHfConfig` for the run-bar "Analyze" gate.
+export function parsePolicyConfig(text: string | undefined): PolicyCard | null {
+  if (text === undefined || text.trim() === '') return null;
+  try {
+    const o: unknown = JSON.parse(text);
+    if (isObj(o)) return classifyPolicy(o);
+  } catch {
+    /* not JSON */
+  }
+  return null;
+}
+
 /// Build the architecture card. `config` is a parsed HF `config.json` (safetensors
 /// sidecar); `metadata` is gguf KV; `tensorNames` corroborates or, absent a
 /// config, drives the classification. Returns null when there is nothing to say.

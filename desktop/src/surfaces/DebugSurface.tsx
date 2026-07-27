@@ -6,7 +6,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
-import { classifyArch, parseHfConfig } from '../state/checkpoint';
+import { classifyArch, parseHfConfig, parsePolicyConfig } from '../state/checkpoint';
 import { buildArchSchematic } from '../state/archSchematic';
 import { useInspectRoots } from '../state/inspectRoots';
 import { looksLikeDot } from '../state/dotGraph';
@@ -44,6 +44,9 @@ const ModelView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m
 // §5a — the config-only architecture view (ArchCard from a parsed config alone,
 // any source), its own lazy chunk shared with ModelView.
 const ConfigArchView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.ConfigArchView })));
+// LeRobot policy configs (VLA/robot policies) — a different config schema, its
+// own honest card view; shares the ModelView lazy chunk.
+const PolicyConfigView = lazy(() => import('../ui/ModelView').then((m) => ({ default: m.PolicyConfigView })));
 // The Graphviz DOT viewer — the wasm engine loads on first render (its own chunk).
 const DotGraphView = lazy(() => import('../ui/DotGraphView').then((m) => ({ default: m.DotGraphView })));
 // The interactive Model Explorer WebGL graph — the 2.5 MB element + worker load on
@@ -308,7 +311,10 @@ function CodeTab({
   const isModeling = isPython && tab.path !== undefined;
   // §5a — a transformers config.json (any source) can flip to the architecture card.
   const isHfConfig = !isPatch && !isDot && !isLog && parseHfConfig(body) !== null;
-  const showRunBar = tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable || isHfConfig;
+  // A LeRobot policy config (VLA/pi0/smolvla/act/…) flips to the policy card.
+  const isPolicyConfig = !isPatch && !isDot && !isLog && !isHfConfig && parsePolicyConfig(body) !== null;
+  const showRunBar =
+    tab.source === 'paste' || interp !== null || isPatch || isLog || isDot || isPython || isCallable || isHfConfig || isPolicyConfig;
   return (
     <div className="inspect-tabbody">
       {showRunBar && (
@@ -342,7 +348,7 @@ function CodeTab({
               <Icon name="diagram" size={14} /> {t('inspect.viewAsGraph')}
             </button>
           )}
-          {isHfConfig && (
+          {(isHfConfig || isPolicyConfig) && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'model')}>
               <Icon name="sliders" size={14} /> {t('model.analyze')}
             </button>
@@ -583,10 +589,19 @@ function ModelTab({ tab }: { tab: InspectTab }): JSX.Element {
   // the config-only architecture view from the text already in the store; no
   // `checkpoint_inspect`, no local path required.
   const cfg = useMemo(() => parseHfConfig(content), [content]);
+  // A LeRobot policy config (no model_type/architectures) — a different schema.
+  const policy = useMemo(() => parsePolicyConfig(content), [content]);
   if (cfg !== null) {
     return (
       <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
         <ConfigArchView tab={tab} config={cfg} />
+      </Suspense>
+    );
+  }
+  if (policy !== null) {
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+        <PolicyConfigView tab={tab} card={policy} />
       </Suspense>
     );
   }

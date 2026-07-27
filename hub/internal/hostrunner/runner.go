@@ -563,6 +563,32 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		a.worktrees[sp.ChildID] = wt
 	}
 
+	// Unseal env-profile secrets once (ADR-056 D-5). The result is a K=V
+	// slice injected via process env per mode — never the command string.
+	// Fail-closed: if the spawn carries an envelope we can't open, refuse to
+	// launch rather than run the agent without the creds it expects. The
+	// error is present/absent-grade (no secret values).
+	secretEnv, secErr := a.resolveSecretEnv(sp)
+	if secErr != nil {
+		a.Log.Error("env-secret unseal failed; marking agent failed (not launching)",
+			"handle", sp.Handle, "err", secErr)
+		_ = a.agentPoster.PostAgentEvent(ctx, sp.ChildID, "lifecycle", "system",
+			map[string]any{
+				"phase":  "failed",
+				"reason": "env-profile secret unseal failed",
+				"err":    secErr.Error(),
+				"handle": sp.Handle,
+				"kind":   sp.Kind,
+			})
+		status := "failed"
+		_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
+		return
+	}
+	if len(secretEnv) > 0 {
+		a.Log.Info("env secrets unsealed for spawn",
+			"handle", sp.Handle, "keys", secretKeyNames(secretEnv))
+	}
+
 	// Dispatch by resolved driving mode. The hub is authoritative — it
 	// resolves mode against host capabilities + billing before the spawn
 	// lands here. An empty Mode means "hub had no opinion" (opt-in
@@ -605,11 +631,12 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				hubURLForAgent = a.egressProxy.LocalURL
 			}
 			res, m2err := launchM2(ctx, M2LaunchConfig{
-				Spawn:    sp,
-				Launcher: a.Launcher,
-				Client:   a.agentPoster,
-				HubURL:   hubURLForAgent,
-				Team:     a.Client.Team,
+				Spawn:     sp,
+				Launcher:  a.Launcher,
+				Client:    a.agentPoster,
+				HubURL:    hubURLForAgent,
+				Team:      a.Client.Team,
+				SecretEnv: secretEnv,
 			})
 			if m2err != nil {
 				a.Log.Warn("M2 launch failed; trying next fallback",
@@ -628,11 +655,12 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				hubURLForAgent = a.egressProxy.LocalURL
 			}
 			res, m1err := launchM1(ctx, M1LaunchConfig{
-				Spawn:    sp,
-				Launcher: a.Launcher,
-				Client:   a.agentPoster,
-				HubURL:   hubURLForAgent,
-				Team:     a.Client.Team,
+				Spawn:     sp,
+				Launcher:  a.Launcher,
+				Client:    a.agentPoster,
+				HubURL:    hubURLForAgent,
+				Team:      a.Client.Team,
+				SecretEnv: secretEnv,
 			})
 			if m1err != nil {
 				a.Log.Warn("M1 launch failed; trying next fallback",
@@ -679,6 +707,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				GatewayHubClient: a.Client,
 				Log:              a.Log,
 				Team:             a.Client.Team,
+				SecretEnv:        secretEnv,
 			})
 			if lerr != nil {
 				// No PaneDriver fall-through (mirrors the antigravity arm
@@ -736,6 +765,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				GatewayHubClient: a.Client,
 				Log:              a.Log,
 				Team:             a.Client.Team,
+				SecretEnv:        secretEnv,
 			})
 			if lerr != nil {
 				a.Log.Error("M4 antigravity launch failed; marking agent failed (no PaneDriver fallback)",
@@ -771,12 +801,13 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 				hubURLForAgent = a.egressProxy.LocalURL
 			}
 			res, lerr := launchM4KimiWireTail(ctx, M4LocalLogTailLaunchConfig{
-				Spawn:    sp,
-				Launcher: a.Launcher,
-				Client:   a.agentPoster,
-				HubURL:   hubURLForAgent,
-				Log:      a.Log,
-				Team:     a.Client.Team,
+				Spawn:     sp,
+				Launcher:  a.Launcher,
+				Client:    a.agentPoster,
+				HubURL:    hubURLForAgent,
+				Log:       a.Log,
+				Team:      a.Client.Team,
+				SecretEnv: secretEnv,
 			})
 			if lerr != nil {
 				a.Log.Warn("M4 kimi wire-tail launch failed; falling back to PaneDriver",
@@ -800,7 +831,9 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		var p string
 		var err error
 		if cmd != "" {
-			p, err = a.Launcher.LaunchCmd(ctx, sp, cmd)
+			// Raw PaneDriver: the agent runs in this tmux pane, so secrets go
+			// via tmux -e (launchCmdWithEnv), never the command string.
+			p, err = launchCmdWithEnv(ctx, a.Launcher, sp, cmd, secretEnv)
 		} else {
 			// W7: refuse-to-launch. Pre-bundle behaviour fell through to
 			// the launcher placeholder (interactive bash) and pumped the

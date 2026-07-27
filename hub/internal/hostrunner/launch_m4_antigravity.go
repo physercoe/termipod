@@ -219,7 +219,7 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 		return nil, fmt.Errorf("antigravity M4: setup script: %w", serr)
 	}
 	cmd = fmt.Sprintf("cd %s && %s%s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), setupPrefix, cmd)
-	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
+	pane, err := launchCmdWithEnv(ctx, cfg.Launcher, cfg.Spawn, cmd, cfg.SecretEnv)
 	if err != nil {
 		return nil, fmt.Errorf("antigravity M4: tmux launch: %w", err)
 	}

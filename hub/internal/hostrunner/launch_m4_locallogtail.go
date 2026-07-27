@@ -47,6 +47,11 @@ type M4LocalLogTailLaunchConfig struct {
 	// claude-code (locallogtail) and antigravity M4 launchers. Empty
 	// falls back to the legacy team-less path.
 	Team string
+	// SecretEnv carries this spawn's unsealed env-profile secrets as a K=V
+	// slice (ADR-056 D-5). The agent runs inside the tmux pane, so these are
+	// injected via `tmux -e` (launchCmdWithEnv), never the command string.
+	// Empty when the profile has no secrets. Shared by all three M4 launchers.
+	SecretEnv []string
 }
 
 // M4LocalLogTailLaunchResult — same shape as the M1/M2 results so
@@ -306,7 +311,7 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 		return nil, gatewayTeardown(gwCleanup, fmt.Errorf("locallogtail M4: setup script: %w", serr))
 	}
 	cmd = fmt.Sprintf("cd %s && %s%s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), setupPrefix, cmd)
-	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
+	pane, err := launchCmdWithEnv(ctx, cfg.Launcher, cfg.Spawn, cmd, cfg.SecretEnv)
 	if err != nil {
 		return nil, gatewayTeardown(gwCleanup, fmt.Errorf("locallogtail M4: tmux launch: %w", err))
 	}

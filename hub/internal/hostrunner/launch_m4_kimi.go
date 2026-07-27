@@ -195,7 +195,7 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// driver; adapter.Start is async (resolver + tails spin up in the
 	// background and degrade to system notices on failure), so
 	// driver.Start effectively cannot fail post-launch.
-	pane, err := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, cmd)
+	pane, err := launchCmdWithEnv(ctx, cfg.Launcher, cfg.Spawn, cmd, cfg.SecretEnv)
 	if err != nil {
 		return nil, fmt.Errorf("kimi wire-tail M4: tmux launch: %w", err)
 	}

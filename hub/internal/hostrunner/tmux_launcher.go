@@ -50,32 +50,51 @@ func (t *TmuxLauncher) Launch(ctx context.Context, sp Spawn) (string, error) {
 }
 
 func (t *TmuxLauncher) LaunchCmd(ctx context.Context, sp Spawn, cmd string) (string, error) {
+	return t.LaunchCmdEnv(ctx, sp, cmd, nil)
+}
+
+// LaunchCmdEnv is LaunchCmd with extra process environment injected via
+// `tmux new-window -e K=V` (tmux >= 3.2) — the required channel for env-profile
+// secrets (ADR-056 D-5), which must never reach the command string. The values
+// are visible only to the tmux server's brief argv and the child's own
+// environment (same-user, in-trust-domain per D-5), not the spawn spec, `ps` of
+// the agent, or scrollback. env is a slice of "K=V" entries.
+func (t *TmuxLauncher) LaunchCmdEnv(ctx context.Context, sp Spawn, cmd string, env []string) (string, error) {
 	if err := t.ensureSession(ctx); err != nil {
 		return "", err
 	}
 	if cmd == "" {
 		cmd = t.DefaultCmd
 	}
-	window := sanitizeWindowName(sp.Handle)
-	// -d: don't switch the client, -n: window name, -P + -F: print pane_id.
-	// We deliberately return `#{pane_id}` (the `%N` form) and not the
-	// session:window.pane target spec: pane_id is the canonical key used
-	// by `list-panes` output, so reconcile.go's lookup hits. tmux accepts
-	// %N anywhere a target is expected (capture-pane, send-keys, kill-pane).
-	target, err := runTmux(ctx,
-		"new-window", "-d", "-t", t.Session+":",
-		"-n", window,
-		"-P", "-F", "#{pane_id}",
-		cmd,
-	)
+	target, err := runTmux(ctx, newWindowArgs(t.Session, sanitizeWindowName(sp.Handle), cmd, env)...)
 	if err != nil {
 		return "", fmt.Errorf("new-window: %w", err)
 	}
 	pane := strings.TrimSpace(target)
 	if t.Log != nil {
-		t.Log.Info("tmux-launch", "handle", sp.Handle, "pane", pane)
+		// Present/absent-grade only: pane + how many env keys, never values.
+		t.Log.Info("tmux-launch", "handle", sp.Handle, "pane", pane, "env_keys", len(env))
 	}
 	return pane, nil
+}
+
+// newWindowArgs builds the `tmux new-window` argv. Extracted (and unit-tested)
+// so the secret-env injection ordering is verified without a live tmux server.
+//   - -d: don't switch the client, -n: window name, -P + -F: print pane_id.
+//     We return `#{pane_id}` (the `%N` form), not session:window.pane: pane_id
+//     is the canonical key `list-panes` prints, so reconcile.go's lookup hits.
+//   - -e K=V (tmux >= 3.2): per-entry process env for secrets (ADR-056 D-5).
+//   - cmd LAST: it is the positional command, never an -e value.
+func newWindowArgs(session, window, cmd string, env []string) []string {
+	args := []string{
+		"new-window", "-d", "-t", session + ":",
+		"-n", window,
+		"-P", "-F", "#{pane_id}",
+	}
+	for _, kv := range env {
+		args = append(args, "-e", kv)
+	}
+	return append(args, cmd)
 }
 
 func (t *TmuxLauncher) ensureSession(ctx context.Context) error {

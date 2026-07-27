@@ -145,6 +145,20 @@ type Runner struct {
 	// the box. Cached because /proc/meminfo + uname don't change while
 	// we're up — re-probing each tick would be pure overhead.
 	hostInfo *HostInfo
+
+	// Rekey, when set, discards any persisted X25519 identity and mints a
+	// fresh one at startup (the `--rekey` flag). A re-key is a new host
+	// identity: previously-sealed env-secret envelopes for this host become
+	// undecryptable and their sessions need a client re-seal (ADR-056 D-7).
+	Rekey bool
+
+	// hostPubKey / hostSeed are this host's X25519 identity, resolved once at
+	// startup from StateDir (ADR-056 D-1). hostPubKey rides every capabilities
+	// push; hostSeed is held in memory for the launch-time unseal (D-5, E3c).
+	// Both empty when there is no StateDir — the host then advertises no
+	// envelope support.
+	hostPubKey string
+	hostSeed   string
 }
 
 func (a *Runner) defaults() {
@@ -254,6 +268,20 @@ func (a *Runner) Start(ctx context.Context) error {
 		"os", hi.OS, "arch", hi.Arch,
 		"cpu", hi.CPUCount, "mem_gib", hi.MemBytes/(1<<30),
 		"kernel", hi.Kernel)
+
+	// Resolve the host's X25519 identity (ADR-056 D-1). No StateDir → no
+	// identity → the host advertises no envelope support and the hub rejects
+	// secret-bearing spawns to it. A key error is non-fatal: the runner keeps
+	// serving hub-visible env, just not secrets.
+	if pub, seed, err := loadOrCreateHostIdentity(a.StateDir, a.Rekey); err != nil {
+		a.Log.Warn("host identity unavailable; env-profile secrets disabled on this host", "err", err)
+	} else if pub != "" {
+		a.hostPubKey, a.hostSeed = pub, seed
+		// Public key only in logs — the seed is never logged (ADR-056 D-5).
+		a.Log.Info("host identity ready", "pubkey", pub, "env_envelope_v", EnvEnvelopeVersion, "rekey", a.Rekey)
+	} else {
+		a.Log.Info("no state-dir; env-profile secrets disabled on this host")
+	}
 
 	if a.HostID == "" && a.StateDir != "" {
 		if id, ok := loadStateEntry(a.StateDir, a.Client.BaseURL, a.Client.Team, a.HostName); ok {
@@ -900,6 +928,10 @@ func (a *Runner) probeLoop(ctx context.Context) {
 	push := func() {
 		caps := ProbeWithFamilies(ctx, a.fetchFamilies(ctx))
 		caps.Host = a.hostInfo
+		if a.hostPubKey != "" {
+			caps.HostPubKey = a.hostPubKey
+			caps.EnvEnvelopeV = EnvEnvelopeVersion
+		}
 		h := caps.Hash()
 		if h == lastHash {
 			return

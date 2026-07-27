@@ -232,6 +232,7 @@ func runDaemon(args []string) {
 	name := fs.String("name", hostname(), "host display name")
 	hostID := fs.String("host-id", "", "known host id (skips registration)")
 	stateDir := fs.String("state-dir", defaultStateDir(), "directory for runner state (caches host_id across restarts)")
+	rekey := fs.Bool("rekey", false, "mint a fresh X25519 host identity at startup, discarding the persisted one (env-profile secret delivery, ADR-056); previously-sealed envelopes for this host become undecryptable and need a client re-seal")
 	launcher := fs.String("launcher", "tmux", "launcher kind: stub|tmux")
 	session := fs.String("tmux-session", "hub-agents", "tmux session name (tmux launcher)")
 	backendCmd := fs.String("backend-cmd", "", "command to run in each pane (tmux launcher); empty = built-in placeholder")
@@ -336,6 +337,7 @@ func runDaemon(args []string) {
 		Launcher:        lnch,
 		Log:             log,
 		StateDir:        *stateDir,
+		Rekey:           *rekey,
 		A2AAddr:         resolvedA2AAddr,
 		A2APublicURL:    *a2aPublicURL,
 		EgressProxyAddr: *egressProxyAddr,

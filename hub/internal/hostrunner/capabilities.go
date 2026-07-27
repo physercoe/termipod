@@ -34,6 +34,14 @@ type Capabilities struct {
 	// (pre-v1.0.337) emit no host field and the renderer falls back
 	// to "unknown".
 	Host *HostInfo `json:"host,omitempty"`
+	// HostPubKey is the base64 X25519 public key a client seals env-profile
+	// secrets to (ADR-056 D-1). EnvEnvelopeV is the envelope schema this host
+	// can unseal. Both are empty/zero when the host has no StateDir (no
+	// persisted identity) — such a host advertises no envelope support and
+	// the hub rejects secret-bearing spawns to it (D-4). The reconcile loop
+	// re-attaches them each sweep, like Host.
+	HostPubKey   string `json:"host_pubkey,omitempty"`
+	EnvEnvelopeV int    `json:"env_envelope_v,omitempty"`
 }
 
 // ProbeCapabilities probes against the embedded family registry. Kept for

@@ -317,21 +317,43 @@ export function AgentSpawn({
         </div>
     </Modal>
     {trust !== null && (
-      <Modal onClose={() => setTrust(null)} className="task-detail" ariaLabel={t('spawn.trustTitle')}>
+      <Modal
+        onClose={() => setTrust(null)}
+        className="task-detail"
+        ariaLabel={trust.info.changedFrom !== undefined ? t('spawn.retrustTitle') : t('spawn.trustTitle')}
+      >
         <div className="admin-tabs">
-          <strong>{t('spawn.trustTitle')}</strong>
+          <strong>{trust.info.changedFrom !== undefined ? t('spawn.retrustTitle') : t('spawn.trustTitle')}</strong>
           <span className="spacer" />
         </div>
         <div className="task-form">
-          <div className="wide">{t('spawn.trustBody')}</div>
+          {trust.info.changedFrom !== undefined ? (
+            // A pinned key changed (D-2 re-trust): show BOTH codes. A deliberate
+            // host --rekey is legitimate; only the operator can tell it from a
+            // substitution, by checking the NEW code against the host console.
+            <>
+              <div className="wide">{t('spawn.retrustBody')}</div>
+              <div className="wide muted small">{t('spawn.retrustOld')}</div>
+              <div className="wide spawn-fingerprint muted">{trust.info.changedFrom}</div>
+              <div className="wide muted small">{t('spawn.retrustNew')}</div>
+            </>
+          ) : (
+            <div className="wide">{t('spawn.trustBody')}</div>
+          )}
           <div className="wide spawn-fingerprint">{trust.info.fingerprint}</div>
           <div className="wide muted small">{t('spawn.trustHint')}</div>
           <div className="wide task-form-actions">
             <button onClick={() => setTrust(null)}>{t('admin.close')}</button>
             <span className="spacer" />
-            <button className="primary" disabled={sealing} onClick={() => void confirmTrust()}>
-              {t('spawn.trustConfirm')}
-            </button>
+            {trust.info.changedFrom !== undefined ? (
+              <button className="danger" disabled={sealing} onClick={() => void confirmTrust()}>
+                {t('spawn.retrustConfirm')}
+              </button>
+            ) : (
+              <button className="primary" disabled={sealing} onClick={() => void confirmTrust()}>
+                {t('spawn.trustConfirm')}
+              </button>
+            )}
           </div>
         </div>
       </Modal>

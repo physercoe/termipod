@@ -17,7 +17,7 @@ export interface SecretRef {
   vault_item: string;
 }
 
-export type EnvSecretCode = 'unresolved' | 'noHostKey' | 'keyMismatch' | 'untrusted';
+export type EnvSecretCode = 'unresolved' | 'noHostKey' | 'untrusted';
 
 /** A coded failure the spawn UI maps to a localized message (the vault layer has
  * no t()). `detail` carries the offending key/host for the message. */
@@ -70,19 +70,28 @@ export interface HostKeyInfo {
   pubkey: string; // base64 X25519
   fingerprint: string; // the D-2 short code
   trusted: boolean; // a matching pin already exists
+  /** Set when a pin exists but the host now advertises a DIFFERENT key: the
+   * previously-trusted key's fingerprint. Either a deliberate host re-key
+   * (`--rekey`) or a substitution — the re-trust dialog shows both codes and
+   * the operator decides. Never sealed to until re-pinned (D-2). */
+  changedFrom?: string;
 }
 
 /** Classify a host's env key from its capabilities. Throws `noHostKey` when the
- * host advertises none (it can't receive secrets — a headless/old host), or
- * `keyMismatch` when a pin exists but differs from the advertised key (a
- * possible hub substitution — hard fail per D-2, needs a deliberate re-trust). */
+ * host advertises none (it can't receive secrets — a headless/old host). A pin
+ * that differs from the advertised key comes back as `trusted: false` +
+ * `changedFrom` so the spawn flow can offer the deliberate re-trust step D-2
+ * requires (a host `--rekey` is legitimate; only the operator can tell it from
+ * a substitution, by comparing codes against the host console). */
 export async function inspectHostKey(host: Entity, hostId: string): Promise<HostKeyInfo> {
   const caps = obj(host, 'capabilities') ?? {};
   const pubkey = str(caps, 'host_pubkey');
   if (pubkey === undefined || pubkey === '') throw new EnvSecretError('noHostKey', hostId);
   const pinned = getHostPin(hostId);
-  if (pinned !== null && pinned !== pubkey) throw new EnvSecretError('keyMismatch', hostId);
   const fingerprint = await vaultEnvFingerprint(pubkey);
+  if (pinned !== null && pinned !== pubkey) {
+    return { hostId, pubkey, fingerprint, trusted: false, changedFrom: await vaultEnvFingerprint(pinned) };
+  }
   return { hostId, pubkey, fingerprint, trusted: pinned === pubkey };
 }
 

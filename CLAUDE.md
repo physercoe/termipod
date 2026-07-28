@@ -20,21 +20,29 @@ Three layers (see `docs/spine/blueprint.md`):
 
 **A2A** (agent-to-agent) tunnels through the hub via a reverse-tunnel
 relay, so a steward on a VPS can drive a worker on a NAT'd GPU box.
-The **mobile app** (Flutter) is the director's cockpit — five tabs:
-Projects · Activity · Me · Hosts · Settings.
+The director has two cockpits: the **mobile app** (Flutter — five
+tabs: Projects · Activity · Me · Hosts · Settings, with Me as the
+oversized center button and default tab) and the **desktop
+control plane** (React + TypeScript in an Electron shell — an
+activity bar of jobs: Fleet, Projects, Read, Author, Inspect,
+Compare, Record, Terminal, plus an app-level assistant dock).
 
 ## Repository layout
 
 Monorepo:
 
 ```
-lib/        Flutter mobile app (Dart)
-hub/        Go — hub daemon, host-runner, MCP bridges
-hub-tui/    terminal UI for the hub
-docs/       documentation (start at docs/README.md)
-scripts/    lint + tooling
-test/       Flutter tests
-android/ ios/ linux/ macos/ web/ windows/   platform shells
+lib/            Flutter mobile app (Dart)
+desktop/        React + TS desktop control plane; Electron shell in
+                desktop/electron/; Rust vault crypto in vault-core/
+                (compiled to WASM in vault-wasm/) — see desktop/README.md
+hub/            Go — hub daemon, host-runner, MCP bridges
+hub-tui/        terminal UI for the hub
+docs/           documentation (start at docs/README.md)
+design-tokens/  single source for generated theme tokens (mobile + desktop)
+scripts/        lint + tooling
+test/           Flutter tests
+android/ ios/   mobile platform shells (desktop ships via Electron, not Flutter)
 ```
 
 `lib/screens/` has one folder per surface — projects, me, hosts,
@@ -43,11 +51,19 @@ sessions, activity, insights, team, settings, plus the SSH/tmux ones
 client, SSH, tmux, voice, etc.; `lib/providers/` holds Riverpod
 providers.
 
+`desktop/src/` splits into `hub/` (typed SDK over the same REST/SSE),
+`state/` (zustand stores), `surfaces/` + `ui/` (work surfaces and the
+3-region AppShell), `bridge/` (shell-agnostic native calls — Electron
+or plain browser), `vault/` (zero-knowledge vault client), `i18n/`
+(two inline dicts, en + zh). Layout details: `desktop/README.md`.
+
 `hub/internal/server` is the REST API; `hub/internal/hostrunner`
 spawns agents; `hub/internal/hubmcpserver` is the MCP catalog +
 dispatcher; `hub/internal/drivers` holds engine drivers;
-`hub/migrations` holds numbered SQL migrations; `hub/templates` and
-`hub/internal/agentfamilies` hold bundled YAML.
+`hub/internal/envseal` is the host-sealed env-secret envelope
+(ADR-056) and `hub/internal/handoff` the teleport bundle transport
+(ADR-057); `hub/migrations` holds numbered SQL migrations;
+`hub/templates` and `hub/internal/agentfamilies` hold bundled YAML.
 
 ## Tech stack
 
@@ -55,6 +71,11 @@ dispatcher; `hub/internal/drivers` holds engine drivers;
   (state); `dartssh2` + `xterm` (SSH/terminal); `flutter_secure_storage`
   (keys/tokens); `sqflite` (offline snapshot cache); `record` +
   `web_socket_channel` (streaming voice input).
+- **Desktop** — React 18 + TypeScript, `zustand` (state), TanStack
+  Query (server state), vite; Electron shell (`desktop/electron/`);
+  vault crypto in Rust (`desktop/vault-core/`) compiled to WASM
+  (`desktop/vault-wasm/`). The frontend is shell-agnostic — every
+  native call funnels through `src/bridge/`.
 - **Hub** — Go 1.23; `modernc.org/sqlite` (pure-Go, no cgo); numbered
   SQL migrations; MCP server + UDS/stdio bridges.
 
@@ -67,6 +88,14 @@ flutter run / flutter analyze / flutter test / flutter build apk
 # Hub (Go)
 cd hub && go build ./... && go test ./...
 go run ./cmd/hub-server     # run the hub daemon
+
+# Desktop (React + Electron)
+cd desktop && npm ci && npm run dev            # vite dev server
+npm run typecheck && npm run build             # tsc + vite build
+node --test src/state/*.test.ts src/ssh/*.test.ts  # frontend unit tests (NOT run by CI)
+cd electron && npm ci && npm test              # Electron shell unit tests
+bash scripts/lint-desktop-tokens.sh            # token ratchet (from repo root;
+                                               # run `npm run sync:tokens` in desktop/ first)
 ```
 
 ## Documentation
@@ -75,7 +104,8 @@ Read `@/docs/README.md` first — the index. Doc structure follows
 `@/docs/doc-spec.md` (seven primitives: axiom / vision / plan /
 decision / reference / how-to / discussion).
 
-- `@/docs/roadmap.md` — Now/Next/Later; `@/docs/changelog.md` — per release
+- `@/docs/roadmap.md` — Now/Next/Later; `@/docs/changelog.md` — per
+  release (`@/docs/changelog-desktop.md` for the desktop lane)
 - `@/docs/spine/` — architecture (blueprint, information-architecture,
   agent-lifecycle, sessions, protocols)
 - `@/docs/decisions/` — append-only numbered ADRs
@@ -98,27 +128,37 @@ definitions are in `docs/reference/glossary.md`.
   scoped overlays.
 - **Task** — the first-class unit of steward-dispatched work
   (ADR-029). Status: todo / in_progress / blocked / done / cancelled.
-- **Session** — the conversational primitive that survives respawn.
+- **Session** — the conversational primitive that survives respawn
+  (and, since ADR-057, host-to-host teleport).
+- **Env profile** — a team-scoped bundle of env_vars + setup_script +
+  secret_refs + network_policy attached at spawn. `secret_refs`
+  resolve client-side from the zero-knowledge vault and travel as
+  envelopes sealed to the target host's key — the hub stores
+  ciphertext it can never read (ADR-056).
 - **Host / Run / attention_items / audit_events / Plan / A2A message
   / Document / Deliverable / Artifact** — see the glossary.
 
 ## Engines & driving modes
 
-Five engine families: claude-code, codex, gemini-cli, kimi-code,
+Five engine families: claude-code, codex, gemini-cli, kimi-code-ts,
 antigravity. (`gemini-cli` is deprecated — Google retires it
 2026-06-18 for consumer tiers — and `antigravity` is its M4-only
-successor; see ADR-035.) Each agent runs in one **driving mode** (the
-`agents.driving_mode` column) — the control channel differs,
-governance is identical. Authoritative source: `docs/spine/protocols.md` §5.
+successor; see ADR-035. `kimi-code-ts` is the compiled-TypeScript
+Kimi CLI; the Python `kimi-code` was retired — ADR-054.) Each agent
+runs in one **driving mode** (the `agents.driving_mode` column) — the
+control channel differs, governance is identical. Authoritative
+source: `docs/spine/protocols.md` §5.
 
 - **M1 — ACP.** JSON-RPC over stdio via an ACP adapter. Used by
-  Codex, Gemini CLI, Kimi Code.
+  Codex, Gemini CLI, kimi-code-ts.
 - **M2 — structured stdio.** An agent-native JSON-line protocol
   (e.g. `claude --output-format stream-json`).
-- **M4 — per-engine local-stream tap.** claude-code uses
-  `LocalLogTailDriver` — tails the on-disk session JSONL and routes
-  input via `tmux send-keys` (ADR-027). Other engines retain the
-  legacy tmux-pane PTY scrape until their adapters ship.
+- **M4 — per-engine local-stream tap.** The engine runs in a tmux
+  pane; a per-engine adapter tails its local stream and routes input
+  via `tmux send-keys`. Adapters today: claude-code (on-disk session
+  JSONL via `LocalLogTailDriver`, ADR-027), kimi-code-ts (wire-tail),
+  antigravity (its own M4 launcher). Engines without an adapter fall
+  back to the legacy pane-PTY scrape.
 
 (M3 is not a mode — it's a one-shot `llm_call` plan step.)
 
@@ -172,5 +212,20 @@ YAML file, not Go code.
   are editable YAML templates — adding one is not a code change.
 - **`driving_mode` (M1/M2/M4) ≠ permission mode** (auto-allow vs
   prompt) — different columns, different concerns.
-- The Flutter app has **no typed Dart classes** for hub entities —
-  it reads them as `Map<String, dynamic>` JSON.
+- **Both clients read hub entities untyped** — Flutter as
+  `Map<String, dynamic>`, desktop as `Entity = Record<string,
+  unknown>` (`desktop/src/hub/types.ts`). There are no generated
+  model classes to update; there are also none to save you.
+- **Desktop i18n is two inline dicts** (en + zh) in
+  `desktop/src/i18n/index.ts` — every key must land in both, and
+  retiring a feature must sweep every offer surface (pickers,
+  palettes, menus, context menus, both dicts). Mobile strings live in
+  `lib/l10n/*.arb` instead.
+- **CI does not run the desktop frontend unit tests.** Only the
+  Electron shell suite runs in CI; run
+  `node --test src/state/*.test.ts src/ssh/*.test.ts` manually before
+  claiming desktop state/ssh changes are green.
+- **Env-profile secrets ride real process env only** (child `Env`
+  slice / `tmux -e`) — never the command string's `export` prefix,
+  the spawn spec, temp files, or logs (ADR-056 D-5). The `export`
+  prefix is for hub-visible plain env_vars only.

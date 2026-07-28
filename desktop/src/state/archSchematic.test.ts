@@ -87,6 +87,24 @@ test('MoE + MLA — expert counts and latent-attention labels', () => {
   assert.match(subOf(s, 'attn'), /MLA · 128 heads/);
 });
 
+test('linear-hybrid card renders the honest uniform fallback (MLA attn + MoE FFN)', () => {
+  // Until W2's heterogeneous spec lands, a `linear-hybrid` model (Kimi K3-like:
+  // MLA full-attn layers + MoE) must NOT drop to a dense MLP — it renders the
+  // current uniform MLA/MoE stack (D-4). Derived from chips/experts, not template.
+  const s = fromConfig({
+    model_type: 'kimi_linear',
+    num_hidden_layers: 93, hidden_size: 7168, num_attention_heads: 96,
+    kv_lora_rank: 512, q_lora_rank: 1536, mla_use_nope: true,
+    num_experts: 896, num_experts_per_token: 16, moe_intermediate_size: 3072, num_shared_experts: 2,
+    linear_attn_config: { full_attn_layers: [4, 8, 12], kda_layers: [1, 2, 3] },
+    vocab_size: 163840, rms_norm_eps: 1e-5,
+  });
+  assert.ok(s !== null);
+  assert.equal(byId(s, 'ffn').kind, 'moe'); // MoE block kept (not dense MLP)
+  assert.match(byId(s, 'attn').label, /Latent/); // MLA attention kept
+  assert.match(subOf(s, 'ffn'), /896 experts · top-16 · \+2 shared/);
+});
+
 test('MHA (kv == q heads) labelled multi-head, LayerNorm variant', () => {
   const s = fromConfig({
     model_type: 'gpt2',

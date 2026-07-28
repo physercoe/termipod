@@ -60,8 +60,12 @@ export function buildArchSchematic(card: ArchCard, config: Record<string, unknow
   const hidden = card.hidden ?? readNum(config, 'hidden_size', 'n_embd', 'd_model', 'n_embed');
   if (hidden === undefined || layers <= 0) return null;
 
-  const isMla = card.template === 'mla' || card.template === 'mla-moe';
-  const isMoe = card.template === 'moe' || card.template === 'mla-moe';
+  // Until the heterogeneous-stack spec lands (W2), a `linear-hybrid` card renders
+  // the honest uniform fallback: derive MLA/MoE from the chips/experts the
+  // classifier read, so K3 still shows its MLA-style attention + MoE FFN blocks
+  // rather than dropping to a dense MLP (D-4: uniform stack, never a guessed hybrid).
+  const isMla = card.template === 'mla' || card.template === 'mla-moe' || card.chips.includes('MLA');
+  const isMoe = card.template === 'moe' || card.template === 'mla-moe' || (card.experts !== undefined && card.experts > 0);
   const norm = normLabel(config);
   // Prefer the classifier's readings, but fall back to the config directly — the
   // card only carries head counts for some families, while the schematic wants
@@ -149,7 +153,7 @@ export function archNodeDetails(node: ArchNode, config: Record<string, unknown>,
       push('Max context', readNum(config, 'max_position_embeddings', 'n_positions'));
       break;
     case 'attention': {
-      const isMla = card.template === 'mla' || card.template === 'mla-moe';
+      const isMla = card.template === 'mla' || card.template === 'mla-moe' || card.chips.includes('MLA');
       const type = isMla
         ? 'Multi-head Latent (MLA)'
         : heads !== undefined && kvHeads !== undefined && kvHeads < heads

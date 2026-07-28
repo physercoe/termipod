@@ -1079,7 +1079,10 @@ paths:
         Move a paused worktree session to another host (ADR-057 T1). Relocates
         the git worktree + engine-state to the target and continues there; the
         transcript is unchanged. Session must be paused (409 otherwise); T1
-        handles git-worktree sessions on hosts sharing a git remote.
+        handles git-worktree sessions on hosts sharing a git remote. A
+        secret-bearing session (its env profile carries secret_refs) is refused
+        unless the request supplies env_secret_envelope re-sealed to the target
+        host — the hub cannot re-seal (ADR-056 D-6, D-7).
       requestBody:
         required: true
         content:
@@ -1091,6 +1094,15 @@ paths:
                 target_host_id:
                   type: string
                   description: Host to move the session to; must be online and not the current host.
+                env_secret_envelope:
+                  type: string
+                  description: >-
+                    The session's vault secrets re-sealed to the TARGET host's
+                    key by a vault-holding client (opaque JSON; ADR-056 D-3).
+                    Required for a secret-bearing session, ignored otherwise. Its
+                    host_id must equal target_host_id (400 on mismatch); the hub
+                    never opens it. Fetch the session's env_profile_id from the
+                    single-session GET to find which secret_refs to re-seal.
       responses:
         "200":
           description: Teleported
@@ -1104,8 +1116,12 @@ paths:
                   target_host: { type: string }
                   new_agent_id: { type: string }
                   worktree_path: { type: string }
+        "400":
+          description: env_secret_envelope is malformed or not sealed to the target host
         "409":
-          description: Not paused, not a worktree session, same host, or target offline
+          description: >-
+            Not paused, not a worktree session, same host, target offline, or a
+            secret-bearing session teleported without a re-sealed envelope
         "502":
           description: Pack or unpack failed on a host
 
@@ -3306,6 +3322,13 @@ components:
             Host the session currently lives on, derived from its current
             agent (empty when the session has none). Teleport target pickers
             use it to exclude the current host.
+        env_profile_id:
+          type: string
+          description: >-
+            The explicit env profile the session's spawn spec carries (empty for
+            an inherited or no profile). Returned only on the single-session GET,
+            not the list. The teleport re-seal flow reads it to find the
+            profile's secret_refs and re-seal them to the target host (D-7).
         engine_session_id: { type: string, nullable: true }
         correlation_id: { type: string, nullable: true }
         created_at: { type: string, format: date-time }

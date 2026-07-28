@@ -62,11 +62,12 @@ func materializeEnvProfile(specYAML string, prof envProfileOut) string {
 	return string(out)
 }
 
-// projectEnvProfileIDFromYAML parses a project config_yaml's top-level
-// `env_profile_id` (env-profiles plan, E2 — project-level inherit). Empty
-// config, parse failure, or absent key all yield "". Same lenient shape as
-// projectPhasesFromConfig.
-func projectEnvProfileIDFromYAML(configYAML string) string {
+// topEnvProfileIDFromYAML parses a yaml doc's top-level `env_profile_id`. Two
+// callers share it: a project config_yaml (E2 project-level inherit) and a
+// session's spawn_spec_yaml (materializeEnvProfile splices the same key on an
+// explicit-profile spawn — the desktop teleport re-seal flow reads it back).
+// Empty doc, parse failure, or absent key all yield "".
+func topEnvProfileIDFromYAML(configYAML string) string {
 	if configYAML == "" {
 		return ""
 	}
@@ -89,7 +90,7 @@ func (s *Server) projectEnvProfileID(ctx context.Context, projectID string) stri
 		`SELECT COALESCE(config_yaml, '') FROM projects WHERE id = ?`, projectID).Scan(&cfg); err != nil {
 		return ""
 	}
-	return projectEnvProfileIDFromYAML(cfg)
+	return topEnvProfileIDFromYAML(cfg)
 }
 
 // upsertTopKey sets key→val on a mapping node, replacing an existing pair or

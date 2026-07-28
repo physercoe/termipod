@@ -4,7 +4,8 @@
 /// documents the expected numbers and pins the GQA vs MLA branches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateVram, deriveVramInputs, defaultServingDtype, DTYPE_BYTES, OPTIMIZER_STATE_BYTES, type VramInputs } from './vram.ts';
+import { estimateVram, deriveVramInputs, defaultServingDtype, kvCacheBytesPerToken, classifyKvCache, deriveKvCacheClass, DTYPE_BYTES, OPTIMIZER_STATE_BYTES, type VramInputs } from './vram.ts';
+import { classifyArch, parseHfConfig } from './checkpoint.ts';
 
 const GiB = 1024 ** 3;
 
@@ -219,4 +220,70 @@ test('training with no dims: param terms trustworthy, activations flagged unknow
   assert.equal(e.optimizerBytes, 7e9 * 12);
   assert.equal(e.activationBytes, 0);
   assert.equal(e.kvComputable, false);
+});
+
+// ── KV-cache-per-token metric + class (archgraph plan §5 W1 / G6) ─────────────
+
+test('kvCacheBytesPerToken: GQA and MLA per-token figures + classes', () => {
+  // Llama-3-8B GQA: 2 × 32 × 8 × 128 × 2 = 128 KB/token → moderate.
+  const gqa = kvCacheBytesPerToken(LLAMA3_8B)!;
+  assert.equal(gqa, 2 * 32 * 8 * 128 * 2);
+  assert.equal(gqa, 128 * 1024);
+  assert.equal(classifyKvCache(gqa), 'moderate');
+  // DeepSeek-V2 MLA: 60 × (512 + 64) × 2 ≈ 68 KB/token → low (compressed KV).
+  const mla = kvCacheBytesPerToken(DEEPSEEK_V2_MLA)!;
+  assert.equal(mla, 60 * (512 + 64) * 2);
+  assert.equal(classifyKvCache(mla), 'low');
+  assert.ok(mla < gqa);
+});
+
+test('kvCacheBytesPerToken: MLA without a rank is honest null (not a wrong number)', () => {
+  assert.equal(kvCacheBytesPerToken({ ...DEEPSEEK_V2_MLA, kvLoraRank: undefined }), null);
+});
+
+test('classifyKvCache: bucket boundaries', () => {
+  assert.equal(classifyKvCache(20 * 1024), 'low');
+  assert.equal(classifyKvCache(96 * 1024 - 1), 'low');
+  assert.equal(classifyKvCache(96 * 1024), 'moderate');
+  assert.equal(classifyKvCache(384 * 1024 - 1), 'moderate');
+  assert.equal(classifyKvCache(384 * 1024), 'high');
+  assert.equal(classifyKvCache(1024 * 1024), 'very-high');
+  assert.equal(classifyKvCache(6 * 1024 * 1024), 'very-high'); // big dense MHA
+});
+
+test('hybrid KV is sized by full-attention layers, not total depth', () => {
+  // A Kimi-K3-shaped stack: 93 layers, only 24 full-attention (MLA) layers cache;
+  // the 69 KDA layers hold an O(1) recurrent state (no growing KV).
+  const hybrid: VramInputs = { totalParams: 0, weightBytes: 0, layers: 93, fullAttnLayers: 24, kvLoraRank: 512, qkRopeHeadDim: 64, isMla: true };
+  const perTok = kvCacheBytesPerToken(hybrid)!;
+  assert.equal(perTok, 24 * (512 + 64) * 2); // 24 caching layers, NOT 93
+  assert.equal(classifyKvCache(perTok), 'low');
+  // Sizing by total depth (the pre-W1b behaviour) would be ~4× larger.
+  const naive = kvCacheBytesPerToken({ ...hybrid, fullAttnLayers: undefined })!;
+  assert.equal(naive, 93 * (512 + 64) * 2);
+  assert.ok(perTok < naive);
+});
+
+test('deriveKvCacheClass end-to-end: Kimi-K3 config → low KV via card.fullAttnLayers', () => {
+  // Whole pipe: parse → classify (linear-hybrid, fullAttnLayers=24) → KV class.
+  const K3 = {
+    model_type: 'kimi_k3',
+    architectures: ['KimiK3ForConditionalGeneration'],
+    text_config: {
+      model_type: 'kimi_linear',
+      hidden_size: 7168, num_hidden_layers: 93, num_attention_heads: 96, num_key_value_heads: 96,
+      kv_lora_rank: 512, qk_rope_head_dim: 64, mla_use_nope: true,
+      num_experts: 896, num_experts_per_token: 16, moe_intermediate_size: 3072, vocab_size: 163840,
+      linear_attn_config: {
+        full_attn_layers: [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 93],
+        kda_layers: [1, 2, 3, 5], num_heads: 96,
+      },
+    },
+  };
+  const config = parseHfConfig(JSON.stringify(K3))!;
+  const card = classifyArch({ config, tensorNames: [] })!;
+  assert.equal(card.fullAttnLayers, 24);
+  const kv = deriveKvCacheClass({ card, config })!;
+  assert.equal(kv.bytesPerToken, 24 * (512 + 64) * 2); // 24 full-attn layers only
+  assert.equal(kv.cls, 'low');
 });

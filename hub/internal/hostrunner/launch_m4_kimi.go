@@ -189,7 +189,7 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	if serr != nil {
 		return nil, fmt.Errorf("kimi wire-tail M4: setup script: %w", serr)
 	}
-	cmd = fmt.Sprintf("cd %s && %s%s%s", shellEscape(workdir), envExportPrefix(spec.EnvVars), setupPrefix, cmd)
+	cmd = fmt.Sprintf("cd %s && %s%s%s", shellEscape(workdir), envExportPrefix(envVarsMinusSecrets(spec.EnvVars, cfg.SecretEnv)), setupPrefix, cmd)
 
 	// Everything fallible is behind us. Launch the pane, then start the
 	// driver; adapter.Start is async (resolver + tails spin up in the

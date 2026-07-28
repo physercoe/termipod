@@ -748,6 +748,51 @@ func TestLaunchM2_EnvProfileForcesWorkdirDerivation(t *testing.T) {
 	}
 }
 
+// A key carried by BOTH plain env_vars and the secret envelope must resolve to
+// the secret (ADR-056 D-5 merge order). The plain value rides the command
+// string's `export` prefix, which executes after the process env is seeded —
+// unfiltered, it would shadow the secret. envVarsMinusSecrets drops the
+// duplicate from the export prefix; the secret still reaches the spawner env.
+func TestLaunchM2_SecretWinsOverSameKeyPlainEnvVar(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	spawner := newFakeProcSpawner()
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn: Spawn{
+			ChildID: "agent-shadow",
+			Handle:  "shadow",
+			Kind:    "claude-code",
+			SpawnSpec: "backend:\n" +
+				"  cmd: fake-agent\n" +
+				"env_vars:\n" +
+				"  FOO: plain\n" +
+				"  BAR: keep\n",
+			Mode: "M2",
+		},
+		Launcher:  StubLauncher{Log: slog.Default()},
+		Client:    &fakePoster{},
+		Spawner:   spawner,
+		LogDir:    logDir,
+		SecretEnv: []string{"FOO=sealed"},
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	if strings.Contains(spawner.cmd, "FOO=") {
+		t.Fatalf("shadowed key must not appear in the export prefix: %q", spawner.cmd)
+	}
+	if !strings.Contains(spawner.cmd, "export BAR='keep'") {
+		t.Fatalf("non-shadowed plain var lost from export prefix: %q", spawner.cmd)
+	}
+	if len(spawner.env) != 1 || spawner.env[0] != "FOO=sealed" {
+		t.Fatalf("secret not delivered via spawner env: %v", spawner.env)
+	}
+}
+
 // The residual corner — env profile attached but no handle/childID to derive
 // a workdir from — must fail loudly (mirroring the context_files guard), not
 // silently start the agent without the operator's environment.

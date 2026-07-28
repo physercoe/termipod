@@ -286,7 +286,7 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		if serr != nil {
 			return M2LaunchResult{}, fmt.Errorf("setup script: %w", serr)
 		}
-		command = fmt.Sprintf("cd %s && %s%s%s", shellEscape(expanded), envExportPrefix(spec.EnvVars), setupPrefix, command)
+		command = fmt.Sprintf("cd %s && %s%s%s", shellEscape(expanded), envExportPrefix(envVarsMinusSecrets(spec.EnvVars, cfg.SecretEnv)), setupPrefix, command)
 	}
 
 	// Materialize context_files (CLAUDE.md, etc.) into the workdir so

@@ -61,6 +61,30 @@ func secretKVList(m map[string]string) []string {
 	return out
 }
 
+// envVarsMinusSecrets returns env without any key that secretEnv also carries.
+// The launch-string paths (M1/M2-stdio/M4) export plain env_vars INSIDE the
+// command (`export K=V && …`), which runs after the process env carrying the
+// secrets is seeded — an unfiltered duplicate key would let the hub-visible
+// plain value shadow the sealed secret, inverting the ADR-056 D-5 merge order
+// (secrets win over env_vars) that the gemini exec path honours by appending
+// secrets last. Filtering the export prefix keeps precedence mode-uniform.
+func envVarsMinusSecrets(env map[string]string, secretEnv []string) map[string]string {
+	if len(env) == 0 || len(secretEnv) == 0 {
+		return env
+	}
+	drop := make(map[string]bool, len(secretEnv))
+	for _, name := range secretKeyNames(secretEnv) {
+		drop[name] = true
+	}
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if !drop[k] {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // secretKeyNames returns just the sorted key names of a K=V slice, for
 // present/absent-grade audit logging (ADR-056 D-5: key names, never values).
 func secretKeyNames(kv []string) []string {

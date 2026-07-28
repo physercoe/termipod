@@ -21,6 +21,22 @@ func TestSecretKVList_SortedAndFormatted(t *testing.T) {
 	}
 }
 
+func TestEnvVarsMinusSecrets(t *testing.T) {
+	env := map[string]string{"FOO": "plain", "BAR": "keep"}
+	got := envVarsMinusSecrets(env, []string{"FOO=sealed"})
+	want := map[string]string{"BAR": "keep"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("envVarsMinusSecrets = %v, want %v", got, want)
+	}
+	// No secrets → same map back, untouched.
+	if !reflect.DeepEqual(envVarsMinusSecrets(env, nil), env) {
+		t.Fatal("no-secret case must return env unchanged")
+	}
+	if env["FOO"] != "plain" {
+		t.Fatal("input map must not be mutated")
+	}
+}
+
 func TestSecretKeyNames(t *testing.T) {
 	got := secretKeyNames([]string{"OPENAI_API_KEY=sk-x", "DB=postgres://p"})
 	want := []string{"OPENAI_API_KEY", "DB"}

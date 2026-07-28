@@ -117,6 +117,79 @@ func TestTeleportHandoffRoundTrip(t *testing.T) {
 	}
 }
 
+// TestTeleportHandoffRoundTrip_NonWorktree exercises the T2a path: a session
+// with NO git worktree, whose working directory itself moves as a tar bundle
+// (alongside the engine state), across two heterogeneous homes. No git is
+// touched; the target re-anchors the portable workdir under its own home.
+func TestTeleportHandoffRoundTrip_NonWorktree(t *testing.T) {
+	const sessionID = "aaaa1111-2222-3333-4444-555566667777"
+	const transcript = `{"type":"user","text":"non-worktree teleport"}` + "\n"
+
+	srcHome := t.TempDir()
+	srcWorkdir := filepath.Join(srcHome, "scratch")
+	if err := os.MkdirAll(filepath.Join(srcWorkdir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcWorkdir, "main.py"), []byte("print('hi')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcWorkdir, "data", "notes.md"), []byte("# notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeSession(t, srcHome, srcWorkdir, sessionID, transcript)
+
+	store := newMemBlobStore()
+	packRes, err := runHandoffPack(context.Background(), store, srcHome, handoffPackArgs{
+		Engine:          "claude-code",
+		Workdir:         "~/scratch",
+		EngineSessionID: sessionID,
+	})
+	if err != nil {
+		t.Fatalf("runHandoffPack: %v", err)
+	}
+	if packRes.ManifestSHA == "" || packRes.WorkdirManifestSHA == "" {
+		t.Fatalf("non-worktree pack incomplete: %+v", packRes)
+	}
+	if packRes.PortableWorkdirPath != "~/scratch" {
+		t.Fatalf("portable workdir: got %q want ~/scratch", packRes.PortableWorkdirPath)
+	}
+	// A non-worktree pack must not touch git.
+	if packRes.HeadSHA != "" || packRes.Branch != "" {
+		t.Fatalf("non-worktree pack should not touch git: %+v", packRes)
+	}
+
+	tgtHome := t.TempDir()
+	unpackRes, err := runHandoffUnpack(context.Background(), store, tgtHome, handoffUnpackArgs{
+		Engine:             "claude-code",
+		Workdir:            packRes.PortableWorkdirPath, // "~/scratch"
+		EngineSessionID:    sessionID,
+		ManifestSHA:        packRes.ManifestSHA,
+		WorkdirManifestSHA: packRes.WorkdirManifestSHA,
+	})
+	if err != nil {
+		t.Fatalf("runHandoffUnpack: %v", err)
+	}
+	wantWorkdir := filepath.Join(tgtHome, "scratch")
+	if unpackRes.Workdir != wantWorkdir {
+		t.Fatalf("target workdir: got %s want %s", unpackRes.Workdir, wantWorkdir)
+	}
+	if unpackRes.WorktreePath != "" {
+		t.Fatalf("non-worktree unpack should report no worktree path, got %q", unpackRes.WorktreePath)
+	}
+	// 1) Workdir tree restored under the target home.
+	if got, _ := os.ReadFile(filepath.Join(wantWorkdir, "main.py")); string(got) != "print('hi')\n" {
+		t.Fatalf("workdir file not restored: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(wantWorkdir, "data", "notes.md")); string(got) != "# notes\n" {
+		t.Fatalf("nested workdir file not restored: %q", got)
+	}
+	// 2) Engine transcript at the TARGET resolver path (target home + target workdir).
+	tgtJSONL := filepath.Join(claudecode.ProjectDirFor(tgtHome, wantWorkdir), sessionID+".jsonl")
+	if got, rerr := os.ReadFile(tgtJSONL); rerr != nil || string(got) != transcript {
+		t.Fatalf("engine transcript not restored: err=%v got=%q", rerr, got)
+	}
+}
+
 func TestTeleportHandoffPack_RejectsBadArgs(t *testing.T) {
 	if _, err := runHandoffPack(context.Background(), newMemBlobStore(), t.TempDir(), handoffPackArgs{}); err == nil {
 		t.Fatal("expected error on empty pack args")

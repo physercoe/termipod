@@ -22,8 +22,12 @@ const (
 )
 
 type handoffPackArgs struct {
-	Engine          string `json:"engine"`
-	WorktreePath    string `json:"worktree_path"`
+	Engine       string `json:"engine"`
+	WorktreePath string `json:"worktree_path"`
+	// Workdir is the NON-worktree session's working directory, in portable
+	// (`~/…`) form (T2a). Mutually exclusive with WorktreePath: a worktree
+	// session's files ride git, a non-worktree session's ride a workdir tar.
+	Workdir         string `json:"workdir"`
 	Repo            string `json:"repo"`
 	Branch          string `json:"branch"`
 	Remote          string `json:"remote"`
@@ -41,21 +45,33 @@ type handoffPackResult struct {
 	// isn't under the source home it travels verbatim.
 	PortableWorktreePath string `json:"portable_worktree_path"`
 	PortableRepo         string `json:"portable_repo"`
+	// WorkdirManifestSHA / PortableWorkdirPath are set only for a non-worktree
+	// session (T2a): the tar'd workdir bundle handle and the workdir in portable
+	// form. ManifestSHA still carries the engine-state bundle in both modes.
+	WorkdirManifestSHA  string `json:"workdir_manifest_sha"`
+	PortableWorkdirPath string `json:"portable_workdir_path"`
 }
 
 type handoffUnpackArgs struct {
 	Engine          string `json:"engine"`
 	Repo            string `json:"repo"`
 	WorktreePath    string `json:"worktree_path"`
+	Workdir         string `json:"workdir"`
 	Branch          string `json:"branch"`
 	Remote          string `json:"remote"`
 	ExpectHead      string `json:"expect_head"`
 	EngineSessionID string `json:"engine_session_id"`
 	ManifestSHA     string `json:"manifest_sha"`
+	// WorkdirManifestSHA is the non-worktree workdir bundle (T2a), restored
+	// before the engine state.
+	WorkdirManifestSHA string `json:"workdir_manifest_sha"`
 }
 
 type handoffUnpackResult struct {
-	WorktreePath    string `json:"worktree_path"`
+	WorktreePath string `json:"worktree_path"`
+	// Workdir is the target-absolute working directory a non-worktree session
+	// was restored to (empty for a worktree session, which reports WorktreePath).
+	Workdir         string `json:"workdir"`
 	EngineSessionID string `json:"engine_session_id"`
 }
 
@@ -74,31 +90,40 @@ func (s hubBlobStore) Get(ctx context.Context, sha string) ([]byte, error) {
 	return s.c.DownloadBlob(ctx, sha)
 }
 
-// runHandoffPack is the SOURCE-side core: commit+push the worktree branch, tar
-// the engine state, chunk it into blobs, and return the manifest handle + head
-// SHA. Store-injectable for testing (the hub adapter in production, an in-memory
-// store in tests). home is the engine-store home (os.UserHomeDir on a real host).
+// runHandoffPack is the SOURCE-side core. A worktree session's files ride git
+// (commit+push the branch) and only its engine state is tar'd; a non-worktree
+// session (T2a) has no branch, so its workdir is tar'd too. Both return the
+// engine-state manifest; the non-worktree path adds the workdir manifest. Store-
+// injectable for testing (the hub adapter in production, an in-memory store in
+// tests). home is the engine-store home (os.UserHomeDir on a real host).
 func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, args handoffPackArgs) (handoffPackResult, error) {
-	if args.WorktreePath == "" || args.Engine == "" {
-		return handoffPackResult{}, fmt.Errorf("teleport pack: engine and worktree_path are required")
+	if args.Engine == "" {
+		return handoffPackResult{}, fmt.Errorf("teleport pack: engine is required")
 	}
+	switch {
+	case args.WorktreePath != "":
+		return packWorktreeSession(ctx, store, home, args)
+	case args.Workdir != "":
+		return packNonWorktreeSession(ctx, store, home, args)
+	default:
+		return handoffPackResult{}, fmt.Errorf("teleport pack: worktree_path or workdir is required")
+	}
+}
+
+// packWorktreeSession is the T1 path: git push the worktree branch + tar the
+// engine state keyed on the worktree cwd.
+func packWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffPackArgs) (handoffPackResult, error) {
 	head, branch, err := gitCommitAndPush(ctx, args.WorktreePath, args.Branch, args.Remote)
 	if err != nil {
 		return handoffPackResult{}, err
 	}
 	// For a worktree session the engine cwd IS the worktree path, so it is also
 	// the workdir the resolver keys the engine store on.
-	bundle, err := packEngineState(args.Engine, home, args.WorktreePath, args.EngineSessionID)
+	engineSHA, err := chunkBundle(ctx, store, "engine state", func() ([]byte, error) {
+		return packEngineState(args.Engine, home, args.WorktreePath, args.EngineSessionID)
+	})
 	if err != nil {
 		return handoffPackResult{}, err
-	}
-	manifest, err := handoff.Pack(ctx, bytes.NewReader(bundle), store, handoff.DefaultChunkSize)
-	if err != nil {
-		return handoffPackResult{}, fmt.Errorf("teleport pack: chunk engine state: %w", err)
-	}
-	manifestSHA, err := handoff.PutManifest(ctx, manifest, store)
-	if err != nil {
-		return handoffPackResult{}, fmt.Errorf("teleport pack: store manifest: %w", err)
 	}
 	remote := args.Remote
 	if remote == "" {
@@ -110,10 +135,54 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 		Branch:               branch,
 		HeadSHA:              head,
 		Remote:               remote,
-		ManifestSHA:          manifestSHA,
+		ManifestSHA:          engineSHA,
 		PortableWorktreePath: homeRelativePath(args.WorktreePath, home),
 		PortableRepo:         homeRelativePath(args.Repo, home),
 	}, nil
+}
+
+// packNonWorktreeSession is the T2a path: no git, so tar the workdir tree AND
+// the engine state (both keyed on the workdir).
+func packNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffPackArgs) (handoffPackResult, error) {
+	workdir, err := expandHomeWith(args.Workdir, home)
+	if err != nil {
+		return handoffPackResult{}, err
+	}
+	workdirSHA, err := chunkBundle(ctx, store, "workdir", func() ([]byte, error) {
+		return packWorkdir(workdir, maxWorkdirBundleBytes)
+	})
+	if err != nil {
+		return handoffPackResult{}, err
+	}
+	engineSHA, err := chunkBundle(ctx, store, "engine state", func() ([]byte, error) {
+		return packEngineState(args.Engine, home, workdir, args.EngineSessionID)
+	})
+	if err != nil {
+		return handoffPackResult{}, err
+	}
+	return handoffPackResult{
+		ManifestSHA:         engineSHA,
+		WorkdirManifestSHA:  workdirSHA,
+		PortableWorkdirPath: homeRelativePath(workdir, home),
+	}, nil
+}
+
+// chunkBundle builds a bundle, chunks it through the transport, stores the
+// manifest, and returns the manifest handle. `what` names the bundle for errors.
+func chunkBundle(ctx context.Context, store handoff.BlobStore, what string, build func() ([]byte, error)) (string, error) {
+	bundle, err := build()
+	if err != nil {
+		return "", err
+	}
+	manifest, err := handoff.Pack(ctx, bytes.NewReader(bundle), store, handoff.DefaultChunkSize)
+	if err != nil {
+		return "", fmt.Errorf("teleport pack: chunk %s: %w", what, err)
+	}
+	sha, err := handoff.PutManifest(ctx, manifest, store)
+	if err != nil {
+		return "", fmt.Errorf("teleport pack: store %s manifest: %w", what, err)
+	}
+	return sha, nil
 }
 
 // runHandoffUnpack is the TARGET-side core: re-anchor the portable source paths
@@ -122,14 +191,30 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 // .WorktreePath and .Repo arrive in the portable (`~/…`) form the pack step
 // produced; `home` is the target's $HOME.
 func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
-	if args.Repo == "" || args.WorktreePath == "" || args.Engine == "" || args.ManifestSHA == "" {
-		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine, repo, worktree_path and manifest_sha are required")
+	if args.Engine == "" || args.ManifestSHA == "" {
+		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine and manifest_sha are required")
 	}
 	// Pack refuses to snapshot without a session id; the restore must be as
 	// strict — an empty id would write the state at a nonsense path (e.g.
 	// claude's "<slug>/.jsonl") and report success, cold-starting the resume.
 	if args.EngineSessionID == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine_session_id is required")
+	}
+	switch {
+	case args.WorktreePath != "":
+		return unpackWorktreeSession(ctx, store, home, args)
+	case args.Workdir != "":
+		return unpackNonWorktreeSession(ctx, store, home, args)
+	default:
+		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: worktree_path or workdir is required")
+	}
+}
+
+// unpackWorktreeSession is the T1 path: git fetch+add the worktree, then restore
+// the engine state at the worktree cwd.
+func unpackWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
+	if args.Repo == "" {
+		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: repo is required for a worktree session")
 	}
 	worktreePath, err := expandHomeWith(args.WorktreePath, home)
 	if err != nil {
@@ -142,15 +227,11 @@ func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string,
 	if err := gitFetchAndAddWorktree(ctx, repo, worktreePath, args.Branch, args.Remote, args.ExpectHead); err != nil {
 		return handoffUnpackResult{}, err
 	}
-	manifest, err := handoff.GetManifest(ctx, args.ManifestSHA, store)
+	engine, err := reassembleBundle(ctx, store, args.ManifestSHA, "engine state")
 	if err != nil {
-		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: load manifest: %w", err)
+		return handoffUnpackResult{}, err
 	}
-	var buf bytes.Buffer
-	if err := handoff.Unpack(ctx, manifest, store, &buf); err != nil {
-		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: reassemble engine state: %w", err)
-	}
-	if err := restoreEngineState(args.Engine, home, worktreePath, args.EngineSessionID, buf.Bytes()); err != nil {
+	if err := restoreEngineState(args.Engine, home, worktreePath, args.EngineSessionID, engine); err != nil {
 		return handoffUnpackResult{}, err
 	}
 	// Return the TARGET-absolute worktree path so the hub records the session's
@@ -159,6 +240,50 @@ func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string,
 		WorktreePath:    worktreePath,
 		EngineSessionID: args.EngineSessionID,
 	}, nil
+}
+
+// unpackNonWorktreeSession is the T2a path: restore the workdir tar first, then
+// the engine state on top of it (both at the target-anchored workdir). The
+// respawn re-derives the same workdir on the target, so the hub records no path.
+func unpackNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
+	if args.WorkdirManifestSHA == "" {
+		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: workdir_manifest_sha is required for a non-worktree session")
+	}
+	workdir, err := expandHomeWith(args.Workdir, home)
+	if err != nil {
+		return handoffUnpackResult{}, err
+	}
+	workdirBundle, err := reassembleBundle(ctx, store, args.WorkdirManifestSHA, "workdir")
+	if err != nil {
+		return handoffUnpackResult{}, err
+	}
+	if err := restoreWorkdir(workdir, workdirBundle); err != nil {
+		return handoffUnpackResult{}, err
+	}
+	engine, err := reassembleBundle(ctx, store, args.ManifestSHA, "engine state")
+	if err != nil {
+		return handoffUnpackResult{}, err
+	}
+	if err := restoreEngineState(args.Engine, home, workdir, args.EngineSessionID, engine); err != nil {
+		return handoffUnpackResult{}, err
+	}
+	return handoffUnpackResult{
+		Workdir:         workdir,
+		EngineSessionID: args.EngineSessionID,
+	}, nil
+}
+
+// reassembleBundle loads a manifest and reassembles its verified byte stream.
+func reassembleBundle(ctx context.Context, store handoff.BlobStore, manifestSHA, what string) ([]byte, error) {
+	manifest, err := handoff.GetManifest(ctx, manifestSHA, store)
+	if err != nil {
+		return nil, fmt.Errorf("teleport unpack: load %s manifest: %w", what, err)
+	}
+	var buf bytes.Buffer
+	if err := handoff.Unpack(ctx, manifest, store, &buf); err != nil {
+		return nil, fmt.Errorf("teleport unpack: reassemble %s: %w", what, err)
+	}
+	return buf.Bytes(), nil
 }
 
 // handoffPack is the Runner command handler for session_handoff_pack.

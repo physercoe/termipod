@@ -365,6 +365,27 @@ func (c *Client) UploadBlob(ctx context.Context, body []byte, mime string) (Blob
 	return out, nil
 }
 
+// DownloadBlob GETs the content-addressed bytes at /v1/blobs/{sha}. Used by the
+// teleport target to fetch bundle parts (handoff.BlobStore.Get).
+func (c *Client) DownloadBlob(ctx context.Context, sha string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.BaseURL+"/v1/blobs/"+sha, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Bearer())
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download blob %s: %d %s", sha, resp.StatusCode, string(b))
+	}
+	return io.ReadAll(resp.Body)
+}
+
 // PostEvent forwards a marker-derived event to the project/channel feed.
 // Caller is responsible for resolving projectID/channelID from the spawn
 // spec — see SpawnSpec.ProjectID / ChannelID.

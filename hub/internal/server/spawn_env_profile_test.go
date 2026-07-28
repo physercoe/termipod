@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -257,5 +258,76 @@ func TestDoSpawn_EnvProfile_NotFound(t *testing.T) {
 	}
 	if status != 400 {
 		t.Fatalf("status = %d; want 400 for unknown env_profile_id", status)
+	}
+}
+
+// ADR-056 D-3 permits same-host envelope replay precisely so a paused
+// secret-bearing session can resume without a client re-seal ("client-free
+// restarts"). The resume path must thread the dead agent's envelope into the
+// respawn: without the replay, DoSpawn's D-4 check 422s every resume of a
+// project-inherited secret profile, and an explicitly-attached one respawns
+// silently WITHOUT its secrets.
+func TestResumeSession_ReplaysEnvelopeSameHost(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	ctx := context.Background()
+	seedTestHost(t, s, defaultTeamID, "host-1", "box")
+
+	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name:       "prod-secrets",
+		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	const envelope = `{"v":1,"epk":"AAAA","nonce":"BBBB","ct":"CCCC"}`
+	out, spawnStatus, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle:       "w",
+		Kind:              "claude-code",
+		HostID:            "host-1",
+		EnvProfileID:      prof.ID,
+		EnvSecretEnvelope: envelope,
+		SpawnSpec:         "backend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, spawnStatus)
+	}
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "secret session",
+			"agent_id":        out.AgentID,
+			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: echo test\n",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open session: %d %s", status, body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+out.AgentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resumed map[string]any
+	_ = json.Unmarshal(body, &resumed)
+	newAgent, _ := resumed["new_agent_id"].(string)
+	if newAgent == "" || newAgent == out.AgentID {
+		t.Fatalf("want a fresh agent id, got %q", newAgent)
+	}
+
+	var replayed string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(env_secret_envelope, '') FROM agent_spawns WHERE child_agent_id = ?`,
+		newAgent).Scan(&replayed)
+	if replayed != envelope {
+		t.Fatalf("resume did not replay the envelope onto the new spawn row:\n got %q\nwant %q",
+			replayed, envelope)
 	}
 }

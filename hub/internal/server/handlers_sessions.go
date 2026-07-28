@@ -33,18 +33,24 @@ type sessionIn struct {
 }
 
 type sessionOut struct {
-	ID             string  `json:"id"`
-	TeamID         string  `json:"team_id"`
-	Title          string  `json:"title,omitempty"`
-	ScopeKind      string  `json:"scope_kind,omitempty"`
-	ScopeID        string  `json:"scope_id,omitempty"`
-	CurrentAgentID string  `json:"current_agent_id,omitempty"`
-	Status         string  `json:"status"`
-	OpenedAt       string  `json:"opened_at"`
-	LastActiveAt   string  `json:"last_active_at"`
-	ClosedAt       *string `json:"closed_at,omitempty"`
-	WorktreePath   string  `json:"worktree_path,omitempty"`
-	SpawnSpecYAML  string  `json:"spawn_spec_yaml,omitempty"`
+	ID             string `json:"id"`
+	TeamID         string `json:"team_id"`
+	Title          string `json:"title,omitempty"`
+	ScopeKind      string `json:"scope_kind,omitempty"`
+	ScopeID        string `json:"scope_id,omitempty"`
+	CurrentAgentID string `json:"current_agent_id,omitempty"`
+	// HostID is the host the session currently lives on, derived from
+	// current_agent_id (sessions carry no host column — the agent row is the
+	// source of truth, and it stays correct across pause/resume/teleport
+	// because the paused agent's row keeps its host_id). The desktop teleport
+	// target picker needs it to exclude the current host.
+	HostID        string  `json:"host_id,omitempty"`
+	Status        string  `json:"status"`
+	OpenedAt      string  `json:"opened_at"`
+	LastActiveAt  string  `json:"last_active_at"`
+	ClosedAt      *string `json:"closed_at,omitempty"`
+	WorktreePath  string  `json:"worktree_path,omitempty"`
+	SpawnSpecYAML string  `json:"spawn_spec_yaml,omitempty"`
 	// SessionNameHint is the latest non-empty `session_name` value
 	// claude-code's statusLine has emitted for this session (ADR-036
 	// v1.0.705 polish). Persisted on every status_line event ingest
@@ -153,6 +159,8 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	q := `
 		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
 		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
+		       COALESCE((SELECT host_id FROM agents a
+		                  WHERE a.id = sessions.current_agent_id), ''),
 		       status, opened_at, last_active_at, closed_at,
 		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, ''),
 		       COALESCE(session_name_hint, '')
@@ -181,7 +189,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			closedAt sql.NullString
 		)
 		if err := rows.Scan(&ses.ID, &ses.TeamID, &ses.Title,
-			&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID,
+			&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID, &ses.HostID,
 			&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
 			&ses.WorktreePath, &ses.SpawnSpecYAML,
 			&ses.SessionNameHint); err != nil {
@@ -210,13 +218,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
 		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
+		       COALESCE((SELECT host_id FROM agents a
+		                  WHERE a.id = sessions.current_agent_id), ''),
 		       status, opened_at, last_active_at, closed_at,
 		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, ''),
 		       COALESCE(session_name_hint, '')
 		FROM sessions
 		WHERE team_id = ? AND id = ?`, team, id).Scan(
 		&ses.ID, &ses.TeamID, &ses.Title,
-		&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID,
+		&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID, &ses.HostID,
 		&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
 		&ses.WorktreePath, &ses.SpawnSpecYAML,
 		&ses.SessionNameHint,
@@ -710,13 +720,30 @@ func (s *Server) resumePausedSessionWith(ctx context.Context, team, id string, o
 		wtPath = ov.worktreePath
 	}
 
+	// Replay the dead agent's env_secret_envelope on a same-host respawn.
+	// ADR-056 D-3 keeps the envelope valid for the host it was sealed to
+	// exactly so a paused secret-bearing session can resume without a client
+	// re-seal ("client-free restarts"): without the replay, DoSpawn's D-4
+	// check 422s every resume of a project-inherited secret profile, and an
+	// explicitly-attached one respawns silently WITHOUT its secrets. Strictly
+	// same-host — the AAD binds the host id, and teleport refuses
+	// secret-bearing sessions before it ever reaches this path.
+	var priorEnvelope string
+	if hostID == deadHostID.String {
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT COALESCE(env_secret_envelope, '') FROM agent_spawns
+			 WHERE child_agent_id = ? ORDER BY spawned_at DESC LIMIT 1`,
+			currentAgentID.String).Scan(&priorEnvelope)
+	}
+
 	in := spawnIn{
-		ParentID:    deadParentID.String,
-		ChildHandle: deadHandle.String,
-		Kind:        deadKind.String,
-		HostID:      hostID,
-		ProjectID:   deadProjectID.String,
-		SpawnSpec:   specYAML,
+		ParentID:          deadParentID.String,
+		ChildHandle:       deadHandle.String,
+		Kind:              deadKind.String,
+		HostID:            hostID,
+		ProjectID:         deadProjectID.String,
+		EnvSecretEnvelope: priorEnvelope,
+		SpawnSpec:         specYAML,
 		// Resume stamps the EXISTING paused session below; suppress the
 		// project auto-open so threading project_id doesn't mint a second
 		// session that collides on (team_id, worktree_path).

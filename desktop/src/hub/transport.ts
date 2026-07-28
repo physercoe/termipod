@@ -53,16 +53,19 @@ export class HubTransport {
     url: string,
     headers: Record<string, string>,
     bodyText?: string,
+    timeoutMs = 30000,
   ): Promise<RawResponse> {
-    // Time out a hung request instead of pending forever.
-    const res = await fetch(url, { method, headers, body: bodyText, signal: AbortSignal.timeout(30000) });
+    // Time out a hung request instead of pending forever. Long-running
+    // orchestrations (teleport moves a worktree + engine-state bundle between
+    // hosts) pass their own budget via timeoutMs.
+    const res = await fetch(url, { method, headers, body: bodyText, signal: AbortSignal.timeout(timeoutMs) });
     return { status: res.status, body: await res.text() };
   }
 
   private async request(
     method: string,
     path: string,
-    opts: { body?: Json; query?: Query; auth?: boolean } = {},
+    opts: { body?: Json; query?: Query; auth?: boolean; timeoutMs?: number } = {},
   ): Promise<Json> {
     const bodyText = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
     const { status, body } = await this.raw(
@@ -70,6 +73,7 @@ export class HubTransport {
       this.buildUrl(path, opts.query),
       this.headers(opts.auth ?? true),
       bodyText,
+      opts.timeoutMs,
     );
     if (status < 200 || status >= 300) throw new HubApiError(status, body);
     return body ? (JSON.parse(body) as Json) : null;
@@ -95,8 +99,8 @@ export class HubTransport {
     if (status < 200 || status >= 300) throw new HubApiError(status, body);
     return body;
   }
-  post(path: string, body: Json, query?: Query): Promise<Json> {
-    return this.request('POST', path, { body, query });
+  post(path: string, body: Json, query?: Query, timeoutMs?: number): Promise<Json> {
+    return this.request('POST', path, { body, query, timeoutMs });
   }
   put(path: string, body: Json): Promise<Json> {
     return this.request('PUT', path, { body });

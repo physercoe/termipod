@@ -103,10 +103,10 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost strin
 	}
 
 	// 2. Source host + engine kind from the paused agent.
-	var kind, sourceHost sql.NullString
+	var kind, sourceHost, agentProject sql.NullString
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT kind, host_id FROM agents WHERE team_id = ? AND id = ?`,
-		team, curAgent.String).Scan(&kind, &sourceHost); err != nil {
+		`SELECT kind, host_id, project_id FROM agents WHERE team_id = ? AND id = ?`,
+		team, curAgent.String).Scan(&kind, &sourceHost, &agentProject); err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("lookup agent: %w", err)
 	}
 	if targetHost == sourceHost.String {
@@ -119,6 +119,37 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost strin
 	}
 	if serr := s.checkHostSupportsFamily(ctx, team, targetHost, kind.String); serr != nil {
 		return nil, http.StatusConflict, serr
+	}
+
+	// 3b. Secret-bearing sessions cannot teleport in T1 (ADR-056 D-6, ADR-057):
+	//     the env_secret_envelope is sealed to the SOURCE host's key (the AAD
+	//     binds the host id), the hub cannot re-seal it, and the resume path
+	//     cannot mint a new one — only a vault-holding client can. Without this
+	//     refusal the teleport either fails AFTER all the byte-moving with a
+	//     misleading "headless spawns refused" 422 (project-inherited profile)
+	//     or, worse, respawns on the target WITHOUT its secrets (profile
+	//     attached explicitly at spawn — nothing re-triggers the D-4 check).
+	//     Detect via the paused agent's spawn row (D-4 guarantees any
+	//     secret-bearing spawn carried an envelope) plus the project profile,
+	//     which the re-spawn would re-resolve.
+	var priorEnvelope string
+	_ = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(env_secret_envelope, '') FROM agent_spawns
+		 WHERE child_agent_id = ? ORDER BY spawned_at DESC LIMIT 1`,
+		curAgent.String).Scan(&priorEnvelope)
+	secretBearing := priorEnvelope != ""
+	if !secretBearing && agentProject.String != "" {
+		if pid := s.projectEnvProfileID(ctx, agentProject.String); pid != "" {
+			if prof, perr := s.getEnvProfileByID(ctx, team, pid); perr == nil && len(prof.SecretRefs) > 0 {
+				secretBearing = true
+			}
+		}
+	}
+	if secretBearing {
+		return nil, http.StatusConflict, errors.New(
+			"session carries vault secrets sealed to its current host; teleporting it would " +
+				"strand or drop them (the hub cannot re-seal to the target). Re-sealing on " +
+				"teleport is not supported yet — resume it on its current host instead")
 	}
 
 	// 4. Pack on the SOURCE: commit+push the worktree branch, snapshot the engine
@@ -177,6 +208,12 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost strin
 	}
 
 	// 6. Commit point: re-target the resume onto the target host + its worktree.
+	//    From here the orchestration must not die with the caller: the awaits
+	//    above are safely cancellable (failure mode = still paused on source),
+	//    but a cancel landing between DoSpawn and the session row-flip inside
+	//    the resume would strand a live target agent on a still-paused session.
+	//    The desktop's request timeout or a closed laptop must not do that.
+	ctx = context.WithoutCancel(ctx)
 	resumeOut, code, rerr := s.resumePausedSessionWith(ctx, team, id, resumeOverrides{
 		hostID:       targetHost,
 		worktreePath: unpack.WorktreePath,

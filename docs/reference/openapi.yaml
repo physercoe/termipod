@@ -3300,6 +3300,12 @@ components:
         status:
           type: string
           enum: [open, active, closed, archived]
+        host_id:
+          type: string
+          description: >-
+            Host the session currently lives on, derived from its current
+            agent (empty when the session has none). Teleport target pickers
+            use it to exclude the current host.
         engine_session_id: { type: string, nullable: true }
         correlation_id: { type: string, nullable: true }
         created_at: { type: string, format: date-time }

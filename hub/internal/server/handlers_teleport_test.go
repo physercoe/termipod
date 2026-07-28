@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -165,6 +166,61 @@ func TestTeleportSession_RefusesSameHost(t *testing.T) {
 		map[string]any{"target_host_id": "host-src"})
 	if status != http.StatusConflict {
 		t.Fatalf("teleport to same host: want 409, got %d %s", status, body)
+	}
+}
+
+// ADR-056 D-6 / ADR-057: a secret-bearing session's envelope is sealed to the
+// SOURCE host's key — the hub cannot re-seal it to the target and the re-spawn
+// cannot mint a new one. Teleport must refuse UP FRONT, before any pack /
+// unpack byte-moving, not fail late (project-inherited profile → 422 after
+// the work) or silently respawn without secrets (explicitly-attached profile).
+func TestTeleportSession_RefusesSecretBearing(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	ctx := context.Background()
+	seedTestHost(t, s, defaultTeamID, "host-src", "src-box")
+	seedTestHost(t, s, defaultTeamID, "host-tgt", "gpu-box")
+
+	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name:       "prod-secrets",
+		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	out, spawnStatus, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle:       "w",
+		Kind:              "claude-code",
+		HostID:            "host-src",
+		EnvProfileID:      prof.ID,
+		EnvSecretEnvelope: `{"v":1,"epk":"AAAA","nonce":"BBBB","ct":"CCCC"}`,
+		SpawnSpec:         "backend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, spawnStatus)
+	}
+	ses := openWorktreeSessionForAgent(t, s, token, out.AgentID)
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+out.AgentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/teleport",
+		map[string]any{"target_host_id": "host-tgt"})
+	if status != http.StatusConflict {
+		t.Fatalf("teleport of secret-bearing session: want 409, got %d %s", status, body)
+	}
+	if !strings.Contains(string(body), "secret") {
+		t.Fatalf("409 should name the secret refusal, got: %s", body)
+	}
+	// The refusal must precede the byte-moving: no handoff command may have
+	// been enqueued (the stop's `terminate` command is expected and excluded).
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM host_commands WHERE kind LIKE 'session_handoff_%'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("refusal must precede pack/unpack; found %d handoff commands", n)
 	}
 }
 

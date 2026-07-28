@@ -6,8 +6,9 @@
 /// Run with `node --test src/state/archLayout.test.ts` from `desktop/`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GEO, layoutArch, isLinearAttn, type ArchLabels, type ArchLayoutResult } from './archLayout.ts';
+import { GEO, layoutArch, isLinearAttn, panelRows, type ArchLabels, type ArchLayoutResult } from './archLayout.ts';
 import { buildArchSchematic } from './archSchematic.ts';
+import { buildArchPanels } from './archPanels.ts';
 import { classifyArch, parseHfConfig } from './checkpoint.ts';
 
 // Stub labels: identity-ish, so assertions read clearly and no i18n is needed.
@@ -20,11 +21,12 @@ const L: ArchLabels = {
   container: '×N layers',
 };
 
-function laidFor(cfg: Record<string, unknown>): ArchLayoutResult {
+function laidFor(cfg: Record<string, unknown>, withPanels = false): ArchLayoutResult {
   const config = parseHfConfig(JSON.stringify(cfg))!;
   const card = classifyArch({ config, tensorNames: [] })!;
   const s = buildArchSchematic(card, config)!;
-  return layoutArch(s, L);
+  const panels = withPanels ? buildArchPanels(card, config, card.chips.includes('MLA') ? 'MLA' : 'GQA') : [];
+  return layoutArch(s, L, panels);
 }
 
 const LLAMA = {
@@ -66,11 +68,14 @@ function assertSane(l: ArchLayoutResult, what: string): void {
   }
   // Every card has a positive box.
   for (const c of l.cards) assert.ok(c.w > 0 && c.h > 0, `${what}: card ${c.id} has a degenerate box`);
-  // Every edge endpoint is a real card.
+  // Every edge endpoint resolves: cards for the stack flow, and a panel for the
+  // target of a dotted leader line.
   const cardIds = new Set(l.cards.map((c) => c.id));
+  const panelIds = new Set(l.panels.map((p) => p.id));
   for (const e of l.edges) {
     assert.ok(cardIds.has(e.source), `${what}: edge ${e.id} source ${e.source} missing`);
-    assert.ok(cardIds.has(e.target), `${what}: edge ${e.id} target ${e.target} missing`);
+    const targets = e.kind === 'leader' ? panelIds : cardIds;
+    assert.ok(targets.has(e.target), `${what}: edge ${e.id} target ${e.target} missing`);
     assert.notEqual(e.source, e.target, `${what}: edge ${e.id} is a self-loop`);
   }
   // Every box wraps at least one card, and wraps them COMPLETELY (this is the
@@ -170,6 +175,57 @@ test('W3 DeepSeek-V3: uniform attention → one run box, no cycle, strip still s
   // carries it even though the attention track is uniform.
   assert.equal(l.strip?.cells.length, 61);
   assert.deepEqual(l.strip?.cells.slice(0, 4).map((c) => c.ffn), ['dense', 'dense', 'dense', 'moe']);
+});
+
+// ── W4: zoom-in panel placement ───────────────────────────────────────────────
+
+test('W4 panels: placed clear of the stack, anchored, never overlapping', () => {
+  const l = laidFor(KIMI_K3, true);
+  assertSane(l, 'kimi-k3+panels');
+  assert.equal(l.panels.length, 2); // attention + MoE
+  const cardIds = new Set(l.cards.map((c) => c.id));
+  for (const p of l.panels) {
+    // Clear of the stack column, and tied to a real card.
+    assert.ok(p.x >= GEO.X + GEO.W, `panel ${p.id} overlaps the stack column`);
+    assert.ok(cardIds.has(p.anchorCardId), `panel ${p.id} anchor ${p.anchorCardId} is not a card`);
+    assert.ok(p.h > GEO.PANEL_HEAD, `panel ${p.id} has no room for its rows`);
+  }
+  // The two panels do not overlap each other vertically.
+  const [a, b] = [...l.panels].sort((x, y) => x.y - y.y);
+  assert.ok(a.y + a.h <= b.y, 'panels must not overlap');
+  // Each panel gets exactly one dotted leader edge from its anchor.
+  const leaders = l.edges.filter((e) => e.kind === 'leader');
+  assert.equal(leaders.length, 2);
+  for (const e of leaders) {
+    assert.ok(cardIds.has(e.source));
+    assert.ok(l.panels.some((p) => p.id === e.target));
+  }
+});
+
+test('W4 panels: the attention panel anchors an attention card, MoE a MoE card', () => {
+  const l = laidFor(KIMI_K3, true);
+  const byKind = new Map(l.panels.map((p) => [p.panel.kind, p]));
+  const cardOf = (id: string) => l.cards.find((c) => c.id === id)!;
+  assert.equal(cardOf(byKind.get('attention')!.anchorCardId).node.kind, 'attention');
+  assert.equal(cardOf(byKind.get('moe')!.anchorCardId).node.kind, 'moe');
+});
+
+test('W4 panels: a dense model gets only the attention panel; none when not asked', () => {
+  const withPanels = laidFor(LLAMA, true);
+  assert.deepEqual(withPanels.panels.map((p) => p.panel.kind), ['attention']);
+  // Panels are opt-in: the default layout carries none (and no leader edges).
+  const bare = laidFor(LLAMA);
+  assert.equal(bare.panels.length, 0);
+  assert.equal(bare.edges.filter((e) => e.kind === 'leader').length, 0);
+});
+
+test('W4 panelRows: expert chips share one row instead of stacking', () => {
+  const config = parseHfConfig(JSON.stringify(KIMI_K3))!;
+  const card = classifyArch({ config, tensorNames: [] })!;
+  const [, moe] = buildArchPanels(card, config, 'MLA');
+  // router + (4 chips + "more" collapsed into ONE row) + shared = 3 rows.
+  assert.equal(panelRows(moe), 3);
+  assert.ok(moe.items.length > 3, 'the chip items are still all present in the spec');
 });
 
 test('W3 grouped: the main flow is one unbroken chain through every card', () => {

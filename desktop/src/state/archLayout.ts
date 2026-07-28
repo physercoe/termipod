@@ -10,6 +10,7 @@
 /// and **grouped** when it is present — nested repeat groups expressing the 3×/1×
 /// interleave idiom, plus a per-layer pattern strip beside the stack.
 import type { ArchNode, ArchSchematic, AttnKind, FfnKind, LayerCell } from './archSchematic.ts';
+import type { ArchPanel } from './archPanels.ts';
 
 // Card geometry (kept in sync with the CSS so the container boxes wrap correctly).
 export const GEO = {
@@ -21,10 +22,17 @@ export const GEO = {
   PAD: 16, // container inset per nesting level
   STRIP_W: 26,
   STRIP_GAP: 30,
+  /// Zoom-in panel geometry (W4): the dotted expansion boxes to the right.
+  PANEL_W: 250,
+  PANEL_GAP: 90, // horizontal clearance from the stack, room for the leader line
+  PANEL_HEAD: 30,
+  PANEL_ROW: 32,
+  PANEL_PAD: 12,
 } as const;
 
-const { W, H, HN, GAP, X, PAD, STRIP_W, STRIP_GAP } = GEO;
+const { W, H, HN, GAP, X, PAD, STRIP_W, STRIP_GAP, PANEL_W, PANEL_GAP, PANEL_HEAD, PANEL_ROW, PANEL_PAD } = GEO;
 const STRIP_X = X - PAD * 2 - STRIP_GAP - STRIP_W;
+const PANEL_X = X + W + PANEL_GAP;
 
 /// Labels the layout needs but must not invent (they are i18n strings owned by
 /// the renderer) — injected so this module stays pure and unit-testable.
@@ -75,7 +83,21 @@ export interface LaidEdge {
   id: string;
   source: string;
   target: string;
-  kind: 'main' | 'residual';
+  /// `leader` is the dotted line from a block to its zoom-in panel (W4).
+  kind: 'main' | 'residual' | 'leader';
+}
+
+/// A zoom-in panel placed beside the stack, tied to the block it expands.
+export interface LaidPanel {
+  id: string;
+  panel: ArchPanel;
+  /// The card whose internals this panel expands (the leader line's source).
+  anchorCardId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
 }
 
 export interface ArchLayoutResult {
@@ -83,6 +105,45 @@ export interface ArchLayoutResult {
   boxes: LaidBox[];
   strip: LaidStrip | null;
   edges: LaidEdge[];
+  panels: LaidPanel[];
+}
+
+/// Rows a panel occupies: every non-chip item is its own row, and the expert
+/// chips (`expert`/`more`) share ONE row (the figure idiom is a chip row).
+export function panelRows(panel: ArchPanel): number {
+  const chips = panel.items.filter((i) => i.shape === 'expert' || i.shape === 'more').length;
+  return panel.items.length - chips + (chips > 0 ? 1 : 0);
+}
+
+// A narrative note is a wrapped paragraph, not a row — reserve ~3 lines at the
+// panel width so it isn't clipped (the panel hides overflow).
+const NOTE_H = 54;
+
+function panelHeight(panel: ArchPanel): number {
+  const noteRow = panel.noteKey !== undefined ? NOTE_H : 0;
+  return PANEL_HEAD + panelRows(panel) * PANEL_ROW + noteRow + PANEL_PAD * 2;
+}
+
+/// Place the zoom-in panels to the right of the stack: each is anchored to the
+/// first card of the block it expands, and panels never overlap (a later panel
+/// slides down past the previous one).
+function placePanels(panels: ArchPanel[], cards: LaidCard[]): { panels: LaidPanel[]; edges: LaidEdge[] } {
+  const out: LaidPanel[] = [];
+  const edges: LaidEdge[] = [];
+  let floor = -Infinity;
+  for (const p of panels) {
+    const anchor =
+      p.kind === 'attention'
+        ? cards.find((c) => c.node.kind === 'attention')
+        : cards.find((c) => c.node.kind === 'moe');
+    if (anchor === undefined) continue;
+    const h = panelHeight(p);
+    const y = Math.max(anchor.y, floor);
+    out.push({ id: p.id, panel: p, anchorCardId: anchor.id, x: PANEL_X, y, w: PANEL_W, h, z: 2 });
+    edges.push({ id: `ld${p.id}`, source: anchor.id, target: p.id, kind: 'leader' });
+    floor = y + h + GAP;
+  }
+  return { panels: out, edges };
 }
 
 /// True for the linear/recurrent operators — novelty accent, O(1) state.
@@ -125,7 +186,7 @@ function residualEdge(id: string, source: string, target: string): LaidEdge {
 
 /// The classic uniform layout — one dashed ×N container around the in-block rows,
 /// every card `H` tall at a fixed pitch. Geometry identical to pre-W3.
-function layoutUniform(s: ArchSchematic, labels: ArchLabels): ArchLayoutResult {
+function layoutUniform(s: ArchSchematic, labels: ArchLabels, panels: ArchPanel[]): ArchLayoutResult {
   const yOf = (i: number): number => i * (H + GAP);
   const cards: LaidCard[] = s.nodes.map((n, i) => ({ id: n.id, node: n, x: X, y: yOf(i), w: W, h: H, z: 1 }));
 
@@ -141,16 +202,17 @@ function layoutUniform(s: ArchSchematic, labels: ArchLabels): ArchLayoutResult {
   for (let i = 0; i < s.nodes.length - 1; i += 1) edges.push(mainEdge(`m${i}`, s.nodes[i].id, s.nodes[i + 1].id));
   s.residuals.forEach((r, i) => edges.push(residualEdge(`r${i}`, r.from, r.to)));
 
-  return { cards, boxes, strip: null, edges };
+  const placed = placePanels(panels, cards);
+  return { cards, boxes, strip: null, edges: [...edges, ...placed.edges], panels: placed.panels };
 }
 
 /// The heterogeneous layout: embed → [nested repeat groups] → final norm → head,
 /// with the per-layer pattern strip on the left. Each group renders one decoder
 /// block (norm → attention → norm → FFN) inside a dashed ×N container; an
 /// interleave cycle nests its runs inside an outer ×repeat container.
-function layoutGrouped(s: ArchSchematic, labels: ArchLabels): ArchLayoutResult {
+function layoutGrouped(s: ArchSchematic, labels: ArchLabels, panels: ArchPanel[]): ArchLayoutResult {
   const layout = s.layout;
-  if (layout === undefined) return layoutUniform(s, labels);
+  if (layout === undefined) return layoutUniform(s, labels, panels);
 
   const cards: LaidCard[] = [];
   const boxes: LaidBox[] = [];
@@ -231,11 +293,13 @@ function layoutGrouped(s: ArchSchematic, labels: ArchLabels): ArchLayoutResult {
   }
 
   const strip: LaidStrip = { x: STRIP_X, y: blockTop, w: STRIP_W, h: Math.max(blockBottom - blockTop, H), cells: layout.strip };
-  return { cards, boxes, strip, edges };
+  const placed = placePanels(panels, cards);
+  return { cards, boxes, strip, edges: [...edges, ...placed.edges], panels: placed.panels };
 }
 
 /// Lay out a schematic: grouped when the spec carries a heterogeneous `layout`,
-/// otherwise the classic uniform stack. Pure.
-export function layoutArch(s: ArchSchematic, labels: ArchLabels): ArchLayoutResult {
-  return s.layout !== undefined ? layoutGrouped(s, labels) : layoutUniform(s, labels);
+/// otherwise the classic uniform stack. `panels` (W4) are placed to the right and
+/// tied to the block each expands. Pure.
+export function layoutArch(s: ArchSchematic, labels: ArchLabels, panels: ArchPanel[] = []): ArchLayoutResult {
+  return s.layout !== undefined ? layoutGrouped(s, labels, panels) : layoutUniform(s, labels, panels);
 }

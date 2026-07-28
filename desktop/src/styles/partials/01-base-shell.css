@@ -49,6 +49,10 @@
   --archgraph-ffn: var(--color-terminal-green);
   --archgraph-moe: var(--color-terminal-magenta);
   --archgraph-norm: var(--color-terminal-yellow);
+  /* The novelty hue: linear/recurrent attention operators (KDA, Gated DeltaNet)
+   * of a hybrid stack, set against the standard-attention blue — the reference
+   * figures' "novelty accent vs neutral" device. */
+  --archgraph-linear: var(--color-terminal-cyan);
   /* Code syntax palette — the Inspect (J3) CodeView maps lezer highlight tags
    * to these aliases, so code highlighting stays theme-aware and on-token (no
    * per-editor hex). Restrained: accent for keywords, one hue each for

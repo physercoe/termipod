@@ -11,42 +11,43 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useT } from '../i18n';
+import { useT, type TLookup } from '../i18n';
 import { Icon } from './Icon';
 import { useContextMenu } from './ContextMenu';
 import type { ArchCard } from '../state/checkpoint';
-import { archNodeDetails, type ArchDetailRow, type ArchNode, type ArchSchematic } from '../state/archSchematic';
+import { archNodeDetails, type ArchDetailRow, type ArchNode, type ArchSchematic, type AttnKind, type LayerCell } from '../state/archSchematic';
+import { layoutArch, type ArchLabels, type LaidStrip } from '../state/archLayout';
 
-/// Config-only architecture schematic renderer (round-3 §5a follow-on). Lays out
-/// the pure `ArchSchematic` (state/archSchematic.ts) as a paper-style stacked
-/// block diagram with React Flow — colour-coded component cards, a dashed "×N"
-/// container around the repeated decoder block, and side-routed residual skips.
-/// A fixed vertical layout (the architecture is a known template — no auto-layout
-/// engine needed); the heavy React Flow dep rides this lazy chunk only, exactly
-/// like ModuleGraphView.
+/// Config-only architecture schematic renderer (round-3 §5a follow-on; archgraph
+/// plan W3). A thin mapping of the PURE layout (`state/archLayout.ts`) onto React
+/// Flow — the box/card arithmetic lives there and is unit-tested without a
+/// browser; this file owns only the visual chrome (node components, edge styling,
+/// the detail panel and the context menu) and the i18n labels the layout needs.
+///
+/// Uniform models render exactly as before (one dashed ×N container). A
+/// heterogeneous stack — a hybrid linear-attention interleave, a windowed
+/// cadence — renders nested repeat groups (the 3×/1× idiom) with a per-layer
+/// pattern strip beside the stack.
 ///
 /// Interactive: click a card to open a detail panel (the full config facts for
 /// that block), right-click for a context menu (copy details / fit view), click
-/// empty canvas to dismiss. Pan/zoom as before.
-
-// Card geometry (kept in sync with the CSS so the container box wraps correctly).
-const W = 260;
-const H = 56;
-const GAP = 30;
-const X = 70;
-const PAD = 20;
+/// empty canvas to dismiss. Pan/zoom as before. The heavy React Flow dep rides
+/// this lazy chunk only, exactly like ModuleGraphView.
 
 interface CardData extends Record<string, unknown> {
   node: ArchNode;
   selected: boolean;
+  /// Present on attention cards of a heterogeneous stack — drives the per-kind
+  /// colour band / texture (linear operators get the novelty accent).
+  attn?: AttnKind;
 }
 
 /// One component card. Four handles (top/bottom for the main stack, left/right
 /// for the residual skips) — all invisible; ids let the edges pick sides.
 function ArchCardNode({ data }: NodeProps): JSX.Element {
-  const { node, selected } = data as CardData;
+  const { node, selected, attn } = data as CardData;
   return (
-    <div className="archgraph-card" data-kind={node.kind} data-selected={selected ? 'true' : undefined}>
+    <div className="archgraph-card" data-kind={node.kind} data-attn={attn} data-selected={selected ? 'true' : undefined}>
       <Handle type="target" id="t" position={Position.Top} className="archgraph-h" />
       <Handle type="target" id="rin" position={Position.Right} className="archgraph-h" />
       <div className="archgraph-card-label">{node.label}</div>
@@ -59,83 +60,73 @@ function ArchCardNode({ data }: NodeProps): JSX.Element {
 
 interface ContainerData extends Record<string, unknown> {
   label: string;
+  /// `cycle` is the outer repeat group of an interleave pattern; `run` is a plain
+  /// (possibly nested) block of same-attention layers.
+  variant: 'cycle' | 'run';
 }
 
-/// The dashed "×N" backdrop behind the repeated decoder block.
+/// The dashed "×N" backdrop behind a repeated block.
 function ContainerNode({ data }: NodeProps): JSX.Element {
-  const { label } = data as ContainerData;
+  const { label, variant } = data as ContainerData;
   return (
-    <div className="archgraph-container">
+    <div className="archgraph-container" data-variant={variant}>
       <span className="archgraph-container-tag">{label}</span>
     </div>
   );
 }
 
-const NODE_TYPES = { archCard: ArchCardNode, archContainer: ContainerNode };
+interface StripData extends Record<string, unknown> {
+  cells: LayerCell[];
+  title: string;
+  caption: string;
+  /// Per-cell tooltip text, pre-formatted ("layer 12 · KDA · MoE").
+  tips: string[];
+}
 
-function layoutSchematic(s: ArchSchematic, containerLabel: string, selectedId: string | null): { nodes: Node[]; edges: Edge[] } {
-  const yOf = (i: number): number => i * (H + GAP);
-  const nodes: Node[] = [];
+/// The per-layer pattern strip: one thin cell per layer, top→bottom, background
+/// keyed to the attention operator and a left border keyed to the FFN. Compact
+/// enough for a 93-layer stack (cells flex to fill).
+function StripNode({ data }: NodeProps): JSX.Element {
+  const { cells, title, caption, tips } = data as StripData;
+  return (
+    <div className="archgraph-strip" title={title}>
+      <div className="archgraph-strip-cells">
+        {cells.map((c, i) => (
+          <div key={c.index} className="archgraph-strip-cell" data-attn={c.attn} data-ffn={c.ffn} title={tips[i]} />
+        ))}
+      </div>
+      <span className="archgraph-strip-caption">{caption}</span>
+    </div>
+  );
+}
 
-  // The ×N container box wrapping the in-block nodes — pushed first so it sits
-  // behind the cards (zIndex also enforces it).
-  const blockIdx = s.nodes.map((n, i) => (n.inBlock ? i : -1)).filter((i) => i >= 0);
-  if (blockIdx.length > 0 && s.layers > 0) {
-    const top = yOf(Math.min(...blockIdx)) - PAD;
-    const bottom = yOf(Math.max(...blockIdx)) + H + PAD;
-    nodes.push({
-      id: '__container',
-      type: 'archContainer',
-      position: { x: X - PAD, y: top },
-      data: { label: containerLabel } satisfies ContainerData,
-      style: { width: W + PAD * 2, height: bottom - top },
-      selectable: false,
-      draggable: false,
-      zIndex: 0,
-    });
-  }
+const NODE_TYPES = { archCard: ArchCardNode, archContainer: ContainerNode, archStrip: StripNode };
 
-  s.nodes.forEach((n, i) => {
-    nodes.push({
-      id: n.id,
-      type: 'archCard',
-      position: { x: X, y: yOf(i) },
-      data: { node: n, selected: n.id === selectedId } satisfies CardData,
-      style: { width: W, height: H },
-      selectable: true,
-      draggable: false,
-      zIndex: 1,
-    });
-  });
+function labelsFor(t: TLookup, containerLabel: string): ArchLabels {
+  return {
+    attn: (kind) => t(`archgraph.attn.${kind}`),
+    norm: 'Norm',
+    ffnDense: t('archgraph.ffnDense'),
+    ffnMoe: t('archgraph.ffnMoe'),
+    linearSub: t('archgraph.attnSubLinear'),
+    container: containerLabel,
+  };
+}
 
-  const edges: Edge[] = [];
-  // Main vertical flow, input (top) → output (bottom).
-  for (let i = 0; i < s.nodes.length - 1; i += 1) {
-    edges.push({
-      id: `m${i}`,
-      source: s.nodes[i].id,
-      target: s.nodes[i + 1].id,
-      sourceHandle: 'b',
-      targetHandle: 't',
-      type: 'smoothstep',
-      className: 'archgraph-edge main',
-      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-    });
-  }
-  // Residual skips, routed on the right side (the classic "Add" bypass).
-  s.residuals.forEach((r, i) => {
-    edges.push({
-      id: `r${i}`,
-      source: r.from,
-      target: r.to,
-      sourceHandle: 'rout',
-      targetHandle: 'rin',
-      type: 'default',
-      className: 'archgraph-edge residual',
-    });
-  });
-
-  return { nodes, edges };
+function stripNode(strip: LaidStrip, t: TLookup): Node {
+  const tips = strip.cells.map(
+    (c) => `${t('archgraph.layer')} ${c.index} · ${t(`archgraph.attn.${c.attn}`)} · ${c.ffn === 'moe' ? t('archgraph.ffnMoeShort') : t('archgraph.ffnDenseShort')}`,
+  );
+  return {
+    id: '__strip',
+    type: 'archStrip',
+    position: { x: strip.x, y: strip.y },
+    data: { cells: strip.cells, tips, title: t('archgraph.patternStrip'), caption: `${strip.cells.length} ${t('archgraph.layers')}` } satisfies StripData,
+    style: { width: strip.w, height: strip.h },
+    selectable: false,
+    draggable: false,
+    zIndex: 1,
+  };
 }
 
 export function ArchSchematicView({
@@ -155,9 +146,56 @@ export function ArchSchematicView({
   const menu = useContextMenu();
 
   const containerLabel = schematic.layers > 0 ? `×${schematic.layers} ${t('archgraph.layers')}` : t('archgraph.decoderBlock');
-  const { nodes, edges } = useMemo(() => layoutSchematic(schematic, containerLabel, selectedId), [schematic, containerLabel, selectedId]);
+  const laid = useMemo(() => layoutArch(schematic, labelsFor(t, containerLabel)), [schematic, containerLabel, t]);
 
-  const selectedNode = selectedId !== null ? schematic.nodes.find((n) => n.id === selectedId) ?? null : null;
+  const { nodes, edges } = useMemo(() => {
+    const ns: Node[] = [];
+    // Containers first so they sit behind the cards (zIndex also enforces it).
+    for (const b of laid.boxes) {
+      ns.push({
+        id: b.id,
+        type: 'archContainer',
+        position: { x: b.x, y: b.y },
+        data: { label: b.label, variant: b.variant } satisfies ContainerData,
+        style: { width: b.w, height: b.h },
+        selectable: false,
+        draggable: false,
+        zIndex: b.z,
+      });
+    }
+    for (const c of laid.cards) {
+      ns.push({
+        id: c.id,
+        type: 'archCard',
+        position: { x: c.x, y: c.y },
+        data: { node: c.node, selected: c.id === selectedId, attn: c.attn } satisfies CardData,
+        style: { width: c.w, height: c.h },
+        selectable: true,
+        draggable: false,
+        zIndex: c.z,
+      });
+    }
+    if (laid.strip !== null) ns.push(stripNode(laid.strip, t));
+
+    const es: Edge[] = laid.edges.map((e) =>
+      e.kind === 'main'
+        ? {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            sourceHandle: 'b',
+            targetHandle: 't',
+            type: 'smoothstep',
+            className: 'archgraph-edge main',
+            markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+          }
+        : { id: e.id, source: e.source, target: e.target, sourceHandle: 'rout', targetHandle: 'rin', type: 'default', className: 'archgraph-edge residual' },
+    );
+    return { nodes: ns, edges: es };
+  }, [laid, selectedId, t]);
+
+  const archById = useMemo(() => new Map(laid.cards.map((c) => [c.id, c.node])), [laid]);
+  const selectedNode = selectedId !== null ? archById.get(selectedId) ?? null : null;
   const detailsFor = useCallback(
     (n: ArchNode): ArchDetailRow[] => (config !== null && config !== undefined && card !== null && card !== undefined ? archNodeDetails(n, config, card) : []),
     [config, card],
@@ -165,13 +203,12 @@ export function ArchSchematicView({
   const details = useMemo(() => (selectedNode !== null ? detailsFor(selectedNode) : []), [selectedNode, detailsFor]);
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
-    if (node.id.startsWith('__')) return;
+    if (node.id.startsWith('__') || node.id.endsWith('box') || node.id.startsWith('cyc')) return;
     setSelectedId(node.id);
   }, []);
   const onNodeContextMenu = useCallback(
     (e: React.MouseEvent, node: Node) => {
-      if (node.id.startsWith('__')) return;
-      const arch = schematic.nodes.find((n) => n.id === node.id);
+      const arch = archById.get(node.id);
       if (arch === undefined) return;
       setSelectedId(node.id);
       menu.open(e, [
@@ -185,7 +222,7 @@ export function ArchSchematicView({
         { label: t('archgraph.fitView'), onClick: () => rf.current?.fitView({ duration: 200 }) },
       ]);
     },
-    [schematic, menu, t, detailsFor],
+    [archById, menu, t, detailsFor],
   );
   const dismiss = useCallback(() => setSelectedId(null), []);
 

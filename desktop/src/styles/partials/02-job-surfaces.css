@@ -1925,6 +1925,18 @@ button > .ui-icon:not(:only-child):first-child,
 .archgraph-card[data-kind='finalnorm'] {
   border-left-color: var(--archgraph-norm);
 }
+/* Hybrid stacks: the linear/recurrent operators carry the novelty accent (band +
+   a faint tint), so they read as distinct from the standard-attention blue at a
+   glance; sliding-window attention stays blue but dashes its band (windowed, not
+   full-context) — texture instead of another hue. */
+.archgraph-card[data-attn='KDA'],
+.archgraph-card[data-attn='GatedDeltaNet'] {
+  border-left-color: var(--archgraph-linear);
+  background: color-mix(in srgb, var(--archgraph-linear) 9%, var(--surface));
+}
+.archgraph-card[data-attn='sliding'] {
+  border-left-style: dashed;
+}
 .archgraph-h {
   opacity: 0;
 }
@@ -1936,6 +1948,58 @@ button > .ui-icon:not(:only-child):first-child,
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--accent-tint);
+}
+/* Nested repeat groups (the 3×/1× interleave idiom): the outer cycle box is the
+   quieter surface, the inner run boxes sit on top of it. */
+.archgraph-container[data-variant='cycle'] {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-color: var(--border);
+}
+.archgraph-container[data-variant='run'] {
+  background: var(--accent-tint);
+}
+/* The per-layer pattern strip beside the stack: one thin cell per layer,
+   background = attention operator, left border = FFN kind. */
+.archgraph-strip {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+}
+.archgraph-strip-cells {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--border);
+}
+.archgraph-strip-cell {
+  flex: 1 1 0;
+  min-height: 1px;
+  background: var(--archgraph-attention);
+  border-left: 4px solid var(--archgraph-ffn);
+}
+.archgraph-strip-cell[data-attn='KDA'],
+.archgraph-strip-cell[data-attn='GatedDeltaNet'] {
+  background: var(--archgraph-linear);
+}
+.archgraph-strip-cell[data-attn='sliding'] {
+  background: color-mix(in srgb, var(--archgraph-attention) 45%, transparent);
+}
+.archgraph-strip-cell[data-ffn='moe'] {
+  border-left-color: var(--archgraph-moe);
+}
+.archgraph-strip-caption {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-align: center;
 }
 .archgraph-container-tag {
   position: absolute;

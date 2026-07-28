@@ -1068,6 +1068,47 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Session" }
 
+  /v1/teams/{team}/sessions/{session}/teleport:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Session"
+    post:
+      tags: [Sessions]
+      operationId: teleportSession
+      summary: >-
+        Move a paused worktree session to another host (ADR-057 T1). Relocates
+        the git worktree + engine-state to the target and continues there; the
+        transcript is unchanged. Session must be paused (409 otherwise); T1
+        handles git-worktree sessions on hosts sharing a git remote.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_host_id]
+              properties:
+                target_host_id:
+                  type: string
+                  description: Host to move the session to; must be online and not the current host.
+      responses:
+        "200":
+          description: Teleported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id: { type: string }
+                  source_host: { type: string }
+                  target_host: { type: string }
+                  new_agent_id: { type: string }
+                  worktree_path: { type: string }
+        "409":
+          description: Not paused, not a worktree session, same host, or target offline
+        "502":
+          description: Pack or unpack failed on a host
+
   # ======================================================================
   # Templates
   # ======================================================================

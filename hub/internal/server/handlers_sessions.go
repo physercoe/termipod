@@ -591,12 +591,27 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// resumeOverrides re-targets a resume onto a different host and/or worktree
+// path. Both empty (the default) reproduce a same-host resume exactly; teleport
+// (ADR-057) sets them to the target host and the target-side worktree path after
+// the byte-stores have been relocated there.
+type resumeOverrides struct {
+	hostID       string
+	worktreePath string
+}
+
 // resumePausedSession respawns the agent inside a paused session and
 // returns the response body (or an HTTP status + error). Shared by the
 // session-keyed REST handler and the agent-keyed steward path
 // (handleResumeAgentSession), so both respawn identically. See
 // handleResumeSession's doc comment for the continuity contract.
 func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[string]any, int, error) {
+	return s.resumePausedSessionWith(ctx, team, id, resumeOverrides{})
+}
+
+// resumePausedSessionWith is resumePausedSession with optional host/worktree
+// re-targeting (teleport). ov zero-valued == a same-host resume.
+func (s *Server) resumePausedSessionWith(ctx context.Context, team, id string, ov resumeOverrides) (map[string]any, int, error) {
 	var (
 		status, currentAgentID, worktreePath, spawnSpecYAML sql.NullString
 		engineSessionID                                     sql.NullString
@@ -684,31 +699,45 @@ func (s *Server) resumePausedSession(ctx context.Context, team, id string) (map[
 		}
 	}
 
+	// Teleport re-targets the respawn onto the target host + the worktree path
+	// the target unpacked to; a normal resume leaves both as the paused agent's.
+	hostID := deadHostID.String
+	if ov.hostID != "" {
+		hostID = ov.hostID
+	}
+	wtPath := worktreePath.String
+	if ov.worktreePath != "" {
+		wtPath = ov.worktreePath
+	}
+
 	in := spawnIn{
 		ParentID:    deadParentID.String,
 		ChildHandle: deadHandle.String,
 		Kind:        deadKind.String,
-		HostID:      deadHostID.String,
+		HostID:      hostID,
 		ProjectID:   deadProjectID.String,
 		SpawnSpec:   specYAML,
 		// Resume stamps the EXISTING paused session below; suppress the
 		// project auto-open so threading project_id doesn't mint a second
 		// session that collides on (team_id, worktree_path).
 		SuppressAutoSession: true,
-		WorktreePath:        worktreePath.String,
+		WorktreePath:        wtPath,
 	}
 	out, code, derr := s.DoSpawn(ctx, team, in)
 	if derr != nil {
 		return nil, code, derr
 	}
 
-	// Stamp the new agent onto the session and flip back to active.
+	// Stamp the new agent onto the session and flip back to active. Teleport
+	// also moves the session's recorded worktree_path to the target-side path
+	// (the session's host follows current_agent_id → the new agent's host_id).
 	now := NowUTC()
 	if _, err := s.writeDB.ExecContext(ctx, `
 		UPDATE sessions
-		   SET current_agent_id = ?, status = 'active', last_active_at = ?
+		   SET current_agent_id = ?, status = 'active', last_active_at = ?,
+		       worktree_path = ?
 		 WHERE team_id = ? AND id = ?`,
-		out.AgentID, now, team, id); err != nil {
+		out.AgentID, now, wtPath, team, id); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 	// ADR-026 W7 — carry forward the prior agent's last advertised

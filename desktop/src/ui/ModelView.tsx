@@ -32,8 +32,11 @@ import {
 } from '../state/flops';
 import { graphCollectionToDot, onnxToGraphCollection } from '../state/modelGraph';
 import { buildArchSchematic } from '../state/archSchematic';
+import { diffArchCards, type ArchDiff } from '../state/archDiff';
 import { useInspect, type InspectTab } from '../state/inspect';
 import { readRef } from '../state/inspectSources';
+import { parseHfConfig } from '../state/checkpoint';
+import { InspectOpenDialog, type OpenMode, type PickResult } from '../surfaces/InspectOpen';
 
 // React Flow (schematic) and CodeMirror (source) are heavy — keep them on their
 // own lazy chunks so switching panes pulls them on demand, never at boot.
@@ -144,7 +147,55 @@ function ArchCardView({ card }: { card: ArchCard }): JSX.Element {
 /// the tab already read. When a sibling `model.safetensors.index.json` is
 /// readable from the same source, its tensor-name map corroborates MoE/MLA and
 /// its `total_size` gives the weights figure — still without reading a weight.
-type ConfigPane = 'params' | 'schema' | 'source';
+type ConfigPane = 'params' | 'schema' | 'source' | 'compare';
+
+/// The comparison side: another model's config, classified. Loaded on demand from
+/// any Inspect source (workspace file, remote host, hub project, or a pinned
+/// GitHub/HF snapshot) via the shared open dialog.
+interface CompareSide {
+  title: string;
+  card: ArchCard;
+  config: Record<string, unknown>;
+}
+
+/// The side-by-side architecture diff (plan W5 / D-5: it lives in the model view,
+/// not the transcript-oriented compare surface). `diffArchCards` does the work;
+/// this is presentation only.
+function ArchDiffTable({ diff, leftTitle, rightTitle }: { diff: ArchDiff; leftTitle: string; rightTitle: string }): JSX.Element {
+  const t = useT();
+  return (
+    <div className="archdiff">
+      <div className="archdiff-head">
+        <span className="archdiff-col small muted">{leftTitle}</span>
+        <span className="archdiff-col small muted">{rightTitle}</span>
+      </div>
+      <dl className="archdiff-rows">
+        {diff.rows.map((r) => (
+          <div className={`archdiff-row${r.changed ? ' changed' : ''}`} key={r.key}>
+            <dt className="small muted">{r.label}</dt>
+            <dd className="mono">{r.a === '' ? '—' : r.a}</dd>
+            <dd className="mono">{r.b === '' ? '—' : r.b}</dd>
+          </div>
+        ))}
+      </dl>
+      {(diff.chipsAdded.length > 0 || diff.chipsRemoved.length > 0) && (
+        <div className="archdiff-chips">
+          {diff.chipsRemoved.map((c) => (
+            <span className="archdiff-chip removed" key={`-${c}`}>
+              − {c}
+            </span>
+          ))}
+          {diff.chipsAdded.map((c) => (
+            <span className="archdiff-chip added" key={`+${c}`}>
+              + {c}
+            </span>
+          ))}
+        </div>
+      )}
+      {!diff.anyChange && <div className="small muted region-pad">{t('archdiff.identical')}</div>}
+    </div>
+  );
+}
 
 export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Record<string, unknown> }): JSX.Element {
   const t = useT();
@@ -176,6 +227,32 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id]);
 
+  // W5b — "compare against…": pick any other config from the shared Inspect open
+  // dialog, read it from its source, classify it, and diff the two cards.
+  const [pickMode, setPickMode] = useState<OpenMode | null>(null);
+  const [other, setOther] = useState<CompareSide | null>(null);
+  const [cmpErr, setCmpErr] = useState<string | null>(null);
+  const onPickCompare = (r: PickResult): void => {
+    setPickMode(null);
+    setCmpErr(null);
+    void readRef({ source: r.source, title: r.title, path: r.path, hostId: r.hostId, projectId: r.projectId, repo: r.repo }, `cmp-${tab.id}`)
+      .then((txt) => {
+        const cfg = parseHfConfig(txt);
+        if (cfg === null) {
+          setCmpErr(t('archdiff.notAConfig'));
+          return;
+        }
+        const c = classifyArch({ config: cfg, tensorNames: [] });
+        if (c === null) {
+          setCmpErr(t('archdiff.notAConfig'));
+          return;
+        }
+        setOther({ title: r.title, card: c, config: cfg });
+        setPane('compare');
+      })
+      .catch((e: unknown) => setCmpErr(e instanceof Error ? e.message : String(e)));
+  };
+
   const card = useMemo<ArchCard | null>(() => classifyArch({ config, tensorNames }), [config, tensorNames]);
   // Analytic param count from the config (dense/GQA/MoE); null for MLA or when a
   // field is missing. Approximate — feeds the VRAM estimator, badged as such.
@@ -187,7 +264,9 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
   // Schema is only offered when the config is a stackable transformer; if the
   // user is on it when that stops being true (edited config), fall back to params
   // — `effectivePane` (not just un-highlighting the tab) so the body never blanks.
-  const effectivePane: ConfigPane = pane === 'schema' && schematic === null ? 'params' : pane;
+  // Fall back rather than blank the body when the active pane loses its data
+  // (an edited config stops being stackable; the comparison target was cleared).
+  const effectivePane: ConfigPane = (pane === 'schema' && schematic === null) || (pane === 'compare' && card === null) ? 'params' : pane;
   const schemaPane = effectivePane === 'schema';
 
   return (
@@ -228,6 +307,17 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
           <button className={`modelview-pane-btn${pane === 'source' ? ' on' : ''}`} role="tab" aria-selected={pane === 'source'} onClick={() => setPane('source')}>
             <Icon name="code" size={13} /> {t('model.paneSource')}
           </button>
+          {/* W5b — compare this architecture against another model's config. */}
+          <button
+            className={`modelview-pane-btn${effectivePane === 'compare' ? ' on' : ''}`}
+            role="tab"
+            aria-selected={effectivePane === 'compare'}
+            disabled={card === null}
+            title={t('archdiff.compareHint')}
+            onClick={() => setPane('compare')}
+          >
+            <Icon name="git-compare" size={13} /> {t('archdiff.compare')}
+          </button>
         </div>
       </div>
 
@@ -257,6 +347,59 @@ export function ConfigArchView({ tab, config }: { tab: InspectTab; config: Recor
           </Suspense>
         </div>
       )}
+
+      {effectivePane === 'compare' && card !== null && (
+        <div className="modelview-pane-body modelview-compare">
+          <div className="modelview-compare-bar">
+            {other === null ? (
+              <>
+                <span className="small muted">{t('archdiff.pickPrompt')}</span>
+                <button className="modelview-pane-btn" onClick={() => setPickMode('workspace')}>
+                  {t('inspect.fromWorkspace')}
+                </button>
+                <button className="modelview-pane-btn" onClick={() => setPickMode('remote')}>
+                  {t('inspect.fromRemote')}
+                </button>
+                <button className="modelview-pane-btn" onClick={() => setPickMode('hub')}>
+                  {t('inspect.fromHub')}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="small muted">{t('archdiff.comparing')}</span>
+                <span className="archdiff-name">{tab.title}</span>
+                <Icon name="git-compare" size={13} />
+                <span className="archdiff-name">{other.title}</span>
+                <span className="spacer" />
+                <button className="modelview-pane-btn" onClick={() => setPickMode('workspace')}>
+                  {t('archdiff.changeTarget')}
+                </button>
+                <button
+                  className="modelview-pane-btn"
+                  onClick={() => {
+                    setOther(null);
+                    setCmpErr(null);
+                  }}
+                >
+                  {t('archdiff.clear')}
+                </button>
+              </>
+            )}
+          </div>
+          {cmpErr !== null && <div className="small muted">{cmpErr}</div>}
+          {other !== null && (
+            <>
+              <ArchDiffTable diff={diffArchCards({ card, config }, { card: other.card, config: other.config })} leftTitle={tab.title} rightTitle={other.title} />
+              <div className="modelview-compare-cards">
+                <ArchCardView card={card} />
+                <ArchCardView card={other.card} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {pickMode !== null && <InspectOpenDialog mode={pickMode} onClose={() => setPickMode(null)} onPick={onPickCompare} />}
     </div>
   );
 }

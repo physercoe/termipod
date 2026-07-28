@@ -2154,6 +2154,91 @@ button > .ui-icon:not(:only-child):first-child,
 .archgraph-legend-swatch[data-attn='sliding'] {
   background: color-mix(in srgb, var(--archgraph-attention) 45%, transparent);
 }
+/* Architecture diff (W5b): two configs side by side inside the model view. */
+.modelview-compare {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  overflow: auto;
+  padding: var(--spacing-s8);
+}
+.modelview-compare-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  flex-wrap: wrap;
+}
+.modelview-compare-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-s8);
+  align-items: start;
+}
+.archdiff-name {
+  font-weight: 600;
+  font-size: var(--font-size-body-small);
+  color: var(--text);
+}
+.archdiff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-s8);
+  background: var(--surface);
+}
+.archdiff-head,
+.archdiff-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 1fr 1fr;
+  gap: var(--spacing-s8);
+  align-items: baseline;
+}
+.archdiff-head {
+  padding-left: calc(140px + var(--spacing-s8));
+  grid-template-columns: 1fr 1fr;
+}
+.archdiff-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  margin: 0;
+}
+.archdiff-row {
+  padding: var(--spacing-s2) var(--spacing-s4);
+  border-radius: var(--radius-sm);
+}
+.archdiff-row dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* A changed row is tinted and marked on its leading edge — never colour alone. */
+.archdiff-row.changed {
+  background: var(--accent-tint);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.archdiff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+}
+.archdiff-chip {
+  padding: var(--spacing-s2) var(--spacing-s6);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.archdiff-chip.added {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.archdiff-chip.removed {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 .archgraph-container-tag {
   position: absolute;
   top: -9px;

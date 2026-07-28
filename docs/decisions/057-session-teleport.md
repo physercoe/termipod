@@ -1,17 +1,20 @@
 # 057. Host-to-host session teleport
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-28) — drafted from a code-verified design
-> pass for director approval; required before Part 2 (wedges T1–T3) of
+> **Status:** Accepted (2026-07-28) — director approval after wedge T1
+> shipped (T1a #415–#419, T1b #420, T1c #421, T1d #423) and was
+> implementation-reviewed (fixes `f1d63f48` pack/unpack guards,
+> `eb8fb2c4` secret-bearing refusal + uncancelable commit point + client
+> timeout budget). Refines Part 2 of
 > [`plans/env-profiles-and-session-teleport.md`](../plans/env-profiles-and-session-teleport.md)
-> is implemented. Refines the plan's Part 2 sketch where code facts
-> contradict it (see §Decisions). Builds on
+> where code facts contradict it (see §Decisions). Builds on
 > [ADR-014](014-claude-code-resume-cursor.md)'s pause-first resume ordering
 > and reuses [ADR-056](056-env-secret-host-envelopes.md)'s host keys for the
-> secret-re-seal path.
+> secret-re-seal path (re-seal itself deferred: T1 refuses secret-bearing
+> teleports up front).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** origin/main `8458a5c5` (Part 1 E1–E3 shipped:
-> #396–#414; teleport not started)
+> **Last verified vs code:** origin/main `eb8fb2c4` (T1 shipped: pack/unpack
+> commands, portable paths, hub orchestration, desktop UI; T2/T3 open)
 
 **TL;DR.** Teleport moves a live session's agent from one host to another
 without breaking the conversation. The transcript never moves — it lives on

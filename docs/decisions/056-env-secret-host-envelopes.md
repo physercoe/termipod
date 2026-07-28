@@ -1,15 +1,17 @@
 # 056. Env-profile secrets — host-sealed envelopes (E3)
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-27) — drafted by the review session for
-> director approval; required before wedge E3 of
+> **Status:** Accepted (2026-07-28) — director approval after wedge E3 of
 > [`plans/env-profiles-and-session-teleport.md`](../plans/env-profiles-and-session-teleport.md)
-> is implemented. Extends [ADR-052](052-breakglass-ssh-and-key-vault.md)'s
-> per-device vault wrapping (D-4) to **hosts**, under the amended
-> forbidden-pattern #15 (ADR-052 D-5).
+> shipped (#404–#414) and was implementation-reviewed (fixes `88a71b5a`
+> env_vars-shadowing, `f1d63f48`/`cc8b3b7e` re-trust flow, `eb8fb2c4`
+> same-host envelope replay on resume per D-3). Extends
+> [ADR-052](052-breakglass-ssh-and-key-vault.md)'s per-device vault
+> wrapping (D-4) to **hosts**, under the amended forbidden-pattern #15
+> (ADR-052 D-5).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** origin/main `dce2a7b1` (E1a–E2c shipped:
-> #396–#403; `secret_refs` accepted-but-inert with a loud warning)
+> **Last verified vs code:** origin/main `eb8fb2c4` (E3 shipped end-to-end:
+> seal in all three clients, hub 422 gate, host-side injection)
 
 **TL;DR.** An env profile's `secret_refs` point at zero-knowledge vault items;
 the hub must never hold the values in usable form. E3 delivers them as

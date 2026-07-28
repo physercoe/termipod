@@ -112,16 +112,21 @@ export class HubClient {
   /** Teleport a PAUSED worktree session to another host (ADR-057 T1): the hub
    * relocates the worktree + engine-state to `targetHostId` and continues the
    * session there. 409 if not paused / not a worktree session / same host /
-   * target offline / secret-bearing; 502 if the host-side pack or unpack
+   * target offline / secret-bearing without a re-sealed envelope; 400 if the
+   * envelope isn't sealed to the target; 502 if the host-side pack or unpack
    * fails. A real teleport pushes a branch and moves an engine-state bundle
    * (up to 256 MB) through the hub — the hub allows each host command 15
    * minutes, so the default 30 s transport timeout would abort every
-   * non-trivial teleport mid-orchestration. Budget both commands plus spawn. */
-  teleportSession(id: string, targetHostId: string): Promise<Entity> {
+   * non-trivial teleport mid-orchestration. Budget both commands plus spawn.
+   *
+   * `envSecretEnvelope` carries the session's vault secrets re-sealed to the
+   * TARGET host (D-7): required for a secret-bearing session (only a vault
+   * client can mint it), omitted otherwise. */
+  teleportSession(id: string, targetHostId: string, envSecretEnvelope?: string): Promise<Entity> {
     const teleportTimeoutMs = 32 * 60_000;
     return this.transport.post(
       this.transport.team(`/sessions/${id}/teleport`),
-      { target_host_id: targetHostId },
+      { target_host_id: targetHostId, env_secret_envelope: envSecretEnvelope },
       undefined,
       teleportTimeoutMs,
     ) as Promise<Entity>;

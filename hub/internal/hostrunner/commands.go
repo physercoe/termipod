@@ -28,6 +28,10 @@ func (a *Runner) runCommand(ctx context.Context, cmd HostCommand) {
 		result, err = a.capturePane(ctx, cmd)
 	case "terminate":
 		err = a.terminatePane(ctx, cmd)
+	case CmdSessionHandoffPack:
+		result, err = a.handoffPack(ctx, cmd)
+	case CmdSessionHandoffUnpack:
+		result, err = a.handoffUnpack(ctx, cmd)
 	default:
 		err = fmt.Errorf("unknown command kind: %s", cmd.Kind)
 	}

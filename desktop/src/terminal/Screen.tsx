@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -108,6 +109,13 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
       // — the kimi right-edge truncation. 0 keeps render and layout in agreement.
       letterSpacing: 0,
       cursorStyle: 'bar',
+      // When a mouse-mode app (tmux `mouse on`, vim) owns the pointer, xterm
+      // disables local selection and the only escape hatch on macOS is
+      // Option+drag gated behind this option — which DEFAULTS OFF, so without
+      // it a Mac user in tmux can never make a local selection and the context
+      // menu's Copy is permanently disabled (director report). Shift+drag is
+      // the built-in equivalent on Windows/Linux; this is the iTerm2 idiom.
+      macOptionClickForcesSelection: true,
       theme: {
         background: '#0d1117',
         foreground: '#e6edf3',
@@ -128,7 +136,48 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
     // Clickable URLs — opened in the OS browser (never the app webview, which
     // would strand the single-page shell), matching openExternal everywhere else.
     term.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)));
+    // OSC 52 clipboard integration: a remote tmux/nvim configured with
+    // `set-clipboard` copies through the terminal to the SYSTEM clipboard —
+    // the only channel that makes tmux's own copy-mode land on the local
+    // clipboard over SSH (xterm has no built-in OSC 52 handling). WRITE-ONLY
+    // provider: the addon's default answers an OSC 52 *query* (`\x1b]52;c;?`)
+    // with the real clipboard contents, which lets the remote host — or any
+    // program that can echo escapes into the terminal — silently read the
+    // local clipboard. An SSH client must never do that; queries get ''.
+    term.loadAddon(
+      new ClipboardAddon(undefined, {
+        readText: () => '',
+        writeText: (selection, text) => (selection === 'c' ? navigator.clipboard.writeText(text).catch(() => undefined) : undefined),
+      }),
+    );
     term.open(el);
+
+    // Right-button suppression, capture phase (must be after term.open so `el`
+    // has xterm's element inside it). xterm's "always on" mousedown handler
+    // forwards EVERY button — including right — to the pty whenever the app has
+    // enabled mouse reporting (tmux `mouse on`), so a right-click raced two
+    // menus: tmux popped its own root menu in the buffer while our context menu
+    // opened over it (macOS fires `contextmenu` on mousedown, making the race
+    // visible there; the forwarded press was the director's "wrong action in
+    // tmux"). Suppress button-2 down/up before xterm's element listeners see
+    // them — right-click is OUR menu, never the app's, matching VS Code and
+    // iTerm2 (tmux's menu actions all have key equivalents). Capture on the
+    // wrapper beats xterm's listeners AND pre-empts its document-level mouseup
+    // reporter, which is only registered by the (now suppressed) mousedown.
+    // xterm's `contextmenu` listener still runs: on macOS its
+    // rightClickSelectsWord default selects the word under the cursor, so
+    // right-click → Copy works even for un-draggable mouse-mode screens.
+    const suppressRightToApp = (e: MouseEvent): void => {
+      if (e.button !== 2) return;
+      if (e.type === 'mousedown') {
+        // Replicate the two harmless effects of the xterm handler we bypass.
+        e.preventDefault();
+        term.focus();
+      }
+      e.stopPropagation();
+    };
+    el.addEventListener('mousedown', suppressRightToApp, true);
+    el.addEventListener('mouseup', suppressRightToApp, true);
 
     // GPU renderer ladder (#333). xterm's default DOM renderer paints every row as
     // <div>/<span> — the slowest path, and costly for full-screen TUIs (vim/htop),
@@ -377,6 +426,8 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
       if (ptyTimer !== undefined) clearTimeout(ptyTimer);
       if (rafId !== 0) cancelAnimationFrame(rafId);
       ro.disconnect();
+      el.removeEventListener('mousedown', suppressRightToApp, true);
+      el.removeEventListener('mouseup', suppressRightToApp, true);
       el.removeEventListener('mouseup', onMouseUp);
       onData.dispose();
       void unlistenP.then((u) => u());
@@ -412,7 +463,11 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
     void navigator.clipboard
       .readText()
       .then((text) => {
-        if (text !== '') void sessionWrite(kind, sessionId, text);
+        // Through xterm's paste(), NOT a raw sessionWrite: paste() normalizes
+        // newlines and honours bracketed-paste mode (DECSET 2004), which
+        // shells/tmux/vim rely on — raw multi-line writes execute line by
+        // line. It reaches the pty via the same onData → sessionWrite path.
+        if (text !== '') termRef.current?.paste(text);
       })
       .catch(() => {});
     setMenu(null);

@@ -45,6 +45,12 @@ export interface VramInputs {
   /// Bytes per weight at the chosen serving precision.
   weightBytes: number;
   layers?: number;
+  /// Layers that hold a growing per-token KV cache — full (softmax) attention
+  /// layers. For a homogeneous stack this equals `layers` (leave undefined). For
+  /// a hybrid linear-attention stack (Kimi K3/Linear, Qwen3-Next) only the
+  /// periodic full-attention layers cache; the linear/recurrent layers keep an
+  /// O(1) state, so the KV cache is sized by THIS count, not `layers`.
+  fullAttnLayers?: number;
   hidden?: number;
   heads?: number;
   kvHeads?: number;
@@ -136,9 +142,12 @@ export function estimateVram(inp: VramInputs, rt: VramRuntime): VramEstimate {
     };
   }
 
+  // Only full-attention layers hold a growing KV cache; a hybrid stack's
+  // linear/recurrent layers do not, so size the cache by `fullAttnLayers` when set.
+  const cachingLayers = pos(inp.fullAttnLayers) ? inp.fullAttnLayers : inp.layers;
   let kvBytes = 0;
   let kvComputable = false;
-  if (pos(inp.layers)) {
+  if (pos(cachingLayers)) {
     if (inp.isMla) {
       // MLA stores one compressed latent per token per layer (no ×2 for separate
       // K/V). Without the latent rank we CANNOT size it — do not fall back to the
@@ -146,14 +155,14 @@ export function estimateVram(inp: VramInputs, rt: VramRuntime): VramEstimate {
       // KV compression); leave it non-computable and honest.
       if (pos(inp.kvLoraRank)) {
         const latent = inp.kvLoraRank + (pos(inp.qkRopeHeadDim) ? inp.qkRopeHeadDim : 0);
-        kvBytes = inp.layers * rt.context * rt.batch * latent * rt.kvBytes;
+        kvBytes = cachingLayers * rt.context * rt.batch * latent * rt.kvBytes;
         kvComputable = true;
       }
     } else if (pos(inp.hidden) && pos(inp.heads)) {
       const headDim = pos(inp.headDim) ? inp.headDim : inp.hidden / inp.heads;
       const kvH = pos(inp.kvHeads) ? inp.kvHeads : inp.heads;
       // K and V, per layer, per token: 2 × kvHeads × headDim.
-      kvBytes = 2 * inp.layers * rt.context * rt.batch * kvH * headDim * rt.kvBytes;
+      kvBytes = 2 * cachingLayers * rt.context * rt.batch * kvH * headDim * rt.kvBytes;
       kvComputable = true;
     }
   }
@@ -224,6 +233,9 @@ export function deriveVramInputs(opts: {
     totalParams: opts.totalParams,
     weightBytes: opts.weightBytes,
     layers: card?.layers ?? readNum(config, 'num_hidden_layers', 'n_layer') ?? gguf('block_count'),
+    // Hybrid linear-attention: only the full-attention layers cache (the
+    // classifier counted them in `fullAttnLayers`).
+    fullAttnLayers: card?.fullAttnLayers,
     hidden: card?.hidden ?? readNum(config, 'hidden_size', 'n_embd', 'd_model') ?? gguf('embedding_length'),
     heads,
     kvHeads,
@@ -232,6 +244,62 @@ export function deriveVramInputs(opts: {
     qkRopeHeadDim: readNum(config, 'qk_rope_head_dim') ?? gguf('attention.qk_rope_head_dim'),
     isMla,
   };
+}
+
+// ── KV-cache-per-token metric (arch card, archgraph plan §5 W1 / G6) ──────────
+
+/// KV-cache size class, low→very-high — the Raschka gallery's per-token classing.
+/// A recognisable at-a-glance figure: MLA and hybrid linear-attention models are
+/// "low" (their whole selling point), wide dense-MHA stacks are "very-high".
+export type KvCacheClass = 'low' | 'moderate' | 'high' | 'very-high';
+
+// Thresholds in BYTES per token (whole model, all caching layers, 2-byte KV).
+// Calibrated against real models: MLA + hybrid linear-attention (DeepSeek-V3
+// ~69 KB, Kimi K3 ~28 KB, Qwen3-Next ~24 KB) → 'low'; small-KV-head GQA
+// (Llama-3-8B ~128 KB, Qwen3-235B ~376 KB) → 'moderate'; wide GQA (MiniMax-M2
+// ~496 KB, Gemma-3-27B ~992 KB) → 'high'; big dense MHA (>1 MB/token) →
+// 'very-high'. The split is chosen so compressed-KV designs read 'low'.
+const KV_CLASS_THRESHOLDS: Array<{ max: number; cls: KvCacheClass }> = [
+  { max: 96 * 1024, cls: 'low' },
+  { max: 384 * 1024, cls: 'moderate' },
+  { max: 1024 * 1024, cls: 'high' },
+];
+
+export function classifyKvCache(bytesPerToken: number): KvCacheClass {
+  for (const { max, cls } of KV_CLASS_THRESHOLDS) if (bytesPerToken < max) return cls;
+  return 'very-high';
+}
+
+/// KV-cache bytes for ONE token across all caching layers (batch 1, 2-byte KV by
+/// default) — the "per-token" figure the arch card shows. Reuses estimateVram's
+/// exact KV term at context 1, so the card figure and the VRAM estimator can
+/// never diverge. Returns null when the cache is not sizeable (MLA without a
+/// disclosed latent rank), so the card can badge "unknown" honestly.
+export function kvCacheBytesPerToken(inp: VramInputs, kvElemBytes = 2): number | null {
+  const est = estimateVram(inp, { batch: 1, context: 1, kvBytes: kvElemBytes, mode: 'inference' });
+  return est.kvComputable ? est.kvBytes : null;
+}
+
+/// Card-level convenience: KV bytes/token + its class straight from a classified
+/// `ArchCard` + the raw config/metadata (the same inputs the VRAM card derives
+/// from). Null when the cache can't be sized. Hybrid stacks size by their
+/// full-attention layer count (carried on the card), so a linear-hybrid honestly
+/// reports its small KV footprint.
+export function deriveKvCacheClass(opts: {
+  card: ArchCard | null;
+  config?: Record<string, unknown> | null;
+  metadata?: Record<string, string | number>;
+}): { bytesPerToken: number; cls: KvCacheClass } | null {
+  const inp = deriveVramInputs({
+    totalParams: 0,
+    weightBytes: 0,
+    template: opts.card?.template ?? 'unknown',
+    card: opts.card,
+    config: opts.config,
+    metadata: opts.metadata,
+  });
+  const b = kvCacheBytesPerToken(inp);
+  return b === null ? null : { bytesPerToken: b, cls: classifyKvCache(b) };
 }
 
 // dtype-histogram label -> a serving dtype default (the checkpoint's own precision

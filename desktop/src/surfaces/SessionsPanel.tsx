@@ -3,10 +3,20 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { arr, num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
-import { useHosts, useProjects } from '../hub/queries';
+import { useEnvProfiles, useHosts, useProjects } from '../hub/queries';
 import { RunReport } from '../ui/RunReport';
+import { HostKeyTrustDialog } from '../ui/HostKeyTrustDialog';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
+import {
+  EnvSecretError,
+  inspectHostKey,
+  resolveSecretRefs,
+  sealEnvSecrets,
+  secretRefsOf,
+  trustHostKey,
+  type HostKeyInfo,
+} from '../vault/envSecrets';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { useFloatingBox, type Box } from '../ui/useFloatingBox';
 import { AgentTranscript } from './AgentTranscript';
@@ -111,7 +121,15 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [teleport, setTeleport] = useState<{ id: string; target: string } | null>(null);
   const [teleportBusy, setTeleportBusy] = useState(false);
   const [teleportErr, setTeleportErr] = useState<string | null>(null);
+  // D-7 re-seal: a secret-bearing session teleport holds here until the operator
+  // confirms the TARGET host's key (first sight or a re-key), then seals + goes.
+  const [teleportTrust, setTeleportTrust] = useState<{
+    info: HostKeyInfo;
+    secrets: Record<string, string>;
+    profileId: string;
+  } | null>(null);
   const hosts = useHosts().data ?? [];
+  const envProfiles = useEnvProfiles().data ?? [];
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const { box, startMove, startResize } = useFloatingBox('termipod.sessions.box', defaultBox, MIN_PANEL);
   const [listW, resizeList] = usePanelWidth('termipod.sessions.listWidth', 300, 220, 520);
@@ -224,16 +242,78 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
     setTeleport({ id, target: targets[0] !== undefined ? str(targets[0], 'id') ?? '' : '' });
   }
 
+  /// Map an env-secret failure to its localized message (reuses the spawn
+  /// flow's stable secretErr.* codes — the vault layer has no t()).
+  function secretErrMessage(code: string): string {
+    return t(`spawn.secretErr.${code}`);
+  }
+
+  async function finishTeleport(): Promise<void> {
+    setTeleport(null);
+    setTeleportTrust(null);
+    await qc.invalidateQueries({ queryKey: ['sessions'] });
+  }
+
   async function doTeleport(): Promise<void> {
     if (client === null || teleport === null || teleport.target === '') return;
     setTeleportBusy(true);
     setTeleportErr(null);
     try {
-      await client.teleportSession(teleport.id, teleport.target);
-      setTeleport(null);
-      await qc.invalidateQueries({ queryKey: ['sessions'] });
+      // A secret-bearing session (its explicit env profile carries secret_refs)
+      // must have its secrets re-sealed to the TARGET host — the hub can't
+      // re-seal (D-7). The env_profile_id is a GET-only field, so fetch the
+      // session for it; an inherited profile (no explicit id) can't be
+      // re-sealed client-side and the hub 409s it.
+      const ses = await client.getSession(teleport.id);
+      const profileId = str(ses, 'env_profile_id') ?? '';
+      const profile = profileId !== '' ? envProfiles.find((p) => str(p, 'id') === profileId) : undefined;
+      const refs = secretRefsOf(profile);
+      if (refs.length === 0) {
+        await client.teleportSession(teleport.id, teleport.target);
+        await finishTeleport();
+        return;
+      }
+      const secrets = await resolveSecretRefs(refs);
+      const host = hosts.find((h) => str(h, 'id') === teleport.target);
+      if (host === undefined) {
+        setTeleportErr(secretErrMessage('noHostKey'));
+        return;
+      }
+      const info = await inspectHostKey(host, teleport.target);
+      if (!info.trusted) {
+        // First sight (or a re-key): hold until the operator confirms the
+        // target host's fingerprint against its console banner.
+        setTeleportTrust({ info, secrets, profileId });
+        return;
+      }
+      await sealAndTeleport(info, secrets, profileId);
     } catch (err) {
-      setTeleportErr(err instanceof Error ? err.message : String(err));
+      if (err instanceof EnvSecretError) setTeleportErr(secretErrMessage(err.code));
+      else setTeleportErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTeleportBusy(false);
+    }
+  }
+
+  async function sealAndTeleport(info: HostKeyInfo, secrets: Record<string, string>, profileId: string): Promise<void> {
+    if (client === null || teleport === null) return;
+    const envelope = await sealEnvSecrets(secrets, info, client.transport.teamId, profileId);
+    await client.teleportSession(teleport.id, teleport.target, envelope);
+    await finishTeleport();
+  }
+
+  async function confirmTeleportTrust(): Promise<void> {
+    if (teleportTrust === null) return;
+    const held = teleportTrust;
+    setTeleportTrust(null);
+    setTeleportBusy(true);
+    setTeleportErr(null);
+    try {
+      trustHostKey(held.info.hostId, held.info.pubkey);
+      await sealAndTeleport(held.info, held.secrets, held.profileId);
+    } catch (err) {
+      if (err instanceof EnvSecretError) setTeleportErr(secretErrMessage(err.code));
+      else setTeleportErr(err instanceof Error ? err.message : String(err));
     } finally {
       setTeleportBusy(false);
     }
@@ -475,6 +555,16 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
             </button>
           </div>
         </Modal>
+      )}
+      {teleportTrust !== null && (
+        <HostKeyTrustDialog
+          info={teleportTrust.info}
+          sealing={teleportBusy}
+          confirmLabel={t('sessions.teleportTrustConfirm')}
+          retrustConfirmLabel={t('sessions.teleportRetrustConfirm')}
+          onCancel={() => setTeleportTrust(null)}
+          onConfirm={() => void confirmTeleportTrust()}
+        />
       )}
     </div>
   );

@@ -23,8 +23,14 @@ func tgit(t *testing.T, cwd string, args ...string) string {
 // the state a teleport source starts from. Returns (remote, sourceRepo,
 // worktreePath, branch).
 func makeSharedRemoteWorkspace(t *testing.T) (remote, srcRepo, wtPath, branch string) {
+	return makeSharedRemoteWorkspaceUnder(t, t.TempDir())
+}
+
+// makeSharedRemoteWorkspaceUnder is makeSharedRemoteWorkspace with the repos and
+// worktree rooted under a caller-supplied dir (e.g. a fake $HOME), so tests can
+// exercise heterogeneous-host path re-anchoring.
+func makeSharedRemoteWorkspaceUnder(t *testing.T, root string) (remote, srcRepo, wtPath, branch string) {
 	t.Helper()
-	root := t.TempDir()
 	remote = filepath.Join(root, "remote.git")
 	tgit(t, root, "init", "--bare", remote)
 

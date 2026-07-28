@@ -38,27 +38,26 @@ func (s *memBlobStore) Get(_ context.Context, sha string) ([]byte, error) {
 	return cp, nil
 }
 
-// TestTeleportHandoffRoundTrip exercises the full source→target handoff core:
-// git WIP snapshot + push, engine-state chunked upload, then on the target a
-// git fetch+worktree add, chunked download, and engine-state restore — all
-// across two "hosts" (distinct homes + repo clones) sharing one bare remote and
-// one blob store. This is the T1a integration: git (#417) + engine-state (#418)
-// + transport (#416) wired by the command cores.
+// TestTeleportHandoffRoundTrip exercises the full source→target handoff core
+// across two HETEROGENEOUS hosts — DIFFERENT home directories with the same
+// relative layout (ADR-057 D-6). The source's worktree + repo live under
+// srcHome; pack rewrites them home-relative (`~/…`); the target re-anchors them
+// under its own tgtHome. Wires git (#417) + engine-state (#418) + transport
+// (#416) via the command cores.
 func TestTeleportHandoffRoundTrip(t *testing.T) {
 	const sessionID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
 	const transcript = `{"type":"user","text":"continue on the gpu box"}` + "\n"
 
-	remote, _, srcWt, branch := makeSharedRemoteWorkspace(t)
-
-	// Source host HOME + its claude session state for the worktree cwd.
+	// Source "host": home with the shared remote, repo and worktree under it.
 	srcHome := t.TempDir()
+	remote, srcRepo, srcWt, branch := makeSharedRemoteWorkspaceUnder(t, srcHome)
 	writeClaudeSession(t, srcHome, srcWt, sessionID, transcript)
 
 	store := newMemBlobStore()
-
 	packRes, err := runHandoffPack(context.Background(), store, srcHome, handoffPackArgs{
 		Engine:          "claude-code",
 		WorktreePath:    srcWt,
+		Repo:            srcRepo,
 		Branch:          branch,
 		Remote:          "origin",
 		EngineSessionID: sessionID,
@@ -72,19 +71,21 @@ func TestTeleportHandoffRoundTrip(t *testing.T) {
 	if packRes.Branch != branch {
 		t.Fatalf("pack result branch: got %q want %q", packRes.Branch, branch)
 	}
+	// The source paths must have been rewritten home-relative for the target.
+	if packRes.PortableWorktreePath != "~/wt" || packRes.PortableRepo != "~/src" {
+		t.Fatalf("portable paths: got worktree=%q repo=%q want ~/wt, ~/src",
+			packRes.PortableWorktreePath, packRes.PortableRepo)
+	}
 
-	// Target host: fresh clone of the shared remote + its own HOME + worktree
-	// path. Different home + worktree ⇒ the engine state must remap.
-	troot := t.TempDir()
-	tgtRepo := filepath.Join(troot, "tgt")
-	tgit(t, troot, "clone", remote, tgtRepo)
+	// Target "host": a DIFFERENT home with the repo cloned at the SAME relative
+	// path (~/src). No home is shared with the source.
 	tgtHome := t.TempDir()
-	tgtWt := filepath.Join(troot, "wt-target")
+	tgit(t, tgtHome, "clone", remote, filepath.Join(tgtHome, "src"))
 
 	unpackRes, err := runHandoffUnpack(context.Background(), store, tgtHome, handoffUnpackArgs{
 		Engine:          "claude-code",
-		Repo:            tgtRepo,
-		WorktreePath:    tgtWt,
+		Repo:            packRes.PortableRepo,         // "~/src"
+		WorktreePath:    packRes.PortableWorktreePath, // "~/wt"
 		Branch:          branch,
 		Remote:          "origin",
 		ExpectHead:      packRes.HeadSHA,
@@ -94,18 +95,19 @@ func TestTeleportHandoffRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runHandoffUnpack: %v", err)
 	}
-	if unpackRes.WorktreePath != tgtWt {
-		t.Fatalf("unpack worktree path: got %s want %s", unpackRes.WorktreePath, tgtWt)
+	// The target worktree path re-anchored under tgtHome (NOT srcHome).
+	wantWt := filepath.Join(tgtHome, "wt")
+	if unpackRes.WorktreePath != wantWt {
+		t.Fatalf("target worktree path: got %s want %s", unpackRes.WorktreePath, wantWt)
 	}
 
-	// 1) Worktree files (incl. the WIP the source hadn't committed) are on the
-	//    target.
-	if got, _ := os.ReadFile(filepath.Join(tgtWt, "wip.txt")); string(got) != "in progress\n" {
+	// 1) Worktree WIP the source hadn't committed is on the target.
+	if got, _ := os.ReadFile(filepath.Join(wantWt, "wip.txt")); string(got) != "in progress\n" {
 		t.Fatalf("worktree WIP not handed off: %q", got)
 	}
-	// 2) Engine transcript landed at the TARGET's resolver path (target slug),
-	//    with the source's content.
-	tgtJSONL := filepath.Join(claudecode.ProjectDirFor(tgtHome, tgtWt), sessionID+".jsonl")
+	// 2) Engine transcript landed at the TARGET's resolver path (target home +
+	//    target worktree → target slug), with the source's content.
+	tgtJSONL := filepath.Join(claudecode.ProjectDirFor(tgtHome, wantWt), sessionID+".jsonl")
 	got, rerr := os.ReadFile(tgtJSONL)
 	if rerr != nil {
 		t.Fatalf("engine transcript not restored on target: %v", rerr)

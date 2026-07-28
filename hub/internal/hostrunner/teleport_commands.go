@@ -24,17 +24,23 @@ const (
 type handoffPackArgs struct {
 	Engine          string `json:"engine"`
 	WorktreePath    string `json:"worktree_path"`
+	Repo            string `json:"repo"`
 	Branch          string `json:"branch"`
 	Remote          string `json:"remote"`
 	EngineSessionID string `json:"engine_session_id"`
 }
 
 type handoffPackResult struct {
-	Branch       string `json:"branch"`
-	HeadSHA      string `json:"head_sha"`
-	Remote       string `json:"remote"`
-	ManifestSHA  string `json:"manifest_sha"`
-	WorktreePath string `json:"worktree_path"`
+	Branch      string `json:"branch"`
+	HeadSHA     string `json:"head_sha"`
+	Remote      string `json:"remote"`
+	ManifestSHA string `json:"manifest_sha"`
+	// PortableWorktreePath / PortableRepo are the source paths rewritten
+	// home-relative (ADR-057 D-6): the target re-anchors them against its own
+	// $HOME so two hosts needn't share a home or absolute layout. When a path
+	// isn't under the source home it travels verbatim.
+	PortableWorktreePath string `json:"portable_worktree_path"`
+	PortableRepo         string `json:"portable_repo"`
 }
 
 type handoffUnpackArgs struct {
@@ -101,16 +107,20 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 	return handoffPackResult{
 		// The RESOLVED branch, not args.Branch: with an empty args.Branch the
 		// worktree's current branch was used, and the unpack args need its name.
-		Branch:       branch,
-		HeadSHA:      head,
-		Remote:       remote,
-		ManifestSHA:  manifestSHA,
-		WorktreePath: args.WorktreePath,
+		Branch:               branch,
+		HeadSHA:              head,
+		Remote:               remote,
+		ManifestSHA:          manifestSHA,
+		PortableWorktreePath: homeRelativePath(args.WorktreePath, home),
+		PortableRepo:         homeRelativePath(args.Repo, home),
 	}, nil
 }
 
-// runHandoffUnpack is the TARGET-side core: fetch+add the worktree, download and
-// verify the engine-state bundle, and restore it at the target's paths.
+// runHandoffUnpack is the TARGET-side core: re-anchor the portable source paths
+// against the target's home (ADR-057 D-6), fetch+add the worktree, download and
+// verify the engine-state bundle, and restore it at the target's paths. args
+// .WorktreePath and .Repo arrive in the portable (`~/…`) form the pack step
+// produced; `home` is the target's $HOME.
 func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
 	if args.Repo == "" || args.WorktreePath == "" || args.Engine == "" || args.ManifestSHA == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine, repo, worktree_path and manifest_sha are required")
@@ -121,7 +131,15 @@ func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string,
 	if args.EngineSessionID == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine_session_id is required")
 	}
-	if err := gitFetchAndAddWorktree(ctx, args.Repo, args.WorktreePath, args.Branch, args.Remote, args.ExpectHead); err != nil {
+	worktreePath, err := expandHomeWith(args.WorktreePath, home)
+	if err != nil {
+		return handoffUnpackResult{}, err
+	}
+	repo, err := expandHomeWith(args.Repo, home)
+	if err != nil {
+		return handoffUnpackResult{}, err
+	}
+	if err := gitFetchAndAddWorktree(ctx, repo, worktreePath, args.Branch, args.Remote, args.ExpectHead); err != nil {
 		return handoffUnpackResult{}, err
 	}
 	manifest, err := handoff.GetManifest(ctx, args.ManifestSHA, store)
@@ -132,11 +150,13 @@ func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string,
 	if err := handoff.Unpack(ctx, manifest, store, &buf); err != nil {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: reassemble engine state: %w", err)
 	}
-	if err := restoreEngineState(args.Engine, home, args.WorktreePath, args.EngineSessionID, buf.Bytes()); err != nil {
+	if err := restoreEngineState(args.Engine, home, worktreePath, args.EngineSessionID, buf.Bytes()); err != nil {
 		return handoffUnpackResult{}, err
 	}
+	// Return the TARGET-absolute worktree path so the hub records the session's
+	// new on-disk location.
 	return handoffUnpackResult{
-		WorktreePath:    args.WorktreePath,
+		WorktreePath:    worktreePath,
 		EngineSessionID: args.EngineSessionID,
 	}, nil
 }

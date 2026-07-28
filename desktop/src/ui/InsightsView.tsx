@@ -1,17 +1,19 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useProjects } from '../hub/queries';
 import { num, obj, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
-import { Modal } from '../ui/Modal';
 
-/// Insights surface (parity Phase 4, ADR-038/039/041). Reads the hub's insights
-/// aggregator (`GET /v1/insights`, token-scoped) for a chosen scope — the team
-/// as a whole, or one project — and renders spend / latency / errors /
-/// concurrency / tool rollups plus by-engine / by-model / by-agent breakdowns.
-/// Read-only analytics; the wire shape is `insightsResponse`
-/// (handlers_insights.go:137).
+/// Insights view (parity Phase 4, ADR-038/039/041). Reads the hub's insights
+/// aggregator (`GET /v1/insights`, token-scoped) for the caller's scope — a
+/// project (ProjectBoard's Insight tab) or a host (HostBoard's) — and renders
+/// spend / latency / errors / concurrency / tool rollups plus by-engine /
+/// by-model / by-agent breakdowns. Read-only analytics; the wire shape is
+/// `insightsResponse` (handlers_insights.go:137). Embeddable (no modal chrome)
+/// — it replaced the fleet-toolbar Insights modal, whose team-wide rollup is
+/// covered by the per-project and per-host scopes it now renders inside.
+
+/// Exactly one scope key, mirroring `client.getInsights`.
+export type InsightsScope = { project_id: string } | { host_id: string } | { team_id: string };
 
 function fmtTokens(n: number | undefined): string {
   if (n === undefined || n === 0) return '0';
@@ -38,21 +40,15 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
   );
 }
 
-export function InsightsPanel({ onClose }: { onClose: () => void }): JSX.Element {
+export function InsightsView({ scope }: { scope: InsightsScope }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
-  const projectsQ = useProjects();
-  const projects = projectsQ.data ?? [];
-  // scope: '' = whole team; otherwise a project id.
-  const [scopeProject, setScopeProject] = useState('');
 
-  const teamId = client?.transport.teamId ?? '';
   const q = useQuery({
-    queryKey: ['insights', teamId, scopeProject],
+    queryKey: ['insights', JSON.stringify(scope)],
     enabled: client !== null,
     refetchInterval: 30000,
-    queryFn: () =>
-      client!.getInsights(scopeProject !== '' ? { project_id: scopeProject } : { team_id: teamId }),
+    queryFn: () => client!.getInsights(scope),
   });
 
   const d = q.data ?? {};
@@ -66,24 +62,7 @@ export function InsightsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const byAgent = Array.isArray(d['by_agent']) ? (d['by_agent'] as Entity[]) : [];
 
   return (
-    <Modal onClose={onClose} className="sessions-panel" ariaLabel={t('insights.title')}>
-        <div className="admin-tabs">
-          <strong>{t('insights.title')}</strong>
-          <select value={scopeProject} onChange={(e) => setScopeProject(e.target.value)}>
-            <option value="">{t('insights.scopeTeam')}</option>
-            {projects.map((p) => {
-              const id = str(p, 'id') ?? '';
-              return (
-                <option key={id} value={id}>
-                  {str(p, 'name') ?? id}
-                </option>
-              );
-            })}
-          </select>
-          <span className="spacer" />
-          <button onClick={onClose}>{t('admin.close')}</button>
-        </div>
-        <div className="region-pad scroll">
+    <div className="insights-view">
           {q.isLoading && <div className="muted">{t('common.loading')}</div>}
           {q.isError && <div className="error">{(q.error as Error).message}</div>}
           {q.data !== undefined && (
@@ -208,8 +187,7 @@ export function InsightsPanel({ onClose }: { onClose: () => void }): JSX.Element
                 </div>
               )}
             </>
-          )}
-        </div>
-    </Modal>
+      )}
+    </div>
   );
 }

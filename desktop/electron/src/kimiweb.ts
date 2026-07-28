@@ -41,11 +41,18 @@ export function extractServerUrl(text: string): string | null {
   return m === null ? null : m[0];
 }
 
+/// The kimi-code data root: `$KIMI_CODE_HOME`, default `~/.kimi-code`. The
+/// assistant Settings page lists config surfaces (config.toml / mcp.json /
+/// skills / agents / plugins) under this root — resolved main-side because the
+/// renderer can't read the environment. Injectable for tests.
+export function kimiCodeHome(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
+  return env.KIMI_CODE_HOME ?? path.join(home, '.kimi-code');
+}
+
 /// The well-known binary location: `$KIMI_CODE_HOME/bin/kimi` (default
 /// `~/.kimi-code`). Injectable for tests.
 export function kimiBinaryPath(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
-  const base = env.KIMI_CODE_HOME ?? path.join(home, '.kimi-code');
-  return path.join(base, 'bin', process.platform === 'win32' ? 'kimi.cmd' : 'kimi');
+  return path.join(kimiCodeHome(env, home), 'bin', process.platform === 'win32' ? 'kimi.cmd' : 'kimi');
 }
 
 /// The binary to spawn: the well-known install path when it exists, else the
@@ -375,4 +382,6 @@ export const kimiwebHandlers: Record<string, Handler> = {
     await kimiwebStop();
   },
   kimiweb_status: async (): Promise<{ running: boolean; url: string | null }> => kimiwebStatus(),
+  /// The resolved kimi-code data root, for the assistant Settings page.
+  kimiweb_home: async (): Promise<{ home: string }> => ({ home: kimiCodeHome() }),
 };

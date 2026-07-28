@@ -13,6 +13,7 @@ import { PasswordInput } from '../ui/PasswordInput';
 import { Icon } from '../ui/Icon';
 import { useConfirm } from '../ui/ConfirmModal';
 import { EnvProfilesManager } from './EnvProfilesManager';
+import { AssistantSettings } from './AssistantSettings';
 import { UpdateSection } from './UpdateSection';
 import { VaultManager } from './VaultManager';
 import { VaultPanel } from './VaultPanel';
@@ -401,7 +402,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'env-profiles' | 'vault' | 'about';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'env-profiles' | 'assistant' | 'vault' | 'about';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -434,6 +435,11 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
         </>
       ),
     },
+    // Assistant — the embedded kimi-code assistant's server status + its
+    // customization surfaces (config/mcp/skills/agents/plugins), desktop only.
+    ...(tauri
+      ? [{ id: 'assistant' as const, label: t('settings.catAssistant'), render: () => <AssistantSettings /> }]
+      : []),
     // Network — proxy config for every outbound connection (desktop only; the
     // browser build has no native HTTP core to route).
     ...(tauri

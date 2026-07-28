@@ -16,7 +16,6 @@ import { ChannelsPanel } from '../surfaces/ChannelsPanel';
 import { CompareSurface } from '../surfaces/CompareSurface';
 import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
-import { InsightsPanel } from '../surfaces/InsightsPanel';
 import { MePanel } from '../surfaces/MePanel';
 import { Navigator } from '../surfaces/Navigator';
 import { ProjectsSurface } from '../surfaces/ProjectsSurface';
@@ -26,6 +25,8 @@ import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { SettingsSurface } from '../surfaces/Settings';
 import { TerminalPanel } from '../terminal/TerminalPanel';
+import { AssistantDock } from './AssistantDock';
+import { useAssistant } from '../state/assistant';
 import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -53,7 +54,6 @@ export function AppShell(): JSX.Element {
   const [adminOpen, setAdminOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
-  const [insightsOpen, setInsightsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [meOpen, setMeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -92,7 +92,6 @@ export function AppShell(): JSX.Element {
     setAdminOpen(false);
     setSessionsOpen(false);
     setChannelsOpen(false);
-    setInsightsOpen(false);
     setDocsOpen(false);
     setMeOpen(false);
     setSearchOpen(false);
@@ -112,6 +111,11 @@ export function AppShell(): JSX.Element {
         // only shows/hides it — sessions keep running underneath.
         e.preventDefault();
         useTerminals.getState().toggle();
+      } else if (mod && e.key === '.') {
+        // The app-level assistant dock — same persistent-dock semantics as the
+        // terminal: toggling only shows/hides it, the SPA keeps running.
+        e.preventDefault();
+        useAssistant.getState().toggle();
       } else if (mod && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
         // VS Code's Cmd/Ctrl+<n> tab jump — switch the active job by rail index.
         const target = ordered[Number(e.key) - 1];
@@ -147,11 +151,11 @@ export function AppShell(): JSX.Element {
     { id: 'admin', label: t('cmd.admin'), run: () => setAdminOpen(true) },
     { id: 'sessions', label: t('cmd.sessions'), run: () => setSessionsOpen(true) },
     { id: 'channels', label: t('cmd.channels'), run: () => setChannelsOpen(true) },
-    { id: 'insights', label: t('cmd.insights'), run: () => setInsightsOpen(true) },
     { id: 'docs', label: t('cmd.docs'), run: () => setDocsOpen(true) },
     { id: 'me', label: t('cmd.history'), run: () => setMeOpen(true) },
     { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
+    { id: 'assistant', label: t('cmd.assistant'), hint: `${modKey}.`, run: () => useAssistant.getState().toggle() },
     { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal'), hint: `${modKey}8` },
     { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings'), hint: `${modKey}9` },
     client === null
@@ -214,7 +218,6 @@ export function AppShell(): JSX.Element {
                   </button>
                   <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
                   <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-                  <button onClick={() => setInsightsOpen(true)}>{t('shell.insights')}</button>
                   <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
                   <span className="spacer" />
                   <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
@@ -240,6 +243,7 @@ export function AppShell(): JSX.Element {
           </ErrorBoundary>
           </div>
           <TerminalPanel />
+          <AssistantDock />
         </main>
       </div>
 
@@ -249,7 +253,6 @@ export function AppShell(): JSX.Element {
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}
       {sessionsOpen && <SessionsPanel onClose={() => setSessionsOpen(false)} />}
       {channelsOpen && <ChannelsPanel onClose={() => setChannelsOpen(false)} />}
-      {insightsOpen && <InsightsPanel onClose={() => setInsightsOpen(false)} />}
       {docsOpen && <DocsPanel onClose={() => setDocsOpen(false)} />}
       {meOpen && <MePanel onClose={() => setMeOpen(false)} />}
       {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}

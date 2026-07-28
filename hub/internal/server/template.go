@@ -319,6 +319,7 @@ func (s *Server) mergeTemplateReference(team, spec string) (string, error) {
 //   - if both `base[k]` and `over[k]` are maps, merge recursively
 //   - otherwise, `over[k]` wins (including the case where `over[k]`
 //     is nil — explicit clearing)
+//
 // Keys only in `base` are preserved. Lists are replaced, not merged
 // (a spec's `fallback_modes: [M4]` overrides the template's, doesn't
 // append).
@@ -385,7 +386,12 @@ func (s *Server) readAgentTemplate(team, name string) (string, error) {
 // the embedded built-ins. An empty dataRoot or team yields "" so the
 // caller skips the per-team tier (e.g. system contexts with no team).
 func teamTemplatesDir(dataRoot, team string) string {
-	if dataRoot == "" || team == "" {
+	// team is a request-scoped URL parameter feeding a filesystem path;
+	// guard it as a single path segment so a crafted team like "../../x"
+	// can't escape the templates root (path-injection barrier — the same
+	// safePathSegment gate handlers_project_start.go already applies). An
+	// unsafe team yields "" so the caller simply skips the per-team tier.
+	if dataRoot == "" || team == "" || !safePathSegment(team) {
 		return ""
 	}
 	return filepath.Join(dataRoot, "teams", team, "templates")

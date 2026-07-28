@@ -23,6 +23,12 @@ import (
 // filesystem for out-of-band edits.
 
 func (s *Server) journalPath(team, handle string) (string, error) {
+	// Both segments feed a filesystem path; guard each against separators /
+	// parent-directory escape (path-injection barrier). handle was already
+	// checked; team (a request-scoped URL param) was not.
+	if !safePathSegment(team) {
+		return "", errors.New("invalid team")
+	}
 	if !safeHandle(handle) {
 		return "", errors.New("invalid handle")
 	}

@@ -107,6 +107,21 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     return out['new_agent_id']?.toString();
   }
 
+  /// Teleports a paused session to another host (ADR-057). Continues the
+  /// session on [hostId] with a fresh agent there; returns the new agent
+  /// id (like [resume]) so the caller can route into the chat. The hub
+  /// 409s a secret-bearing session — mobile can't re-seal secrets to the
+  /// target (it holds no vault items); teleport those from the desktop.
+  Future<String?> teleport(String id, String hostId) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return null;
+    final out = await client.teleportSession(id, hostId);
+    // Teleport respawns a fresh agent on the target — same hub-cache
+    // invalidation rationale as resume().
+    await _refreshSessionsAndHub();
+    return out['new_agent_id']?.toString();
+  }
+
   /// Forks an archived session into a new active one (ADR-009 D4).
   /// Returns the new session payload so the caller can navigate
   /// directly into the chat without waiting for the next refresh.

@@ -178,6 +178,21 @@ class SessionsApi {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Teleports a PAUSED session to another host (ADR-057): moves its
+  /// worktree/workdir + engine-state to [targetHostId] and continues it
+  /// there. Returns `{session_id, source_host, target_host, new_agent_id,
+  /// worktree_path, workdir}`. 409 if not paused / same host / target
+  /// offline / the session carries vault secrets — mobile can't re-seal
+  /// secrets to the target (it holds no vault items), so teleport a
+  /// secret-bearing session from the desktop instead.
+  Future<Map<String, dynamic>> teleportSession(
+      String id, String targetHostId) async {
+    final out = await _t.post(
+        '/v1/teams/${_t.cfg.teamId}/sessions/$id/teleport',
+        <String, dynamic>{'target_host_id': targetHostId});
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Phase 1.5c — full-text search across session transcripts.
   /// Returns a list of result rows shaped:
   ///   { event_id, session_id, scope_kind, scope_id, session_title,

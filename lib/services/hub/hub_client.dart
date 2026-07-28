@@ -333,6 +333,9 @@ class HubClient {
   Future<Map<String, dynamic>> resumeSession(String id) =>
       sessions.resumeSession(id);
 
+  Future<Map<String, dynamic>> teleportSession(String id, String targetHostId) =>
+      sessions.teleportSession(id, targetHostId);
+
   Future<List<Map<String, dynamic>>> searchSessions(String query, {int? limit}) =>
       sessions.searchSessions(query, limit: limit);
 

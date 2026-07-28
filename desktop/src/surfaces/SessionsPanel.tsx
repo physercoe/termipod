@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { arr, num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
-import { useProjects } from '../hub/queries';
+import { useHosts, useProjects } from '../hub/queries';
 import { RunReport } from '../ui/RunReport';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
@@ -107,6 +107,11 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameErr, setRenameErr] = useState<string | null>(null);
+  // Teleport (ADR-057 T1): move a paused session to another host.
+  const [teleport, setTeleport] = useState<{ id: string; target: string } | null>(null);
+  const [teleportBusy, setTeleportBusy] = useState(false);
+  const [teleportErr, setTeleportErr] = useState<string | null>(null);
+  const hosts = useHosts().data ?? [];
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const { box, startMove, startResize } = useFloatingBox('termipod.sessions.box', defaultBox, MIN_PANEL);
   const [listW, resizeList] = usePanelWidth('termipod.sessions.listWidth', 300, 220, 520);
@@ -201,6 +206,36 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
       setRenameErr(err instanceof Error ? err.message : String(err));
     } finally {
       setRenameBusy(false);
+    }
+  }
+
+  /// Online hosts a session can teleport TO — excludes the session's current
+  /// host (the hub 409s a same-host teleport anyway, but hiding it is clearer).
+  function teleportTargets(sessionId: string): Entity[] {
+    const s = sessions.find((x) => str(x, 'id') === sessionId);
+    const curHost = s !== undefined ? str(s, 'host_id') : undefined;
+    return hosts.filter((h) => str(h, 'status') === 'online' && str(h, 'id') !== curHost);
+  }
+
+  function startTeleport(id: string): void {
+    setMenu(null);
+    setTeleportErr(null);
+    const targets = teleportTargets(id);
+    setTeleport({ id, target: targets[0] !== undefined ? str(targets[0], 'id') ?? '' : '' });
+  }
+
+  async function doTeleport(): Promise<void> {
+    if (client === null || teleport === null || teleport.target === '') return;
+    setTeleportBusy(true);
+    setTeleportErr(null);
+    try {
+      await client.teleportSession(teleport.id, teleport.target);
+      setTeleport(null);
+      await qc.invalidateQueries({ queryKey: ['sessions'] });
+    } catch (err) {
+      setTeleportErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTeleportBusy(false);
     }
   }
 
@@ -374,6 +409,9 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
             <div className="context-backdrop" onMouseDown={() => setMenu(null)} />
             <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
               <button onClick={() => startRename(menu.id)}>{t('sessions.rename')}</button>
+              {str(sessions.find((x) => str(x, 'id') === menu.id) ?? {}, 'status') === 'paused' && (
+                <button onClick={() => startTeleport(menu.id)}>{t('sessions.teleport')}</button>
+              )}
             </div>
           </>
         )}
@@ -400,6 +438,40 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
             <button onClick={() => setRenaming(null)}>{t('common.cancel')}</button>
             <button className="primary" disabled={renameBusy} onClick={() => void saveRename()}>
               {t('sessions.save')}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {teleport !== null && (
+        <Modal onClose={() => setTeleport(null)} className="rename-modal" ariaLabel={t('sessions.teleportTitle')}>
+          <strong>{t('sessions.teleportTitle')}</strong>
+          <div className="muted small">{t('sessions.teleportBody')}</div>
+          {teleportTargets(teleport.id).length === 0 ? (
+            <div className="error small">{t('sessions.teleportNoHost')}</div>
+          ) : (
+            <select
+              value={teleport.target}
+              onChange={(e) => setTeleport({ id: teleport.id, target: e.target.value })}
+            >
+              {teleportTargets(teleport.id).map((h) => {
+                const id = str(h, 'id') ?? '';
+                return (
+                  <option key={id} value={id}>
+                    {str(h, 'name') ?? str(h, 'hostname') ?? id}
+                  </option>
+                );
+              })}
+            </select>
+          )}
+          {teleportErr !== null && <div className="error small">{teleportErr}</div>}
+          <div className="rename-actions">
+            <button onClick={() => setTeleport(null)}>{t('common.cancel')}</button>
+            <button
+              className="primary"
+              disabled={teleportBusy || teleport.target === ''}
+              onClick={() => void doTeleport()}
+            >
+              {teleportBusy ? t('sessions.teleporting') : t('sessions.teleportConfirm')}
             </button>
           </div>
         </Modal>

@@ -109,6 +109,15 @@ export class HubClient {
   renameSession(id: string, title: string): Promise<unknown> {
     return this.transport.patch(this.transport.team(`/sessions/${id}`), { title });
   }
+  /** Teleport a PAUSED worktree session to another host (ADR-057 T1): the hub
+   * relocates the worktree + engine-state to `targetHostId` and continues the
+   * session there. 409 if not paused / not a worktree session / same host /
+   * target offline; 502 if the host-side pack or unpack fails. */
+  teleportSession(id: string, targetHostId: string): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/sessions/${id}/teleport`), {
+      target_host_id: targetHostId,
+    }) as Promise<Entity>;
+  }
   /** The session-scoped run digest (ADR-038 §5) — same wire shape as the agent
    * digest, rolled up across the session's agents. Renders in `RunReport`. */
   getSessionDigest(id: string): Promise<Entity> {

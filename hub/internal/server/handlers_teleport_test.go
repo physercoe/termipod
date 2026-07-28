@@ -64,12 +64,18 @@ func fakeHost(t *testing.T, s *Server, targetWorktree string) (stop func()) {
 				var result string
 				switch c.kind {
 				case "session_handoff_pack":
+					// Carries both worktree AND workdir fields so the fake serves
+					// either mode; the hub reads only the ones for the session's mode.
 					result = `{"branch":"hub/worker","head_sha":"deadbeef",` +
 						`"remote":"origin","manifest_sha":"m-1",` +
 						`"portable_worktree_path":"~/hub-work/team/pid/worker",` +
-						`"portable_repo":"~/repos/proj"}`
+						`"portable_repo":"~/repos/proj",` +
+						`"workdir_manifest_sha":"wd-1",` +
+						`"portable_workdir_path":"~/hub-work/default/_team/worker"}`
 				case "session_handoff_unpack":
-					b, _ := json.Marshal(map[string]any{"worktree_path": targetWorktree})
+					b, _ := json.Marshal(map[string]any{
+						"worktree_path": targetWorktree, "workdir": targetWorktree,
+					})
 					result = string(b)
 				default:
 					continue
@@ -138,6 +144,88 @@ func TestTeleportSession_MovesToTargetHost(t *testing.T) {
 	_ = s.db.QueryRow(`SELECT COALESCE(host_id,'') FROM agents WHERE id = ?`, newAgent).Scan(&newHost)
 	if newHost != "host-tgt" {
 		t.Fatalf("resumed agent host_id=%q; want host-tgt", newHost)
+	}
+}
+
+// openNonWorktreeSessionForAgent opens a session with NO worktree — the shape
+// T2a teleports by moving the workdir itself rather than pushing a git branch.
+func openNonWorktreeSessionForAgent(t *testing.T, s *Server, token, agentID string) sessionOut {
+	t.Helper()
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "scratch-session",
+			"agent_id":        agentID,
+			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude\n",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open non-worktree session: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+	return ses
+}
+
+// A non-worktree session (T2a) teleports by moving its workdir bundle; the hub
+// derives the workdir from identity, moves it, and the respawn re-derives the
+// same path on the target — so the session's worktree_path stays empty.
+func TestTeleportSession_NonWorktree(t *testing.T) {
+	oldPoll := teleportCmdPoll
+	teleportCmdPoll = 10 * time.Millisecond
+	defer func() { teleportCmdPoll = oldPoll }()
+
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-src")
+	seedTestHost(t, s, defaultTeamID, "host-tgt", "gpu-box")
+	ses := openNonWorktreeSessionForAgent(t, s, token, agentID)
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+
+	const targetWorkdir = "/home/tgt/hub-work/default/_team/worker"
+	stop := fakeHost(t, s, targetWorkdir)
+	defer stop()
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/teleport",
+		map[string]any{"target_host_id": "host-tgt"})
+	if status != http.StatusOK {
+		t.Fatalf("non-worktree teleport: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgent, _ := resp["new_agent_id"].(string)
+	if newAgent == "" || newAgent == agentID {
+		t.Fatalf("want a fresh agent id, got %q (old=%q)", newAgent, agentID)
+	}
+
+	// The respawn is on the target and active; a non-worktree session keeps an
+	// EMPTY worktree_path (the respawn re-derives its workdir on the target).
+	var curAgent, sesStatus, wt, newHost string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(current_agent_id,''), status, COALESCE(worktree_path,'') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&curAgent, &sesStatus, &wt)
+	if curAgent != newAgent {
+		t.Fatalf("session current_agent_id=%q; want %q", curAgent, newAgent)
+	}
+	if sesStatus != "active" {
+		t.Fatalf("session status=%q; want active", sesStatus)
+	}
+	if wt != "" {
+		t.Fatalf("non-worktree session should keep an empty worktree_path, got %q", wt)
+	}
+	_ = s.db.QueryRow(`SELECT COALESCE(host_id,'') FROM agents WHERE id = ?`, newAgent).Scan(&newHost)
+	if newHost != "host-tgt" {
+		t.Fatalf("resumed agent host_id=%q; want host-tgt", newHost)
+	}
+	// Both handoff commands (pack on source, unpack on target) must have run.
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM host_commands WHERE kind LIKE 'session_handoff_%'`).Scan(&n)
+	if n < 2 {
+		t.Fatalf("want pack + unpack handoff commands, got %d", n)
 	}
 }
 

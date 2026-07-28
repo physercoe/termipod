@@ -1076,13 +1076,14 @@ paths:
       tags: [Sessions]
       operationId: teleportSession
       summary: >-
-        Move a paused worktree session to another host (ADR-057 T1). Relocates
-        the git worktree + engine-state to the target and continues there; the
-        transcript is unchanged. Session must be paused (409 otherwise); T1
-        handles git-worktree sessions on hosts sharing a git remote. A
-        secret-bearing session (its env profile carries secret_refs) is refused
-        unless the request supplies env_secret_envelope re-sealed to the target
-        host — the hub cannot re-seal (ADR-056 D-6, D-7).
+        Move a paused session to another host (ADR-057). Relocates the session's
+        byte-stores to the target and continues there; the transcript is
+        unchanged. A worktree session (T1) moves its files via git and needs a
+        shared git remote; a non-worktree session (T2a) moves its whole working
+        directory as a tar bundle (256 MiB compressed cap). Session must be
+        paused (409 otherwise). A secret-bearing session (its env profile carries
+        secret_refs) is refused unless the request supplies env_secret_envelope
+        re-sealed to the target host — the hub cannot re-seal (ADR-056 D-6, D-7).
       requestBody:
         required: true
         content:
@@ -1115,13 +1116,19 @@ paths:
                   source_host: { type: string }
                   target_host: { type: string }
                   new_agent_id: { type: string }
-                  worktree_path: { type: string }
+                  worktree_path:
+                    type: string
+                    description: Target-side worktree path (worktree sessions only; empty otherwise).
+                  workdir:
+                    type: string
+                    description: Target-side working directory (non-worktree sessions only; empty otherwise).
         "400":
           description: env_secret_envelope is malformed or not sealed to the target host
         "409":
           description: >-
-            Not paused, not a worktree session, same host, target offline, or a
-            secret-bearing session teleported without a re-sealed envelope
+            Not paused, same host, target offline, a session with nothing to
+            relocate (no worktree and no derivable workdir), or a secret-bearing
+            session teleported without a re-sealed envelope
         "502":
           description: Pack or unpack failed on a host
 

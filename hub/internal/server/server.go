@@ -530,6 +530,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/archive", s.handleArchiveSession)
 				r.Post("/fork", s.handleForkSession)
 				r.Post("/resume", s.handleResumeSession)
+				// Host-to-host teleport (ADR-057 T1): relocate the
+				// paused session's worktree + engine-state to another
+				// host and continue there. Body {target_host_id}.
+				r.Post("/teleport", s.handleTeleportSession)
 				r.Delete("/", s.handleDeleteSession)
 				// /cost is the per-session imputed USD breakdown
 				// (ADR-036 D8 chip 2). Read by the session-cost chip

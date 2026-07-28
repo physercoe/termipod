@@ -31,14 +31,16 @@ var teleportCommitIdent = []string{
 // gitCommitAndPush is the SOURCE side of a teleport git handoff. It commits any
 // uncommitted work in the worktree at worktreePath onto `branch` (defaulting to
 // the worktree's current branch) and pushes it to `remote` (default "origin"),
-// returning the resulting branch head SHA. A clean worktree is pushed as-is (no
-// empty commit). The caller relocates the engine-state separately (D-2).
-func gitCommitAndPush(ctx context.Context, worktreePath, branch, remote string) (headSHA string, err error) {
+// returning the resulting branch head SHA and the RESOLVED branch name — the
+// caller needs the latter for the unpack args when it passed branch as "". A
+// clean worktree is pushed as-is (no empty commit). The caller relocates the
+// engine-state separately (D-2).
+func gitCommitAndPush(ctx context.Context, worktreePath, branch, remote string) (headSHA, resolvedBranch string, err error) {
 	if worktreePath == "" {
-		return "", fmt.Errorf("teleport: empty worktree path")
+		return "", "", fmt.Errorf("teleport: empty worktree path")
 	}
 	if !isGitRepo(ctx, worktreePath) {
-		return "", fmt.Errorf("teleport: %s is not a git worktree", worktreePath)
+		return "", "", fmt.Errorf("teleport: %s is not a git worktree", worktreePath)
 	}
 	if remote == "" {
 		remote = "origin"
@@ -46,11 +48,11 @@ func gitCommitAndPush(ctx context.Context, worktreePath, branch, remote string) 
 	if branch == "" {
 		out, berr := runGit(ctx, worktreePath, "rev-parse", "--abbrev-ref", "HEAD")
 		if berr != nil {
-			return "", fmt.Errorf("teleport: resolve branch: %w: %s", berr, out)
+			return "", "", fmt.Errorf("teleport: resolve branch: %w: %s", berr, out)
 		}
 		branch = strings.TrimSpace(out)
 		if branch == "" || branch == "HEAD" {
-			return "", fmt.Errorf("teleport: worktree is in detached HEAD; cannot teleport")
+			return "", "", fmt.Errorf("teleport: worktree is in detached HEAD; cannot teleport")
 		}
 	}
 
@@ -58,25 +60,25 @@ func gitCommitAndPush(ctx context.Context, worktreePath, branch, remote string) 
 	// skips straight to push (its last commit is already the payload).
 	if isDirty(ctx, worktreePath) {
 		if out, aerr := runGit(ctx, worktreePath, "add", "-A"); aerr != nil {
-			return "", fmt.Errorf("teleport: git add: %w: %s", aerr, out)
+			return "", "", fmt.Errorf("teleport: git add: %w: %s", aerr, out)
 		}
 		args := append(append([]string{}, teleportCommitIdent...),
 			"commit", "--no-verify", "-m", "teleport: WIP snapshot")
 		if out, cerr := runGit(ctx, worktreePath, args...); cerr != nil {
-			return "", fmt.Errorf("teleport: git commit: %w: %s", cerr, out)
+			return "", "", fmt.Errorf("teleport: git commit: %w: %s", cerr, out)
 		}
 	}
 
 	if out, perr := runGit(ctx, worktreePath, "push", remote, branch); perr != nil {
-		return "", fmt.Errorf("teleport: push %s to %s failed (no shared remote?): %w: %s",
+		return "", "", fmt.Errorf("teleport: push %s to %s failed (no shared remote?): %w: %s",
 			branch, remote, perr, out)
 	}
 
 	out, herr := runGit(ctx, worktreePath, "rev-parse", "HEAD")
 	if herr != nil {
-		return "", fmt.Errorf("teleport: resolve head: %w: %s", herr, out)
+		return "", "", fmt.Errorf("teleport: resolve head: %w: %s", herr, out)
 	}
-	return strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), branch, nil
 }
 
 // gitFetchAndAddWorktree is the TARGET side of a teleport git handoff. It
@@ -95,23 +97,21 @@ func gitFetchAndAddWorktree(ctx context.Context, repo, worktreePath, branch, rem
 		remote = "origin"
 	}
 
-	if out, ferr := runGit(ctx, repo, "fetch", remote, branch); ferr != nil {
+	// Fetch with an explicit refspec so the LOCAL branch ref is created or
+	// fast-forwarded to what the source just pushed. A bare `fetch remote
+	// branch` only updates the remote-tracking ref: a stale local branch left
+	// from a prior residence of this session on this host (a return teleport —
+	// source cleanup removes the worktree, not the branch) would then be
+	// checked out as-is and fail the head verification below. Non-fast-forward
+	// local divergence or a branch checked out in another worktree still fails
+	// loudly, which is the right outcome for both.
+	if out, ferr := runGit(ctx, repo, "fetch", remote, branch+":"+branch); ferr != nil {
 		return fmt.Errorf("teleport: fetch %s from %s failed (no shared remote?): %w: %s",
 			branch, remote, ferr, out)
 	}
 
-	// Prefer creating a local branch that tracks the freshly-fetched remote
-	// ref. If the local branch already exists (a prior teleport of the same
-	// session branch), add the worktree on it directly.
-	if branchExists(ctx, repo, branch) {
-		if out, werr := runGit(ctx, repo, "worktree", "add", worktreePath, branch); werr != nil {
-			return fmt.Errorf("teleport: worktree add %s: %w: %s", branch, werr, out)
-		}
-	} else {
-		src := remote + "/" + branch
-		if out, werr := runGit(ctx, repo, "worktree", "add", "--track", "-b", branch, worktreePath, src); werr != nil {
-			return fmt.Errorf("teleport: worktree add --track %s: %w: %s", src, werr, out)
-		}
+	if out, werr := runGit(ctx, repo, "worktree", "add", worktreePath, branch); werr != nil {
+		return fmt.Errorf("teleport: worktree add %s: %w: %s", branch, werr, out)
 	}
 
 	if expectHead != "" {

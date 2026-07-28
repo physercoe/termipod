@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	claudecode "github.com/termipod/hub/internal/drivers/local_log_tail/claude_code"
@@ -68,6 +69,9 @@ func TestTeleportHandoffRoundTrip(t *testing.T) {
 	if packRes.HeadSHA == "" || packRes.ManifestSHA == "" {
 		t.Fatalf("pack result incomplete: %+v", packRes)
 	}
+	if packRes.Branch != branch {
+		t.Fatalf("pack result branch: got %q want %q", packRes.Branch, branch)
+	}
 
 	// Target host: fresh clone of the shared remote + its own HOME + worktree
 	// path. Different home + worktree ⇒ the engine state must remap.
@@ -120,6 +124,14 @@ func TestTeleportHandoffPack_RejectsBadArgs(t *testing.T) {
 func TestTeleportHandoffUnpack_RejectsBadArgs(t *testing.T) {
 	if _, err := runHandoffUnpack(context.Background(), newMemBlobStore(), t.TempDir(), handoffUnpackArgs{Engine: "claude-code"}); err == nil {
 		t.Fatal("expected error on incomplete unpack args")
+	}
+	// Pack refuses an empty session id; the restore must be as strict — an
+	// empty id would write the engine state at a nonsense path and the resume
+	// would cold-start while the command reports success.
+	if _, err := runHandoffUnpack(context.Background(), newMemBlobStore(), t.TempDir(), handoffUnpackArgs{
+		Engine: "claude-code", Repo: "r", WorktreePath: "w", Branch: "b", ManifestSHA: "m",
+	}); err == nil || !strings.Contains(err.Error(), "engine_session_id") {
+		t.Fatalf("expected engine_session_id refusal, got %v", err)
 	}
 }
 

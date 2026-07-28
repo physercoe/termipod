@@ -57,7 +57,7 @@ func makeSharedRemoteWorkspace(t *testing.T) (remote, srcRepo, wtPath, branch st
 func TestGitCommitAndPush_SnapshotsWIP(t *testing.T) {
 	remote, _, wtPath, branch := makeSharedRemoteWorkspace(t)
 
-	head, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
+	head, _, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
 	if err != nil {
 		t.Fatalf("gitCommitAndPush: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestGitCommitAndPush_CleanWorktree(t *testing.T) {
 	tgit(t, wtPath, "commit", "-m", "already committed")
 	before := strings.TrimSpace(tgit(t, wtPath, "rev-parse", "HEAD"))
 
-	head, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
+	head, _, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
 	if err != nil {
 		t.Fatalf("gitCommitAndPush: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestGitCommitAndPush_CleanWorktree(t *testing.T) {
 
 func TestGitFetchAndAddWorktree_TargetReceivesWIP(t *testing.T) {
 	remote, _, wtPath, branch := makeSharedRemoteWorkspace(t)
-	head, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
+	head, _, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
 	if err != nil {
 		t.Fatalf("source push: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestGitFetchAndAddWorktree_TargetReceivesWIP(t *testing.T) {
 
 func TestGitFetchAndAddWorktree_HeadMismatchFails(t *testing.T) {
 	remote, _, wtPath, branch := makeSharedRemoteWorkspace(t)
-	if _, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin"); err != nil {
+	if _, _, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin"); err != nil {
 		t.Fatalf("source push: %v", err)
 	}
 	troot := t.TempDir()
@@ -141,6 +141,71 @@ func TestGitFetchAndAddWorktree_HeadMismatchFails(t *testing.T) {
 	}
 }
 
+// A return teleport: the session lived on this host before, so the repo still
+// carries a STALE local session branch (source cleanup removes the worktree,
+// never the branch). The fetch must fast-forward the local ref to what the
+// other host pushed — a bare `fetch remote branch` only updates the
+// remote-tracking ref and the stale checkout then fails head verification.
+func TestGitFetchAndAddWorktree_StaleLocalBranchFastForwards(t *testing.T) {
+	remote, srcRepo, wtPath, branch := makeSharedRemoteWorkspace(t)
+
+	// This host held the session earlier: it packed (commit+push), then its
+	// worktree was cleaned up (RemoveWorktree) — leaving the LOCAL branch
+	// behind at the old head.
+	staleRepo := srcRepo // srcRepo owns the branch via the original worktree
+	staleHead, _, err := gitCommitAndPush(context.Background(), wtPath, branch, "origin")
+	if err != nil {
+		t.Fatalf("original pack: %v", err)
+	}
+	tgit(t, staleRepo, "worktree", "remove", "--force", wtPath)
+
+	// Meanwhile the OTHER host advanced the branch and pushed.
+	oroot := t.TempDir()
+	otherRepo := filepath.Join(oroot, "other")
+	tgit(t, oroot, "clone", remote, otherRepo)
+	otherWt := filepath.Join(oroot, "wt")
+	if err := gitFetchAndAddWorktree(context.Background(), otherRepo, otherWt, branch, "origin", ""); err != nil {
+		t.Fatalf("other host unpack: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(otherWt, "more.txt"), []byte("newer\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newHead, _, err := gitCommitAndPush(context.Background(), otherWt, branch, "origin")
+	if err != nil {
+		t.Fatalf("other host pack: %v", err)
+	}
+	if newHead == staleHead {
+		t.Fatal("test setup: expected the branch to advance")
+	}
+
+	// Teleport back: the stale host must check out the NEW head.
+	backWt := filepath.Join(t.TempDir(), "wt-back")
+	if err := gitFetchAndAddWorktree(context.Background(), staleRepo, backWt, branch, "origin", newHead); err != nil {
+		t.Fatalf("return teleport unpack: %v", err)
+	}
+	if h := strings.TrimSpace(tgit(t, backWt, "rev-parse", "HEAD")); h != newHead {
+		t.Fatalf("stale branch not fast-forwarded: head %s want %s", h, newHead)
+	}
+}
+
+// With an empty branch arg the source resolves the worktree's current branch —
+// and must RETURN it: the unpack args are built from the pack result, so an
+// echoed empty string would make the target's fetch fail.
+func TestGitCommitAndPush_ResolvesAndReturnsBranch(t *testing.T) {
+	remote, _, wtPath, branch := makeSharedRemoteWorkspace(t)
+
+	head, resolved, err := gitCommitAndPush(context.Background(), wtPath, "", "origin")
+	if err != nil {
+		t.Fatalf("gitCommitAndPush: %v", err)
+	}
+	if resolved != branch {
+		t.Fatalf("resolved branch %q, want %q", resolved, branch)
+	}
+	if got := strings.TrimSpace(tgit(t, remote, "rev-parse", "refs/heads/"+branch)); got != head {
+		t.Fatalf("remote head %s != %s", got, head)
+	}
+}
+
 func TestGitCommitAndPush_DetachedHeadRefused(t *testing.T) {
 	_, _, wtPath, _ := makeSharedRemoteWorkspace(t)
 	// Detach HEAD in the worktree.
@@ -151,7 +216,7 @@ func TestGitCommitAndPush_DetachedHeadRefused(t *testing.T) {
 	head := strings.TrimSpace(tgit(t, wtPath, "rev-parse", "HEAD"))
 	tgit(t, wtPath, "checkout", head) // detach
 
-	if _, err := gitCommitAndPush(context.Background(), wtPath, "", "origin"); err == nil {
+	if _, _, err := gitCommitAndPush(context.Background(), wtPath, "", "origin"); err == nil {
 		t.Fatal("expected detached-HEAD refusal")
 	}
 }
@@ -173,7 +238,7 @@ func TestGitCommitAndPush_NoRemoteFailsLoudly(t *testing.T) {
 	if _, err := EnsureWorktree(context.Background(), WorktreeSpec{Repo: repo, Path: wt, Branch: "hub/x"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitCommitAndPush(context.Background(), wt, "hub/x", "origin"); err == nil {
+	if _, _, err := gitCommitAndPush(context.Background(), wt, "hub/x", "origin"); err == nil {
 		t.Fatal("expected push failure with no remote")
 	}
 }

@@ -76,7 +76,7 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 	if args.WorktreePath == "" || args.Engine == "" {
 		return handoffPackResult{}, fmt.Errorf("teleport pack: engine and worktree_path are required")
 	}
-	head, err := gitCommitAndPush(ctx, args.WorktreePath, args.Branch, args.Remote)
+	head, branch, err := gitCommitAndPush(ctx, args.WorktreePath, args.Branch, args.Remote)
 	if err != nil {
 		return handoffPackResult{}, err
 	}
@@ -99,7 +99,9 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 		remote = "origin"
 	}
 	return handoffPackResult{
-		Branch:       args.Branch,
+		// The RESOLVED branch, not args.Branch: with an empty args.Branch the
+		// worktree's current branch was used, and the unpack args need its name.
+		Branch:       branch,
 		HeadSHA:      head,
 		Remote:       remote,
 		ManifestSHA:  manifestSHA,
@@ -112,6 +114,12 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
 	if args.Repo == "" || args.WorktreePath == "" || args.Engine == "" || args.ManifestSHA == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine, repo, worktree_path and manifest_sha are required")
+	}
+	// Pack refuses to snapshot without a session id; the restore must be as
+	// strict — an empty id would write the state at a nonsense path (e.g.
+	// claude's "<slug>/.jsonl") and report success, cold-starting the resume.
+	if args.EngineSessionID == "" {
+		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine_session_id is required")
 	}
 	if err := gitFetchAndAddWorktree(ctx, args.Repo, args.WorktreePath, args.Branch, args.Remote, args.ExpectHead); err != nil {
 		return handoffUnpackResult{}, err

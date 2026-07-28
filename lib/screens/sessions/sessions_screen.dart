@@ -1877,6 +1877,74 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     }
   }
 
+  /// Teleports a paused session to another host (ADR-057). Offers the online
+  /// hosts other than the session's current one; on pick, moves the session
+  /// there and routes into the fresh agent's chat (like resume). A
+  /// secret-bearing session is refused by the hub — mobile holds no vault to
+  /// re-seal — and the error surfaces as a snackbar.
+  Future<void> _teleport(BuildContext context) async {
+    final id = (session['id'] ?? '').toString();
+    if (id.isEmpty || _resuming) return;
+    final l10n = AppLocalizations.of(context)!;
+    final allHosts =
+        ref.read(hubProvider).value?.hosts ?? const <Map<String, dynamic>>[];
+    final curHost = (session['host_id'] ?? '').toString();
+    final targets = allHosts
+        .where((h) =>
+            (h['status'] ?? '').toString() == 'online' &&
+            (h['id'] ?? '').toString().isNotEmpty &&
+            (h['id'] ?? '').toString() != curHost)
+        .toList();
+    if (targets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.teleportNoHostMsg)),
+      );
+      return;
+    }
+    final targetId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l10n.teleportPickHost),
+        children: [
+          for (final h in targets)
+            SimpleDialogOption(
+              onPressed: () =>
+                  Navigator.of(ctx).pop((h['id'] ?? '').toString()),
+              child: Text(
+                hostLabel(allHosts, (h['id'] ?? '').toString()) ??
+                    (h['id'] ?? '').toString(),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (targetId == null || targetId.isEmpty || !mounted) return;
+    setState(() => _resuming = true);
+    try {
+      final newAgentId =
+          await ref.read(sessionsProvider.notifier).teleport(id, targetId);
+      if (!mounted) return;
+      if (newAgentId != null && newAgentId.isNotEmpty) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SessionChatScreen(
+              sessionId: id,
+              agentId: newAgentId,
+              title: sessionDisplayTitle(session),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.teleportFailedMsg('$e'))),
+      );
+    } finally {
+      if (mounted) setState(() => _resuming = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -2006,6 +2074,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         if (v == 'fork') _fork(context);
         if (v == 'stop') _stopFromRow(context);
         if (v == 'archive') _archiveFromRow(context);
+        if (v == 'teleport') _teleport(context);
       },
       itemBuilder: (_) => [
         PopupMenuItem(value: 'rename', child: Text(l10n.buttonRename)),
@@ -2013,6 +2082,11 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
           PopupMenuItem(
             value: 'stop',
             child: Text(l10n.menuStopSession),
+          ),
+        if (isPaused)
+          PopupMenuItem(
+            value: 'teleport',
+            child: Text(l10n.menuTeleportSession),
           ),
         if (isActive || isPaused)
           PopupMenuItem(

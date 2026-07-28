@@ -3,7 +3,7 @@
 /// `node --test src/state/checkpoint.test.ts` from `desktop/`. tsc covers types.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree, collapseRepeats, parseHfConfig, parsePolicyConfig, classifyPolicy, classifyArch, estimateParamsFromConfig, normalizeModelConfig, type TensorInfo, type TreeNode } from './checkpoint.ts';
+import { buildTree, collapseRepeats, parseHfConfig, parsePolicyConfig, classifyPolicy, classifyArch, estimateParamsFromConfig, normalizeModelConfig, linearHybridInfo, TEMPLATE_LABEL, type ArchCard, type TensorInfo, type TreeNode } from './checkpoint.ts';
 
 function tensors(names: Array<[string, number[]]>, dtype = 'F16'): TensorInfo[] {
   return names.map(([name, shape]) => ({ name, dtype, shape, params: shape.reduce((a, b) => a * b, 1) }));
@@ -311,4 +311,214 @@ test('parsePolicyConfig: a transformer config is NOT mistaken for a policy', () 
   assert.equal(parsePolicyConfig(JSON.stringify({ model_type: 'llama', num_hidden_layers: 32, hidden_size: 4096, num_attention_heads: 32 })), null);
   // Random JSON with neither a policy `type`+features nor a backbone key → null.
   assert.equal(parsePolicyConfig(JSON.stringify({ foo: 1, bar: [1, 2, 3] })), null);
+});
+
+// ── W1a: hybrid linear-attention + honest chips (archgraph plan §5 W1) ─────────
+// Fixtures are trimmed to the LM fields under test, but every KEY is copied
+// verbatim from the real HF `config.json` at the pinned revision (D-3: verify the
+// real config keys before coding — do not guess post-cutoff key names). Re-fetch
+// the full file at `https://huggingface.co/<repo>/blob/<rev>/config.json`.
+
+// Kimi K3 — moonshotai/Kimi-K3 @ 9f62e4e9fffbd0a83ddd60e1c209d828994b3569. A
+// multimodal wrapper (`model_type: kimi_k3`) nesting a `kimi_linear` LM under
+// `text_config`; KDA (linear) interleaved with full Gated-MLA attention 3:1.
+const KIMI_K3_FULL_ATTN = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 93]; // 24
+const KIMI_K3_KDA = [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 17, 18, 19, 21, 22, 23, 25, 26, 27, 29, 30, 31, 33, 34, 35, 37, 38, 39, 41, 42, 43, 45, 46, 47, 49, 50, 51, 53, 54, 55, 57, 58, 59, 61, 62, 63, 65, 66, 67, 69, 70, 71, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 91]; // 69
+const KIMI_K3 = {
+  model_type: 'kimi_k3',
+  architectures: ['KimiK3ForConditionalGeneration'],
+  text_config: {
+    model_type: 'kimi_linear',
+    architectures: ['KimiLinearForCausalLM'],
+    hidden_size: 7168, num_hidden_layers: 93, num_attention_heads: 96, num_key_value_heads: 96,
+    kv_lora_rank: 512, q_lora_rank: 1536, qk_nope_head_dim: 128, qk_rope_head_dim: 64, v_head_dim: 128,
+    mla_use_nope: true, mla_use_output_gate: true, hidden_act: 'situ', rms_norm_eps: 1e-5,
+    intermediate_size: 33792, moe_intermediate_size: 3072, num_experts: 896, num_experts_per_token: 16,
+    num_shared_experts: 2, first_k_dense_replace: 1, num_nextn_predict_layers: 0,
+    max_position_embeddings: 1048576, vocab_size: 163840, tie_word_embeddings: false,
+    linear_attn_config: { full_attn_layers: KIMI_K3_FULL_ATTN, kda_layers: KIMI_K3_KDA, num_heads: 96, short_conv_kernel_size: 4 },
+  },
+  vision_config: { hidden_size: 1024, vt_num_hidden_layers: 27 },
+};
+
+// Kimi Linear 48B-A3B — moonshotai/Kimi-Linear-48B-A3B-Instruct @ e1df551a447157d4658b573f9a695d57658590e9 (flat).
+const KIMI_LINEAR = {
+  model_type: 'kimi_linear', architectures: ['KimiLinearForCausalLM'],
+  hidden_size: 2304, num_hidden_layers: 27, num_attention_heads: 32, num_key_value_heads: 32, head_dim: 72,
+  kv_lora_rank: 512, q_lora_rank: null, qk_nope_head_dim: 128, qk_rope_head_dim: 64, v_head_dim: 128,
+  mla_use_nope: true, hidden_act: 'silu', rms_norm_eps: 1e-5, rope_theta: 10000.0, rope_scaling: null,
+  intermediate_size: 9216, moe_intermediate_size: 1024, num_experts: 256, num_experts_per_token: 8,
+  num_shared_experts: 1, first_k_dense_replace: 1, num_nextn_predict_layers: 0, vocab_size: 163840, tie_word_embeddings: false,
+  linear_attn_config: { full_attn_layers: [4, 8, 12, 16, 20, 24, 27], kda_layers: [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 17, 18, 19, 21, 22, 23, 25, 26], num_heads: 32, short_conv_kernel_size: 4 },
+};
+
+// Qwen3-Next 80B-A3B — Qwen/Qwen3-Next-80B-A3B-Instruct @ 9c7f2fbe84465e40164a94cc16cd30b6999b0cc7 (flat).
+// Gated DeltaNet (linear) on most layers, full GQA attention every 4th; MoE.
+const QWEN3_NEXT = {
+  model_type: 'qwen3_next', architectures: ['Qwen3NextForCausalLM'],
+  hidden_size: 2048, num_hidden_layers: 48, num_attention_heads: 16, num_key_value_heads: 2, head_dim: 256,
+  full_attention_interval: 4, linear_conv_kernel_dim: 4, linear_key_head_dim: 128, linear_num_key_heads: 16,
+  linear_num_value_heads: 32, linear_value_head_dim: 128, partial_rotary_factor: 0.25, use_sliding_window: false,
+  hidden_act: 'silu', rms_norm_eps: 1e-6, rope_theta: 10000000, rope_scaling: null,
+  intermediate_size: 5120, moe_intermediate_size: 512, num_experts: 512, num_experts_per_tok: 10,
+  shared_expert_intermediate_size: 512, max_position_embeddings: 262144, vocab_size: 151936, tie_word_embeddings: false,
+};
+
+// Gemma 3 27B — unsloth/gemma-3-27b-it @ 7a5a3053dbd5d1d58e48159e87b9df2fc545a49a (ungated mirror of
+// google/gemma-3-27b-it). Wrapper nesting a `gemma3_text` LM; dense GQA with a 5:1 sliding/global window pattern.
+const GEMMA3 = {
+  model_type: 'gemma3', architectures: ['Gemma3ForConditionalGeneration'],
+  text_config: {
+    model_type: 'gemma3_text', hidden_size: 5376, num_hidden_layers: 62, num_attention_heads: 32, num_key_value_heads: 16,
+    head_dim: 128, hidden_activation: 'gelu_pytorch_tanh', rms_norm_eps: 1e-6, sliding_window: 1024, sliding_window_pattern: 6,
+    rope_theta: 1000000.0, rope_local_base_freq: 10000.0, rope_scaling: { rope_type: 'linear', factor: 8.0 },
+    intermediate_size: 21504, max_position_embeddings: 131072, vocab_size: 262208,
+  },
+  vision_config: { model_type: 'siglip_vision_model', hidden_size: 1152 },
+};
+
+// DeepSeek-V3 — deepseek-ai/DeepSeek-V3 @ e815299b0bcbac849fa540c768ef21845365c9eb (flat). Uniform MLA + MoE
+// with an MTP head — a REGRESSION fixture: it must stay `mla-moe`, never `linear-hybrid`.
+const DEEPSEEK_V3 = {
+  model_type: 'deepseek_v3', architectures: ['DeepseekV3ForCausalLM'],
+  hidden_size: 7168, num_hidden_layers: 61, num_attention_heads: 128, num_key_value_heads: 128,
+  kv_lora_rank: 512, q_lora_rank: 1536, qk_nope_head_dim: 128, qk_rope_head_dim: 64, v_head_dim: 128,
+  hidden_act: 'silu', rms_norm_eps: 1e-6, rope_theta: 10000, rope_scaling: { type: 'yarn', factor: 40 },
+  intermediate_size: 18432, moe_intermediate_size: 2048, n_routed_experts: 256, n_shared_experts: 1,
+  num_experts_per_tok: 8, first_k_dense_replace: 3, num_nextn_predict_layers: 1, vocab_size: 129280, tie_word_embeddings: false,
+};
+
+// Kimi K2 — moonshotai/Kimi-K2-Instruct @ fd1984e2b7a3350dbf7305fe73a4ede25c14de50 (flat). Uniform MLA + MoE
+// (DeepSeek-V3 arch, no MTP). REGRESSION fixture: stays `mla-moe`.
+const KIMI_K2 = {
+  model_type: 'kimi_k2', architectures: ['DeepseekV3ForCausalLM'],
+  hidden_size: 7168, num_hidden_layers: 61, num_attention_heads: 64, num_key_value_heads: 64,
+  kv_lora_rank: 512, q_lora_rank: 1536, qk_nope_head_dim: 128, qk_rope_head_dim: 64, v_head_dim: 128,
+  hidden_act: 'silu', rms_norm_eps: 1e-6, rope_theta: 50000.0, rope_scaling: { type: 'yarn', factor: 32.0 },
+  intermediate_size: 18432, moe_intermediate_size: 2048, n_routed_experts: 384, n_shared_experts: 1,
+  num_experts_per_tok: 8, first_k_dense_replace: 1, num_nextn_predict_layers: 0, vocab_size: 163840, tie_word_embeddings: false,
+};
+
+// MiniMax-M2 — MiniMaxAI/MiniMax-M2 @ 757303d492a50514c312788b5247a4f696a4c6a3 (flat). Carries an
+// `attn_type_list` (hybrid-CAPABLE schema) but M2 sets it uniformly to full attention — so it must classify
+// as a plain GQA + MoE `moe`, NOT `linear-hybrid` (D-4: never a guessed hybrid).
+const MINIMAX_M2 = {
+  model_type: 'minimax_m2', architectures: ['MiniMaxM2ForCausalLM'],
+  hidden_size: 3072, num_hidden_layers: 62, num_attention_heads: 48, num_key_value_heads: 8, head_dim: 128,
+  hidden_act: 'silu', rms_norm_eps: 1e-6, rope_theta: 5000000, attn_type_list: Array(62).fill(1),
+  intermediate_size: 1536, num_local_experts: 256, num_experts_per_tok: 8, vocab_size: 200064, tie_word_embeddings: false,
+};
+
+function classifyFixture(cfg: Record<string, unknown>): ArchCard {
+  const parsed = parseHfConfig(JSON.stringify(cfg));
+  assert.ok(parsed, 'fixture should parse as an HF config');
+  const card = classifyArch({ config: parsed, tensorNames: [] });
+  assert.ok(card, 'fixture should classify to a card');
+  return card as ArchCard;
+}
+
+test('linearHybridInfo: Kimi K3 reads the KDA/full-attn split from linear_attn_config', () => {
+  const info = linearHybridInfo(parseHfConfig(JSON.stringify(KIMI_K3))!)!;
+  assert.equal(info.kind, 'Kimi Delta Attention');
+  assert.equal(info.fullAttnLayers, 24);
+  assert.equal(info.linearAttnLayers, 69); // 3:1 KDA:full (69 ÷ 24 ≈ 2.9)
+  assert.equal(info.fullAttnLayers! + info.linearAttnLayers!, 93);
+});
+
+test('linearHybridInfo: Qwen3-Next derives the split from full_attention_interval', () => {
+  const info = linearHybridInfo(QWEN3_NEXT)!;
+  assert.equal(info.kind, 'Gated DeltaNet');
+  assert.equal(info.fullAttnLayers, 12); // 48 / 4
+  assert.equal(info.linearAttnLayers, 36);
+});
+
+test('linearHybridInfo: a homogeneous config (DeepSeek-V3) is not hybrid', () => {
+  assert.equal(linearHybridInfo(DEEPSEEK_V3), null);
+  assert.equal(linearHybridInfo(MINIMAX_M2), null); // attn_type_list all-full → not hybrid
+});
+
+test('classifyArch W1a: Kimi K3 is linear-hybrid, NOT uniform mla-moe (the core fix)', () => {
+  const card = classifyFixture(KIMI_K3);
+  assert.equal(card.family, 'Kimi K3'); // wrapper name wins over the inner kimi_linear id
+  assert.equal(card.template, 'linear-hybrid');
+  assert.notEqual(card.template, 'mla-moe'); // G1/G2: the exact misrender this fixes
+  assert.equal(card.linearKind, 'Kimi Delta Attention');
+  assert.equal(card.fullAttnLayers, 24);
+  assert.equal(card.linearAttnLayers, 69);
+  assert.equal(card.expertsPerTok, 16); // num_experts_per_token (Kimi spelling) now read
+  assert.equal(card.experts, 896);
+  assert.equal(card.sharedExperts, 2);
+  for (const chip of ['MLA', 'MoE', 'shared-experts', 'NoPE', 'gated-attn', 'RMSNorm', 'Kimi Delta Attention']) {
+    assert.ok(card.chips.includes(chip), `expected chip ${chip} in [${card.chips.join(', ')}]`);
+  }
+  // `situ` is a novel activation — no guessed GLU chip (honest).
+  assert.ok(!card.chips.includes('SwiGLU') && !card.chips.includes('GeGLU'));
+});
+
+test('classifyArch W1a: Kimi Linear 48B (standalone) is Kimi Linear / linear-hybrid', () => {
+  const card = classifyFixture(KIMI_LINEAR);
+  assert.equal(card.family, 'Kimi Linear'); // no wrapper → inner family
+  assert.equal(card.template, 'linear-hybrid');
+  assert.equal(card.linearKind, 'Kimi Delta Attention');
+  assert.equal(card.fullAttnLayers, 7);
+  assert.equal(card.linearAttnLayers, 20);
+  assert.equal(card.expertsPerTok, 8);
+  for (const chip of ['MLA', 'MoE', 'NoPE', 'SwiGLU', 'Kimi Delta Attention']) assert.ok(card.chips.includes(chip), chip);
+});
+
+test('classifyArch W1a: Qwen3-Next is Gated-DeltaNet linear-hybrid (GQA, no MLA)', () => {
+  const card = classifyFixture(QWEN3_NEXT);
+  assert.equal(card.family, 'Qwen3-Next');
+  assert.equal(card.template, 'linear-hybrid');
+  assert.equal(card.linearKind, 'Gated DeltaNet');
+  assert.equal(card.expertsPerTok, 10);
+  for (const chip of ['GQA', 'MoE', 'partial-RoPE', 'SwiGLU', 'Gated DeltaNet']) assert.ok(card.chips.includes(chip), chip);
+  assert.ok(!card.chips.includes('MLA')); // no kv_lora_rank
+  assert.ok(!card.chips.includes('sliding-window')); // use_sliding_window: false
+});
+
+test('classifyArch W1a: Gemma 3 (wrapper→gemma3_text) is dense GQA with a sliding-window chip', () => {
+  const card = classifyFixture(GEMMA3);
+  assert.equal(card.family, 'Gemma 3'); // gemma3_text now maps cleanly (was "Gemma3_text")
+  assert.equal(card.template, 'dense-gqa');
+  for (const chip of ['GQA', 'GeGLU', 'sliding-window', 'RMSNorm']) assert.ok(card.chips.includes(chip), chip);
+  assert.ok(!card.chips.includes('MoE') && !card.chips.includes('MLA') && !card.chips.includes('YaRN')); // rope_type: linear ≠ yarn
+});
+
+test('classifyArch W1a: DeepSeek-V3 stays mla-moe with YaRN + MTP chips (regression)', () => {
+  const card = classifyFixture(DEEPSEEK_V3);
+  assert.equal(card.family, 'DeepSeek-V3');
+  assert.equal(card.template, 'mla-moe');
+  assert.equal(card.expertsPerTok, 8);
+  for (const chip of ['MLA', 'MoE', 'shared-experts', 'YaRN', 'MTP', 'SwiGLU']) assert.ok(card.chips.includes(chip), chip);
+});
+
+test('classifyArch W1a: Kimi K2 stays mla-moe, no MTP (regression)', () => {
+  const card = classifyFixture(KIMI_K2);
+  assert.equal(card.family, 'Kimi K2');
+  assert.equal(card.template, 'mla-moe');
+  assert.ok(card.chips.includes('MLA') && card.chips.includes('MoE') && card.chips.includes('YaRN'));
+  assert.ok(!card.chips.includes('MTP')); // num_nextn_predict_layers: 0
+});
+
+test('classifyArch W1a: MiniMax-M2 is a plain GQA MoE, not a guessed hybrid', () => {
+  const card = classifyFixture(MINIMAX_M2);
+  assert.equal(card.family, 'MiniMax-M2');
+  assert.equal(card.template, 'moe'); // attn_type_list is uniformly full attention → NOT linear-hybrid
+  assert.equal(card.linearKind, undefined);
+  assert.ok(card.chips.includes('GQA') && card.chips.includes('MoE'));
+});
+
+test('estimateParamsFromConfig: Kimi active-expert count reads num_experts_per_token', () => {
+  // Before the key fix, Kimi's `num_experts_per_token` was unread → activeOnly
+  // fell back to ALL experts, so active === total. Now active « total.
+  const total = estimateParamsFromConfig(KIMI_LINEAR)!;
+  const active = estimateParamsFromConfig(KIMI_LINEAR, { activeOnly: true })!;
+  assert.ok(active < total * 0.35, `active ${(active / 1e9).toFixed(2)}B should be « total ${(total / 1e9).toFixed(2)}B`);
+});
+
+test('TEMPLATE_LABEL: every ArchTemplate (incl. linear-hybrid) has a label', () => {
+  for (const t of ['dense-gqa', 'moe', 'mla', 'mla-moe', 'linear-hybrid', 'unknown'] as const) {
+    assert.ok(typeof TEMPLATE_LABEL[t] === 'string' && TEMPLATE_LABEL[t].length > 0);
+  }
 });

@@ -70,7 +70,7 @@ export function humanBytes(n: number): string {
   return `${i === 0 ? v : v.toFixed(1)} ${u[i]}`;
 }
 
-export type ArchTemplate = 'dense-gqa' | 'moe' | 'mla' | 'mla-moe' | 'unknown';
+export type ArchTemplate = 'dense-gqa' | 'moe' | 'mla' | 'mla-moe' | 'linear-hybrid' | 'unknown';
 
 export interface ArchCard {
   family: string;
@@ -84,6 +84,13 @@ export interface ArchCard {
   experts?: number;
   expertsPerTok?: number;
   sharedExperts?: number;
+  /// Hybrid linear-attention stacks (`template: 'linear-hybrid'`) interleave a
+  /// linear/recurrent operator with periodic full attention. `linearKind` names
+  /// the operator (`Kimi Delta Attention`, `Gated DeltaNet`); the two counts are
+  /// the layer split when the config discloses it. Absent for homogeneous stacks.
+  linearKind?: string;
+  fullAttnLayers?: number;
+  linearAttnLayers?: number;
   chips: string[];
   /// Where the readings came from — the provenance badge's value.
   provenance: 'config' | 'gguf' | 'tensors';
@@ -106,6 +113,8 @@ const FAMILY: Record<string, string> = {
   qwen2_moe: 'Qwen2-MoE',
   qwen3: 'Qwen3',
   qwen3_moe: 'Qwen3-MoE',
+  // Qwen3-Next: hybrid Gated-DeltaNet (linear) layers + periodic full GQA, MoE.
+  qwen3_next: 'Qwen3-Next',
   // Qwen3.6 ships its arch as model_type `qwen3_5(_moe)`; the multimodal wrapper
   // nests an LM config typed `qwen3_5(_moe)_text`, so map both forms.
   qwen3_5: 'Qwen3.6',
@@ -118,9 +127,18 @@ const FAMILY: Record<string, string> = {
   deepseek_v4: 'DeepSeek-V4',
   kimi_k2: 'Kimi K2',
   kimi_k25: 'Kimi K2.5',
+  // Kimi K3 wraps a `kimi_linear` LM under `text_config`; both the K3 wrapper
+  // and the standalone Kimi-Linear-48B report `model_type: kimi_linear` once
+  // flattened, so K3 is disambiguated by `wrapper_model_type` (WRAPPER_FAMILY).
+  kimi_linear: 'Kimi Linear',
+  minimax_text_01: 'MiniMax-Text-01',
+  minimax_m2: 'MiniMax-M2',
   gemma: 'Gemma',
   gemma2: 'Gemma 2',
   gemma3: 'Gemma 3',
+  // Gemma-3's multimodal wrapper nests an LM typed `gemma3_text`; map both so a
+  // flattened (text_config-hoisted) config still names the family cleanly.
+  gemma3_text: 'Gemma 3',
   phi3: 'Phi-3',
   starcoder2: 'StarCoder2',
   cohere: 'Command-R',
@@ -131,6 +149,16 @@ const FAMILY: Record<string, string> = {
   glm_moe_dsa: 'GLM-5', // GLM-5.x MoE with DeepSeek-style sparse attention (DSA/IndexShare)
 };
 
+// A few products name the OUTER (wrapper) model_type meaningfully even though the
+// flattened LM reports a base-architecture id — Kimi K3 wraps a `kimi_linear` LM.
+// `normalizeModelConfig` preserves the wrapper id as `wrapper_model_type`; when
+// it's recognised here the wrapper name wins over the inner family (which stays
+// the classification key). Not every wrapper belongs: mistral3 → "Mistral" and
+// gemma3 → "Gemma 3" are the base LM's own name, so they are NOT listed here.
+const WRAPPER_FAMILY: Record<string, string> = {
+  kimi_k3: 'Kimi K3',
+};
+
 function familyName(id: string): string {
   const k = id.toLowerCase();
   if (FAMILY[k]) return FAMILY[k];
@@ -138,15 +166,121 @@ function familyName(id: string): string {
   return id ? id.charAt(0).toUpperCase() + id.slice(1) : 'Unknown';
 }
 
+/// Resolve the display family from a parsed config: a recognised wrapper id
+/// (`wrapper_model_type`, preserved by normalizeModelConfig) wins, else the
+/// flattened inner `model_type`/architecture id.
+function familyForConfig(cfg: Record<string, unknown>, innerId: string): string {
+  const wrap = typeof cfg.wrapper_model_type === 'string' ? cfg.wrapper_model_type.toLowerCase() : '';
+  return WRAPPER_FAMILY[wrap] ?? familyName(innerId);
+}
+
 // SwiGLU/GeGLU + RoPE + RMSNorm are near-universal in these decoder families;
 // only claim them for a recognised family (else omit — recipe by name, honestly).
 const KNOWN_DECODER = new Set(Object.keys(FAMILY));
 
-function commonChips(id: string, out: string[]): void {
+/// The linear/recurrent operator of a hybrid attention stack, and its layer
+/// split (full-attention layers vs linear layers) when the config discloses it.
+export interface LinearHybridInfo {
+  kind: string;
+  fullAttnLayers?: number;
+  linearAttnLayers?: number;
+}
+
+/// Detect a hybrid linear-attention stack from a parsed config. Two real schemes
+/// are recognised (both pinned as fixtures): **Kimi K3 / Kimi Linear** carry a
+/// `linear_attn_config` with explicit `kda_layers` / `full_attn_layers` index
+/// arrays — Kimi Delta Attention interleaved with periodic full (Gated-MLA)
+/// attention; **Qwen3-Next** carries `linear_num_{key,value}_heads` +
+/// `full_attention_interval` — Gated DeltaNet on most layers, full attention
+/// every Nth. Returns null for a homogeneous stack (the common case). The exact
+/// per-layer placement is left to the schematic builder (W2); this yields the
+/// operator kind + counts the classifier chip / KV metric need.
+export function linearHybridInfo(config: Record<string, unknown>): LinearHybridInfo | null {
+  const lac = config.linear_attn_config;
+  if (lac !== null && typeof lac === 'object' && !Array.isArray(lac)) {
+    const l = lac as Record<string, unknown>;
+    const kda = Array.isArray(l.kda_layers) ? l.kda_layers.length : undefined;
+    const full = Array.isArray(l.full_attn_layers) ? l.full_attn_layers.length : undefined;
+    return { kind: 'Kimi Delta Attention', fullAttnLayers: full, linearAttnLayers: kda };
+  }
+  const interval = num(config, 'full_attention_interval');
+  const hasLinear = num(config, 'linear_num_value_heads', 'linear_num_key_heads', 'linear_key_head_dim') !== undefined;
+  if (hasLinear && interval !== undefined && interval > 0) {
+    const layers = num(config, 'num_hidden_layers', 'n_layer');
+    const full = layers !== undefined ? Math.floor(layers / interval) : undefined;
+    const lin = layers !== undefined && full !== undefined ? layers - full : undefined;
+    return { kind: 'Gated DeltaNet', fullAttnLayers: full, linearAttnLayers: lin };
+  }
+  return null;
+}
+
+function strLower(config: Record<string, unknown> | undefined, ...keys: string[]): string {
+  if (!config) return '';
+  for (const k of keys) {
+    const v = config[k];
+    if (typeof v === 'string' && v !== '') return v.toLowerCase();
+  }
+  return '';
+}
+
+/// The RoPE-scaling method a config declares, if any. Transformers spells it
+/// `rope_scaling.rope_type` (newer) or `rope_scaling.type` (DeepSeek-era). '' when
+/// absent (rope_scaling null / no key).
+function ropeScalingType(config: Record<string, unknown> | undefined): string {
+  const rs = config?.rope_scaling;
+  if (rs !== null && typeof rs === 'object' && !Array.isArray(rs)) {
+    const r = rs as Record<string, unknown>;
+    const t = r.rope_type ?? r.type;
+    if (typeof t === 'string') return t.toLowerCase();
+  }
+  return '';
+}
+
+/// Component chips. Config-DERIVED where the config discloses a fact (norm kind,
+/// gated activation, position encoding, YaRN, sliding window, multi-token
+/// prediction, gated attention, the linear-attention operator); family assertion
+/// is only the FALLBACK for the near-universal facts a silent config omits. The
+/// gguf path passes `config: undefined` (family assertion only, unchanged).
+function commonChips(id: string, config: Record<string, unknown> | undefined, hyb: LinearHybridInfo | null, out: string[]): void {
   const k = id.toLowerCase();
-  if (!KNOWN_DECODER.has(k)) return;
-  out.push('RoPE', 'RMSNorm');
-  out.push(k.startsWith('gemma') ? 'GeGLU' : 'SwiGLU');
+  const known = KNOWN_DECODER.has(k);
+  if (!known && !config) return;
+
+  // Normalization: config-read epsilon, else family assertion (RMSNorm).
+  if (config && num(config, 'rms_norm_eps') !== undefined) out.push('RMSNorm');
+  else if (config && num(config, 'layer_norm_epsilon', 'layer_norm_eps') !== undefined) out.push('LayerNorm');
+  else if (known) out.push('RMSNorm');
+
+  // Gated MLP activation: silu→SwiGLU, gelu→GeGLU; a novel activation (Kimi's
+  // `situ`) gets NO guessed GLU chip. Family fallback only when the config is silent.
+  const act = strLower(config, 'hidden_act', 'hidden_activation');
+  if (act.includes('gelu')) out.push('GeGLU');
+  else if (act.includes('silu') || act.includes('swi')) out.push('SwiGLU');
+  else if (act === '' && known) out.push(k.startsWith('gemma') ? 'GeGLU' : 'SwiGLU');
+
+  // Position encoding: NoPE / partial-RoPE / RoPE (config-first), plus YaRN.
+  if (config?.mla_use_nope === true) out.push('NoPE');
+  else {
+    const prf = num(config ?? {}, 'partial_rotary_factor');
+    if (prf !== undefined && prf > 0 && prf < 1) out.push('partial-RoPE');
+    else if (config && num(config, 'rope_theta') !== undefined) out.push('RoPE');
+    else if (known) out.push('RoPE');
+  }
+  if (ropeScalingType(config) === 'yarn') out.push('YaRN');
+
+  // Sliding-window attention (Gemma-3), unless explicitly disabled (Qwen3-Next).
+  const sw = num(config ?? {}, 'sliding_window');
+  if (sw !== undefined && sw > 0 && config?.use_sliding_window !== false) out.push('sliding-window');
+
+  // Multi-token prediction (DeepSeek-V3's MTP head).
+  const mtp = num(config ?? {}, 'num_nextn_predict_layers', 'num_mtp_layers');
+  if (mtp !== undefined && mtp > 0) out.push('MTP');
+
+  // Gated attention output (Kimi MLA output gate).
+  if (config?.mla_use_output_gate === true) out.push('gated-attn');
+
+  // The linear-attention operator of a hybrid stack.
+  if (hyb) out.push(hyb.kind);
 }
 
 // Legacy decoder families with a NON-gated MLP (two matrices: up + down, GELU)
@@ -224,7 +358,9 @@ export function estimateParamsFromConfig(config: Record<string, unknown>, opts?:
     const sharedInter = num(config, 'shared_expert_intermediate_size') ?? expInter;
     // Active count fires only the top-k routed experts per token; the router gate
     // (hidden × experts) and shared experts are always on either way.
-    const routed = opts?.activeOnly === true ? (num(config, 'num_experts_per_tok', 'moe_topk') ?? experts) : experts;
+    // Active-expert key varies: DeepSeek/Qwen spell it `num_experts_per_tok`,
+    // Kimi (K3 / Linear) spell it `num_experts_per_token` — read both.
+    const routed = opts?.activeOnly === true ? (num(config, 'num_experts_per_tok', 'num_experts_per_token', 'moe_topk') ?? experts) : experts;
     const moeFfn = routed * mult * hidden * expInter + hidden * experts /* router */ + shared * mult * hidden * sharedInter;
     // Some stacks (DeepSeek-V3) keep the first K layers dense, the rest MoE.
     const denseLayers = Math.min(num(config, 'first_k_dense_replace') ?? 0, layers);
@@ -265,7 +401,17 @@ export function normalizeModelConfig(rec: Record<string, unknown>): Record<strin
     const sub = rec[key];
     if (sub !== null && typeof sub === 'object' && !Array.isArray(sub)) {
       const s = sub as Record<string, unknown>;
-      if (num(s, 'num_hidden_layers', 'n_layer') !== undefined) return { ...rec, ...s };
+      if (num(s, 'num_hidden_layers', 'n_layer') !== undefined) {
+        const merged: Record<string, unknown> = { ...rec, ...s };
+        // Preserve the OUTER (wrapper) model_type when the inner LM reports a
+        // different id — a few products name the wrapper meaningfully (Kimi K3
+        // wraps a `kimi_linear` LM). Classification uses the flattened inner id;
+        // `familyForConfig` prefers a recognised wrapper name for display.
+        if (typeof rec.model_type === 'string' && rec.model_type !== s.model_type) {
+          merged.wrapper_model_type = rec.model_type;
+        }
+        return merged;
+      }
     }
   }
   return rec;
@@ -510,6 +656,7 @@ export function classifyArch(opts: {
     const experts = num(cfg, 'num_local_experts', 'n_routed_experts', 'num_experts');
     const mlaCfg = num(cfg, 'kv_lora_rank', 'q_lora_rank') !== undefined || hasMla;
     const moe = (experts !== undefined && experts > 0) || hasExperts;
+    const hyb = linearHybridInfo(cfg);
     const heads = num(cfg, 'num_attention_heads');
     const kvHeads = num(cfg, 'num_key_value_heads');
     const chips: string[] = [];
@@ -518,10 +665,13 @@ export function classifyArch(opts: {
     if (moe) chips.push('MoE');
     const shared = num(cfg, 'n_shared_experts', 'num_shared_experts');
     if (shared !== undefined && shared > 0) chips.push('shared-experts');
-    commonChips(id, chips);
+    commonChips(id, cfg, hyb, chips);
     return {
-      family: familyName(id),
-      template: mlaCfg && moe ? 'mla-moe' : mlaCfg ? 'mla' : moe ? 'moe' : 'dense-gqa',
+      family: familyForConfig(cfg, id),
+      // A hybrid linear-attention stack is its own template — misrendering it as a
+      // uniform `mla-moe`/`moe` is the exact defect this vocabulary fixes. MoE/MLA
+      // stay as chips (a hybrid is usually also MoE).
+      template: hyb ? 'linear-hybrid' : mlaCfg && moe ? 'mla-moe' : mlaCfg ? 'mla' : moe ? 'moe' : 'dense-gqa',
       layers: num(cfg, 'num_hidden_layers', 'n_layer'),
       hidden: num(cfg, 'hidden_size', 'n_embd'),
       heads,
@@ -529,8 +679,11 @@ export function classifyArch(opts: {
       vocab: num(cfg, 'vocab_size'),
       context: num(cfg, 'max_position_embeddings', 'n_positions'),
       experts: experts !== undefined && experts > 0 ? experts : undefined,
-      expertsPerTok: num(cfg, 'num_experts_per_tok', 'moe_topk'),
+      expertsPerTok: num(cfg, 'num_experts_per_tok', 'num_experts_per_token', 'moe_topk'),
       sharedExperts: shared,
+      linearKind: hyb?.kind,
+      fullAttnLayers: hyb?.fullAttnLayers,
+      linearAttnLayers: hyb?.linearAttnLayers,
       chips,
       provenance: 'config',
     };
@@ -557,7 +710,7 @@ export function classifyArch(opts: {
     if (hasMla) chips.push('MLA');
     else if (kvHeads !== undefined && heads !== undefined && kvHeads < heads) chips.push('GQA');
     if (moe) chips.push('MoE');
-    commonChips(arch, chips);
+    commonChips(arch, undefined, null, chips);
     return {
       family: familyName(arch),
       template: hasMla && moe ? 'mla-moe' : hasMla ? 'mla' : moe ? 'moe' : 'dense-gqa',
@@ -594,6 +747,7 @@ export const TEMPLATE_LABEL: Record<ArchTemplate, string> = {
   moe: 'Mixture-of-Experts',
   mla: 'MLA decoder',
   'mla-moe': 'MLA + MoE',
+  'linear-hybrid': 'Hybrid linear-attention',
   unknown: 'Unknown',
 };
 

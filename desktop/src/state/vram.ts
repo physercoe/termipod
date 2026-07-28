@@ -200,7 +200,10 @@ export function deriveVramInputs(opts: {
   const arch = md && typeof md['general.architecture'] === 'string' ? (md['general.architecture'] as string) : '';
   const gguf = (suffix: string): number | undefined => (md ? readNum(md as Record<string, unknown>, `${arch}.${suffix}`) : undefined);
 
-  const isMla = opts.template === 'mla' || opts.template === 'mla-moe';
+  // A hybrid linear-attention stack (`linear-hybrid`) whose full-attention layers
+  // are MLA (Kimi K3/Linear carry `kv_lora_rank`) must use the compressed-latent
+  // KV formula, not the dense one — else its cache is wildly overestimated.
+  const isMla = opts.template === 'mla' || opts.template === 'mla-moe' || readNum(config, 'kv_lora_rank') !== undefined;
   const heads = card?.heads ?? readNum(config, 'num_attention_heads', 'n_head') ?? gguf('attention.head_count');
   const kvHeads = card?.kvHeads ?? readNum(config, 'num_key_value_heads', 'num_kv_heads', 'n_head_kv') ?? gguf('attention.head_count_kv');
   const headDim = readNum(config, 'head_dim') ?? gguf('attention.key_length');

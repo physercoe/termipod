@@ -621,7 +621,7 @@ function FlopsCard({
     const act = estimateParamsFromConfig(config, { activeOnly: true });
     return total !== null && act !== null && total > 0 ? totalParams * (act / total) : totalParams;
   }, [config, totalParams]);
-  const isMoe = card?.template === 'moe' || card?.template === 'mla-moe';
+  const isMoe = card?.template === 'moe' || card?.template === 'mla-moe' || (card?.experts !== undefined && card.experts > 0);
 
   // Reuse the VRAM input derivation for layers + attention width (heads×headDim).
   const dims = useMemo(

@@ -138,16 +138,16 @@ func TestDoSpawn_SecretProfile_WithEnvelope_Stored(t *testing.T) {
 }
 
 func TestProjectEnvProfileIDFromYAML(t *testing.T) {
-	if got := projectEnvProfileIDFromYAML(""); got != "" {
+	if got := topEnvProfileIDFromYAML(""); got != "" {
 		t.Fatalf("empty: %q", got)
 	}
-	if got := projectEnvProfileIDFromYAML("phases: [a, b]\n"); got != "" {
+	if got := topEnvProfileIDFromYAML("phases: [a, b]\n"); got != "" {
 		t.Fatalf("absent key: %q", got)
 	}
-	if got := projectEnvProfileIDFromYAML("env_profile_id: prof-9\nphases: [x]\n"); got != "prof-9" {
+	if got := topEnvProfileIDFromYAML("env_profile_id: prof-9\nphases: [x]\n"); got != "prof-9" {
 		t.Fatalf("present: %q", got)
 	}
-	if got := projectEnvProfileIDFromYAML("{not: valid: yaml"); got != "" {
+	if got := topEnvProfileIDFromYAML("{not: valid: yaml"); got != "" {
 		t.Fatalf("parse-fail should yield empty: %q", got)
 	}
 }
@@ -329,5 +329,38 @@ func TestResumeSession_ReplaysEnvelopeSameHost(t *testing.T) {
 	if replayed != envelope {
 		t.Fatalf("resume did not replay the envelope onto the new spawn row:\n got %q\nwant %q",
 			replayed, envelope)
+	}
+}
+
+// The single-session GET exposes the explicit env_profile_id its spawn spec
+// carries (empty on the list — see handleGetSession). The desktop teleport
+// re-seal flow reads it to find the profile's secret_refs and re-seal them to
+// the target host.
+func TestGetSession_ExposesEnvProfileID(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-1")
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "with-profile",
+			"agent_id":        agentID,
+			"spawn_spec_yaml": "kind: claude-code\nenv_profile_id: prof-42\nbackend:\n  cmd: claude\n",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open session: %d %s", status, body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	status, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
+	if status != http.StatusOK {
+		t.Fatalf("get session: %d %s", status, body)
+	}
+	var got sessionOut
+	_ = json.Unmarshal(body, &got)
+	if got.EnvProfileID != "prof-42" {
+		t.Fatalf("GET session env_profile_id=%q; want prof-42", got.EnvProfileID)
 	}
 }

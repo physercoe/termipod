@@ -51,6 +51,12 @@ type sessionOut struct {
 	ClosedAt      *string `json:"closed_at,omitempty"`
 	WorktreePath  string  `json:"worktree_path,omitempty"`
 	SpawnSpecYAML string  `json:"spawn_spec_yaml,omitempty"`
+	// EnvProfileID is the explicit env profile the session's spawn spec
+	// carries (materializeEnvProfile splices it; empty for an inherited or no
+	// profile). Populated only on the single-session GET, not the list — it
+	// needs a yaml parse and only the desktop teleport re-seal flow reads it,
+	// to look up the profile's secret_refs and re-seal them to the target host.
+	EnvProfileID string `json:"env_profile_id,omitempty"`
 	// SessionNameHint is the latest non-empty `session_name` value
 	// claude-code's statusLine has emitted for this session (ADR-036
 	// v1.0.705 polish). Persisted on every status_line event ingest
@@ -242,6 +248,9 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	if closedAt.Valid {
 		ses.ClosedAt = &closedAt.String
 	}
+	// Explicit env profile from the spawn spec (empty for inherited/none) — the
+	// desktop teleport re-seal flow reads it to find the profile's secret_refs.
+	ses.EnvProfileID = topEnvProfileIDFromYAML(ses.SpawnSpecYAML)
 	// Derived cost field (ADR-036 D8 chip 2). Errors are swallowed —
 	// a missing cost must NEVER prevent the session GET from returning
 	// (the chip self-gates on a null field per D9).
@@ -608,6 +617,12 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 type resumeOverrides struct {
 	hostID       string
 	worktreePath string
+	// envSecretEnvelope replaces the respawn's env_secret_envelope with one the
+	// client re-sealed to the TARGET host (ADR-056 D-6, teleport D-7). Only a
+	// vault-holding client can mint it — the hub cannot re-seal the source
+	// envelope. Empty on a same-host resume (the same-host replay below applies
+	// instead) and on teleport of a non-secret session.
+	envSecretEnvelope string
 }
 
 // resumePausedSession respawns the agent inside a paused session and
@@ -734,6 +749,12 @@ func (s *Server) resumePausedSessionWith(ctx context.Context, team, id string, o
 			SELECT COALESCE(env_secret_envelope, '') FROM agent_spawns
 			 WHERE child_agent_id = ? ORDER BY spawned_at DESC LIMIT 1`,
 			currentAgentID.String).Scan(&priorEnvelope)
+	}
+	// Teleport (D-7) supplies its own envelope re-sealed to the target host.
+	// It wins over the same-host replay above (which never fires on a real
+	// teleport anyway — hostID != deadHostID — but be explicit).
+	if ov.envSecretEnvelope != "" {
+		priorEnvelope = ov.envSecretEnvelope
 	}
 
 	in := spawnIn{

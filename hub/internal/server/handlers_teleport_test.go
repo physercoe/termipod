@@ -176,37 +176,11 @@ func TestTeleportSession_RefusesSameHost(t *testing.T) {
 // the work) or silently respawn without secrets (explicitly-attached profile).
 func TestTeleportSession_RefusesSecretBearing(t *testing.T) {
 	s, token := newA2ATestServer(t)
-	ctx := context.Background()
-	seedTestHost(t, s, defaultTeamID, "host-src", "src-box")
-	seedTestHost(t, s, defaultTeamID, "host-tgt", "gpu-box")
+	sesID, _ := spawnSecretBearingPausedSession(t, s, token)
 
-	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
-		Name:       "prod-secrets",
-		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
-	})
-	if err != nil {
-		t.Fatalf("create profile: %v", err)
-	}
-	out, spawnStatus, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
-		ChildHandle:       "w",
-		Kind:              "claude-code",
-		HostID:            "host-src",
-		EnvProfileID:      prof.ID,
-		EnvSecretEnvelope: `{"v":1,"epk":"AAAA","nonce":"BBBB","ct":"CCCC"}`,
-		SpawnSpec:         "backend:\n  cmd: echo test\n",
-	})
-	if err != nil {
-		t.Fatalf("DoSpawn: %v (status=%d)", err, spawnStatus)
-	}
-	ses := openWorktreeSessionForAgent(t, s, token, out.AgentID)
+	// No re-sealed envelope on the request → refuse up front.
 	status, body := doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/agents/"+out.AgentID+"/stop", nil)
-	if status != http.StatusNoContent {
-		t.Fatalf("stop: %d %s", status, body)
-	}
-
-	status, body = doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/teleport",
+		"/v1/teams/"+defaultTeamID+"/sessions/"+sesID+"/teleport",
 		map[string]any{"target_host_id": "host-tgt"})
 	if status != http.StatusConflict {
 		t.Fatalf("teleport of secret-bearing session: want 409, got %d %s", status, body)
@@ -221,6 +195,103 @@ func TestTeleportSession_RefusesSecretBearing(t *testing.T) {
 		`SELECT COUNT(*) FROM host_commands WHERE kind LIKE 'session_handoff_%'`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("refusal must precede pack/unpack; found %d handoff commands", n)
+	}
+}
+
+// spawnSecretBearingPausedSession seeds a paused secret-bearing worktree session
+// on host-src (target host-tgt seeded too) and returns its id + the source agent.
+func spawnSecretBearingPausedSession(t *testing.T, s *Server, token string) (sesID, agentID string) {
+	t.Helper()
+	ctx := context.Background()
+	seedTestHost(t, s, defaultTeamID, "host-src", "src-box")
+	seedTestHost(t, s, defaultTeamID, "host-tgt", "gpu-box")
+	prof, err := s.createEnvProfile(ctx, defaultTeamID, envProfileBody{
+		Name:       "prod-secrets",
+		SecretRefs: []secretRef{{Key: "OPENAI_API_KEY", VaultItem: "openai-prod"}},
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	out, spawnStatus, err := s.DoSpawn(ctx, defaultTeamID, spawnIn{
+		ChildHandle:       "w",
+		Kind:              "claude-code",
+		HostID:            "host-src",
+		EnvProfileID:      prof.ID,
+		EnvSecretEnvelope: `{"v":1,"host_id":"host-src","epk":"AAAA","nonce":"BBBB","ct":"CCCC"}`,
+		SpawnSpec:         "backend:\n  cmd: echo test\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, spawnStatus)
+	}
+	ses := openWorktreeSessionForAgent(t, s, token, out.AgentID)
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+out.AgentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+	return ses.ID, out.AgentID
+}
+
+// D-7: a vault-holding client CAN teleport a secret-bearing session by re-sealing
+// its secrets to the TARGET host and passing the envelope on the request. The hub
+// accepts it (after verifying it is bound to the target) and threads it onto the
+// target respawn — the source envelope never travels.
+func TestTeleportSession_ResealAcceptsTargetEnvelope(t *testing.T) {
+	oldPoll := teleportCmdPoll
+	teleportCmdPoll = 10 * time.Millisecond
+	defer func() { teleportCmdPoll = oldPoll }()
+
+	s, token := newA2ATestServer(t)
+	sesID, srcAgent := spawnSecretBearingPausedSession(t, s, token)
+
+	const targetWt = "/data/agents/hub-work/team/pid/worker"
+	stop := fakeHost(t, s, targetWt)
+	defer stop()
+
+	const resealed = `{"v":1,"host_id":"host-tgt","profile_id":"prod-secrets","epk":"DDDD","nonce":"EEEE","ct":"FFFF"}`
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+sesID+"/teleport",
+		map[string]any{"target_host_id": "host-tgt", "env_secret_envelope": resealed})
+	if status != http.StatusOK {
+		t.Fatalf("teleport with re-sealed envelope: want 200, got %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgent, _ := resp["new_agent_id"].(string)
+	if newAgent == "" || newAgent == srcAgent {
+		t.Fatalf("want a fresh agent id, got %q (old=%q)", newAgent, srcAgent)
+	}
+	// The TARGET respawn row must carry the client's re-sealed envelope, not
+	// the source one.
+	var landed string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(env_secret_envelope,'') FROM agent_spawns WHERE child_agent_id = ?`,
+		newAgent).Scan(&landed)
+	if landed != resealed {
+		t.Fatalf("target respawn envelope:\n got %q\nwant %q", landed, resealed)
+	}
+}
+
+// D-7: the hub cannot open the envelope, but it verifies the client sealed it to
+// the TARGET host (the AAD host_id is authenticated and the target host would
+// refuse a mismatch). A wrong-host envelope is a 400, before any byte-moving.
+func TestTeleportSession_ResealRejectsWrongHostEnvelope(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	sesID, _ := spawnSecretBearingPausedSession(t, s, token)
+
+	// Envelope sealed to some other host, not host-tgt.
+	const wrong = `{"v":1,"host_id":"host-elsewhere","epk":"DDDD","nonce":"EEEE","ct":"FFFF"}`
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+sesID+"/teleport",
+		map[string]any{"target_host_id": "host-tgt", "env_secret_envelope": wrong})
+	if status != http.StatusBadRequest {
+		t.Fatalf("teleport with wrong-host envelope: want 400, got %d %s", status, body)
+	}
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM host_commands WHERE kind LIKE 'session_handoff_%'`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("rejection must precede pack/unpack; found %d handoff commands", n)
 	}
 }
 

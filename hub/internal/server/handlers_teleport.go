@@ -48,6 +48,11 @@ func (s *Server) handleTeleportSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "session")
 	var in struct {
 		TargetHostID string `json:"target_host_id"`
+		// EnvSecretEnvelope, when present, is the session's vault secrets
+		// re-sealed to the TARGET host's key by a vault-holding client (D-7).
+		// A secret-bearing session is refused without it (the hub cannot
+		// re-seal); a non-secret session ignores it.
+		EnvSecretEnvelope string `json:"env_secret_envelope"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -57,7 +62,7 @@ func (s *Server) handleTeleportSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "target_host_id is required")
 		return
 	}
-	out, code, err := s.teleportSession(r.Context(), team, id, in.TargetHostID)
+	out, code, err := s.teleportSession(r.Context(), team, id, in.TargetHostID, in.EnvSecretEnvelope)
 	if err != nil {
 		writeErr(w, code, err.Error())
 		return
@@ -68,7 +73,7 @@ func (s *Server) handleTeleportSession(w http.ResponseWriter, r *http.Request) {
 // teleportSession runs the full pause-first orchestration and returns the
 // response body (or an HTTP status + error). Any failure before the resume flip
 // leaves the session paused on the source — the caller can retry or resume.
-func (s *Server) teleportSession(ctx context.Context, team, id, targetHost string) (map[string]any, int, error) {
+func (s *Server) teleportSession(ctx context.Context, team, id, targetHost, resealEnvelope string) (map[string]any, int, error) {
 	// 1. Load the session. Teleport requires it PAUSED (pause-first, ADR-014):
 	//    the desktop action pauses then teleports. An active session returns 409
 	//    so the operator/UI pauses first rather than us guessing it's idle.
@@ -121,17 +126,23 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost strin
 		return nil, http.StatusConflict, serr
 	}
 
-	// 3b. Secret-bearing sessions cannot teleport in T1 (ADR-056 D-6, ADR-057):
-	//     the env_secret_envelope is sealed to the SOURCE host's key (the AAD
-	//     binds the host id), the hub cannot re-seal it, and the resume path
-	//     cannot mint a new one — only a vault-holding client can. Without this
-	//     refusal the teleport either fails AFTER all the byte-moving with a
-	//     misleading "headless spawns refused" 422 (project-inherited profile)
-	//     or, worse, respawns on the target WITHOUT its secrets (profile
-	//     attached explicitly at spawn — nothing re-triggers the D-4 check).
-	//     Detect via the paused agent's spawn row (D-4 guarantees any
-	//     secret-bearing spawn carried an envelope) plus the project profile,
-	//     which the re-spawn would re-resolve.
+	// 3b. Secret-bearing sessions (ADR-056 D-6, D-7): the source env_secret_envelope
+	//     is sealed to the SOURCE host's key (the AAD binds the host id), so the
+	//     hub cannot re-seal it and the resume path cannot mint a new one — only a
+	//     vault-holding client can. The desktop teleport flow does exactly that:
+	//     it re-resolves the profile's secret_refs and re-seals them to the target
+	//     host, passing the result as env_secret_envelope. So:
+	//       - no re-sealed envelope supplied → refuse UP FRONT (409), before any
+	//         byte-moving. Headless/API teleport of a secret-bearing session stays
+	//         impossible by design (nothing else can re-seal).
+	//       - re-sealed envelope supplied → accept, but verify it is bound to the
+	//         TARGET host. The hub can't open it, but the envelope's host_id is
+	//         authenticated by the AAD and the target host refuses to open one
+	//         whose host_id isn't its own (envseal.Open); reject a mismatch here
+	//         with a clean 400 rather than let the target respawn fail opaquely.
+	//     Detect secret-bearing via the paused agent's spawn row (D-4 guarantees a
+	//     secret-bearing spawn carried an envelope) plus the project profile, which
+	//     the re-spawn would re-resolve.
 	var priorEnvelope string
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT COALESCE(env_secret_envelope, '') FROM agent_spawns
@@ -146,10 +157,26 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost strin
 		}
 	}
 	if secretBearing {
-		return nil, http.StatusConflict, errors.New(
-			"session carries vault secrets sealed to its current host; teleporting it would " +
-				"strand or drop them (the hub cannot re-seal to the target). Re-sealing on " +
-				"teleport is not supported yet — resume it on its current host instead")
+		if resealEnvelope == "" {
+			return nil, http.StatusConflict, errors.New(
+				"session carries vault secrets sealed to its current host; the teleport request " +
+					"must include an env_secret_envelope re-sealed to the target host (a vault-holding " +
+					"client does this). Headless/API teleport of a secret-bearing session is refused by design")
+		}
+		var env struct {
+			HostID string `json:"host_id"`
+		}
+		if err := json.Unmarshal([]byte(resealEnvelope), &env); err != nil {
+			return nil, http.StatusBadRequest, errors.New("env_secret_envelope is not valid JSON")
+		}
+		if env.HostID != targetHost {
+			return nil, http.StatusBadRequest, fmt.Errorf(
+				"env_secret_envelope is sealed to host %q, not the teleport target %q", env.HostID, targetHost)
+		}
+	} else {
+		// A non-secret session ignores any stray envelope so it never lands on
+		// the target respawn (the host would otherwise try to open it).
+		resealEnvelope = ""
 	}
 
 	// 4. Pack on the SOURCE: commit+push the worktree branch, snapshot the engine
@@ -215,8 +242,9 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost strin
 	//    The desktop's request timeout or a closed laptop must not do that.
 	ctx = context.WithoutCancel(ctx)
 	resumeOut, code, rerr := s.resumePausedSessionWith(ctx, team, id, resumeOverrides{
-		hostID:       targetHost,
-		worktreePath: unpack.WorktreePath,
+		hostID:            targetHost,
+		worktreePath:      unpack.WorktreePath,
+		envSecretEnvelope: resealEnvelope,
 	})
 	if rerr != nil {
 		return nil, code, fmt.Errorf("teleport spawn on target failed: %w", rerr)

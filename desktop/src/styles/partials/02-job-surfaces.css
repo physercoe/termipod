@@ -2001,6 +2001,159 @@ button > .ui-icon:not(:only-child):first-child,
   white-space: nowrap;
   text-align: center;
 }
+/* Zoom-in panels (W4): a dotted expansion of one block's internals, tied back to
+   the stack by a dotted leader line. */
+.archgraph-panel {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s4) var(--spacing-s6);
+  background: var(--surface);
+  border: 1px dotted var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.archgraph-panel-title {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.archgraph-panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  min-height: 0;
+}
+.archgraph-panel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s2) var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  font-size: var(--font-size-caption);
+  color: var(--text);
+}
+/* Shape vocabulary: a projection is a trapezoid (clipped corners), an operator is
+   a pill, the router is accented. */
+.archgraph-panel-row[data-shape='proj'] {
+  border-left: 3px solid var(--archgraph-attention);
+}
+.archgraph-panel-row[data-shape='op'] {
+  border-radius: var(--radius-pill);
+  border-style: dashed;
+}
+.archgraph-panel-row[data-shape='router'] {
+  border-left: 3px solid var(--archgraph-moe);
+}
+.archgraph-panel-row[data-shape='shared'] {
+  border-left: 3px solid var(--archgraph-ffn);
+}
+.archgraph-panel-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archgraph-panel-row-value {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.archgraph-panel-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--spacing-s2);
+  overflow: hidden;
+}
+.archgraph-panel-chip {
+  flex: 0 0 auto;
+  padding: var(--spacing-s2) var(--spacing-s4);
+  border: 1px solid var(--archgraph-moe);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--archgraph-moe) 10%, transparent);
+  font-size: var(--font-size-caption);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.archgraph-panel-chip[data-shape='more'] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-muted);
+}
+.archgraph-panel-note {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  line-height: 1.35;
+  overflow: hidden;
+}
+.react-flow__edge.archgraph-edge.leader .react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-dasharray: 2 4;
+}
+/* Annotation layer (W4): config-derived callouts + the colour key for the
+   operators this figure actually shows. */
+.archgraph-legend {
+  position: absolute;
+  left: var(--spacing-s8);
+  bottom: var(--spacing-s8);
+  z-index: 4;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s6) var(--spacing-s8);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+.archgraph-legend-notes {
+  margin: 0;
+  padding-left: var(--spacing-s12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+.archgraph-legend-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s2) var(--spacing-s6);
+}
+.archgraph-legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.archgraph-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--archgraph-attention);
+  flex: 0 0 auto;
+}
+.archgraph-legend-swatch[data-attn='KDA'],
+.archgraph-legend-swatch[data-attn='GatedDeltaNet'] {
+  background: var(--archgraph-linear);
+}
+.archgraph-legend-swatch[data-attn='sliding'] {
+  background: color-mix(in srgb, var(--archgraph-attention) 45%, transparent);
+}
 .archgraph-container-tag {
   position: absolute;
   top: -9px;

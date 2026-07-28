@@ -17,6 +17,8 @@ import { useContextMenu } from './ContextMenu';
 import type { ArchCard } from '../state/checkpoint';
 import { archNodeDetails, type ArchDetailRow, type ArchNode, type ArchSchematic, type AttnKind, type LayerCell } from '../state/archSchematic';
 import { layoutArch, type ArchLabels, type LaidStrip } from '../state/archLayout';
+import { buildArchPanels, type ArchPanel, type ArchPanelItem } from '../state/archPanels';
+import { archToSvg, archSvgSize, type SvgTheme } from '../state/archSvg';
 
 /// Config-only architecture schematic renderer (round-3 §5a follow-on; archgraph
 /// plan W3). A thin mapping of the PURE layout (`state/archLayout.ts`) onto React
@@ -100,7 +102,68 @@ function StripNode({ data }: NodeProps): JSX.Element {
   );
 }
 
-const NODE_TYPES = { archCard: ArchCardNode, archContainer: ContainerNode, archStrip: StripNode };
+interface PanelData extends Record<string, unknown> {
+  title: string;
+  /// Rows in render order; the expert chips arrive pre-grouped into one row.
+  rows: Array<{ id: string; kind: 'item'; item: ArchPanelItem; label: string } | { id: string; kind: 'chips'; items: Array<{ item: ArchPanelItem; label: string }> }>;
+  note?: string;
+}
+
+/// A dotted zoom-in panel (W4): what is inside an attention or MoE block — the
+/// projection chain, or the router → experts fan-out. Config-derived; a shape
+/// per item kind (trapezoid projections, glyph ops, a chip row of experts).
+function PanelNode({ data }: NodeProps): JSX.Element {
+  const { title, rows, note } = data as PanelData;
+  return (
+    <div className="archgraph-panel">
+      <Handle type="target" id="pin" position={Position.Left} className="archgraph-h" />
+      <div className="archgraph-panel-title">{title}</div>
+      <div className="archgraph-panel-rows">
+        {rows.map((r) =>
+          r.kind === 'chips' ? (
+            <div className="archgraph-panel-chips" key={r.id}>
+              {r.items.map(({ item, label }) => (
+                <span className="archgraph-panel-chip" data-shape={item.shape} key={item.id} title={item.value}>
+                  {item.shape === 'more' ? item.value : label}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="archgraph-panel-row" data-shape={r.item.shape} key={r.id}>
+              <span className="archgraph-panel-row-label">{r.label}</span>
+              {r.item.value !== undefined && <span className="archgraph-panel-row-value mono">{r.item.value}</span>}
+            </div>
+          ),
+        )}
+      </div>
+      {note !== undefined && <div className="archgraph-panel-note">{note}</div>}
+    </div>
+  );
+}
+
+const NODE_TYPES = { archCard: ArchCardNode, archContainer: ContainerNode, archStrip: StripNode, archPanel: PanelNode };
+
+/// Group a panel's items into render rows — every non-chip item is its own row,
+/// and the expert chips share one (mirrors `panelRows` in the layout module, so
+/// the measured height and the rendered height agree).
+function panelRowsFor(panel: ArchPanel, t: TLookup): PanelData['rows'] {
+  const rows: PanelData['rows'] = [];
+  let chips: Array<{ item: ArchPanelItem; label: string }> = [];
+  for (const it of panel.items) {
+    const label = t(`archgraph.panel.${it.key}`);
+    if (it.shape === 'expert' || it.shape === 'more') {
+      chips.push({ item: it, label });
+      continue;
+    }
+    if (chips.length > 0) {
+      rows.push({ id: `chips${rows.length}`, kind: 'chips', items: chips });
+      chips = [];
+    }
+    rows.push({ id: it.id, kind: 'item', item: it, label });
+  }
+  if (chips.length > 0) rows.push({ id: `chips${rows.length}`, kind: 'chips', items: chips });
+  return rows;
+}
 
 function labelsFor(t: TLookup, containerLabel: string): ArchLabels {
   return {
@@ -111,6 +174,50 @@ function labelsFor(t: TLookup, containerLabel: string): ArchLabels {
     linearSub: t('archgraph.attnSubLinear'),
     container: containerLabel,
   };
+}
+
+/// Save a Blob under `name` — the app's established download idiom (see
+/// TableEditor's CSV export): an object URL on a synthetic anchor, revoked after.
+function saveBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/// Rasterise an SVG document to PNG via a canvas (D-6: SVG first, PNG as the
+/// convenience). Resolves to null if the browser refuses to decode it.
+async function svgToPng(svg: string, width: number, height: number, scale = 2): Promise<Blob | null> {
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = new Image();
+    const loaded = new Promise<boolean>((resolve) => {
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+    });
+    img.src = url;
+    if (!(await loaded)) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext('2d');
+    if (ctx === null) return null;
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/// The attention operators actually present in this stack, in first-appearance
+/// order — the legend keys only what the figure shows.
+function legendKinds(s: ArchSchematic): AttnKind[] {
+  const out: AttnKind[] = [];
+  for (const c of s.layout?.strip ?? []) if (!out.includes(c.attn)) out.push(c.attn);
+  return out;
 }
 
 function stripNode(strip: LaidStrip, t: TLookup): Node {
@@ -146,7 +253,15 @@ export function ArchSchematicView({
   const menu = useContextMenu();
 
   const containerLabel = schematic.layers > 0 ? `×${schematic.layers} ${t('archgraph.layers')}` : t('archgraph.decoderBlock');
-  const laid = useMemo(() => layoutArch(schematic, labelsFor(t, containerLabel)), [schematic, containerLabel, t]);
+  // Zoom-in panels (W4) need the card + config; a hybrid expands its FULL
+  // attention kind, whose projections the config actually describes.
+  const panels = useMemo(() => {
+    if (config === null || config === undefined || card === null || card === undefined) return [];
+    const full = schematic.layout?.strip.find((c) => c.attn === 'MLA' || c.attn === 'GQA' || c.attn === 'MHA' || c.attn === 'global' || c.attn === 'sliding');
+    const attn: AttnKind = full?.attn ?? (card.chips.includes('MLA') ? 'MLA' : card.kvHeads !== undefined && card.heads !== undefined && card.kvHeads < card.heads ? 'GQA' : 'MHA');
+    return buildArchPanels(card, config, attn);
+  }, [card, config, schematic]);
+  const laid = useMemo(() => layoutArch(schematic, labelsFor(t, containerLabel), panels), [schematic, containerLabel, t, panels]);
 
   const { nodes, edges } = useMemo(() => {
     const ns: Node[] = [];
@@ -176,21 +291,42 @@ export function ArchSchematicView({
       });
     }
     if (laid.strip !== null) ns.push(stripNode(laid.strip, t));
+    for (const p of laid.panels) {
+      ns.push({
+        id: p.id,
+        type: 'archPanel',
+        position: { x: p.x, y: p.y },
+        data: {
+          title: t(`archgraph.panel.${p.panel.titleKey}`),
+          rows: panelRowsFor(p.panel, t),
+          note: p.panel.noteKey !== undefined ? t(`archgraph.panel.${p.panel.noteKey}`) : undefined,
+        } satisfies PanelData,
+        style: { width: p.w, height: p.h },
+        selectable: false,
+        draggable: false,
+        zIndex: p.z,
+      });
+    }
 
-    const es: Edge[] = laid.edges.map((e) =>
-      e.kind === 'main'
-        ? {
-            id: e.id,
-            source: e.source,
-            target: e.target,
-            sourceHandle: 'b',
-            targetHandle: 't',
-            type: 'smoothstep',
-            className: 'archgraph-edge main',
-            markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-          }
-        : { id: e.id, source: e.source, target: e.target, sourceHandle: 'rout', targetHandle: 'rin', type: 'default', className: 'archgraph-edge residual' },
-    );
+    const es: Edge[] = laid.edges.map((e) => {
+      if (e.kind === 'main') {
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: 'b',
+          targetHandle: 't',
+          type: 'smoothstep',
+          className: 'archgraph-edge main',
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+        };
+      }
+      if (e.kind === 'leader') {
+        // The dotted leader line tying a block to its zoom-in panel.
+        return { id: e.id, source: e.source, target: e.target, sourceHandle: 'rout', targetHandle: 'pin', type: 'smoothstep', className: 'archgraph-edge leader' };
+      }
+      return { id: e.id, source: e.source, target: e.target, sourceHandle: 'rout', targetHandle: 'rin', type: 'default', className: 'archgraph-edge residual' };
+    });
     return { nodes: ns, edges: es };
   }, [laid, selectedId, t]);
 
@@ -206,6 +342,47 @@ export function ArchSchematicView({
     if (node.id.startsWith('__') || node.id.endsWith('box') || node.id.startsWith('cyc')) return;
     setSelectedId(node.id);
   }, []);
+  // Export the figure as a standalone document (D-6: SVG-first, PNG for
+  // convenience). Generated from the pure layout, not scraped from the DOM, so
+  // the file is self-contained and identical in either theme.
+  const svgOpts = useCallback(
+    (theme: SvgTheme) => ({
+      theme,
+      title: card?.family,
+      annotations: schematic.layout?.annotations.map((a) => a.text) ?? [],
+      legend: legendKinds(schematic).map((k) => ({ label: t(`archgraph.attn.${k}`), attn: k })),
+      labelFor: (k: string) => t(`archgraph.panel.${k}`),
+    }),
+    [card, schematic, t],
+  );
+  const baseName = useCallback(() => (card?.family ?? 'architecture').replace(/[^\w.-]+/g, '-').toLowerCase(), [card]);
+  const exportSvg = useCallback(
+    (theme: SvgTheme) => {
+      const svg = archToSvg(laid, svgOpts(theme));
+      saveBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), `${baseName()}-${theme}.svg`);
+    },
+    [laid, svgOpts, baseName],
+  );
+  const exportPng = useCallback(
+    (theme: SvgTheme) => {
+      const opts = svgOpts(theme);
+      const svg = archToSvg(laid, opts);
+      const { width, height } = archSvgSize(laid, opts);
+      void svgToPng(svg, width, height).then((png) => {
+        if (png !== null) saveBlob(png, `${baseName()}-${theme}.png`);
+      });
+    },
+    [laid, svgOpts, baseName],
+  );
+  const exportItems = useMemo(
+    () => [
+      { label: t('archgraph.exportSvgDark'), onClick: () => exportSvg('dark') },
+      { label: t('archgraph.exportSvgLight'), onClick: () => exportSvg('light') },
+      { label: t('archgraph.exportPng'), onClick: () => exportPng('dark') },
+    ],
+    [t, exportSvg, exportPng],
+  );
+
   const onNodeContextMenu = useCallback(
     (e: React.MouseEvent, node: Node) => {
       const arch = archById.get(node.id);
@@ -220,9 +397,19 @@ export function ArchSchematicView({
           },
         },
         { label: t('archgraph.fitView'), onClick: () => rf.current?.fitView({ duration: 200 }) },
+        ...exportItems,
       ]);
     },
-    [archById, menu, t, detailsFor],
+    [archById, menu, t, detailsFor, exportItems],
+  );
+  // Parity: the same export actions are reachable from empty canvas, not only by
+  // right-clicking a card.
+  const onPaneContextMenu = useCallback(
+    (e: React.MouseEvent | MouseEvent) => {
+      e.preventDefault();
+      menu.open(e as React.MouseEvent, [{ label: t('archgraph.fitView'), onClick: () => rf.current?.fitView({ duration: 200 }) }, ...exportItems]);
+    },
+    [menu, t, exportItems],
   );
   const dismiss = useCallback(() => setSelectedId(null), []);
 
@@ -236,7 +423,7 @@ export function ArchSchematicView({
         onNodeClick={onNodeClick}
         onNodeContextMenu={onNodeContextMenu}
         onPaneClick={dismiss}
-        onPaneContextMenu={(e) => e.preventDefault()}
+        onPaneContextMenu={onPaneContextMenu}
         fitView
         minZoom={0.2}
         maxZoom={2}
@@ -248,6 +435,29 @@ export function ArchSchematicView({
       >
         <Background />
       </ReactFlow>
+
+      {/* Annotation layer (W4): the config-derived callouts the spec produced,
+          plus a colour key for the pattern strip / component bands. Only for a
+          heterogeneous stack — a uniform figure needs no key. */}
+      {schematic.layout !== undefined && (
+        <div className="archgraph-legend">
+          {schematic.layout.annotations.length > 0 && (
+            <ul className="archgraph-legend-notes">
+              {schematic.layout.annotations.map((a) => (
+                <li key={a.id}>{a.text}</li>
+              ))}
+            </ul>
+          )}
+          <div className="archgraph-legend-keys">
+            {legendKinds(schematic).map((k) => (
+              <span className="archgraph-legend-key" key={k}>
+                <span className="archgraph-legend-swatch" data-attn={k} />
+                {t(`archgraph.attn.${k}`)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {selectedNode !== null && (
         <div className="archgraph-detail" role="dialog" aria-label={selectedNode.label}>

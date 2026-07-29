@@ -8,6 +8,7 @@ import { useProxy } from '../state/proxy';
 import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
+import { formatCombo, matchCombo, useKeybindings } from '../state/keybindings';
 import { JOBS, SETTINGS_JOB, useWorkbench, type JobId } from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
 import { AgentSpawn } from '../surfaces/AgentSpawn';
@@ -103,21 +104,24 @@ export function AppShell(): JSX.Element {
     // then the pinned Settings tab, matching the activity bar top-to-bottom.
     const ordered: JobId[] = [...JOBS.map((j) => j.id), SETTINGS_JOB.id];
     function onKey(e: KeyboardEvent): void {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'k') {
+      // The three app-level chords come from the rebindable keybindings store
+      // (#460) — read live via getState so a rebind takes effect without a
+      // remount. Exact-match semantics: extra modifiers break a match.
+      const kb = useKeybindings.getState().bindings;
+      if (matchCombo(e, kb.palette)) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
-      } else if (mod && e.key === '`') {
+      } else if (matchCombo(e, kb.terminal)) {
         // VS Code's integrated-terminal toggle. The dock is persistent, so this
         // only shows/hides it — sessions keep running underneath.
         e.preventDefault();
         useTerminals.getState().toggle();
-      } else if (mod && e.key === '.') {
+      } else if (matchCombo(e, kb.assistant)) {
         // The app-level assistant dock — same persistent-dock semantics as the
         // terminal: toggling only shows/hides it, the SPA keeps running.
         e.preventDefault();
         useAssistant.getState().toggle();
-      } else if (mod && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
         // VS Code's Cmd/Ctrl+<n> tab jump — switch the active job by rail index.
         const target = ordered[Number(e.key) - 1];
         if (target !== undefined) {
@@ -133,9 +137,23 @@ export function AppShell(): JSX.Element {
   }, []);
 
   // Platform-aware modifier glyph for the palette shortcut hints.
-  const modKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  const modKey = mac ? '⌘' : 'Ctrl+';
+  const bindings = useKeybindings((s) => s.bindings);
+
+  // A Go-to command per job — the palette is the keyboard-first entry to every
+  // surface, not just a few overlays (#460). The ⌘<n> hint is COMPUTED from the
+  // rail order: the old hardcoded `⌘8`/`⌘9` hints drifted as jobs were added
+  // (terminal is actually ⌘9; settings has no digit — it's the 10th slot).
+  const goToCommands: Command[] = [...JOBS, SETTINGS_JOB].map((j, i) => ({
+    id: `goto-${j.id}`,
+    label: `${t('cmd.goto')} ${t(j.labelKey)}`,
+    hint: i < 9 ? `${modKey}${i + 1}` : undefined,
+    run: () => setJob(j.id),
+  }));
 
   const commands: Command[] = [
+    ...goToCommands,
     // "Audit" drops the current tab's focus back to its activity console. Only the
     // Fleet and Projects tabs own a FocusRegion scope; elsewhere it's a no-op.
     { id: 'audit', label: t('cmd.audit'), run: () => (job === 'fleet' || job === 'projects') && clear(job) },
@@ -156,9 +174,7 @@ export function AppShell(): JSX.Element {
     { id: 'me', label: t('cmd.history'), run: () => setMeOpen(true) },
     { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
-    { id: 'assistant', label: t('cmd.assistant'), hint: `${modKey}.`, run: () => useAssistant.getState().toggle() },
-    { id: 'terminal', label: t('cmd.terminal'), run: () => setJob('terminal'), hint: `${modKey}8` },
-    { id: 'settings', label: t('cmd.settings'), run: () => setJob('settings'), hint: `${modKey}9` },
+    { id: 'assistant', label: t('cmd.assistant'), hint: formatCombo(bindings.assistant, mac), run: () => useAssistant.getState().toggle() },
     client === null
       ? { id: 'connect', label: t('shell.connect'), run: () => openConnect() }
       : { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
@@ -183,10 +199,11 @@ export function AppShell(): JSX.Element {
       <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
     );
 
-  // The command palette shortcut stays in the status bar's right end.
+  // The command palette shortcut stays in the status bar's right end, showing
+  // the CURRENT binding (rebindable in Settings → Keyboard, #460).
   const statusChrome = (
     <button className="statusbar-palette" onClick={() => setPaletteOpen(true)} title={t('cmd.palette')}>
-      ⌘K
+      {formatCombo(bindings.palette, mac)}
     </button>
   );
 

@@ -27,6 +27,7 @@ import type { LogSource } from '../ui/LogView';
 import { InspectOpenDialog, type OpenMode, type PickResult, type PinRoot } from './InspectOpen';
 import { InspectTree } from './InspectTree';
 import { InspectRepoAddDialog } from './InspectRepoAdd';
+import { RepoPickDialog } from './InspectForgePick';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
@@ -793,6 +794,9 @@ export function DebugSurface(): JSX.Element {
   const [cmpMenu, setCmpMenu] = useState(false);
   const [dialog, setDialog] = useState<OpenMode | null>(null);
   const [repoDialog, setRepoDialog] = useState(false);
+  // The Compare menu's repo picker (#460) — resolve + browse a GitHub/HF repo
+  // for side B WITHOUT pinning it as a tree root (that's `repoDialog`).
+  const [repoPick, setRepoPick] = useState(false);
   // When set, the next file/tab the user picks becomes side B of a compare tab
   // whose side A is this base tab (W2 tier 2).
   const [cmpBase, setCmpBase] = useState<InspectTab | null>(null);
@@ -1036,6 +1040,14 @@ export function DebugSurface(): JSX.Element {
                         <Icon name="cloud" size={14} /> {t('inspect.fromHub')}
                       </button>
                     )}
+                    {roots.length > 0 && (
+                      <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), setDialog('roots'))}>
+                        <Icon name="sidebar" size={14} /> {t('inspect.fromRoots')}
+                      </button>
+                    )}
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), setRepoPick(true))}>
+                      <Icon name="git-branch" size={14} /> {t('inspect.fromRepo')}
+                    </button>
                   </div>
                 </>
               )}
@@ -1127,7 +1139,7 @@ export function DebugSurface(): JSX.Element {
         {cmpBase !== null && (
           <div className="inspect-toast cmp">
             {t('inspect.comparing').replace('{name}', cmpBase.title)}
-            <button className="link-btn small" onClick={() => (setCmpBase(null), setCmpMenu(false), setDialog(null))}>
+            <button className="link-btn small" onClick={() => (setCmpBase(null), setCmpMenu(false), setDialog(null), setRepoPick(false))}>
               {t('inspect.cancel')}
             </button>
           </div>
@@ -1139,6 +1151,7 @@ export function DebugSurface(): JSX.Element {
         )}
         {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} onPinRoot={pinRoot} />}
         {repoDialog && <InspectRepoAddDialog onClose={() => setRepoDialog(false)} onAdd={(r) => (pinRoot(r), setRepoDialog(false))} />}
+        {repoPick && <RepoPickDialog onClose={() => (setRepoPick(false), setCmpBase(null))} onPick={(r) => (setRepoPick(false), pick(r))} />}
       </div>
     </WorkbenchSurface>
   );

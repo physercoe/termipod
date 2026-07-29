@@ -3,6 +3,7 @@ import { useAgents, useAttention, useHosts } from '../hub/queries';
 import { str } from '../hub/types';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
+import { useAssistant } from '../state/assistant';
 import { useSyncJob } from '../state/syncJob';
 import { useTerminals } from '../terminal/store';
 import { useWorkbench } from '../state/workbench';
@@ -42,6 +43,12 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
   const toggleTerm = useTerminals((s) => s.toggle);
   const onTerminalSurface = useWorkbench((s) => s.job === 'terminal');
   const showTermChip = isShell() && !onTerminalSurface;
+
+  // The assistant dock toggle — relocated from the activity rail to a status-bar
+  // chip (#460): the rail stays purely job navigation, and the dock's ambient
+  // open/closed state reads naturally next to the terminal chip.
+  const assistantOpen = useAssistant((s) => s.open);
+  const toggleAssistant = useAssistant((s) => s.toggle);
 
   // One chip PER job (Author workspace + Read/Zotero library) so both are
   // distinguishable when they run at once, and each background failure — which
@@ -87,6 +94,16 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
         ) : null,
       )}
       <span className="spacer" />
+      {isShell() && (
+        <button
+          className={`statusbar-term${assistantOpen ? ' active' : ''}`}
+          title={t('assistant.toggleHint')}
+          aria-pressed={assistantOpen}
+          onClick={() => toggleAssistant()}
+        >
+          <Icon name="globe" size={13} /> {t('assistant.title')}
+        </button>
+      )}
       {showTermChip && (
         <button
           className={`statusbar-term${termOpen ? ' active' : ''}`}

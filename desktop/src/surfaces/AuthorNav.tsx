@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { Icon, type IconName } from '../ui/Icon';
@@ -81,6 +81,26 @@ function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
 }
 
+// Prune the file tree to rows whose NAME contains `needle` (case-insensitive),
+// keeping the ancestors of every match so the tree still reads as a tree; a
+// directory that matches itself keeps its whole subtree (#460).
+function filterTree(nodes: FileNode[], needle: string): FileNode[] {
+  const out: FileNode[] = [];
+  for (const n of nodes) {
+    if (n.dir) {
+      if (n.name.toLowerCase().includes(needle)) {
+        out.push(n);
+      } else {
+        const kids = filterTree(n.children, needle);
+        if (kids.length > 0) out.push({ ...n, children: kids });
+      }
+    } else if (n.name.toLowerCase().includes(needle)) {
+      out.push(n);
+    }
+  }
+  return out;
+}
+
 // A right-click target in the on-disk file tree. `root` = the blank area of the
 // workspace section (the folder root itself) — a reduced menu (create only).
 interface FileMenu {
@@ -108,6 +128,7 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
   const [nodes, setNodes] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
   const [showSync, setShowSync] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   // On-disk file-tree right-click menu + its two-step delete confirm.
@@ -163,6 +184,14 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
   useEffect(() => {
     void refresh(folder);
   }, [folder, rev, refresh]);
+
+  // Name filter (#460): prune the tree client-side (the listing already arrives
+  // whole from `workspace_list`, so no extra IO), force-expanding while active.
+  const filtering = filter.trim() !== '';
+  const shown = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    return needle === '' ? nodes : filterTree(nodes, needle);
+  }, [nodes, filter]);
 
   // Watch for EXTERNAL changes (a file added/edited outside the app never
   // appeared until a manual refresh, #322). src-tauri exposes no fs-watch, so
@@ -381,14 +410,28 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
             {baseName(folder)}
           </div>
         )}
+        {folder !== null && (
+          // Reuses the Inspect tree's filter-input styling (generic token-based
+          // input) rather than duplicating a near-identical rule.
+          <input
+            className="inspect-tree-filter"
+            placeholder={t('author.filterFiles')}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        )}
         {loading && <div className="muted small author-nav-empty">{t('author.navLoading')}</div>}
         {err !== null && <div className="error small author-nav-empty">{err}</div>}
-        {nodes.map((n) => (
+        {filtering && shown.length === 0 && !loading && (
+          <div className="muted small author-nav-empty">{t('author.noFilterMatch')}</div>
+        )}
+        {shown.map((n) => (
           <TreeNode
             key={n.path}
             node={n}
             depth={0}
             openByPath={openByPath}
+            forceOpen={filtering}
             onOpen={openFile}
             onContext={(node, e) => {
               e.preventDefault();
@@ -462,14 +505,19 @@ function TreeNode({
   openByPath,
   onOpen,
   onContext,
+  forceOpen = false,
 }: {
   node: FileNode;
   depth: number;
   openByPath: Map<string, OpenMark>;
   onOpen: (path: string) => void;
   onContext: (node: FileNode, e: ReactMouseEvent) => void;
+  /// While the name filter is active every matched dir renders expanded — a
+  /// collapsed hit would hide the very rows the user is filtering for.
+  forceOpen?: boolean;
 }): JSX.Element {
   const [open, setOpen] = useState(depth < 1); // top-level dirs expanded by default
+  const expanded = open || forceOpen;
   const pad = { paddingLeft: 6 + depth * 12 };
   if (node.dir) {
     return (
@@ -480,12 +528,12 @@ function TreeNode({
           onClick={() => setOpen((o) => !o)}
           onContextMenu={(e) => onContext(node, e)}
         >
-          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} className="author-nav-tw" />
+          <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={13} className="author-nav-tw" />
           {node.name}
         </button>
-        {open &&
+        {expanded &&
           node.children.map((c) => (
-            <TreeNode key={c.path} node={c} depth={depth + 1} openByPath={openByPath} onOpen={onOpen} onContext={onContext} />
+            <TreeNode key={c.path} node={c} depth={depth + 1} openByPath={openByPath} onOpen={onOpen} onContext={onContext} forceOpen={forceOpen} />
           ))}
       </div>
     );

@@ -1,41 +1,15 @@
-import { useMemo, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { parseForgeUrl, resolveForgeRepo, saveForgeToken, type Forge } from '../state/forge';
 import type { PinRoot } from './InspectOpen';
+import { RepoResolveForm } from './InspectForgePick';
 
 /// Add a **forge** root to the Inspect tree (round-3 T3): paste a GitHub or
 /// Hugging Face repo URL / shorthand, resolve its ref to an immutable commit
-/// SHA, and pin it. An optional token is stored in the vault (never
-/// `localStorage`) keyed to the forge host, so all its repos pick it up.
-///
-/// The forge is auto-detected from a URL's host; the forge selector only matters
-/// for the bare `owner/repo` shorthand (which host can't be inferred from).
+/// SHA, and pin it. The form itself is the shared [[RepoResolveForm]] (#460 —
+/// the compare menu's repo picker resolves the same way, then browses instead
+/// of pinning).
 export function InspectRepoAddDialog({ onClose, onAdd }: { onClose: () => void; onAdd: (root: PinRoot) => void }): JSX.Element {
   const t = useT();
-  const [forge, setForge] = useState<Forge>('github');
-  const [url, setUrl] = useState('');
-  const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const parsed = useMemo(() => parseForgeUrl(url, forge), [url, forge]);
-  const canAdd = parsed !== null && !busy;
-
-  async function add(): Promise<void> {
-    if (parsed === null) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      if (token.trim() !== '') await saveForgeToken(parsed.forge, token.trim());
-      const repo = await resolveForgeRepo(parsed.forge, parsed.id, parsed.ref);
-      onAdd({ source: parsed.forge, repo, label: `${parsed.id}@${repo.ref}` });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="inspect-modal-backdrop" onClick={onClose}>
       <div className="inspect-modal" role="dialog" aria-label={t('inspect.fromRepo')} onClick={(e) => e.stopPropagation()}>
@@ -46,43 +20,11 @@ export function InspectRepoAddDialog({ onClose, onAdd }: { onClose: () => void; 
             <Icon name="close" size={15} />
           </button>
         </div>
-        <div className="inspect-repoadd">
-          <div className="inspect-repoadd-forge">
-            <button className={`import-btn${forge === 'github' ? ' active' : ''}`} onClick={() => setForge('github')}>
-              <Icon name="git-branch" size={13} /> GitHub
-            </button>
-            <button className={`import-btn${forge === 'hf' ? ' active' : ''}`} onClick={() => setForge('hf')}>
-              <Icon name="sliders" size={13} /> Hugging Face
-            </button>
-          </div>
-          <label className="inspect-repoadd-label small muted">{t('inspect.repoUrl')}</label>
-          <input
-            className="inspect-modal-search"
-            placeholder="github.com/owner/repo  ·  huggingface.co/org/model  ·  owner/repo@ref"
-            value={url}
-            autoFocus
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && canAdd && void add()}
-          />
-          {parsed !== null && (
-            <div className="small muted inspect-repoadd-hint">
-              <Icon name={parsed.forge === 'github' ? 'git-branch' : 'sliders'} size={12} /> {parsed.forge === 'github' ? 'GitHub' : 'Hugging Face'} · {parsed.id}
-              {parsed.ref !== undefined ? ` @ ${parsed.ref}` : ` · ${t('inspect.repoDefaultBranch')}`}
-            </div>
-          )}
-          <label className="inspect-repoadd-label small muted">{t('inspect.repoToken')}</label>
-          <input className="inspect-modal-search" type="password" placeholder={t('inspect.repoTokenPlaceholder')} value={token} onChange={(e) => setToken(e.target.value)} />
-          {err !== null && (
-            <div className="inspect-error inspect-repoadd-err">
-              <Icon name="alert" size={14} /> {err}
-            </div>
-          )}
-          <div className="inspect-repoadd-actions">
-            <button className="import-btn" disabled={!canAdd} onClick={() => void add()}>
-              {busy ? t('inspect.repoResolving') : t('inspect.repoAdd')}
-            </button>
-          </div>
-        </div>
+        <RepoResolveForm
+          submitLabel={t('inspect.repoAdd')}
+          busyLabel={t('inspect.repoResolving')}
+          onResolved={(forge, repo, id) => onAdd({ source: forge, repo, label: `${id}@${repo.ref}` })}
+        />
       </div>
     </div>
   );

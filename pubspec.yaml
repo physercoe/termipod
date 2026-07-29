@@ -76,12 +76,17 @@ dependencies:
   # Public Downloads on Android via MediaStore (no-op on iOS).
   # iOS uses Info.plist UIFileSharingEnabled instead.
   media_store_plus: ^0.1.3
-  # Markdown rendering for Docs viewer in hub project detail
-  flutter_markdown: ^0.7.4
+  # Markdown rendering for the transcript, docs viewer and project detail.
+  # flutter_markdown was DISCONTINUED by the Flutter team (pub.dev,
+  # 2025-05-30); flutter_markdown_plus is its maintained continuation from
+  # Foresight Mobile, API-identical for everything we use (MarkdownBody,
+  # MarkdownElementBuilder, the `builders` map, MarkdownStyleSheet).
+  flutter_markdown_plus: ^1.0.12
   # Direct markdown parser dep (also pulled in transitively by
-  # flutter_markdown) — used to type custom MarkdownElementBuilder
+  # flutter_markdown_plus) — used to type custom MarkdownElementBuilder
   # closures that override fenced-code rendering with syntax highlights.
-  markdown: ^7.2.2
+  # Tracks what flutter_markdown_plus resolves.
+  markdown: ^7.3.1
   # Syntax highlighting for fenced code blocks in agent transcripts.
   # Static highlight.js port; covers ~190 languages with built-in themes.
   flutter_highlight: ^0.7.0

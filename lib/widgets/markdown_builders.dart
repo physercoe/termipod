@@ -4,7 +4,7 @@
 // module is the single home for code-fence highlighting, LaTeX inline
 // syntaxes, math element rendering, and the multiline-math
 // preprocessor that flatten-fixes well-formed `$$...$$` and `\[...\]`
-// regions before flutter_markdown sees them.
+// regions before flutter_markdown_plus sees them.
 //
 // Names dropped their underscore prefix on extraction (this codebase
 // does not use Dart `part`-of files; symbols moving across files have
@@ -14,7 +14,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/atom-one-light.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -24,7 +24,7 @@ import '../theme/design_colors.dart';
 
 /// MarkdownElementBuilder that swaps `<pre><code class="language-X">` blocks
 /// out for a syntax-highlighted view. Inline `<code>` (no class attribute)
-/// returns null so flutter_markdown falls back to its own monochrome
+/// returns null so flutter_markdown_plus falls back to its own monochrome
 /// styleSheet rendering — we only want the heavy treatment on fenced
 /// blocks where the language is declared. Fenced blocks without a
 /// language (just ``` ```) get a plaintext highlight (no colors), which

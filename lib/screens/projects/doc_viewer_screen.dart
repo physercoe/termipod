@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -7,7 +7,7 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 
 /// Full-screen read-only viewer for a single project doc. Markdown files
-/// render via flutter_markdown; anything else falls back to monospace
+/// render via flutter_markdown_plus; anything else falls back to monospace
 /// selectable text so code/config files stay copyable.
 class DocViewerScreen extends ConsumerStatefulWidget {
   final String projectId;

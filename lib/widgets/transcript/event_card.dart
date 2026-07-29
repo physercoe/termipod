@@ -14,7 +14,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -785,7 +785,7 @@ class AgentEventCard extends StatefulWidget {
       // Tap on `[text](href)` opens the URL in the system browser.
       // Underline + primary color come from styleSheet.a below; we
       // intentionally don't register a custom 'a' element builder,
-      // because flutter_markdown appends the builder's widget *after*
+      // because flutter_markdown_plus appends the builder's widget *after*
       // the default styled inline span — registering one renders the
       // visible label twice (once colored-underlined, once tappable).
       onTapLink: (text, href, title) => openMarkdownLink(ctx, href),

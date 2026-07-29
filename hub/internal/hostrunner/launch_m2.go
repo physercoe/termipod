@@ -648,6 +648,11 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 			},
 		},
 	}
+	// Additive browser-bridge entry when the desktop bridge is live on this
+	// host (plan W1) — read-scope only, absent everywhere else.
+	if bb := browserBridgeMCPServer(); bb != nil {
+		cfg["mcpServers"].(map[string]any)["termipod-browser"] = bb
+	}
 	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
@@ -751,6 +756,11 @@ func writeKimiTSMCPConfig(workdir, hubURL, token string) error {
 			"HUB_TOKEN": token,
 		},
 	}
+	// Additive browser-bridge entry when the desktop bridge is live on this
+	// host (plan W1) — same env-carried-token shape as the hub entry.
+	if bb := browserBridgeMCPServer(); bb != nil {
+		servers["termipod-browser"] = bb
+	}
 	cfg["mcpServers"] = servers
 
 	body, err := json.MarshalIndent(cfg, "", "  ")
@@ -792,6 +802,11 @@ func writeGeminiMCPConfig(workdir, hubURL, token string) error {
 				},
 			},
 		},
+	}
+	// Additive browser-bridge entry when the desktop bridge is live on this
+	// host (plan W1) — read-scope only.
+	if bb := browserBridgeMCPServer(); bb != nil {
+		cfg["mcpServers"].(map[string]any)["termipod-browser"] = bb
 	}
 	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -836,6 +851,11 @@ func writeCodexMCPConfig(workdir, hubURL, token string) error {
 		return fmt.Errorf("mkdir .codex: %w", err)
 	}
 	body := codexConfigTOML(hub.MCPServerName, hubURL, token)
+	// Additive browser-bridge stanzas when the desktop bridge is live on this
+	// host (plan W1) — codex reads them from the same project-scoped config.
+	if d := browserBridgeAvailable(); d != nil {
+		body += codexBrowserBridgeTOML(d)
+	}
 	target := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(target, []byte(body), 0o600); err != nil {
 		return err

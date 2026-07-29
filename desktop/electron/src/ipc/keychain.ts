@@ -80,7 +80,14 @@ let migrationP: Promise<void> | null = null;
 /// forget from `whenReady`; the command handlers await it before serving, so the
 /// window paints immediately and only the first secret access waits (behind a
 /// possible one-time macOS prompt).
+///
+/// Skipped entirely under TERMIPOD_E2E (the Playwright suites set it): an e2e
+/// instance boots with a throwaway user-data dir and needs no real secrets,
+/// and the cross-app keychain read below pops a macOS ACL password dialog on
+/// a dev host that has the Tauri build's items — which hangs the run until a
+/// human answers (the same gate pattern as forgepolicy.ts).
 export function startKeychainMigration(): void {
+  if (process.env.TERMIPOD_E2E !== undefined) return;
   if (migrationP === null) migrationP = migrateOnce();
 }
 
@@ -159,7 +166,10 @@ export const keychainHandlers: Record<string, Handler> = {
     // Store miss — lazy per-item migration from the Tauri keychain service
     // (see the header): covers pre-consolidation per-secret items the boot
     // reader can't enumerate. Fold a hit into the store so later reads are
-    // local and the OS item is touched at most once.
+    // local and the OS item is touched at most once. Skipped under
+    // TERMIPOD_E2E like the boot migration (no real secrets on a throwaway
+    // profile; the cross-app read would pop a macOS password dialog).
+    if (process.env.TERMIPOD_E2E !== undefined) return null;
     const legacy = await readTauriItem(key);
     if (legacy === null) return null;
     s[key] = encrypt(legacy);

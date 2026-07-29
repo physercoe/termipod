@@ -222,6 +222,12 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // this fires the jump once the unfiltered list has rebuilt.
   const [pendingContext, setPendingContext] = useState<number | null>(null);
 
+  // Issues-drawer seek target (transcript P5 A3). The drawer lives in the
+  // `digest` pane, where neither transcript list is mounted, so the jump has to
+  // wait for `live` to render before a coordinate can resolve to a row — the
+  // same deferred shape `pendingContext` uses for the lens reset.
+  const [pendingPaneSeek, setPendingPaneSeek] = useState<number | null>(null);
+
   // Reset the feed only when the AGENT changes (a genuinely different transcript)
   // — not when `scope` resolves from undefined → session, which reloads the same
   // transcript as a superset. Clearing there would flash the feed empty between
@@ -896,6 +902,21 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingContext, lens, liveData]);
 
+  // Seek out of the digest pane into the transcript (Issues drawer row → the
+  // event that caused the finding). Switch panes first, then hand off to
+  // jumpToContext so a lens that would hide the target is cleared too.
+  function seekFromDigest(coord: number): void {
+    setMode('live');
+    setPendingPaneSeek(coord);
+  }
+  useEffect(() => {
+    if (pendingPaneSeek === null || mode !== 'live') return;
+    const target = pendingPaneSeek;
+    setPendingPaneSeek(null);
+    jumpToContext(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPaneSeek, mode]);
+
   function setLensReset(l: FeedLens): void {
     setLens(l);
     setMatchIndex(0);
@@ -1301,7 +1322,9 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
         <div className="region-pad digest">
           {digestQ.isLoading && <div className="muted">{t('tx.loadingDigest')}</div>}
           {digestQ.isError && <div className="error">{msg(digestQ.error)}</div>}
-          {digestQ.data !== undefined ? <RunReport digest={digestQ.data} stale={digestQ.isStale} /> : null}
+          {digestQ.data !== undefined ? (
+            <RunReport digest={digestQ.data} stale={digestQ.isStale} onSeek={seekFromDigest} />
+          ) : null}
         </div>
       )}
 

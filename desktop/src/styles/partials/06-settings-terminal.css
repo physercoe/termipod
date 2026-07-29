@@ -790,6 +790,114 @@ th {
   font-size: var(--font-size-label);
 }
 
+/* ---- issues drawer (transcript P5 A3) ---- */
+.stat-tile-action {
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
+.stat-tile-action:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.stat-hint.sev-error {
+  color: var(--danger);
+}
+.stat-hint.sev-warning {
+  color: var(--warn);
+}
+.stat-hint.sev-info {
+  color: var(--text-muted);
+}
+.rr-issues-note {
+  margin: 0 0 var(--spacing-s8);
+  font-size: var(--font-size-label);
+}
+.rr-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--font-size-body-small);
+}
+/* The severity bar is the row's only colour cue, so it carries the meaning
+   rather than tinting the whole row (which would read as selection). */
+.rr-issue {
+  border-left: 2px solid var(--border);
+  padding-left: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+}
+.rr-issue.sev-error {
+  border-left-color: var(--danger);
+}
+.rr-issue.sev-warning {
+  border-left-color: var(--warn);
+}
+.rr-issue.sev-info {
+  border-left-color: var(--text-muted);
+}
+.rr-issue-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: var(--spacing-s2) 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.rr-issue-sev {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  min-width: 56px;
+}
+.rr-issue.sev-error .rr-issue-sev {
+  color: var(--danger);
+}
+.rr-issue.sev-warning .rr-issue-sev {
+  color: var(--warn);
+}
+.rr-issue-class {
+  flex: 1;
+  min-width: 0;
+}
+.rr-issue-count {
+  color: var(--text-secondary);
+}
+.rr-issue-samples {
+  list-style: none;
+  margin: 0 0 var(--spacing-s4);
+  padding: 0 0 0 56px;
+}
+.rr-issue-sample {
+  background: none;
+  border: 0;
+  padding: var(--spacing-s2) 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.rr-issue-sample:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.rr-issue-sample:hover:not(:disabled) .rr-issue-label {
+  text-decoration: underline;
+}
+.rr-issue-label {
+  font-family: var(--font-mono, monospace);
+}
+.rr-issue-capped {
+  font-size: var(--font-size-label);
+  padding: var(--spacing-s2) 0;
+}
+
 .clickable-row {
   cursor: pointer;
   transition: background 0.12s var(--ease);

@@ -1,0 +1,266 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  readDatasetSummary,
+  readEpisodePage,
+  scaleHistogram,
+  formatDuration,
+  formatCount,
+  formatResolution,
+  pageRangeLabel,
+} from './replayDigest.ts';
+
+// The wire shapes below mirror what hub/internal/hostrunner/datasetmeta
+// actually emits for lerobot/nyu_rot_dataset — 14 episodes, 440 frames at
+// 5 fps, one 84x84 camera — rather than an idealised shape. In particular
+// `names: null` on scalar features is real, and it is the reason dimension is
+// read from `shape`.
+function nyuDataset(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'ds-1',
+    name: 'nyu_rot_dataset',
+    root_path: '/data/nyu',
+    format: 'lerobot_v3.0',
+    digest_ts: '2026-07-29T04:00:00Z',
+    digest: {
+      schema_version: 1,
+      format: 'lerobot_v3.0',
+      codebase_version: 'v3.0',
+      robot_type: 'unknown',
+      fps: 5,
+      total_episodes: 14,
+      total_frames: 440,
+      total_tasks: 12,
+      duration_sec: 88,
+      video_streams: [
+        { key: 'observation.images.image', name: 'image', width: 84, height: 84, channels: 3, fps: 5 },
+      ],
+      features: [
+        { key: 'action', dtype: 'float32', shape: [7] },
+        { key: 'next.done', dtype: 'bool', shape: [1] },
+        { key: 'timestamp', dtype: 'float32', shape: [1], names: null },
+      ],
+      tasks: ['close the door', 'erase the board'],
+      length_histogram: [
+        { from: 30, to: 35, count: 12 },
+        { from: 35, to: 40, count: 2 },
+      ],
+      episodes_scanned: 14,
+      ...(overrides.digest as Record<string, unknown> | undefined),
+    },
+    ...overrides,
+  };
+}
+
+test('reads the headline facts off a real-shaped digest', () => {
+  const s = readDatasetSummary(nyuDataset());
+  assert.equal(s.hasDigest, true);
+  assert.equal(s.format, 'lerobot_v3.0');
+  assert.equal(s.codebaseVersion, 'v3.0');
+  assert.equal(s.episodes, 14);
+  assert.equal(s.frames, 440);
+  assert.equal(s.tasksTotal, 12);
+  assert.equal(s.fps, 5);
+  assert.equal(s.durationSec, 88);
+  assert.equal(s.videoStreams.length, 1);
+  assert.equal(s.videoStreams[0].name, 'image');
+  assert.equal(formatResolution(s.videoStreams[0]), '84x84');
+});
+
+// A dataset registered but never read has no digest. That is a different state
+// from a dataset whose digest says zero, and the UI has to be able to tell them
+// apart — otherwise an unread dataset renders as an empty one and the user has
+// no reason to press Refresh.
+test('a never-refreshed dataset is distinguishable from an empty one', () => {
+  const unread = readDatasetSummary({ id: 'ds-2', name: 'x', root_path: '/d' });
+  assert.equal(unread.hasDigest, false);
+  assert.equal(unread.episodes, 0);
+  assert.equal(unread.digestTS, '');
+
+  // A digest key present but with no timestamp still counts as unread: the
+  // timestamp is what proves a host actually answered.
+  const noTS = readDatasetSummary({ id: 'ds-3', digest: { total_episodes: 5 } });
+  assert.equal(noTS.hasDigest, false);
+
+  const emptyButRead = readDatasetSummary({
+    id: 'ds-4',
+    digest_ts: '2026-07-29T04:00:00Z',
+    digest: { format: 'lerobot_v2.1', total_episodes: 0, total_frames: 0 },
+  });
+  assert.equal(emptyButRead.hasDigest, true);
+  assert.equal(emptyButRead.episodes, 0);
+});
+
+// Real LeRobot files carry `"names": null` on every scalar feature. Deriving a
+// dimension from names.length would report 0 for half the feature table.
+test('feature dimension comes from shape, not from names', () => {
+  const s = readDatasetSummary(nyuDataset());
+  const action = s.features.find((f) => f.key === 'action');
+  assert.ok(action);
+  assert.equal(action.dim, 7);
+  assert.equal(action.names, undefined);
+
+  const ts = s.features.find((f) => f.key === 'timestamp');
+  assert.ok(ts);
+  assert.equal(ts.dim, 1, 'a null names field must not zero the dimension');
+
+  // Multi-axis shapes multiply out.
+  const multi = readDatasetSummary({
+    digest_ts: 't',
+    digest: { features: [{ key: 'grid', dtype: 'float32', shape: [4, 3] }] },
+  });
+  assert.equal(multi.features[0].dim, 12);
+});
+
+test('video features do not appear among the plain features', () => {
+  const s = readDatasetSummary(nyuDataset());
+  assert.ok(!s.features.some((f) => f.key.includes('images')));
+});
+
+test('histogram bars scale against the tallest bar, not the total', () => {
+  const bars = scaleHistogram([
+    { from: 0, to: 10, count: 5 },
+    { from: 10, to: 20, count: 10 },
+    { from: 20, to: 30, count: 0 },
+  ]);
+  assert.equal(bars.length, 3);
+  assert.equal(bars[0].height, 0.5);
+  assert.equal(bars[1].height, 1);
+  // A zero bucket must stay flat so a gap in the distribution reads as a gap.
+  assert.equal(bars[2].height, 0);
+});
+
+test('an all-zero or empty histogram does not divide by zero', () => {
+  assert.deepEqual(scaleHistogram([]), []);
+  assert.deepEqual(scaleHistogram(undefined), []);
+  assert.deepEqual(scaleHistogram('nonsense'), []);
+  const zeros = scaleHistogram([{ from: 0, to: 1, count: 0 }]);
+  assert.equal(zeros[0].height, 0);
+  assert.ok(Number.isFinite(zeros[0].height));
+});
+
+test('caps and warnings survive to the reader', () => {
+  const s = readDatasetSummary({
+    digest_ts: 't',
+    digest: {
+      tasks: ['a'],
+      tasks_truncated: true,
+      stats_partial: true,
+      episodes_truncated: true,
+      warnings: ['meta/tasks.jsonl is missing; task list omitted', ''],
+    },
+  });
+  assert.equal(s.tasksTruncated, true);
+  assert.equal(s.statsPartial, true);
+  assert.equal(s.episodesTruncated, true);
+  assert.deepEqual(s.warnings, ['meta/tasks.jsonl is missing; task list omitted']);
+});
+
+test('malformed wire values degrade instead of throwing', () => {
+  const s = readDatasetSummary({
+    digest_ts: 't',
+    digest: {
+      total_episodes: 'lots',
+      fps: null,
+      video_streams: 'not-an-array',
+      features: [null, 42, { key: 'ok', dtype: 'float32', shape: [2] }],
+      tasks: [1, 'real', null],
+      length_histogram: [{ from: 'a', to: 'b', count: 'c' }],
+    },
+  });
+  assert.equal(s.episodes, 0);
+  assert.equal(s.fps, 0);
+  assert.deepEqual(s.videoStreams, []);
+  assert.equal(s.features.length, 1);
+  assert.deepEqual(s.tasks, ['real']);
+  assert.equal(s.histogram[0].height, 0);
+});
+
+test('reads an episode page', () => {
+  const view = readEpisodePage({
+    episodes: [
+      { index: 0, length: 40, duration_sec: 8, tasks: ['erase the board'], from_index: 0, to_index: 40 },
+      { index: 1, length: 30, duration_sec: 6, tasks: ['close the door'], from_index: 40, to_index: 70 },
+    ],
+    offset: 0,
+    limit: 2,
+    total: 14,
+  });
+  assert.equal(view.rows.length, 2);
+  assert.equal(view.rows[0].length, 40);
+  assert.equal(view.rows[0].toIndex, 40);
+  assert.equal(view.total, 14);
+  assert.equal(view.truncated, false);
+});
+
+// Episode 0's row range starts at 0. Testing presence by truthiness would erase
+// it and make the first row of every v3.0 dataset look like a layout with no
+// offsets at all.
+test('a zero row-offset is kept, not treated as absent', () => {
+  const view = readEpisodePage({
+    episodes: [{ index: 0, length: 40, from_index: 0, to_index: 40 }],
+  });
+  assert.equal(view.rows[0].fromIndex, 0);
+  assert.equal(view.rows[0].toIndex, 40);
+});
+
+test('a per-episode-file layout simply has no row range', () => {
+  const view = readEpisodePage({ episodes: [{ index: 0, length: 40 }] });
+  assert.equal(view.rows[0].fromIndex, undefined);
+  assert.equal(view.rows[0].toIndex, undefined);
+});
+
+test('page range label is 1-based and inclusive, and absent when empty', () => {
+  assert.deepEqual(
+    pageRangeLabel({ rows: [{ index: 0, length: 1, durationSec: 0, tasks: [] }], offset: 0, limit: 1, total: 14, truncated: false }),
+    { from: 1, to: 1, total: 14 },
+  );
+  assert.deepEqual(
+    pageRangeLabel({
+      rows: Array.from({ length: 5 }, (_, i) => ({ index: i, length: 1, durationSec: 0, tasks: [] })),
+      offset: 200,
+      limit: 5,
+      total: 50_000,
+      truncated: false,
+    }),
+    { from: 201, to: 205, total: 50_000 },
+  );
+  assert.equal(pageRangeLabel({ rows: [], offset: 0, limit: 0, total: 0, truncated: false }), null);
+});
+
+test('durations read the way the domain reads them', () => {
+  // Episodes are commonly 6-40s, where a tenth of a second is a real
+  // difference; dataset totals are not.
+  assert.equal(formatDuration(6.4), '6.4s');
+  assert.equal(formatDuration(8), '8s');
+  assert.equal(formatDuration(59.94), '59.9s');
+  assert.equal(formatDuration(88), '1m 28s');
+  assert.equal(formatDuration(120), '2m');
+  assert.equal(formatDuration(3600), '1h');
+  assert.equal(formatDuration(3661), '1h 1m');
+  assert.equal(formatDuration(0), '0s');
+  assert.equal(formatDuration(-5), '0s');
+  assert.equal(formatDuration(NaN), '0s');
+});
+
+test('counts get thousands separators', () => {
+  assert.equal(formatCount(0), '0');
+  assert.equal(formatCount(440), '440');
+  assert.equal(formatCount(11939), '11,939');
+  assert.equal(formatCount(3254196), '3,254,196');
+  assert.equal(formatCount(NaN), '0');
+});
+
+test('resolution formatting tolerates a half-known geometry', () => {
+  assert.equal(formatResolution({ key: 'k', name: 'k', width: 640, height: 480 }), '640x480');
+  assert.equal(formatResolution({ key: 'k', name: 'k', width: 640 }), '640');
+  assert.equal(formatResolution({ key: 'k', name: 'k' }), '');
+});
+
+test('a stream missing its name falls back to the full key', () => {
+  const s = readDatasetSummary({
+    digest_ts: 't',
+    digest: { video_streams: [{ key: 'observation.images.up' }] },
+  });
+  assert.equal(s.videoStreams[0].name, 'observation.images.up');
+});

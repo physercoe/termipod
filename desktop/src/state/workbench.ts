@@ -18,6 +18,7 @@ export type JobId =
   | 'author'
   | 'debug'
   | 'compare'
+  | 'replay'
   | 'record'
   | 'terminal'
   | 'settings';
@@ -44,6 +45,10 @@ export const JOBS: JobDef[] = [
   { id: 'author', tag: 'J2', labelKey: 'job.author', hintKey: 'job.author.hint' },
   { id: 'debug', tag: 'J3', labelKey: 'job.debug', hintKey: 'job.debug.hint' },
   { id: 'compare', tag: 'J5', labelKey: 'job.compare', hintKey: 'job.compare.hint' },
+  // Replay (J8) sits between Compare and Record so the rail reads as the
+  // lifecycle: Read/Author -> Inspect -> Compare (runs) -> Replay (episodes)
+  // -> Record (conclusions). The two analysis jobs are adjacent on purpose.
+  { id: 'replay', tag: 'J8', labelKey: 'job.replay', hintKey: 'job.replay.hint' },
   { id: 'record', tag: 'J6', labelKey: 'job.record', hintKey: 'job.record.hint' },
   { id: 'terminal', tag: '', labelKey: 'job.terminal', hintKey: 'job.terminal.hint' },
 ];

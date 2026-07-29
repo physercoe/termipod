@@ -55,6 +55,16 @@ const PATHS: Record<JobId, JSX.Element> = {
     </>
   ),
   // record — a clipboard log
+  // Replay (J8): a film strip — frames on a track, the episode player's own
+  // primitive. Distinct from `record`'s dot so the two analysis jobs do not
+  // read as a pair of circles in the rail.
+  replay: (
+    <>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M2 10h20M2 14h20" />
+      <path d="M7 6v12M17 6v12" />
+    </>
+  ),
   record: (
     <>
       <rect x="5" y="4.5" width="14" height="16.5" rx="2" />

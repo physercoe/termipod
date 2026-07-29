@@ -28,6 +28,11 @@ export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
         {JOBS.map((j) => (
           <button
             key={j.id}
+            // Stable identity hook for e2e. Without it a test can only reach a
+            // rail item by position (the Ctrl+<n> shortcut) or by its
+            // translated label, and both break when the rail gains a job —
+            // which is exactly how adding J8 Replay broke the terminal spec.
+            data-job={j.id}
             className={`activity-tab${job === j.id ? ' active' : ''}`}
             aria-current={job === j.id ? 'page' : undefined}
             title={`${j.tag ? `${j.tag} · ` : ''}${t(j.hintKey)}`}

@@ -367,20 +367,37 @@ func ensureKimiWorkspaceEntry(store, wdID, root string) error {
 	return nil
 }
 
+// kimiIndexLine is one session_index.jsonl record. A struct (not a map) so
+// Marshal emits kimi's own field order ({"sessionId","sessionDir","workDir"} —
+// verified shape); a map would marshal alphabetically (sessionDir first) and
+// write lines shaped unlike kimi's.
+type kimiIndexLine struct {
+	SessionID  string `json:"sessionId"`
+	SessionDir string `json:"sessionDir"`
+	WorkDir    string `json:"workDir"`
+}
+
 // appendKimiSessionIndex appends the target-correct line to the store's
-// session_index.jsonl ({"sessionId","sessionDir","workDir"} — verified
-// shape), skipping the append when an identical sessionId+sessionDir line is
-// already present (a re-teleport of the same session must not duplicate it).
+// session_index.jsonl, skipping the append when a line with the same
+// sessionId+sessionDir is already present (a re-teleport of the same session
+// must not duplicate it). The dedupe parses each line rather than matching a
+// substring: a substring needle would bake in one field order and silently
+// miss lines written with another — including, before kimiIndexLine, this
+// function's own.
 func appendKimiSessionIndex(store, sessionID, sessionDir, root string) error {
 	indexPath := filepath.Join(store, "session_index.jsonl")
-	needle := `"sessionId":"` + sessionID + `","sessionDir":"` + sessionDir + `"`
-	if data, err := os.ReadFile(indexPath); err == nil && strings.Contains(string(data), needle) {
-		return nil
+	if data, err := os.ReadFile(indexPath); err == nil {
+		for _, ln := range strings.Split(string(data), "\n") {
+			var e kimiIndexLine
+			if json.Unmarshal([]byte(ln), &e) == nil && e.SessionID == sessionID && e.SessionDir == sessionDir {
+				return nil
+			}
+		}
 	}
-	line, err := json.Marshal(map[string]string{
-		"sessionId":  sessionID,
-		"sessionDir": sessionDir,
-		"workDir":    root,
+	line, err := json.Marshal(kimiIndexLine{
+		SessionID:  sessionID,
+		SessionDir: sessionDir,
+		WorkDir:    root,
 	})
 	if err != nil {
 		return fmt.Errorf("teleport: encode kimi session index line: %w", err)

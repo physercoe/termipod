@@ -302,3 +302,45 @@ func TestKimiRestore_RejectsForeignEntry(t *testing.T) {
 		t.Fatal("expected error for traversal")
 	}
 }
+
+// TestKimiSessionIndexAppend_IsIdempotent pins the re-teleport dedupe: a
+// second append of the same session must not duplicate the index line, and a
+// line kimi itself wrote (its own field order) must be recognised too. The
+// original implementation deduped by substring in ONE field order and so
+// double-appended on every re-teleport of a session it had indexed itself.
+func TestKimiSessionIndexAppend_IsIdempotent(t *testing.T) {
+	store := t.TempDir()
+	indexPath := filepath.Join(store, "session_index.jsonl")
+
+	// A pre-existing kimi-written line (kimi's field order) is respected.
+	kimiLine := `{"sessionId":"session_pre","sessionDir":"/s/pre","workDir":"/w"}` + "\n"
+	if err := os.WriteFile(indexPath, []byte(kimiLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendKimiSessionIndex(store, "session_pre", "/s/pre", "/w"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Our own line survives a re-append (the re-teleport case).
+	if err := appendKimiSessionIndex(store, "session_new", "/s/new", "/w"); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendKimiSessionIndex(store, "session_new", "/s/new", "/w"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"session_pre", "session_new"} {
+		if n := strings.Count(string(data), `"sessionId":"`+id+`"`); n != 1 {
+			t.Fatalf("index has %d lines for %s, want exactly 1:\n%s", n, id, data)
+		}
+	}
+	// The line we write is shaped like kimi's own (sessionId first), so any
+	// OTHER reader matching kimi's order also finds ours.
+	if !strings.Contains(string(data), `{"sessionId":"session_new","sessionDir":"/s/new","workDir":"/w"}`) {
+		t.Fatalf("appended line not in kimi's field order:\n%s", data)
+	}
+}

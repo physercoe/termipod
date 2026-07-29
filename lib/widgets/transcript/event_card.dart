@@ -134,6 +134,11 @@ class AgentEventCard extends StatefulWidget {
           ctx,
           (payload['text'] ?? feedJsonPretty(payload)).toString(),
           isThought: kind == 'thought',
+          // Streaming chunks carry the FULL accumulated text and replace the
+          // chain entry in place (collapseStreamingPartials), so the heavy
+          // treatment would re-run over the whole message on every chunk —
+          // see _markdownBody.
+          isPartial: payload['partial'] == true,
         );
       case 'raw':
         return _rawBody(ctx, payload);
@@ -701,7 +706,27 @@ class AgentEventCard extends StatefulWidget {
   // fenced code blocks, headers. Rendering as plain mono text buries the
   // structure; rendering with a tight style sheet keeps the card compact
   // while still reading like the agent's terminal output.
-  Widget _markdownBody(BuildContext ctx, String s, {bool isThought = false}) {
+  /// Renders a markdown body.
+  ///
+  /// [isPartial] marks a still-streaming chunk. A partial carries the FULL
+  /// accumulated text and replaces its chain entry in place, so every chunk
+  /// re-parses the whole message, re-tokenizes every completed fenced block
+  /// through highlight.js, and re-lays-out every formula — synchronously on the
+  /// UI isolate. Over a long turn that is O(n²) (transcript P5 §0b).
+  ///
+  /// So while partial we drop the two expensive builders and the math syntaxes:
+  /// fenced blocks render through the styleSheet's own themed codeblock
+  /// decoration (same background and border, no tokenization) and `$…$` stays
+  /// literal text. The final, non-partial event runs the full path unchanged,
+  /// so a COMPLETED message looks exactly as it always did — the only visible
+  /// difference is that colour and formulas arrive when the message finishes
+  /// instead of being recomputed on every keystroke of it.
+  Widget _markdownBody(
+    BuildContext ctx,
+    String s, {
+    bool isThought = false,
+    bool isPartial = false,
+  }) {
     final isDark = Theme.of(ctx).brightness == Brightness.dark;
     final textColor = isThought
         ? (isDark ? DesignColors.textMuted : DesignColors.textMutedLight)
@@ -724,7 +749,9 @@ class AgentEventCard extends StatefulWidget {
       color: textColor,
     );
     return MarkdownBody(
-      data: normalizeMultilineMath(s),
+      // The multi-line-math preprocessor is a whole-string scan; while partial
+      // there is nothing for it to feed (the math builders are off), so skip it.
+      data: isPartial ? s : normalizeMultilineMath(s),
       selectable: true,
       shrinkWrap: true,
       // Tap on `[text](href)` opens the URL in the system browser.
@@ -734,14 +761,19 @@ class AgentEventCard extends StatefulWidget {
       // the default styled inline span — registering one renders the
       // visible label twice (once colored-underlined, once tappable).
       onTapLink: (text, href, title) => openMarkdownLink(ctx, href),
-      builders: {
-        'code': HighlightedCodeBuilder(isDark: isDark),
-        // KaTeX-style LaTeX math. Two flavors of the same builder so
-        // the markdown parser can route inline ($...$) and display
-        // ($$...$$) at different vertical sizes/alignment.
-        'math': MathBuilder(isDark: isDark, display: false),
-        'mathblock': MathBuilder(isDark: isDark, display: true),
-      },
+      // While partial: no builders at all. An unregistered `code` element falls
+      // through to the styleSheet's codeblockDecoration/code style — themed,
+      // but with none of highlight.js's per-chunk tokenization.
+      builders: isPartial
+          ? const {}
+          : {
+              'code': HighlightedCodeBuilder(isDark: isDark),
+              // KaTeX-style LaTeX math. Two flavors of the same builder so
+              // the markdown parser can route inline ($...$) and display
+              // ($$...$$) at different vertical sizes/alignment.
+              'math': MathBuilder(isDark: isDark, display: false),
+              'mathblock': MathBuilder(isDark: isDark, display: true),
+            },
       // Custom inline syntaxes only — no BlockSyntax. The preprocessor
       // (normalizeMultilineMath) collapses well-formed multi-line
       // $$...$$ and \[...\] regions into single-line $$...$$ before
@@ -749,16 +781,22 @@ class AgentEventCard extends StatefulWidget {
       // Order matters: $$...$$ must be tried before $...$ or the
       // parser will eat the leading $$ as two empty $$s; same for
       // \[...\] vs \(...\).
-      extensionSet: md.ExtensionSet(
-        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
-        [
-          MathBlockInlineSyntax(),
-          MathInlineSyntax(),
-          LatexBracketDisplayInlineSyntax(),
-          LatexBracketInlineSyntax(),
-          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-        ],
-      ),
+      //
+      // While partial the math syntaxes come off too: with no builder to
+      // render them, a parsed `math` element would have nothing to fall back
+      // to, so the delimiters stay literal text until the message completes.
+      extensionSet: isPartial
+          ? md.ExtensionSet.gitHubFlavored
+          : md.ExtensionSet(
+              md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+              [
+                MathBlockInlineSyntax(),
+                MathInlineSyntax(),
+                LatexBracketDisplayInlineSyntax(),
+                LatexBracketInlineSyntax(),
+                ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+              ],
+            ),
       // Keep paragraph and block spacing tight so cards don't balloon.
       styleSheet: MarkdownStyleSheet(
         p: base,

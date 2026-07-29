@@ -314,7 +314,7 @@ rather than leaving it half-translated.
 
 ## 4. Track B — streaming-markdown efficiency (mobile-first)
 
-### B1 — defer heavy treatment while `partial:true` (smallest, ship first)
+### B1 — defer heavy treatment while `partial:true` (smallest, ship first) — **shipped**
 
 While the chain entry carries `partial:true`, `_markdownBody` renders
 fenced blocks as plain mono (skip `HighlightedCodeBuilder`) and skips
@@ -324,6 +324,13 @@ builder + the plumbing to thread `isPartial` into the card. Kills the
 worst term (highlight.js × chunks) with zero new dependencies and zero
 visual change on completed messages. Desktop equivalent: gate
 `rehype-highlight`/`rehype-katex` on the partial flag the same way.
+
+Shipped as described, with one clarification worth carrying into B2: the gate
+is tested in **both** directions. A test that only asserts a partial *skips*
+the work would pass just as well if the builders were deleted outright, so
+every case has its completed-message twin proving the final render is
+unchanged. That is the actual contract — *streaming is cheap and approximate,
+the finished message is exact*.
 
 ### B2 — stable-prefix block cache (the markstream idea, in Dart)
 
@@ -339,15 +346,47 @@ visually identical to single-body rendering — snapshot-test the seams
 (tight list spacing across split points is the known risk; splitting only
 at top-level blank lines avoids most of it).
 
+**Apply the split only while `partial`.** The plan originally asked for the
+final text to be block-split too, with a snapshot test proving it identical to
+single-body. Keeping the completed render single-body makes that identity hold
+*by construction* instead of by test, confines the seam risk (tight list
+spacing across split points) to the in-flight frame, and matches what B1
+already established: streaming is approximate, the finished message is exact.
+
+**The caching mechanism, to save the next person the dead end.** Memoizing
+"blocks" only pays if Flutter can skip their subtrees — which it does when the
+child widget is *identical* (same instance), since `updateChild` short-circuits
+on `identical(oldWidget, newWidget)`. So the cache must hold built
+`MarkdownBody` **instances** keyed by block content, not strings. That in turn
+means the cache has to live in `_AgentEventCardState`, while `_markdownBody`
+is currently a method on the `AgentEventCard` **widget** — moving it is part of
+the work, not an incidental refactor.
+
 ### B3 — migrate to `flutter_markdown_plus`
 
 Dependency swap + import sweep; `MarkdownBody`, `MarkdownElementBuilder`,
-`builders`, styleSheet are API-identical (v1.0.x, `markdown ^7.3.1` —
-our direct `markdown ^7.2.2` pin moves with it). Do B3 *after* B1/B2 so
-the perf work is bisectable from the dep swap. Verify the two behaviors we
-depend on: builder-append semantics for the `a` element (the
-double-render workaround documented in `_markdownBody`) and
-inline-`<code>` fallthrough (no `class` attr → styleSheet path).
+`builders`, styleSheet are API-identical. Do B3 *after* B1/B2 so the perf work
+is bisectable from the dep swap. Verify the two behaviors we depend on:
+builder-append semantics for the `a` element (the double-render workaround
+documented in `_markdownBody`) and inline-`<code>` fallthrough (no `class`
+attr → styleSheet path).
+
+Verified against pub.dev on 2026-07-29 (the plan previously said "v1.0.x"):
+**1.0.12**, publisher **Foresight Mobile** (verified), depends on
+`markdown ^7.3.1` — so our direct `markdown ^7.2.2` pin moves with it — and it
+does expose `MarkdownBody` / `MarkdownElementBuilder` / `builders` /
+`styleSheet`. The migration target is real and current.
+
+### Why B2 and B3 stopped here (2026-07-29)
+
+Both are **blocked on verification, not on design**. Flutter is not installed on
+the authoring host, so B2 — a rewrite of the transcript's hottest widget whose
+whole claim is "the render is unchanged" — cannot have that claim established
+before it ships; the pure scanner would be CI-testable but the rendering would
+not. B3's own acceptance criteria name two runtime behaviours to confirm, and
+confirming them means running the app. This is the same file whose dispatch
+logic regressed five times (`feed_reducer.dart` header, v1.0.667–721), which is
+exactly the wrong place to ship an unverifiable change. Both need a device run.
 
 ## 5. Sequencing & review anchors
 

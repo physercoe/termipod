@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	claudecode "github.com/termipod/hub/internal/drivers/local_log_tail/claude_code"
+	kimicode "github.com/termipod/hub/internal/drivers/local_log_tail/kimi_code"
 )
 
 // memBlobStore is an in-memory content-addressed handoff.BlobStore, standing in
@@ -247,5 +248,77 @@ func TestTeleportHandoffUnpack_DetectsCorruptBundle(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected corrupt-bundle detection")
+	}
+}
+
+// TestTeleportHandoffRoundTrip_Kimi mirrors TestTeleportHandoffRoundTrip for
+// kimi-code-ts (ticket #429): same heterogeneous-host handoff, but the engine
+// state is kimi's session TREE with its cwd→wd_* remap and the state.json /
+// workspaces.json fixups the target's resume needs.
+func TestTeleportHandoffRoundTrip_Kimi(t *testing.T) {
+	const sessionID = "session_77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+
+	srcHome := t.TempDir()
+	remote, srcRepo, srcWt, branch := makeSharedRemoteWorkspaceUnder(t, srcHome)
+	writeKimiSession(t, srcHome, srcWt, sessionID)
+
+	store := newMemBlobStore()
+	packRes, err := runHandoffPack(context.Background(), store, srcHome, handoffPackArgs{
+		Engine:          "kimi-code-ts",
+		WorktreePath:    srcWt,
+		Repo:            srcRepo,
+		Branch:          branch,
+		Remote:          "origin",
+		EngineSessionID: sessionID,
+	})
+	if err != nil {
+		t.Fatalf("runHandoffPack: %v", err)
+	}
+	if packRes.HeadSHA == "" || packRes.ManifestSHA == "" {
+		t.Fatalf("pack result incomplete: %+v", packRes)
+	}
+
+	tgtHome := t.TempDir()
+	tgit(t, tgtHome, "clone", remote, filepath.Join(tgtHome, "src"))
+
+	unpackRes, err := runHandoffUnpack(context.Background(), store, tgtHome, handoffUnpackArgs{
+		Engine:          "kimi-code-ts",
+		Repo:            packRes.PortableRepo,
+		WorktreePath:    packRes.PortableWorktreePath,
+		Branch:          branch,
+		Remote:          "origin",
+		ExpectHead:      packRes.HeadSHA,
+		EngineSessionID: sessionID,
+		ManifestSHA:     packRes.ManifestSHA,
+	})
+	if err != nil {
+		t.Fatalf("runHandoffUnpack: %v", err)
+	}
+	wantWt := filepath.Join(tgtHome, "wt")
+	if unpackRes.WorktreePath != wantWt {
+		t.Fatalf("target worktree path: got %s want %s", unpackRes.WorktreePath, wantWt)
+	}
+
+	// The session tree landed under the TARGET's wd_* with state.json
+	// rewritten to the target worktree — kimi will resume it there.
+	tgtStore := kimicode.StoreHomeFor(tgtHome)
+	wdID, lerr := kimicode.LookupWorkspaceID(tgtStore, wantWt)
+	if lerr != nil {
+		t.Fatalf("target workspaces.json not synthesized: %v", lerr)
+	}
+	tgtSessionDir := filepath.Join(tgtStore, "sessions", wdID, sessionID)
+	wire, rerr := os.ReadFile(filepath.Join(tgtSessionDir, "agents", "main", "wire.jsonl"))
+	if rerr != nil {
+		t.Fatalf("wire log not restored on target: %v", rerr)
+	}
+	if !strings.Contains(string(wire), `"protocol_version"`) {
+		t.Fatalf("wire log content mismatch: %q", wire)
+	}
+	stRaw, rerr := os.ReadFile(filepath.Join(tgtSessionDir, "state.json"))
+	if rerr != nil {
+		t.Fatalf("state.json not restored: %v", rerr)
+	}
+	if !strings.Contains(string(stRaw), kimicode.ResolveWorkdirRoot(wantWt)) {
+		t.Fatalf("state.json workDir not rewritten to target: %s", stRaw)
 	}
 }

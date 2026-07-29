@@ -2,6 +2,8 @@ package kimi_code
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,7 +27,72 @@ func StoreHome() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve HOME: %w", err)
 	}
-	return filepath.Join(home, ".kimi-code"), nil
+	return StoreHomeFor(home), nil
+}
+
+// StoreHomeFor is the pure counterpart of StoreHome: the store root for a
+// GIVEN home directory (no env consult). The teleport engine-state code keys
+// everything off an explicit host home (source/target), never off this
+// process's env, so it needs the env-free form.
+func StoreHomeFor(home string) string {
+	return filepath.Join(home, ".kimi-code")
+}
+
+// WorkspaceIDFor derives kimi's wd_* workspace id for a symlink-RESOLVED
+// absolute root. Algorithm verified on-host against kimi-code 0.28.1
+// (ticket #429): "wd_" + sanitized basename + "_" + hex(sha256(root))[:12].
+// Observed pairs:
+//
+//	/Users/wb                        → wd_wb_059d826285bc
+//	/private/tmp                     → wd_tmp_11fe14a563f7
+//	/tmp/acp-probe                   → wd_acp-probe_ce5d3f91e678
+//	/private/tmp/k/My Proj.X         → wd_my-proj.x_…
+//	/private/tmp/k/café_x  y         → wd_caf-_x-y_…
+//
+// The hash is over the RESOLVED root: kimi realpaths its cwd before hashing
+// (a process cd'd into /tmp/… on macOS records /private/tmp/…). Callers must
+// pass ResolveWorkdirRoot's output, not the raw spawn cwd.
+func WorkspaceIDFor(resolvedRoot string) string {
+	sum := sha256.Sum256([]byte(resolvedRoot))
+	return "wd_" + sanitizeWorkspaceName(filepath.Base(resolvedRoot)) + "_" + hex.EncodeToString(sum[:])[:12]
+}
+
+// sanitizeWorkspaceName is the basename half of the wd_* id: Unicode
+// lowercase, then every maximal run of bytes outside [a-z0-9._-] collapses
+// to a single '-' (verified pairs in WorkspaceIDFor's doc comment — spaces,
+// dots kept, underscores kept, non-ASCII → '-').
+func sanitizeWorkspaceName(name string) string {
+	name = strings.ToLower(name)
+	var b strings.Builder
+	b.Grow(len(name))
+	dash := false
+	for _, r := range name {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if ok {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return b.String()
+}
+
+// ResolveWorkdirRoot returns the absolute, symlink-resolved form of workdir —
+// the string kimi hashes for its wd_* id and records as state.json's workDir.
+// macOS's /tmp ↔ /private/tmp split is the canonical case. Falls back to the
+// cleaned absolute path when the resolution fails (a not-yet-created workdir
+// still needs a deterministic id).
+func ResolveWorkdirRoot(workdir string) string {
+	abs, err := filepath.Abs(workdir)
+	if err != nil {
+		abs = filepath.Clean(workdir)
+	}
+	if resolved, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+		return resolved
+	}
+	return abs
 }
 
 // workspacesFile is the on-disk shape of <store>/workspaces.json

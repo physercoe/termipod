@@ -289,3 +289,71 @@ export function pageRangeLabel(view: EpisodePageView): { from: number; to: numbe
   if (view.rows.length === 0) return null;
   return { from: view.offset + 1, to: view.offset + view.rows.length, total: view.total };
 }
+
+/// The Inspect handoff's gate (W1d). A tree row is a dataset entry point iff it
+/// is the `meta/info.json` that marks a LeRobot root — the same file the host's
+/// format sniff opens. Returns the **dataset root**, which is the directory
+/// CONTAINING `meta/`, not the meta directory: `/data/ds/meta/info.json` →
+/// `/data/ds`. Returns null for anything else.
+///
+/// Separator-agnostic, because the one rule runs over three path shapes: a
+/// Windows local path (`C:\data\ds\meta\info.json`), a POSIX local one, and an
+/// SFTP path joined with '/'. The root keeps the input's own separators so it
+/// round-trips to whichever host is asked to read it.
+///
+/// Deliberately NOT a validity check. A relative path survives this and is
+/// handed to the register form to be corrected, because the host refuses a
+/// relative root with a message that names the problem (`cleanDatasetRoot`:
+/// "root_path must be absolute"). Silently declining to offer the action would
+/// be indistinguishable, on screen, from the feature being broken.
+export function datasetRootFromMetaInfo(path: string): string | null {
+  // Greedy prefix: the LAST `meta/info.json` wins, so a dataset that happens to
+  // live under a directory called `meta` still resolves to its own root.
+  const m = /^(.*)[\\/]meta[\\/]info\.json$/.exec(path);
+  if (m === null) return null;
+  const root = m[1].replace(/[\\/]+$/, '');
+  return root === '' ? null : root;
+}
+
+export interface DatasetHandoff {
+  rootPath: string;
+}
+
+/// What the Replay surface should do with an incoming handoff, given the
+/// datasets already registered in the project on screen.
+///
+/// `select` when this location is unambiguously already a dataset here — the
+/// "take me there" case. `register` otherwise, which the surface turns into a
+/// **prefilled form**, not a silent write: registering needs a project and a
+/// host, the sender has neither, and the identity key is
+/// `(project, host, root_path)` — so a guess would create a second row rather
+/// than find the existing one, which is the opposite of idempotent.
+export type HandoffResolution =
+  | { action: 'select'; datasetId: string }
+  | { action: 'register'; rootPath: string };
+
+/// Trailing separators are not part of a path's identity. The hub stores the
+/// root string as sent (only the host cleans it, at read time), so `/data/ds`
+/// and `/data/ds/` are the same dataset registered two different ways, and a
+/// raw string compare would offer to register one that is already there.
+function samePath(a: string, b: string): boolean {
+  return a.replace(/[\\/]+$/, '') === b.replace(/[\\/]+$/, '');
+}
+
+/// Matching is on the path ALONE, and only a unique hit selects.
+///
+/// The handoff carries no host on purpose: what Inspect knows for a remote root
+/// is an SSH *connection* id (`InspectRoot.hostId` is named for the machine, not
+/// for the hub entity — `state/connections.ts` has no hub-host field at all),
+/// and passing that as `datasets.host_id` would write a dangling foreign key.
+/// So the same path registered against two hosts is genuinely ambiguous here,
+/// and ambiguity resolves to the form — where the host select is the answer —
+/// rather than to a coin flip between two machines' datasets.
+export function resolveHandoff(h: DatasetHandoff, datasets: Entity[]): HandoffResolution {
+  const hits = datasets.filter((d) => {
+    const rootPath = typeof d.root_path === 'string' ? d.root_path : '';
+    return samePath(rootPath, h.rootPath) && typeof d.id === 'string' && d.id !== '';
+  });
+  if (hits.length === 1) return { action: 'select', datasetId: hits[0].id as string };
+  return { action: 'register', rootPath: h.rootPath };
+}

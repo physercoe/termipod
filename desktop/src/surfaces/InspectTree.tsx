@@ -10,6 +10,9 @@ import { sftpBrowse } from '../state/inspectSources';
 import { fetchForgeTree } from '../state/forge';
 import { gitInfo, gitDiff, type GitInfo } from '../state/git';
 import { useSession } from '../state/session';
+import { useReplay } from '../state/replay';
+import { datasetRootFromMetaInfo } from '../state/replayDigest';
+import { useWorkbench } from '../state/workbench';
 import { isShell } from '../platform';
 import type { PickResult } from './InspectOpen';
 
@@ -67,6 +70,14 @@ function sourceIcon(source: InspectRoot['source']): IconName {
 function isFolded(source: InspectRoot['source']): boolean {
   return source === 'hub' || source === 'github' || source === 'hf';
 }
+// Sources whose rows are real files on some machine's disk — the only ones a
+// dataset can be registered from (J8 W1d). Reading a dataset means a host-runner
+// opening files under its root; a hub-docs or forge (GitHub/HF) tree has no such
+// path, so offering the handoff there would register a row that can never be
+// read. "Registered but permanently unreadable" is worse than not offering it.
+function isFileBacked(source: InspectRoot['source']): boolean {
+  return source === 'local' || source === 'remote';
+}
 
 interface Listing {
   nodes: TreeNode[];
@@ -83,6 +94,7 @@ interface BranchCtx {
   errors: Record<string, string>;
   onToggle: (key: string) => void;
   onOpen: (node: TreeNode) => void;
+  onMenu: (node: TreeNode, e: React.MouseEvent) => void;
   onRetry: (key: string) => void;
 }
 
@@ -124,7 +136,17 @@ function Branch({ nodeKey, depth, ctx }: { nodeKey: string; depth: number; ctx: 
             {ctx.expanded.has(ctx.ckOf(n.key)) && <Branch nodeKey={n.key} depth={depth + 1} ctx={ctx} />}
           </div>
         ) : (
-          <button key={n.key} className="inspect-tree-row file" style={pad} onClick={() => ctx.onOpen(n)} title={n.key}>
+          <button
+            key={n.key}
+            className="inspect-tree-row file"
+            style={pad}
+            onClick={() => ctx.onOpen(n)}
+            onContextMenu={(e) => {
+              e.stopPropagation(); // don't also open the panel (blank-space) menu
+              ctx.onMenu(n, e);
+            }}
+            title={n.key}
+          >
             <span className="inspect-tree-spacer" />
             <Icon name="file-text" size={13} />
             <span className="inspect-tree-name">{n.name}</span>
@@ -402,6 +424,39 @@ export function InspectTree({
     ];
   }
 
+  /// Per-file menu (J8 W1d). Open and Copy path are what a file row always
+  /// offered implicitly; the reason this menu exists is the third item — a
+  /// `meta/info.json` row is the marker of a LeRobot dataset root, so the tree
+  /// is where you naturally *find* a dataset, and Replay is where you can do
+  /// something with it. Detect-then-offer, the same posture as DebugSurface's
+  /// config.json → ArchCard: never auto-navigate on a plain file open.
+  function fileMenu(root: InspectRoot, node: TreeNode): MenuItem[] {
+    const items: MenuItem[] = [
+      { label: t('inspect.open'), onClick: () => openFile(root, node) },
+      { label: t('inspect.copyPath'), onClick: () => void navigator.clipboard.writeText(node.key).catch(() => undefined) },
+    ];
+    const dsRoot = isFileBacked(root.source) ? datasetRootFromMetaInfo(node.key) : null;
+    if (dsRoot !== null) items.push({ label: t('inspect.openInReplay'), onClick: () => openInReplay(dsRoot) });
+    return items;
+  }
+
+  /// Hand a dataset root to J8 Replay and switch to it. Registration is NOT done
+  /// here: a dataset belongs to a project and to a hub host, and the tree has
+  /// neither in scope. Replay owns that decision — it selects the dataset if
+  /// this location is unambiguously registered already, and otherwise opens its
+  /// register form prefilled.
+  ///
+  /// In particular the host does NOT travel with the path, even for a remote
+  /// root that looks like it knows one: `InspectRoot.hostId` is an **SSH
+  /// connection id** (`state/connections.ts` — breakglass credentials, with no
+  /// hub-host field), while `datasets.host_id` is a foreign key into the hub's
+  /// `hosts` table. Same word, different entity; passing one as the other would
+  /// write a dangling reference.
+  function openInReplay(rootPath: string): void {
+    useReplay.getState().openDataset({ rootPath });
+    useWorkbench.getState().setJob('replay');
+  }
+
   function buildIndex(root: InspectRoot): void {
     if (root.source !== 'local' || root.path === undefined || indexes[root.id] !== undefined || indexBusy.has(root.id)) return;
     setIndexBusy((s) => new Set(s).add(root.id));
@@ -478,6 +533,7 @@ export function InspectTree({
             errors,
             onToggle: (k) => toggleDir(root, k),
             onOpen: (n) => openFile(root, n),
+            onMenu: (n, e) => menu.open(e, fileMenu(root, n)),
             onRetry: (k) => loadDir(root, k),
           };
           return (
@@ -543,6 +599,7 @@ export function InspectTree({
                   foldedFiles={foldedFiles[root.id]}
                   loadedMatches={loadedMatches}
                   onOpen={(n) => openFile(root, n)}
+                  onMenu={(n, e) => menu.open(e, fileMenu(root, n))}
                 />
               ) : (
                 expanded.has(ck(root.id, key)) && <Branch nodeKey={key} depth={1} ctx={ctx} />
@@ -567,6 +624,7 @@ function FilterResults({
   foldedFiles,
   loadedMatches,
   onOpen,
+  onMenu,
 }: {
   root: InspectRoot;
   q: string;
@@ -576,6 +634,7 @@ function FilterResults({
   foldedFiles: TreeNode[] | undefined;
   loadedMatches: (root: InspectRoot, qLower: string) => TreeNode[];
   onOpen: (node: TreeNode) => void;
+  onMenu: (node: TreeNode, e: React.MouseEvent) => void;
 }): JSX.Element {
   const t = useT();
   const CAP = 500;
@@ -629,7 +688,19 @@ function FilterResults({
   return (
     <>
       {results.rows.map((n) => (
-        <button key={n.key} className="inspect-tree-row file" onClick={() => onOpen(n)} title={n.key}>
+        <button
+          key={n.key}
+          className="inspect-tree-row file"
+          onClick={() => onOpen(n)}
+          // Filter hits are file rows too: a `meta/info.json` typed into the
+          // filter is the fastest way to find every dataset under a root, so
+          // the same menu has to reach here.
+          onContextMenu={(e) => {
+            e.stopPropagation();
+            onMenu(n, e);
+          }}
+          title={n.key}
+        >
           <Icon name="file-text" size={13} />
           <span className="inspect-tree-name">{label(n)}</span>
         </button>

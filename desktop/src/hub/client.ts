@@ -190,6 +190,46 @@ export class HubClient {
    *  secret_refs + network_policy} a spawn attaches via `env_profile_id`. The
    *  hub holds env_vars + setup_script (non-secret); secret_refs point into the
    *  zero-knowledge vault. */
+  // --- datasets (J8 Replay W1) ---
+  //
+  // Team-scoped with a `?project=` filter, like runs. The hub owns the row and
+  // the folded digest; the episodes table is NOT stored there — `listEpisodes`
+  // is proxied to the host that holds the bytes, so it is a windowed read, not
+  // a cheap local query. Page it; do not fetch it whole.
+  async listDatasets(params: { project?: string; host?: string } = {}): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/datasets'), params);
+    return asArray(out);
+  }
+  getDataset(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/datasets/${id}`)) as Promise<Entity>;
+  }
+  /** Register a dataset root. Idempotent on (project, host, root_path): a
+   * repeat returns the existing row rather than a duplicate, which is what
+   * makes "Open in Replay" safe to hit twice. */
+  createDataset(body: Json): Promise<Entity> {
+    return this.transport.post(this.transport.team('/datasets'), body) as Promise<Entity>;
+  }
+  /** Only `name` and `env_ref` are patchable — location and digest are not. */
+  updateDataset(id: string, patch: Json): Promise<Entity> {
+    return this.transport.patch(this.transport.team(`/datasets/${id}`), patch) as Promise<Entity>;
+  }
+  /** Removes the hub's index entry only; the host's bytes are untouched. */
+  deleteDataset(id: string): Promise<Json> {
+    return this.transport.delete(this.transport.team(`/datasets/${id}`));
+  }
+  /** Ask the owning host to re-read the root and store the fold. Manual by
+   * design — nothing re-reads a dataset unasked. */
+  refreshDataset(id: string): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/datasets/${id}/refresh`), {}) as Promise<Entity>;
+  }
+  /** One window of the episodes table, proxied from the host. */
+  listDatasetEpisodes(id: string, params: { offset?: number; limit?: number } = {}): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/datasets/${id}/episodes`), {
+      offset: params.offset !== undefined ? String(params.offset) : undefined,
+      limit: params.limit !== undefined ? String(params.limit) : undefined,
+    }) as Promise<Entity>;
+  }
+
   async listEnvProfiles(): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team('/env-profiles'));
     return asArray(out);

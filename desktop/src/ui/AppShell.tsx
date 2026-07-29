@@ -21,6 +21,7 @@ import { Navigator } from '../surfaces/Navigator';
 import { ProjectsSurface } from '../surfaces/ProjectsSurface';
 import { ReadSurface } from '../surfaces/ReadSurface';
 import { RecordSurface } from '../surfaces/RecordSurface';
+import { ReplaySurface } from '../surfaces/ReplaySurface';
 import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
 import { SettingsSurface } from '../surfaces/Settings';
@@ -235,6 +236,8 @@ export function AppShell(): JSX.Element {
             <DebugSurface />
           ) : job === 'compare' ? (
             <CompareSurface />
+          ) : job === 'replay' ? (
+            <ReplaySurface />
           ) : job === 'record' ? (
             <RecordSurface />
           ) : job === 'settings' ? (

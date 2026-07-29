@@ -2951,3 +2951,214 @@ button > .ui-icon:not(:only-child):first-child,
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* --- J8 Replay: dataset library + digest card + episodes table --- */
+.replay-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+.replay-rail {
+  background: var(--canvas);
+  overflow: auto;
+}
+.replay-rail-head {
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.replay-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.replay-list-row {
+  display: grid;
+  width: 100%;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-size-body-small);
+}
+.replay-list-row:hover {
+  background: var(--hover);
+}
+.replay-list-row.is-selected {
+  background: var(--accent-tint);
+}
+.replay-list-name {
+  font-weight: 600;
+}
+/* The root path is the only thing distinguishing two same-named datasets on
+   different hosts, so it must not be lost — but it is also the longest string
+   in the rail. Clip from the LEFT: the tail of a dataset path carries the
+   identity, the leading /home/user/data does not. */
+.replay-list-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.replay-main {
+  background: var(--bg);
+  padding: var(--spacing-s16);
+  overflow: auto;
+}
+.replay-head {
+  margin-bottom: var(--spacing-s12);
+}
+.replay-title {
+  font-size: var(--font-size-title);
+  font-weight: 600;
+}
+.replay-sub {
+  margin-top: var(--spacing-s2);
+}
+.replay-digest {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: var(--spacing-s12);
+  margin-bottom: var(--spacing-s16);
+}
+.replay-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s24);
+  margin-bottom: var(--spacing-s12);
+}
+.replay-stat {
+  min-width: 0;
+}
+.replay-stat-label {
+  margin-top: var(--spacing-s2);
+}
+.replay-list-meta {
+  font-variant-numeric: tabular-nums;
+}
+.replay-stat-value {
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.replay-facets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-s12);
+}
+.replay-facet {
+  min-width: 0;
+}
+.replay-facet-head {
+  margin-bottom: var(--spacing-s4);
+}
+.replay-chiplist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+}
+.replay-chip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  background: var(--bg);
+}
+.replay-histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+}
+.replay-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+/* A cap that bit is a warning, not decoration: the whole no-silent-caps rule
+   depends on it being noticed. */
+.replay-cap {
+  color: var(--warn);
+}
+.replay-notes {
+  list-style: none;
+  margin: var(--spacing-s12) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--spacing-s2);
+}
+.replay-error {
+  color: var(--danger);
+  padding: var(--spacing-s8) var(--spacing-s16);
+}
+.replay-unread {
+  display: grid;
+  gap: var(--spacing-s4);
+}
+.replay-table-wrap {
+  overflow-x: auto;
+}
+.replay-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body-small);
+}
+.replay-table th,
+.replay-table td {
+  text-align: left;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.replay-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.replay-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s12);
+}
+/* Same narrow-window collapse as the J5 wall: below ~1000px a fixed rail
+   squeezes the table into unreadability. */
+@media (max-width: 1000px) {
+  .replay-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
+  }
+}
+.replay-register {
+  display: grid;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.replay-input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+}
+.replay-rail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}

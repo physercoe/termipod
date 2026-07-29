@@ -1047,7 +1047,11 @@ export function VaultManager(): JSX.Element {
                   onCancel={() => setEditing(null)}
                 />
               ) : selItem !== null ? (
+                // Keyed per item like the editor: SecretRow caches revealed
+                // plaintext for its mount lifetime, so an unkeyed pane carries
+                // the previous item's secret (and armed delete) across clicks.
                 <ItemDetail
+                  key={selItem.id}
                   item={selItem}
                   onEdit={() => setEditing({ item: selItem, type: selItem.type })}
                   onDelete={() => void remove(selItem.id)}

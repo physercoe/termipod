@@ -30,6 +30,27 @@ only as a **pinned marketplace promo** (`id: "kimi-webbridge"`,
 CLI ships **no WebBridge client** — the driving agent is Kimi Work / the Kimi
 desktop app, whose wire protocol is closed. There is nothing to plug into.
 
+**Addendum — the extension itself is readable** (v1.11.3, pulled from this
+Mac's Chrome profile). It is MV3 with the `debugger` permission and a plain
+WS client: it connects OUT to the local service at a fixed
+`ws://127.0.0.1:10086/ws` (configurable via `local_url`), then answers an
+MCP-shaped request/response protocol — service → extension
+`{type:"tool_call", requestId, payload:{name, args}}`, extension → service
+`{type:"tool_result", responseToRequestId, payload}` — with `hello`/
+`hello_ack` + `ping`/`pong` liveness. The tool set (each a thin CDP wrapper):
+`snapshot` (`Accessibility.getFullAXTree` → compact role/name tree with
+`@eN` refs on interactive nodes), `click` (CSS selector or `@eN` ref),
+`navigate`, `fill` (input/contenteditable), `key_type` (`Input.insertText`)
+vs `send_keys` (raw `dispatchKeyEvent`), `mouse_click`, `screenshot`,
+`evaluate`, `list_tabs`, `find_tab`, `close_tab`, and file upload via
+`DOM.setFileInputFiles`. Two design details worth stealing: **`@eN` refs**
+(a snapshot mints stable refs; later actions take refs OR selectors — the
+Playwright-MCP pattern, cheaper than re-snapshotting), and
+**`find_tab(active:true)`** — the "borrowed tab": drive the tab the user is
+*currently watching*, distinct from agent-owned session tabs (`_tabIds`).
+The tool surface in §3.3 was drafted before this read and lands within one
+tool of it — independent convergence on the same shape.
+
 ### 1.2 TermiPod is in a better position than a real browser
 
 The extension half of WebBridge exists because a foreign browser can't be
@@ -147,20 +168,25 @@ experience transfers. Two classes with separate gates (§3.5):
 
 | Tool | Class | CDP backing | Returns |
 |---|---|---|---|
-| `browser_list_tabs` | read | registry | `[{tabId, url, title, partition}]` |
-| `browser_snapshot` | read | `Accessibility.getFullAXTree` | compact AX tree (roles/names/values, axNodeIds) |
+| `browser_list_tabs` | read | registry | `[{tabId, url, title, partition, borrowed?}]` |
+| `browser_snapshot` | read | `Accessibility.getFullAXTree` | compact AX tree (roles/names/values, `@eN` refs on interactive nodes) |
 | `browser_screenshot` | read | `Page.captureScreenshot` | PNG (image content) |
 | `browser_read_text` | read | `Runtime.evaluate` (innerText, Readability-style main-content slice) | text (bounded, default 8k chars) |
 | `browser_navigate` | action | `Page.navigate` (+ partition policy check) | new url/status |
-| `browser_click` | action | AX-node → `DOM.resolveNode` → `Input.dispatchMouseEvent` | — |
-| `browser_type` | action | `Input.dispatchKeyEvent` / `insertText` | — |
+| `browser_find_tab` | action | registry match (incl. `active:true` = the tab the user is currently viewing — WebBridge's "borrowed tab") | tabId or `TARGET_GONE` |
+| `browser_click` | action | `@eN` ref or CSS selector → `DOM.resolveNode` → `Input.dispatchMouseEvent` | — |
+| `browser_type` | action | `Input.insertText` (text) — distinct from `browser_send_keys` (raw `dispatchKeyEvent`: Enter/Tab/shortcuts) | — |
 | `browser_scroll` | action | `Input.dispatchMouseEvent` (wheel) | — |
+| `browser_upload_file` | action | `DOM.setFileInputFiles` (file inputs only) | — |
 | `browser_eval` | action | `Runtime.evaluate` (arbitrary JS) | JSON result |
 
 Rationale: the AX snapshot is the token-cheap, agent-native read (this is
 what makes Playwright-MCP-style driving reliable); screenshots are the
-fallback for visual verification. `browser_eval` is the escape hatch —
-powerful, hence action class, and its result is capped.
+fallback for visual verification. `@eN` refs are minted per snapshot and
+accepted by `browser_click`/`browser_type` alongside selectors, so a
+follow-up action costs no re-snapshot (WebBridge does exactly this).
+`browser_eval` is the escape hatch — powerful, hence action class, and its
+result is capped.
 
 ### 3.4 Delivery to the agent (hostrunner injection)
 

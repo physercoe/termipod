@@ -2,9 +2,10 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-07-29) — W1, W2, W3 and W5 complete;
-> W4 half-landed (W4a); W4b blocked on an async host-job mechanism (§7)
+> W4 half-landed (W4a); W4b-1 ready, W4b-2 waits on blob lifetime
+> ([ADR-058](../decisions/058-blob-lifetime.md)) + SSH forward (§7)
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `5bd54864` (W1–W3, W5 complete)
+> **Last verified vs code:** origin/main `ffe57b1f` (W1–W3, W5 complete)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -38,8 +39,10 @@ precedent, deliberately repeated.
 Sequencing: **W1 dataset entity + library/episodes table → W2 episode player
 (video+plots) → W3 3D pose panel ∥ W4 Rerun companion → W5 runs↔episodes
 linkage**. Each wedge independently shippable. W1, W2, W3 and W5 have
-shipped; W4's desktop half has, and its `.rrd` export is blocked on an async
-host-job mechanism (§7).
+shipped, as has W4's desktop half; its `.rrd` export is a typed
+`host_commands` kind (ADR-057's mechanism, not a new one), ready for the
+same-machine case and waiting on blob lifetime + SSH forward for the remote
+one (§7).
 
 ---
 
@@ -535,31 +538,74 @@ spawn. The `rerunweb` row is deliberately identical to `kimiweb`'s and not
 looser — the "another web UI is one registry row" promise only holds if a
 new row cannot quietly widen the policy.
 
-**W4b — the `.rrd` export — is blocked, and this is a design gap, not an
-implementation detail.** The exporter is
-`python -m lerobot.scripts.lerobot_dataset_viz --repo-id … --root …
---episode-index N --save 1 --output-dir …`, which writes
-`{repo_id with / → _}_episode_{n}.rrd`. It decodes every frame of the
-episode. The dataset host verbs it would join are **request/response with a
-60-second bound** (`handlers_datasets.go` `datasetVerbTimeout`, a 504 past
-it) — fine for a digest fold, not for an export that reads a multi-camera
-episode end to end. So W4b needs an **async host job** (submit → poll →
-fetch) that the dataset verb surface does not have, and inventing one
-inside this wedge would put a job mechanism in the wrong place.
+**W4b — the `.rrd` export — rides a typed `host_commands` kind.** The
+exporter is `python -m lerobot.scripts.lerobot_dataset_viz --repo-id …
+--root … --episode-index N --save 1 --output-dir …`, which writes
+`{repo_id with / → _}_episode_{n}.rrd` and decodes every frame of the
+episode.
 
-Two options for whoever picks it up, neither chosen here:
+An earlier revision of this section recorded W4b as blocked on "an async
+host job (submit → poll → fetch) that the dataset verb surface does not
+have." **That was wrong**, and the mistake is worth keeping: there are
+**two** host channels and only one was checked.
 
-1. Give the host-runner a general small-job surface (submit/poll/cancel)
-   and make the export its first user. Correct layering; the export is not
-   the last long host-side computation this plan implies.
-2. Keep the export desktop-side for the local-first case only, as the media
-   scheme already is. Cheaper, but it has to be rewritten the moment the
-   SSH-forward wedge lands, because a remote host is the only thing that
-   can read a remote dataset.
+| channel | bound | used by |
+|---|---|---|
+| `tunnel.enqueueHostVerb` — request/response | 60 s (`handlers_datasets.go:40`) | dataset digest · episodes · series |
+| `host_commands` pull queue + `awaitHostCommand` | 15 min (`handlers_teleport.go:35-36`) | teleport pack/unpack |
 
-Until then W4a's IPC handlers have **no caller**, which is stated rather
-than dressed up: the panel can host a recording, and nothing yet produces
-one.
+`awaitHostCommand` (`handlers_teleport.go:331`) enqueues a typed kind and
+polls `status`/`result_json`/`error` on a 500 ms tick — submit → poll →
+fetch, already built. It already supports a command with no agent
+(`awaitHostCommand(ctx, targetHost, "", …)`, line 266), which is what a
+dataset export is. Bulk bytes already have a home too:
+`hub/internal/handoff` is "deliberately transport-only: it moves an opaque
+byte stream and knows nothing about tar, git, or engine layouts"
+(`transport.go:12-15`) — written that way so a second caller could reuse
+it.
+
+[ADR-057](../decisions/057-session-teleport.md) also settles the *shape*,
+and rules against the general-job-surface option this section used to
+offer: it rejects wiring the dormant `plan_executor` because "a general
+host-exec primitive is a far larger security surface than four typed
+teleport verbs." The export is therefore a **third typed kind** — one case
+in `hostrunner/commands.go`'s `switch cmd.Kind` beside the two teleport
+kinds — not a job framework.
+
+Two sub-wedges:
+
+- **W4b-1 — same machine, no transport.** A `dataset_episode_export` kind
+  returning `{path, sha256, bytes}`; the hub polls with
+  `awaitHostCommand`; the desktop opens the returned absolute path
+  directly, which `isRecordingPath` already gates (absolute + `.rrd`).
+  Zero bytes cross the hub. The exporter's `--output-dir` must be confined
+  to a host-side cache dir, because the path it returns becomes a process
+  argument. This is the wedge that gives W4a's IPC handlers a caller.
+- **W4b-2 — remote host.** Rides the handoff transport, and is blocked on
+  two *named* dependencies rather than an open design question: the
+  SSH-forward wedge that `datasetHostVerb` already refuses without
+  (`handlers_datasets.go:534-537`), and a **blob lifetime** answer —
+  [ADR-058](../decisions/058-blob-lifetime.md). ADR-057 D-3 accepted that
+  handoff parts "linger" in a store with no DELETE and no TTL; that was
+  priced for teleport, which happens rarely and deliberately. An episodes
+  table is *browsed*, and a multi-camera `.rrd` is tens of megabytes, so
+  the same transport at browsing frequency writes hundreds of megabytes of
+  permanently undeletable bytes into the hub — against this very feature's
+  own stated rule that "bulk data does not live on the hub"
+  (`handlers_datasets.go:17-25`).
+
+Either sub-wedge needs the host to actually *have* the pinned
+`(lerobot, rerun-sdk)` pair, advertised as a capability the way
+`checkHostSupportsFamily` (`handlers_teleport.go:371`) checks an engine
+family. Without it the failure mode is a fifteen-minute poll ending in a
+Python traceback.
+
+Until W4b-1 lands, W4a's IPC handlers have **no caller**, which is stated
+rather than dressed up: the panel can host a recording, and nothing yet
+produces one. And no rerun process has ever been started against W4a's
+code (`rerun_policy.ts` says so in its own header), so even W4b-1 ends at
+"produces a file and points the panel at it" — whether the viewer renders
+is unverified until someone runs it.
 
 ## 8. W5 — Runs ↔ episodes: eval rollouts become watchable
 

@@ -162,11 +162,13 @@ disk would break that and teleport's 25 MiB chunks were transient
 relocation, not storage). v1 returns the host-local path, which fully
 serves the local-first Replay consumer: the desktop hands
 `result.path` to the W4a Rerun manager (`isRecordingPath` already
-requires absolute + `.rrd`) exactly as it would a user-picked file. When
-the SSH-forward wedge lands, remote fetch reuses teleport's
-chunked-manifest transport (`chunkBundle` / `storeBlob`, ≤25 MiB parts)
-or the forwarded channel itself — decided then, in that wedge, against a
-pattern that already exists.
+requires absolute + `.rrd`) exactly as it would a user-picked file. For
+the remote case, fetch reuses teleport's chunked-manifest transport
+(`chunkBundle` / `storeBlob`, ≤25 MiB parts) or a channel over the
+now-landed SSH-forward/SFTP primitives (`be796b3e`) — decided in that
+wedge, against patterns that already exist. Any bytes that do transit
+the hub on that path are `class=derived` with a TTL per
+[ADR-061](061-blob-lifetime.md) — transient relocation, never storage.
 
 ### 5. Explicitly out of scope
 

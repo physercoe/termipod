@@ -97,11 +97,20 @@ func TestReadBrowserBridgeDiscovery(t *testing.T) {
 	})
 
 	t.Run("non-loopback URL refused", func(t *testing.T) {
-		home, d := setupBridgeHome(t, false)
-		d.URL = "http://192.0.2.10:47321/mcp" // a network peer — never inject
-		writeDiscovery(t, home, d)
-		if got := readBrowserBridgeDiscovery(home); got != nil {
-			t.Fatalf("want nil, got %+v", got)
+		for _, u := range []string{
+			"http://192.0.2.10:47321/mcp",          // a network peer — never inject
+			"http://127.0.0.1:8080@evil.com/mcp",   // userinfo trick: host is evil.com, not loopback
+			"http://localhost:@evil.com/mcp",       // same, localhost spelling
+			"http://localhost.evil.com:47321/mcp",  // loopback-lookalike hostname
+			"https://127.0.0.1:47321/mcp",          // the desktop only ever writes http
+			"http://user:pass@127.0.0.1:47321/mcp", // userinfo the desktop never writes
+		} {
+			home, d := setupBridgeHome(t, false)
+			d.URL = u
+			writeDiscovery(t, home, d)
+			if got := readBrowserBridgeDiscovery(home); got != nil {
+				t.Fatalf("URL %q: want nil, got %+v", u, got)
+			}
 		}
 	})
 

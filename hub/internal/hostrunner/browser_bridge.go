@@ -16,11 +16,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 )
 
@@ -81,8 +81,18 @@ func readBrowserBridgeDiscovery(home string) *browserBridgeDiscovery {
 		return nil
 	}
 	// The desktop only ever binds loopback; refuse anything else so a
-	// malformed (or planted) file can't aim agent traffic at a network peer.
-	if !strings.HasPrefix(d.URL, "http://127.0.0.1:") && !strings.HasPrefix(d.URL, "http://localhost:") {
+	// malformed (or planted) file can't aim agent traffic (and the bearer
+	// token) at a network peer. PARSED, not prefix-matched: in
+	// "http://127.0.0.1:8080@evil.com/mcp" everything before the '@' is
+	// userinfo and the real host is evil.com — a prefix check passes it.
+	// Userinfo is refused outright; the desktop never writes one.
+	u, err := url.Parse(d.URL)
+	if err != nil || u.Scheme != "http" || u.User != nil {
+		return nil
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+	default:
 		return nil
 	}
 	if !pidAlive(d.PID) {

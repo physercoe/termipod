@@ -1,9 +1,10 @@
 # J8 Replay — datasets, episodes & multimodal rollout analysis (embodied pilot, round 1)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — W1 + W2 complete; W3/W4 next
+> **Status:** In progress (2026-07-29) — W1, W2, W3 and W5 complete;
+> W4 half-landed (W4a); W4b blocked on an async host-job mechanism (§7)
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `a486d260` (W2 complete)
+> **Last verified vs code:** origin/main `5bd54864` (W1–W3, W5 complete)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -36,7 +37,9 @@ precedent, deliberately repeated.
 
 Sequencing: **W1 dataset entity + library/episodes table → W2 episode player
 (video+plots) → W3 3D pose panel ∥ W4 Rerun companion → W5 runs↔episodes
-linkage**. Each wedge independently shippable.
+linkage**. Each wedge independently shippable. W1, W2, W3 and W5 have
+shipped; W4's desktop half has, and its `.rrd` export is blocked on an async
+host-job mechanism (§7).
 
 ---
 
@@ -430,6 +433,60 @@ This is the landscape's "reference base" EMBED and the first deep-embedded
 component (`ReplayPose3D`) so J5/J7 can reuse it later (live robot pose was
 its original register row).
 
+
+### W3 as shipped (2026-07-29)
+
+| | | |
+|---|---|---|
+| **W3a** | #465 | `state/urdf.ts` (XML + kinematics) · `state/robotManifest.ts` (the registry) |
+| **W3b** | #466 | `ReplayPose3D` — three.js, the forge fetch, the honesty notes |
+
+**`urdf-loader` was not used, and this section's "EMBED three.js +
+`urdf-loader`" is amended accordingly.** That package's value is loading
+the meshes a URDF points at, through three's `LoadingManager` — plain XHR.
+Every outbound request in this app goes through the proxy-aware forge IPC
+instead, and `readForgeBlob` decodes UTF-8, so binary STL/DAE is not
+reachable by that route at all. Meshes are therefore out of round 1, which
+leaves the joint tree — and `URDFLoader.parse` needs a DOM, so its arm of
+the pipeline would be untestable under `node --test`, on a surface nobody
+can look at. three.js stays: it is the reusable 3D primitive J5/J7 were
+promised, and the panel renders a **kinematic skeleton**, which it says on
+screen rather than letting a wireframe pass for a render.
+
+**What the real robot descriptions and datasets corrected:**
+
+- **`robot_type` is unreliable and often the literal `unknown`** — on
+  datasets that plainly are an SO-100 (`maximilienroberti/so100_test`).
+  And `lerobot/svla_so101_pickplace` is an SO-101 declaring
+  `so100_follower`. So the manifest follows the declaration and offers a
+  **picker** when nothing matches; it never guesses from a repo name.
+- **File order is not channel order.** `so101_new_calib.urdf` declares its
+  joints **gripper-first**, exactly reversed from the motor table. A
+  positional fallback trusting file order drives the arm backwards and
+  still animates convincingly, so the manifest carries an explicit
+  `jointOrder`.
+- **SO-ARM channels are normalized, not radians**: body joints are
+  `RANGE_M100_100` and the gripper `RANGE_0_100`
+  (`lerobot/robots/so_follower/so_follower.py`, corroborated by two
+  datasets whose gripper channel never goes negative). Read as symmetric,
+  a fully closed gripper draws half open. The pose is labelled
+  **approximate** because the mapping uses the description's joint limits,
+  not this robot's calibration — which the dataset does not carry.
+- **Channels exceed their nominal range** (one shipped SO-101 dataset
+  peaks at 123 on a [-100,100] channel), so the solver clamps to the URDF
+  limit and *names the joints it clamped* rather than swallowing it.
+- **`observation.state` drives the pose, never `action`.** They differ by
+  tracking error, which is the thing a replay is watched for; driving from
+  `action` would draw what the policy asked for and label it what the robot
+  did.
+
+**A fixture that agreed with the bug.** Six exact link-position assertions
+passed against a deliberately reversed rpy composition order, because every
+one of SO-100's joint origins rotates about a single axis and a single-axis
+rotation composes identically either way. SO-101's multi-axis origins catch
+it. Real fixtures are necessary, not sufficient — the discriminating case
+has to be chosen, not assumed.
+
 ## 7. W4 — Rerun companion panel (INTEGRATE, a registry row)
 
 For everything the bespoke player deliberately doesn't do (point clouds,
@@ -446,6 +503,51 @@ posture the deep survey fixed (companion iframe, **not** deep embed — no
 plugin API, SDK↔viewer lock-step; pin the Rerun version pair in one place).
 Remote episodes ride the same SSH-forward follow-up as W2.
 
+
+### W4 as half-shipped (2026-07-29) — W4a landed, W4b blocked
+
+**W4a** (#469) is the desktop half this section describes: a `rerunweb`
+partition row in `webtab_policy.ts`, a pure `rerun_policy.ts` (argv, viewer
+URL, recording-path rules), and a `rerun.ts` manager in `kimiweb.ts`'s
+shape. Every flag was read off rerun's own CLI definition
+(`crates/top/rerun/src/commands/entrypoint.rs`) and the viewer URL off
+`crates/top/re_sdk/src/web_viewer.rs`.
+
+The finding worth carrying: **rerun's `WebViewerConfig.bind_ip` defaults to
+`0.0.0.0`**. A `--serve-web` launched without an explicit
+`--bind 127.0.0.1` publishes the robot's episodes, video and all, to every
+machine on the network, and looks perfectly fine to whoever launched it.
+That is why the argv is built in a tested module rather than inline at the
+spawn. The `rerunweb` row is deliberately identical to `kimiweb`'s and not
+looser — the "another web UI is one registry row" promise only holds if a
+new row cannot quietly widen the policy.
+
+**W4b — the `.rrd` export — is blocked, and this is a design gap, not an
+implementation detail.** The exporter is
+`python -m lerobot.scripts.lerobot_dataset_viz --repo-id … --root …
+--episode-index N --save 1 --output-dir …`, which writes
+`{repo_id with / → _}_episode_{n}.rrd`. It decodes every frame of the
+episode. The dataset host verbs it would join are **request/response with a
+60-second bound** (`handlers_datasets.go` `datasetVerbTimeout`, a 504 past
+it) — fine for a digest fold, not for an export that reads a multi-camera
+episode end to end. So W4b needs an **async host job** (submit → poll →
+fetch) that the dataset verb surface does not have, and inventing one
+inside this wedge would put a job mechanism in the wrong place.
+
+Two options for whoever picks it up, neither chosen here:
+
+1. Give the host-runner a general small-job surface (submit/poll/cancel)
+   and make the export its first user. Correct layering; the export is not
+   the last long host-side computation this plan implies.
+2. Keep the export desktop-side for the local-first case only, as the media
+   scheme already is. Cheaper, but it has to be rewritten the moment the
+   SSH-forward wedge lands, because a remote host is the only thing that
+   can read a remote dataset.
+
+Until then W4a's IPC handlers have **no caller**, which is stated rather
+than dressed up: the panel can host a recording, and nothing yet produces
+one.
+
 ## 8. W5 — Runs ↔ episodes: eval rollouts become watchable
 
 - `run.dataset_id`: sniff from run config keys where present (LeRobot/openpi
@@ -458,6 +560,46 @@ Remote episodes ride the same SSH-forward follow-up as W2.
 - The J5 wall's "synchronized multi-seed video-grid" (register BUILD-moat
   row) becomes buildable on the player's video-sync primitive — **recorded
   here, scheduled with J5's next round**, not this plan.
+
+
+### W5 as shipped (2026-07-29)
+
+| | | |
+|---|---|---|
+| **W5a** | #467 | migration 0069 `runs.dataset_id` · `GET /runs/{run}/dataset_hint` |
+| **W5b** | #468 | RunDetail's **Episodes** view, and the by-id jump into the player |
+
+The sniff **proposes and never writes**: a config key that merely looks
+like a dataset is a guess, and a wrong edge sends someone to watch the
+wrong robot and believe what they see. Key names came off LeRobot's config
+classes (`TrainPipelineConfig.dataset` is a `DatasetConfig` with
+`repo_id: str` and `root: str | None`), which corrected four assumptions:
+
+- trackio and wandb both **flatten** nested config to dotted keys, so both
+  shapes must be read — otherwise every tracker-logged run silently
+  produces no hint, which looks exactly like "no dataset".
+- `dataset.root` outranks `dataset.repo_id`: a root is a **location**,
+  which is what `datasets` is keyed by. A repo id matches a path's last
+  **two** segments, because `$HF_LEROBOT_HOME/lerobot/pusht` is where the
+  cache lands `lerobot/pusht` and one segment would confuse `alice/pusht`
+  with `bob/pusht`.
+- `dataset.repo_id` is legitimately a **list**; one column cannot hold
+  several, so the first is proposed as a starting point.
+- `eval.recording_repo_id` is where an eval **writes** its rollouts — the
+  field that makes "watch what this eval actually did" possible at all.
+
+`policy.repo_id` is the **model** and sits one key away. A deny list was
+written for it and then removed: every lookup is a fully-qualified path, so
+nothing matches a bare trailing name and the key is unreachable rather than
+merely rejected. Dead defensive code reads as a safety net and would be
+trusted by whoever later adds a bare key.
+
+The column carries **no foreign key** — SQLite cannot add one with
+`ALTER TABLE`, following 0005's note — so the scope rule lives in the
+handler (a dataset must be in the run's own project) and the delete handler
+clears the runs pointing at a dataset it removes. A dangling id reads
+downstream as "this run has a dataset" right up until the episodes fail to
+load.
 
 ## 9. Sequencing & review anchors
 

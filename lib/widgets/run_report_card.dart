@@ -4,6 +4,8 @@ import '../l10n/app_localizations.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
 import 'app_chip.dart';
+import 'transcript/digest_issues.dart';
+import 'transcript/issues_sheet.dart';
 
 /// Foldable run-report dashboard (ADR-038 / agent-run-analysis-mode plan
 /// P1). Renders the per-run **digest** as an overview card over the
@@ -179,6 +181,11 @@ class _RunReportCardState extends State<RunReportCard> {
     final p95 = latency is Map ? _numAsInt(latency['p95_ms']) : 0;
     final byModel = widget.digest['by_model'];
     final firstErrorSeq = _firstErrorSeq();
+    // Structural issues (digest v7). Reading lives in a pure module so the
+    // severity ordering and the seek anchor stay identical to desktop's
+    // (transcript/digest_issues.dart) — this family has shipped four
+    // mobile↔desktop misses.
+    final issues = readDigestIssues(widget.digest);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,6 +230,24 @@ class _RunReportCardState extends State<RunReportCard> {
                   ? () => widget.onJumpToSeq!(firstErrorSeq)
                   : null,
             ),
+            // Structural findings (P5 A2) — hidden at zero. A "0 issues" stat
+            // is noise on the overwhelming majority of runs, and its absence
+            // on a pre-v7 hub is honest: that hub never ran the checks, so it
+            // cannot report a clean run. The sheet's empty state is the
+            // affirmative "clean" signal, reached from a run that has issues
+            // folded but none open.
+            if (issues.total > 0)
+              _Stat(
+                label: l10n.statIssues,
+                value: '${issues.total}',
+                muted: muted,
+                valueColor: issueSeverityColor(issues.worst),
+                onTap: () => showIssuesSheet(
+                  context,
+                  summary: issues,
+                  onJumpToSeq: widget.onJumpToSeq,
+                ),
+              ),
             if (p50 > 0 || p95 > 0)
               _Stat(
                   label: l10n.statLatency,

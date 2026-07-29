@@ -2,10 +2,12 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-07-29) — W1, W2, W3 and W5 complete;
-> W4 half-landed (W4a); W4b-1 ready, W4b-2 waits on blob lifetime
-> ([ADR-058](../decisions/058-blob-lifetime.md)) + SSH forward (§7)
+> W4 half-landed (W4a); W4b rides the
+> [ADR-058](../decisions/058-host-job-surface.md) job surface — W4b-1
+> waits only on it, W4b-2 additionally on blob lifetime
+> ([ADR-061](../decisions/061-blob-lifetime.md)) (§7)
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `ffe57b1f` (W1–W3, W5 complete)
+> **Last verified vs code:** origin/main `cb54991a` (W1–W3, W5 complete)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -40,9 +42,11 @@ Sequencing: **W1 dataset entity + library/episodes table → W2 episode player
 (video+plots) → W3 3D pose panel ∥ W4 Rerun companion → W5 runs↔episodes
 linkage**. Each wedge independently shippable. W1, W2, W3 and W5 have
 shipped, as has W4's desktop half; its `.rrd` export is a typed
-`host_commands` kind (ADR-057's mechanism, not a new one), ready for the
-same-machine case and waiting on blob lifetime + SSH forward for the remote
-one (§7).
+`host_commands` kind executed detached per
+[ADR-058](../decisions/058-host-job-surface.md)'s job surface — the
+same-machine case waits only on that surface; the remote fetch
+additionally on blob lifetime
+([ADR-061](../decisions/061-blob-lifetime.md)) (§7).
 
 ---
 
@@ -568,9 +572,19 @@ it.
 and rules against the general-job-surface option this section used to
 offer: it rejects wiring the dormant `plan_executor` because "a general
 host-exec primitive is a far larger security surface than four typed
-teleport verbs." The export is therefore a **third typed kind** — one case
-in `hostrunner/commands.go`'s `switch cmd.Kind` beside the two teleport
-kinds — not a job framework.
+teleport verbs." The export is therefore a **third typed kind** beside
+the two teleport kinds — not a job framework.
+[ADR-058](../decisions/058-host-job-surface.md), written independently
+against the same substrate, converged on exactly that shape with one
+correction this section originally missed: the kind must **not** run as
+an inline case in `runCommand`'s switch the way teleport's do —
+`tickCommands` shares the single main-loop goroutine with the
+spawn/reconcile/idle ticks (`runner.go:411-414`), so a
+fifteen-minute export inline would starve pause/resume/teleport *and*
+spawn launches for its whole duration (teleport accepted that cost for
+a rare deliberate op; an episodes table is browsed). Job kinds dispatch
+to ADR-058's detached single-flight executor, with `progress_json`
+heartbeat, `job_cancel`, and restart reconciliation.
 
 Two sub-wedges:
 
@@ -581,18 +595,23 @@ Two sub-wedges:
   Zero bytes cross the hub. The exporter's `--output-dir` must be confined
   to a host-side cache dir, because the path it returns becomes a process
   argument. This is the wedge that gives W4a's IPC handlers a caller.
-- **W4b-2 — remote host.** Rides the handoff transport, and is blocked on
-  two *named* dependencies rather than an open design question: the
-  SSH-forward wedge that `datasetHostVerb` already refuses without
-  (`handlers_datasets.go:534-537`), and a **blob lifetime** answer —
-  [ADR-058](../decisions/058-blob-lifetime.md). ADR-057 D-3 accepted that
-  handoff parts "linger" in a store with no DELETE and no TTL; that was
-  priced for teleport, which happens rarely and deliberately. An episodes
-  table is *browsed*, and a multi-camera `.rrd` is tens of megabytes, so
-  the same transport at browsing frequency writes hundreds of megabytes of
-  permanently undeletable bytes into the hub — against this very feature's
-  own stated rule that "bulk data does not live on the hub"
-  (`handlers_datasets.go:17-25`).
+- **W4b-2 — remote hub-host.** The export job runs fine on the remote
+  host (same `host_commands` queue); the question is only how the
+  produced `.rrd` reaches the desktop. Two candidate transports, decided
+  in the wedge per ADR-058 §4: the handoff chunk path through the blob
+  store — which is blocked on a **blob lifetime** answer,
+  [ADR-061](../decisions/061-blob-lifetime.md), because ADR-057 D-3's
+  accepted "linger" was priced for teleport (rare, deliberate) and an
+  episodes table is *browsed*: a multi-camera `.rrd` is tens of
+  megabytes, so that transport at browsing frequency writes hundreds of
+  megabytes of otherwise-permanent bytes into the hub, against this very
+  feature's own stated rule that "bulk data does not live on the hub"
+  (`handlers_datasets.go:17-25`) — or a fetch over the user's live SSH
+  session via the now-landed forward/SFTP primitives (`be796b3e`), which
+  moves zero bytes through the hub at all. Distinct from both: hostless
+  `source:'sftp'` datasets have no host-runner, so they cannot export at
+  all — that is the recorded 501 posture
+  (`handlers_datasets.go:528-536`), not a transport gap.
 
 Either sub-wedge needs the host to actually *have* the pinned
 `(lerobot, rerun-sdk)` pair, advertised as a capability the way

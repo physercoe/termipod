@@ -35,6 +35,17 @@ Map<String, dynamic> _textEvent(String text, {bool? partial}) => {
 const _fenced = 'Here is code:\n\n```dart\nvoid main() {}\n```\n';
 const _math = r'Einstein said $E = mc^2$ once.';
 
+/// Matches Text + SelectableText, plain or rich (the card body uses both).
+Finder containingText(String s) => find.byWidgetPredicate((w) {
+      if (w is Text) {
+        return (w.data ?? w.textSpan?.toPlainText() ?? '').contains(s);
+      }
+      if (w is SelectableText) {
+        return (w.data ?? w.textSpan?.toPlainText() ?? '').contains(s);
+      }
+      return false;
+    });
+
 Future<void> _pump(WidgetTester tester, Map<String, dynamic> event) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -54,12 +65,10 @@ void main() {
     await _pump(tester, _textEvent(_fenced, partial: true));
     expect(find.byType(HighlightView), findsNothing);
     // The block is still there and still readable — it just isn't tokenized.
-    expect(
-      find.byWidgetPredicate((w) =>
-          (w is Text && (w.data ?? '').contains('void main')) ||
-          (w is SelectableText && (w.data ?? '').contains('void main'))),
-      findsWidgets,
-    );
+    // `selectable: true` renders through SelectableText.rich, so the content is
+    // in `textSpan`, not `data` (same predicate transcript_system_card_test
+    // uses — reading only `data` finds nothing).
+    expect(containingText('void main'), findsWidgets);
   });
 
   testWidgets('the completed message highlights exactly as before',

@@ -551,6 +551,13 @@ function toolError(text: string): { content: Array<{ type: 'text'; text: string 
 /// these without a re-snapshot. Kept server-side; overwritten per snapshot.
 const snapshotRefs = new Map<number, Map<string, number>>();
 
+/// Drop a destroyed tab's ref map (the host calls this from the guest's
+/// `destroyed` hook) — without it every tab that ever snapshotted leaks its
+/// last ref map for the life of the process.
+export function pruneSnapshotRefs(tabId: number): void {
+  snapshotRefs.delete(tabId);
+}
+
 /// Resolve + validate a tabId argument against the live registry. Throws a
 /// coded BridgeError the tool wrapper renders as an isError result.
 function requireTarget(deps: McpServerDeps, args: Record<string, unknown>): BridgeTarget {

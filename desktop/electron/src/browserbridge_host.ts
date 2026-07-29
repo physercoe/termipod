@@ -34,6 +34,7 @@ import {
   BridgeAuditRing,
   BridgeError,
   mintToken,
+  pruneSnapshotRefs,
   removeBridgeDiscovery,
   startBridgeServer,
   stripFragment,
@@ -113,7 +114,13 @@ function ensureDebugger(wc: WebContents): void {
   attached.add(wc.id);
   // once(): a re-attach after detach would otherwise stack duplicate listeners.
   wc.debugger.once('detach', () => attached.delete(wc.id));
-  wc.once('destroyed', () => attached.delete(wc.id));
+  wc.once('destroyed', () => {
+    attached.delete(wc.id);
+    // Snapshot @eN refs are minted per tab; a destroyed tab's map would sit
+    // in the core's ref store forever (every snapshot went through this
+    // attach path, so this hook sees every tab that ever minted refs).
+    pruneSnapshotRefs(wc.id);
+  });
 }
 
 /// The guest the user is currently viewing, reported renderer-side

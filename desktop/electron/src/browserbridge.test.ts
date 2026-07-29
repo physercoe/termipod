@@ -16,6 +16,7 @@ import {
   compactAxTree,
   handleMcpMessage,
   mintToken,
+  pruneSnapshotRefs,
   READ_TOOLS,
   bridgeDiscoveryPath,
   redactBridgeArgs,
@@ -479,6 +480,20 @@ test('W2 browser_click: ref path resolves through the latest snapshot, audited',
   assert.equal(entries[0]?.ok, true);
   assert.equal(entries[0]?.agent_id, 'agent-test');
   assert.equal(entries[0]?.partition, 'persist:webtab');
+});
+
+test('W2 pruneSnapshotRefs: a destroyed tab\'s refs stop resolving (REF_STALE)', async () => {
+  // The host calls this from the guest's `destroyed` hook — without it the
+  // last ref map of every tab that ever snapshotted leaks for the process
+  // lifetime, and a recycled webContents id could resolve refs minted on the
+  // tab that previously owned the id.
+  const backend = actionBackend();
+  const { deps } = auditDeps(backend);
+  await callTool2(deps, 'browser_snapshot', { tabId: 7 }); // mints @e1 → 42
+  pruneSnapshotRefs(7);
+  const out = await callTool2(deps, 'browser_click', { tabId: 7, ref: '@e1' });
+  assert.equal(out.isError, true);
+  assert.match(out.content[0]?.text ?? '', /REF_STALE/);
 });
 
 test('W2 browser_click: selector path + element failure codes', async () => {

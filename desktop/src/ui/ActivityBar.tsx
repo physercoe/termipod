@@ -1,9 +1,6 @@
 import type { ReactNode } from 'react';
 import { useT } from '../i18n';
-import { isShell } from '../platform';
-import { useAssistant } from '../state/assistant';
 import { JOBS, SETTINGS_JOB, useWorkbench } from '../state/workbench';
-import { Icon } from './Icon';
 import { JobIcon } from './JobIcon';
 
 /// The workbench's left rail (VS Code activity-bar idiom): the hub identity /
@@ -12,12 +9,12 @@ import { JobIcon } from './JobIcon';
 /// Settings tab pinned to the bottom (the gear idiom). Icon-forward with a small
 /// label so the jobs stay discoverable; the active job is highlighted and
 /// switching is instant (the surface state lives in each surface, not here).
+/// The assistant toggle is NOT here — it lives in the status bar as a chip (#460),
+/// keeping the rail purely job navigation.
 export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
   const t = useT();
   const job = useWorkbench((s) => s.job);
   const setJob = useWorkbench((s) => s.setJob);
-  const assistantOpen = useAssistant((s) => s.open);
-  const toggleAssistant = useAssistant((s) => s.toggle);
 
   return (
     <nav className="activity-bar" aria-label={t('job.rail')}>
@@ -45,20 +42,6 @@ export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
           </button>
         ))}
       </div>
-      {/* App-level assistant dock toggle — pinned above Settings. Not a job:
-          the dock overlays whichever surface is active (like the terminal). */}
-      {isShell() && (
-        <button
-          className={`activity-tab activity-tab-pinned${assistantOpen ? ' active' : ''}`}
-          title={t('assistant.toggleHint')}
-          onClick={toggleAssistant}
-        >
-          <span className="activity-icon">
-            <Icon name="globe" size={18} />
-          </span>
-          <span className="activity-label">{t('assistant.title')}</span>
-        </button>
-      )}
       <button
         className={`activity-tab activity-tab-pinned${job === SETTINGS_JOB.id ? ' active' : ''}`}
         aria-current={job === SETTINGS_JOB.id ? 'page' : undefined}

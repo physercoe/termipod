@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useLang, useT, type Lang } from '../i18n';
 import { isShell, openExternal } from '../platform';
 import { invoke } from '../bridge';
 import { cacheSizeBytes, clearCache } from '../state/queryClient';
+import { comboFromEvent, formatCombo, isBindable, useKeybindings, type BindingAction } from '../state/keybindings';
 import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
@@ -377,6 +378,90 @@ function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => voi
 }
 
 /// About — app identity, version, and where to send feedback / read the source.
+/// Keyboard shortcuts (#460): rebind the three app-level chords (command
+/// palette, assistant dock, terminal dock). Click a binding, then press the new
+/// keys — a bare modifier keeps listening, Esc cancels, and an invalid combo
+/// (no modifier / a ⌘<digit> job-switch chord — see `isBindable`) or one already
+/// taken by another action is rejected inline. Job switching itself stays fixed
+/// (position-based, like VS Code), so it is documented here but not rebindable.
+function ShortcutSettings(): JSX.Element {
+  const t = useT();
+  const bindings = useKeybindings((s) => s.bindings);
+  const setBinding = useKeybindings((s) => s.setBinding);
+  const resetBindings = useKeybindings((s) => s.resetBindings);
+  const [capturing, setCapturing] = useState<BindingAction | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
+  const rows: { action: BindingAction; label: string }[] = [
+    { action: 'palette', label: t('settings.scPalette') },
+    { action: 'assistant', label: t('settings.scAssistant') },
+    { action: 'terminal', label: t('settings.scTerminal') },
+  ];
+
+  function onCapture(action: BindingAction, e: ReactKeyboardEvent): void {
+    e.preventDefault();
+    e.stopPropagation(); // don't let the AppShell global handler fire on the captured chord
+    if (e.key === 'Escape') {
+      setCapturing(null);
+      setErr(null);
+      return;
+    }
+    const combo = comboFromEvent(e);
+    if (combo === null) return; // a bare modifier press — keep listening
+    if (!isBindable(combo)) {
+      setErr(t('settings.scInvalid'));
+      return;
+    }
+    const clash = rows.find((r) => r.action !== action && bindings[r.action] === combo);
+    if (clash !== undefined) {
+      setErr(t('settings.scConflict').replace('{name}', clash.label));
+      return;
+    }
+    setBinding(action, combo);
+    setCapturing(null);
+    setErr(null);
+  }
+
+  return (
+    <section className="setting-group">
+      <h3>{t('settings.shortcuts')}</h3>
+      <p className="muted small">{t('settings.shortcutsBlurb')}</p>
+      {rows.map((r) => (
+        <div className="setting-row" key={r.action}>
+          <label>{r.label}</label>
+          <button
+            className={capturing === r.action ? 'primary' : ''}
+            onClick={() => {
+              setCapturing(r.action);
+              setErr(null);
+            }}
+            onBlur={() => {
+              if (capturing === r.action) setCapturing(null);
+            }}
+            onKeyDown={(e) => {
+              if (capturing === r.action) onCapture(r.action, e);
+            }}
+          >
+            {capturing === r.action ? t('settings.scRecording') : formatCombo(bindings[r.action], mac)}
+          </button>
+        </div>
+      ))}
+      {err !== null && <div className="error small">{err}</div>}
+      <div className="setting-row">
+        <button
+          onClick={() => {
+            resetBindings();
+            setErr(null);
+          }}
+        >
+          {t('settings.scReset')}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function AboutSettings(): JSX.Element {
   const t = useT();
   return (
@@ -402,7 +487,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'env-profiles' | 'assistant' | 'vault' | 'about';
+type CatId = 'account' | 'display' | 'input' | 'shortcuts' | 'data' | 'network' | 'env-profiles' | 'assistant' | 'vault' | 'about';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -421,6 +506,9 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
     { id: 'account', label: t('settings.catAccount'), render: () => <AccountSettings onConnect={onConnect} /> },
     { id: 'display', label: t('settings.catDisplay'), render: () => <AppearanceSettings /> },
     ...(tauri ? [{ id: 'input' as const, label: t('settings.catInput'), render: () => <VoiceSettings /> }] : []),
+    // Keyboard shortcuts — rebindable app-level chords (#460). Not tauri-gated:
+    // the AppShell keydown handler runs in the browser build too.
+    { id: 'shortcuts', label: t('settings.catShortcuts'), render: () => <ShortcutSettings /> },
     // Environment profiles — team-scoped hub entity (pure REST), so it's shown
     // in every build (not tauri-gated like vault). Reusable {env + setup} the
     // spawn sheet's picker attaches (env-profiles plan, E2).

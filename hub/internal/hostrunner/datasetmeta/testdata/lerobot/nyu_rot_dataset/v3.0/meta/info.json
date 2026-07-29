@@ -1,0 +1,130 @@
+{
+  "codebase_version": "v3.0",
+  "robot_type": "unknown",
+  "total_episodes": 14,
+  "total_frames": 440,
+  "total_tasks": 12,
+  "chunks_size": 1000,
+  "fps": 5,
+  "splits": {
+    "train": "0:14"
+  },
+  "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+  "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+  "features": {
+    "observation.images.image": {
+      "dtype": "video",
+      "shape": [
+        84,
+        84,
+        3
+      ],
+      "names": [
+        "height",
+        "width",
+        "channel"
+      ],
+      "video_info": {
+        "video.fps": 5.0,
+        "video.codec": "av1",
+        "video.pix_fmt": "yuv420p",
+        "video.is_depth_map": false,
+        "has_audio": false
+      }
+    },
+    "observation.state": {
+      "dtype": "float32",
+      "shape": [
+        7
+      ],
+      "names": {
+        "motors": [
+          "motor_0",
+          "motor_1",
+          "motor_2",
+          "motor_3",
+          "motor_4",
+          "motor_5",
+          "motor_6"
+        ]
+      },
+      "fps": 5.0
+    },
+    "action": {
+      "dtype": "float32",
+      "shape": [
+        7
+      ],
+      "names": {
+        "motors": [
+          "motor_0",
+          "motor_1",
+          "motor_2",
+          "motor_3",
+          "motor_4",
+          "motor_5",
+          "motor_6"
+        ]
+      },
+      "fps": 5.0
+    },
+    "timestamp": {
+      "dtype": "float32",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    },
+    "episode_index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    },
+    "frame_index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    },
+    "next.reward": {
+      "dtype": "float32",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    },
+    "next.done": {
+      "dtype": "bool",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    },
+    "index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    },
+    "task_index": {
+      "dtype": "int64",
+      "shape": [
+        1
+      ],
+      "names": null,
+      "fps": 5.0
+    }
+  },
+  "data_files_size_in_mb": 100,
+  "video_files_size_in_mb": 500
+}

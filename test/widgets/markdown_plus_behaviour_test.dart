@@ -98,10 +98,20 @@ void main() {
     expect(find.byType(HighlightView), findsOneWidget);
   });
 
-  testWidgets('a fenced block with no language is still themed', (tester) async {
-    // "language-" with an empty id maps to plaintext — the block keeps its
-    // background and padding rather than falling back to bare prose.
+  testWidgets('a fenced block with no language does NOT reach the highlighter',
+      (tester) async {
+    // Written first as `findsOneWidget`, on the strength of a doc comment in
+    // markdown_builders.dart claiming a bare fence got a plaintext highlight
+    // via `class="language-"`. It fails — and an A/B probe against the
+    // pre-migration renderer showed it fails there too, so the claim was never
+    // true under either. The `markdown` package adds the class only when the
+    // fence declares an info string (≥0.10.0).
+    //
+    // The block is still rendered as a code block, through the styleSheet's
+    // codeblockDecoration. Pinned here so the comment and the behaviour cannot
+    // drift apart again.
     await pumpCard(tester, 'Code:\n\n```\nplain text block\n```\n');
-    expect(find.byType(HighlightView), findsOneWidget);
+    expect(find.byType(HighlightView), findsNothing);
+    expect(renderedText(tester), contains('plain text block'));
   });
 }

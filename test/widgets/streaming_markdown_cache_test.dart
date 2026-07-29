@@ -50,6 +50,14 @@ class _HarnessState extends State<_Harness> {
   }
 }
 
+/// Pumps the harness and discards the build from its initial empty text, so a
+/// test asserts only on the chunks it drives.
+Future<_HarnessState> boot(WidgetTester tester, List<String> built) async {
+  await tester.pumpWidget(_Harness(built: built));
+  built.clear();
+  return tester.state<_HarnessState>(find.byType(_Harness));
+}
+
 Map<String, dynamic> _textEvent(String text, {bool? partial}) => {
       'id': 'e1',
       'seq': 1,
@@ -76,8 +84,7 @@ void main() {
   testWidgets('a settled block is built once, however many chunks follow',
       (tester) async {
     final built = <String>[];
-    await tester.pumpWidget(_Harness(built: built));
-    final state = tester.state<_HarnessState>(find.byType(_Harness));
+    final state = await boot(tester, built);
 
     state.grow('Alpha.\n\nBeta.\n\ntail one');
     await tester.pump();
@@ -98,8 +105,7 @@ void main() {
   testWidgets('a completed tail is parsed once more, then never again',
       (tester) async {
     final built = <String>[];
-    await tester.pumpWidget(_Harness(built: built));
-    final state = tester.state<_HarnessState>(find.byType(_Harness));
+    final state = await boot(tester, built);
 
     state.grow('Alpha.\n\ntail');
     await tester.pump();
@@ -121,8 +127,7 @@ void main() {
     // Otherwise a theme flip mid-turn would leave settled blocks in the old
     // colours — cached widgets carry their styling with them.
     final built = <String>[];
-    await tester.pumpWidget(_Harness(built: built));
-    final state = tester.state<_HarnessState>(find.byType(_Harness));
+    final state = await boot(tester, built);
 
     state.grow('Alpha.\n\nBeta.\n\ntail');
     await tester.pump();
@@ -135,8 +140,7 @@ void main() {
 
   testWidgets('text with no safe boundary renders as one body', (tester) async {
     final built = <String>[];
-    await tester.pumpWidget(_Harness(built: built));
-    final state = tester.state<_HarnessState>(find.byType(_Harness));
+    final state = await boot(tester, built);
 
     // A list is atomic — no cut is safe anywhere in it.
     const src = '- alpha\n\n- beta\n\n- gamma';

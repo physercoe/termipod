@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
@@ -11,7 +11,9 @@ import {
   valueAt,
   xToTime,
 } from '../state/replaySeries';
-import type { EpisodeRow } from '../state/replayDigest';
+import type { EpisodeRow, EpisodeVideo } from '../state/replayDigest';
+import { episodeVideoUrl, fileTimeOf, isPastEnd } from '../state/replayMedia';
+import { isShell } from '../platform';
 
 /// The episode player's **plots** half (J8 W2c): one episode's channels against
 /// a shared time axis, with a cursor that reads out every channel at once.
@@ -36,11 +38,14 @@ const MAX_POINTS = 1200;
 
 export function EpisodePlayer({
   datasetId,
+  rootPath,
   episode,
   summary,
   onClose,
 }: {
   datasetId: string;
+  /// The dataset root, joined to each video's host-resolved relative path.
+  rootPath: string;
   episode: EpisodeRow;
   summary: DatasetSummary;
   onClose: () => void;
@@ -122,13 +127,7 @@ export function EpisodePlayer({
 
       {episode.tasks.length > 0 && <div className="replay-player-task small">{episode.tasks.join(' · ')}</div>}
 
-      {/* The honest placeholder. Video is W2d; an empty black rectangle would
-          read as a broken player rather than an unbuilt one. */}
-      {summary.videoStreams.length > 0 && (
-        <div className="replay-player-novideo small muted">
-          {t('replay.player.videoLater').replace('{n}', String(summary.videoStreams.length))}
-        </div>
-      )}
+      <VideoGrid rootPath={rootPath} episode={episode} summary={summary} cursor={cursorTime} />
 
       {seriesQ.isPending && <div className="muted small region-pad">{t('replay.player.loading')}</div>}
       {seriesQ.isError && (
@@ -242,4 +241,124 @@ export function EpisodePlayer({
 /// themes.
 function traceColor(i: number): string {
   return `hsl(${(i * 137.508) % 360} 65% 55%)`;
+}
+
+/// The multi-camera video grid.
+///
+/// No transcoding and no clip extraction: the Electron main process serves the
+/// file with range support and each `<video>` seeks to its episode's slice.
+/// That works because a real LeRobot mp4 carries a keyframe every 0.4s, so a
+/// seek costs at most one extra decoded frame — measured, not assumed.
+///
+/// A v3.0 file holds every episode of the dataset, so the pane has to STOP at
+/// the slice end; left alone, playback rolls into the next episode and looks
+/// like the robot teleporting rather than like a player that forgot to stop.
+function VideoGrid({
+  rootPath,
+  episode,
+  summary,
+  cursor,
+}: {
+  rootPath: string;
+  episode: EpisodeRow;
+  summary: DatasetSummary;
+  cursor: number | null;
+}): JSX.Element | null {
+  const t = useT();
+
+  // The dataset declares cameras but this episode carries no playable slice —
+  // an older digest, or a template the host could not resolve. Saying which of
+  // the two states this is beats an empty area that reads as a layout bug.
+  if (episode.videos.length === 0) {
+    if (summary.videoStreams.length === 0) return null;
+    return (
+      <div className="replay-player-novideo small muted">
+        {t('replay.player.noVideoSlices').replace('{n}', String(summary.videoStreams.length))}
+      </div>
+    );
+  }
+  // The media scheme lives in the Electron main process; a plain-browser build
+  // has no way to read a local file at all.
+  if (!isShell()) {
+    return <div className="replay-player-novideo small muted">{t('replay.player.videoDesktopOnly')}</div>;
+  }
+
+  return (
+    <div className="replay-video-grid">
+      {episode.videos.map((v) => (
+        <VideoPane key={v.key} rootPath={rootPath} video={v} cursor={cursor} />
+      ))}
+    </div>
+  );
+}
+
+function VideoPane({
+  rootPath,
+  video,
+  cursor,
+}: {
+  rootPath: string;
+  video: EpisodeVideo;
+  cursor: number | null;
+}): JSX.Element {
+  const t = useT();
+  const ref = useRef<HTMLVideoElement>(null);
+  const [failed, setFailed] = useState(false);
+  const url = episodeVideoUrl(rootPath, video);
+
+  // Park the playhead at the episode's start whenever the slice changes. A
+  // shared v3.0 file opens at 0, which is some other episode entirely.
+  useEffect(() => {
+    setFailed(false);
+    const el = ref.current;
+    if (el === null) return;
+    const seek = (): void => {
+      el.currentTime = video.fromTS;
+    };
+    if (el.readyState >= 1) seek();
+    else el.addEventListener('loadedmetadata', seek, { once: true });
+    return () => el.removeEventListener('loadedmetadata', seek);
+  }, [url, video.fromTS]);
+
+  // Follow the plot cursor. Only while paused: during playback the video owns
+  // the clock, and writing currentTime on every frame would fight the decoder.
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null || cursor === null || !el.paused) return;
+    const want = fileTimeOf(video, cursor);
+    // A tolerance, because assigning currentTime triggers a seek and seeks are
+    // not free; a sub-frame correction is not worth one.
+    if (Math.abs(el.currentTime - want) > 0.02) el.currentTime = want;
+  }, [cursor, video]);
+
+  if (url === null || failed) {
+    return (
+      <div className="replay-video-pane">
+        <div className="replay-video-head small mono">{video.key}</div>
+        <div className="replay-video-missing small muted">{t('replay.player.videoUnreadable')}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="replay-video-pane">
+      <div className="replay-video-head small mono">{video.key}</div>
+      <video
+        ref={ref}
+        className="replay-video"
+        src={url}
+        controls
+        preload="metadata"
+        onError={() => setFailed(true)}
+        // Stop at the slice end rather than rolling into the next episode.
+        onTimeUpdate={(e) => {
+          const el = e.currentTarget;
+          if (!el.paused && isPastEnd(video, el.currentTime)) {
+            el.pause();
+            el.currentTime = video.toTS;
+          }
+        }}
+      />
+    </div>
+  );
 }

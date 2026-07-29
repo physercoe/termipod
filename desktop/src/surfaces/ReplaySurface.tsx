@@ -402,6 +402,7 @@ export function ReplaySurface(): JSX.Element {
               {playerEpisode !== undefined && (
                 <EpisodePlayer
                   datasetId={datasetId}
+                  rootPath={str(selected, 'root_path') ?? ''}
                   episode={playerEpisode}
                   summary={summary}
                   onClose={() => setOpenEpisode(null)}

@@ -232,6 +232,19 @@ export function readDatasetSummary(dataset: Entity | undefined | null): DatasetS
   };
 }
 
+/// One episode's slice of one video file. Both LeRobot generations report this
+/// shape — v3.0 reads the range from its metadata, v2.1 has a file per episode
+/// and therefore an implicit [0, duration) — so the player never branches on
+/// the format.
+export interface EpisodeVideo {
+  key: string;
+  /// Relative to the dataset root, already resolved host-side through
+  /// info.json's video_path template.
+  path: string;
+  fromTS: number;
+  toTS: number;
+}
+
 export interface EpisodeRow {
   index: number;
   length: number;
@@ -241,6 +254,9 @@ export interface EpisodeRow {
   /// The UI shows the row range as provenance for what the player will cut.
   fromIndex?: number;
   toIndex?: number;
+  /// Sorted by key so a multi-camera grid keeps a stable pane order across
+  /// reads — map iteration order off the wire is not a layout decision.
+  videos: EpisodeVideo[];
 }
 
 export interface EpisodePageView {
@@ -265,12 +281,14 @@ export function readEpisodePage(page: Entity | undefined | null): EpisodePageVie
         tasks: arr(e.tasks)
           .map((t) => str(t))
           .filter(Boolean),
+        videos: [],
       };
       // 0 is a legitimate offset, so presence is tested on the key, not on
       // truthiness — `num(e.from_index) || undefined` would erase episode 0's
       // range and make the first row look like a per-episode-file layout.
       if (typeof e.from_index === 'number') row.fromIndex = e.from_index;
       if (typeof e.to_index === 'number') row.toIndex = e.to_index;
+      row.videos = readEpisodeVideos(e.videos);
       return row;
     });
   return {
@@ -280,6 +298,25 @@ export function readEpisodePage(page: Entity | undefined | null): EpisodePageVie
     total: num(page.total),
     truncated: page.truncated === true,
   };
+}
+
+/// Read an episode's `videos` map into a sorted list.
+///
+/// A slice with no path is dropped: the host omits the path when the template
+/// could not be resolved, and a pane pointing nowhere renders as broken video
+/// rather than as an honest absence.
+function readEpisodeVideos(v: unknown): EpisodeVideo[] {
+  const m = obj(v);
+  if (!m) return [];
+  const out: EpisodeVideo[] = [];
+  for (const key of Object.keys(m).sort()) {
+    const slice = obj(m[key]);
+    if (!slice) continue;
+    const path = str(slice.path);
+    if (path === '') continue;
+    out.push({ key, path, fromTS: num(slice.from_ts), toTS: num(slice.to_ts) });
+  }
+  return out;
 }
 
 /// The 1-based inclusive range this page covers, for a "showing 1–200 of 50,000"

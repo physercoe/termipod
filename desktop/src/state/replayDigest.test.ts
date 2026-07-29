@@ -214,12 +214,12 @@ test('a per-episode-file layout simply has no row range', () => {
 
 test('page range label is 1-based and inclusive, and absent when empty', () => {
   assert.deepEqual(
-    pageRangeLabel({ rows: [{ index: 0, length: 1, durationSec: 0, tasks: [] }], offset: 0, limit: 1, total: 14, truncated: false }),
+    pageRangeLabel({ rows: [{ index: 0, length: 1, durationSec: 0, tasks: [], videos: [] }], offset: 0, limit: 1, total: 14, truncated: false }),
     { from: 1, to: 1, total: 14 },
   );
   assert.deepEqual(
     pageRangeLabel({
-      rows: Array.from({ length: 5 }, (_, i) => ({ index: i, length: 1, durationSec: 0, tasks: [] })),
+      rows: Array.from({ length: 5 }, (_, i) => ({ index: i, length: 1, durationSec: 0, tasks: [], videos: [] })),
       offset: 200,
       limit: 5,
       total: 50_000,
@@ -382,4 +382,53 @@ test('a row without a usable id cannot be selected', () => {
     resolveHandoff({ rootPath: '/data/ds' }, [{ root_path: '/data/ds' }, { id: 'good', root_path: '/data/ds' }]),
     { action: 'select', datasetId: 'good' },
   );
+});
+
+// ── episode video slices (W2d) ───────────────────────────────────────────────
+
+test('video slices read into a key-sorted list', () => {
+  // Sorted, because map order off the wire is not a layout decision and a
+  // multi-camera grid that reshuffles its panes between reads is unusable.
+  const view = readEpisodePage({
+    episodes: [
+      {
+        index: 1,
+        length: 30,
+        videos: {
+          'observation.images.up': { path: 'videos/up/chunk-000/file-000.mp4', from_ts: 8, to_ts: 14 },
+          'observation.images.side': { path: 'videos/side/chunk-000/file-000.mp4', from_ts: 8, to_ts: 14 },
+        },
+      },
+    ],
+  });
+  const vs = view.rows[0].videos;
+  assert.equal(vs.length, 2);
+  assert.deepEqual(
+    vs.map((v) => v.key),
+    ['observation.images.side', 'observation.images.up'],
+  );
+  assert.equal(vs[1].path, 'videos/up/chunk-000/file-000.mp4');
+  assert.equal(vs[1].fromTS, 8);
+  assert.equal(vs[1].toTS, 14);
+});
+
+test('a slice with no path is dropped, not rendered as a broken pane', () => {
+  // The host omits the path when the template could not be resolved. A pane
+  // pointing nowhere looks like broken video; an absent one is honest.
+  const view = readEpisodePage({
+    episodes: [{ index: 0, length: 10, videos: { cam: { from_ts: 0, to_ts: 2 }, ok: { path: 'v.mp4' } } }],
+  });
+  assert.deepEqual(
+    view.rows[0].videos.map((v) => v.key),
+    ['ok'],
+  );
+});
+
+test('an episode with no videos reads as an empty list, never undefined', () => {
+  // The grid maps over this directly; undefined would be a crash on a
+  // video-less dataset, which is a legitimate thing to register.
+  const view = readEpisodePage({ episodes: [{ index: 0, length: 10 }] });
+  assert.deepEqual(view.rows[0].videos, []);
+  const bad = readEpisodePage({ episodes: [{ index: 0, videos: 'nonsense' }] });
+  assert.deepEqual(bad.rows[0].videos, []);
 });

@@ -3157,6 +3157,44 @@ button > .ui-icon:not(:only-child):first-child,
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
 }
+/* The camera grid. auto-fit so a one-camera dataset gets one wide pane and a
+   four-camera rig wraps, without the component knowing the count. */
+.replay-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s8);
+}
+.replay-video-pane {
+  display: grid;
+  gap: var(--spacing-s2);
+  min-width: 0;
+}
+.replay-video-head {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-video {
+  width: 100%;
+  /* Robot cameras are frequently square (the fixture is 84x84), so a fixed
+     16:9 box would letterbox every one of them. */
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.replay-video-missing {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-s8);
+  text-align: center;
+}
 .replay-player-toggles {
   display: flex;
   flex-wrap: wrap;

@@ -26,11 +26,30 @@ export interface ReplayHandoff {
   rootPath: string;
 }
 
+/// A dataset another surface wants opened **by hub id** (W5).
+///
+/// The counterpart to `ReplayHandoff`, and deliberately a different type. That
+/// one carries a location because Inspect only knows a location; this one comes
+/// from a run row that already holds `dataset_id`, so there is nothing to
+/// resolve and no register form to fall back to.
+///
+/// The project travels with it because the Replay surface defaults to the FIRST
+/// project in the list: without it the surface would load some other project's
+/// library, never find the dataset, and silently show the wrong one.
+export interface ReplayTarget {
+  datasetId: string;
+  projectId: string;
+  /// Episode index to open in the player. The surface pages the episodes
+  /// table, so it has to seek to the page holding this index first.
+  episode?: number;
+}
+
 interface ReplayState {
   /// '' means "no explicit choice yet"; the surface falls back to the first
   /// dataset in the library rather than showing nothing.
   selectedId: string;
   handoff: ReplayHandoff | null;
+  target: ReplayTarget | null;
   select: (id: string) => void;
   /// Ask the Replay surface to open a dataset by location. The caller switches
   /// the job itself — this store owns what Replay shows, not where the shell is.
@@ -39,14 +58,34 @@ interface ReplayState {
   /// surface can only decide "already registered" vs "offer to register" after
   /// its library query settles, and a handoff cleared before then would be lost.
   clearHandoff: () => void;
+  /// Ask Replay to open an already-registered dataset, optionally at an
+  /// episode. Used by RunDetail's Episodes view.
+  openRegistered: (t: ReplayTarget) => void;
+  clearTarget: () => void;
 }
 
 export const useReplay = create<ReplayState>((set) => ({
   selectedId: '',
   handoff: null,
+  target: null,
   select: (selectedId) => set({ selectedId }),
   // A new handoff drops any prior selection: the surface must not flash the
   // previously-open dataset while it works out what the incoming one is.
   openDataset: (handoff) => set({ handoff, selectedId: '' }),
   clearHandoff: () => set({ handoff: null }),
+  // The two are mutually exclusive: a target names a row outright, so any
+  // pending location handoff is stale the moment one arrives.
+  openRegistered: (target) => set({ target, handoff: null }),
+  clearTarget: () => set({ target: null }),
 }));
+
+/// The page offset that contains an episode index.
+///
+/// The episodes table is windowed, and the player renders from the CURRENT
+/// page's rows. Landing on episode 1 400 with the table still at offset 0 shows
+/// an empty player over a table that does not contain the episode — the jump
+/// looks broken rather than out of range.
+export function pageOffsetFor(episode: number, pageSize: number): number {
+  if (!Number.isFinite(episode) || episode <= 0 || pageSize <= 0) return 0;
+  return Math.floor(episode / pageSize) * pageSize;
+}

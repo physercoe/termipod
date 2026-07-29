@@ -8,6 +8,9 @@ import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { parsePoints, Sparkline } from '../ui/Sparkline';
 import { useConfirm } from '../ui/ConfirmModal';
+import { useReplay } from '../state/replay';
+import { useWorkbench } from '../state/workbench';
+import { formatCount, formatDuration, readDatasetSummary, readEpisodePage } from '../state/replayDigest';
 
 /// Run detail (parity — mobile _RunDetailScreen ViewSwitcher: Overview / Charts /
 /// Media / Outputs / Config). Charts renders scalar `/metrics` + `/system_metrics`
@@ -27,7 +30,168 @@ function fmtConfig(v: unknown): string {
   }
 }
 
-type View = 'overview' | 'charts' | 'media' | 'outputs' | 'config';
+type View = 'overview' | 'charts' | 'media' | 'episodes' | 'outputs' | 'config';
+
+/// The run ↔ dataset edge, and the episodes it makes watchable (J8 W5).
+///
+/// Charts say what the numbers did; this says what the robot did. A run that
+/// names a dataset in its config can be linked in one click — the hub sniffs
+/// the field, this only confirms it — and once linked, every episode is one
+/// step from the J8 player.
+///
+/// Linking is never automatic. A config key that merely looks like a dataset is
+/// a guess, and a wrong edge sends someone to watch the wrong robot and believe
+/// what they see.
+function RunEpisodes({
+  runId,
+  run,
+  onOpened,
+}: {
+  runId: string;
+  run: Entity;
+  onOpened: () => void;
+}): JSX.Element {
+  const t = useT();
+  const client = useSession((s) => s.client);
+  const { run: act, busy } = useHubAction();
+  const [offset, setOffset] = useState(0);
+
+  const datasetId = str(run, 'dataset_id') ?? '';
+  const projectId = str(run, 'project_id') ?? '';
+
+  const hintQ = useQuery({
+    queryKey: ['run-dataset-hint', runId],
+    // Only worth asking when nothing is linked: the hint exists to propose one.
+    enabled: client !== null && datasetId === '',
+    queryFn: () => client!.getRunDatasetHint(runId),
+  });
+  const datasetQ = useQuery({
+    queryKey: ['dataset', datasetId],
+    enabled: client !== null && datasetId !== '',
+    queryFn: () => client!.getDataset(datasetId),
+  });
+  const summary = readDatasetSummary(datasetQ.data);
+  const episodesQ = useQuery({
+    queryKey: ['dataset-episodes', datasetId, offset],
+    // Episodes are proxied from the host and only exist once the dataset has
+    // been read; asking earlier surfaces as an error rather than as "unread".
+    enabled: client !== null && datasetId !== '' && summary.hasDigest,
+    queryFn: () => client!.listDatasetEpisodes(datasetId, { offset, limit: RUN_EPISODE_PAGE }),
+  });
+  const page = readEpisodePage(episodesQ.data);
+
+  function link(id: string): void {
+    void act(() => client!.updateRun(runId, { dataset_id: id }), {
+      invalidate: [['run', runId], ['run-dataset-hint', runId], ['runs']],
+    });
+  }
+
+  /// Hand the episode to J8 Replay and switch jobs. The project travels with
+  /// it: Replay defaults to the first project in the list, so without it the
+  /// surface would load a different library and never find this dataset.
+  function watch(episode?: number): void {
+    useReplay.getState().openRegistered({ datasetId, projectId, episode });
+    useWorkbench.getState().setJob('replay');
+    onOpened();
+  }
+
+  if (datasetId === '') {
+    const hint = hintQ.data?.['hint'] as Entity | null | undefined;
+    const proposed = hint === null || hint === undefined ? null : (str(hint, 'value') ?? '');
+    const registered = str(hintQ.data ?? {}, 'dataset_id') ?? '';
+    return (
+      <section className="setting-group">
+        {hintQ.isLoading && <div className="muted">{t('common.loading')}</div>}
+        {!hintQ.isLoading && proposed === null && <div className="muted">{t('run.dataset.noHint')}</div>}
+        {proposed !== null && (
+          <>
+            <div className="admin-row">
+              <span className="muted">{t('run.dataset.proposed')}</span>
+              <span className="spacer" />
+              <span className="mono small">{proposed}</span>
+            </div>
+            <div className="muted small">
+              {t('run.dataset.fromKey').replace('{key}', str(hint ?? {}, 'key') ?? '')}
+            </div>
+            {registered !== '' ? (
+              <div className="admin-row">
+                <span className="muted small">{t('run.dataset.isRegistered')}</span>
+                <span className="spacer" />
+                <button disabled={busy} onClick={() => link(registered)}>
+                  {t('run.dataset.link')}
+                </button>
+              </div>
+            ) : (
+              // No row to link to. Saying which of the two states this is beats
+              // a disabled button that gives no reason.
+              <div className="muted small">{t('run.dataset.notRegistered')}</div>
+            )}
+          </>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="setting-group">
+      <div className="admin-row">
+        <span className="muted">{t('run.dataset')}</span>
+        <span className="spacer" />
+        <span className="mono small">{str(datasetQ.data ?? {}, 'name') ?? datasetId}</span>
+        <button disabled={busy} onClick={() => watch()}>
+          {t('run.dataset.openReplay')} →
+        </button>
+        <button disabled={busy} onClick={() => link('')}>
+          {t('run.dataset.unlink')}
+        </button>
+      </div>
+
+      {datasetQ.isLoading && <div className="muted">{t('common.loading')}</div>}
+      {datasetQ.data !== undefined && !summary.hasDigest && (
+        <div className="muted small">{t('run.dataset.unread')}</div>
+      )}
+
+      {summary.hasDigest && (
+        <>
+          {episodesQ.isLoading && <div className="muted">{t('common.loading')}</div>}
+          {page.rows.map((row) => (
+            <div key={row.index} className="admin-row">
+              <span className="mono small">{row.index}</span>
+              <span className="muted small">
+                {formatCount(row.length)} · {formatDuration(row.durationSec)}
+              </span>
+              <span className="spacer" />
+              {row.tasks.length > 0 && <span className="muted small">{row.tasks[0]}</span>}
+              <button onClick={() => watch(row.index)}>{t('run.episodes.watch')}</button>
+            </div>
+          ))}
+          {!episodesQ.isLoading && page.rows.length === 0 && <div className="muted">{t('run.episodes.none')}</div>}
+          {page.total > RUN_EPISODE_PAGE && (
+            <div className="admin-row">
+              <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - RUN_EPISODE_PAGE))}>
+                {t('replay.prev')}
+              </button>
+              <span className="muted small">
+                {offset + 1}–{offset + page.rows.length} / {page.total}
+              </span>
+              <span className="spacer" />
+              <button
+                disabled={offset + page.rows.length >= page.total}
+                onClick={() => setOffset(offset + RUN_EPISODE_PAGE)}
+              >
+                {t('replay.next')}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/// Smaller than the Replay surface's page: this list lives in a modal beside
+/// four other views, not on a surface of its own.
+const RUN_EPISODE_PAGE = 25;
 
 /// One logged image — fetches blob bytes lazily (only when this tile mounts) and
 /// renders them as a data URL. Mirrors mobile's _ImageSeriesTile lazy download.
@@ -116,6 +280,7 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
     { v: 'overview', label: t('run.overview') },
     { v: 'charts', label: t('run.charts') },
     { v: 'media', label: t('run.media') },
+    { v: 'episodes', label: t('run.episodes') },
     { v: 'outputs', label: t('run.outputs') },
     { v: 'config', label: t('run.config') },
   ];
@@ -260,6 +425,10 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
                 </>
               )}
             </section>
+          )}
+
+          {view === 'episodes' && runQ.data !== undefined && (
+            <RunEpisodes runId={runId} run={run} onOpened={onClose} />
           )}
 
           {view === 'outputs' && (

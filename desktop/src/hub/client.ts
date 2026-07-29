@@ -506,6 +506,13 @@ export class HubClient {
   getRunConfig(id: string): Promise<Entity> {
     return this.transport.get(this.transport.team(`/runs/${id}/config`)) as Promise<Entity>;
   }
+  /** What dataset this run's config names, and whether the project already has
+   * it registered (`handleGetRunDatasetHint`, J8 W5) →
+   * `{hint: {value, kind, key} | null, dataset_id?, linked_dataset_id?}`.
+   * Advisory only — linking is `updateRun(id, {dataset_id})`. */
+  getRunDatasetHint(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/runs/${id}/dataset_hint`)) as Promise<Entity>;
+  }
   /** Content-addressed run/project outputs (`handleListArtifacts`, bare array).
    * Filter by `project` and/or `run` (note: `run`, not `run_id`). */
   async listArtifacts(params: { project?: string; run?: string; kind?: string } = {}): Promise<Entity[]> {
@@ -526,6 +533,9 @@ export class HubClient {
       trackio_host_id?: string;
       trackio_run_uri?: string;
       parent_run_id?: string;
+      /** The dataset this run trained on / rolled out against (J8 W5).
+       * Must be in the run's own project; '' unlinks. */
+      dataset_id?: string;
     },
   ): Promise<Entity> {
     return this.transport.patch(this.transport.team(`/runs/${id}`), patch) as Promise<Entity>;

@@ -5,7 +5,7 @@ import { str, type Entity } from '../hub/types';
 import { useHubAction } from '../hub/action';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
-import { useReplay } from '../state/replay';
+import { pageOffsetFor, useReplay } from '../state/replay';
 import {
   formatCount,
   formatDuration,
@@ -152,6 +152,11 @@ export function ReplaySurface(): JSX.Element {
   const setSelectedId = useReplay((s) => s.select);
   const handoff = useReplay((s) => s.handoff);
   const clearHandoff = useReplay((s) => s.clearHandoff);
+  const target = useReplay((s) => s.target);
+  const clearTarget = useReplay((s) => s.clearTarget);
+  /// An episode a run asked us to open, held until its dataset's library has
+  /// actually loaded. Cleared once applied.
+  const [pendingTarget, setPendingTarget] = useState<{ datasetId: string; episode: number } | null>(null);
   const [offset, setOffset] = useState(0);
   /// The episode open in the player, by index. Surface-local: unlike the
   /// dataset selection it is never handed over from another surface, and it
@@ -212,6 +217,28 @@ export function ReplaySurface(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handoff, libraryLoaded, datasets]);
 
+  /// Consume a by-id target (W5 — RunDetail's Episodes view). Simpler than the
+  /// handoff above because there is nothing to resolve: the run row already
+  /// holds `dataset_id`, so this only has to point the surface at it.
+  ///
+  /// The project comes along because this surface defaults to the FIRST project
+  /// in the list; without setting it, the library query would load some other
+  /// project's datasets and the target would never be found.
+  useEffect(() => {
+    if (target === null) return;
+    if (target.projectId !== '') setProjectId(target.projectId);
+    setSelectedId(target.datasetId);
+    setAdding(false);
+    setPrefilled(false);
+    // The episode cannot be applied yet: the datasetId-change effect above is
+    // about to reset offset and close the player, and the episodes query has
+    // not run. Park it and let the effect below apply it once the selection has
+    // actually settled on the target dataset.
+    setPendingTarget(target.episode === undefined ? null : { datasetId: target.datasetId, episode: target.episode });
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+
   const summary = readDatasetSummary(selected);
 
   const episodesQ = useQuery({
@@ -222,6 +249,21 @@ export function ReplaySurface(): JSX.Element {
     enabled: client !== null && datasetId !== '' && summary.hasDigest,
     queryFn: () => client!.listDatasetEpisodes(datasetId, { offset, limit: PAGE_SIZE }),
   });
+  // Applied AFTER the datasetId-reset effect on purpose: effects flush in
+  // declaration order within a commit, and that one clears `offset` and
+  // `openEpisode` the moment the selection changes. Running this first would
+  // have the reset immediately undo it.
+  useEffect(() => {
+    if (pendingTarget === null) return;
+    // Wait for the library: until the target dataset is the selected one, the
+    // surface is still showing whatever it fell back to, and seeking its table
+    // would page an unrelated dataset.
+    if (datasetId !== pendingTarget.datasetId) return;
+    setOffset(pageOffsetFor(pendingTarget.episode, PAGE_SIZE));
+    setOpenEpisode(pendingTarget.episode);
+    setPendingTarget(null);
+  }, [datasetId, pendingTarget]);
+
   const page = readEpisodePage(episodesQ.data);
   const range = pageRangeLabel(page);
   // The player needs the row, not just its index — length, duration and task

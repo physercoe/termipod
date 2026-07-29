@@ -134,17 +134,23 @@ test('terminal: a local PTY round-trips through the bridge', async () => {
 });
 
 test('terminal UI: opening a local shell mounts an xterm screen', async () => {
-  // Ctrl+8 → the Terminal surface (AppShell command hint). The panel is
-  // always-mounted but CSS-hidden until active.
-  await page.keyboard.press('Control+8');
   // On boot with no hub configured the "Add a hub" connect modal is open; its
-  // backdrop intercepts clicks on the surface, so dismiss it first (its close
-  // button lives in the modal head). Conditional — it isn't always present.
+  // backdrop intercepts clicks, so dismiss it before touching anything else
+  // (its close button lives in the modal head). Conditional — it isn't always
+  // present. This now has to happen FIRST: the old version reached the surface
+  // with a keyboard shortcut, which the backdrop does not block.
   const connectClose = page.locator('.connect-head button');
   if (await connectClose.isVisible().catch(() => false)) {
     await connectClose.click();
     await expect(page.locator('.connect')).toHaveCount(0);
   }
+  // Then click the Terminal rail tab BY IDENTITY. Not the Ctrl+<n> shortcut:
+  // that is positional, so every job added to the activity bar renumbers it and
+  // silently lands this test on a different surface. Adding J8 Replay between
+  // Compare and Record moved Terminal from 8 to 9, and the breakage surfaced as
+  // a 30s click timeout on `.term-add-btn` — a failure that names neither the
+  // rail nor the shortcut.
+  await page.locator('[data-job="terminal"]').click();
   await page.locator('.term-add-btn').first().click(); // the "+" new-session menu
   await page.locator('.term-add-menu button').first().click(); // "Local shell"
   // xterm mounted its screen — proves the UI PTY path renders without crashing

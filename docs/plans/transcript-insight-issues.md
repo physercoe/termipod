@@ -1,8 +1,9 @@
 # Transcript P5 wedge — session integrity issues + streaming-markdown efficiency
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — **Track A shipped (A1 #437 · A3 #438 ·
-> A2 #439)** and **B1 #440**; B2/B3 blocked on a device run (§4)
+> **Status:** Complete (2026-07-29) — Track A (#437 · #438 · #439) and
+> Track B (#440 · #442 · #443) all on main. Remaining work is recorded in §6
+> and §7, not in this plan's wedges.
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `a402423f`
 > **Parent:** [agent-transcript-redesign.md](agent-transcript-redesign.md) §P5
@@ -377,16 +378,36 @@ Verified against pub.dev on 2026-07-29 (the plan previously said "v1.0.x"):
 does expose `MarkdownBody` / `MarkdownElementBuilder` / `builders` /
 `styleSheet`. The migration target is real and current.
 
-### Why B2 and B3 stopped here (2026-07-29)
+### How B2 and B3 were verified without a device (2026-07-29)
 
-Both are **blocked on verification, not on design**. Flutter is not installed on
-the authoring host, so B2 — a rewrite of the transcript's hottest widget whose
-whole claim is "the render is unchanged" — cannot have that claim established
-before it ships; the pure scanner would be CI-testable but the rendering would
-not. B3's own acceptance criteria name two runtime behaviours to confirm, and
-confirming them means running the app. This is the same file whose dispatch
-logic regressed five times (`feed_reducer.dart` header, v1.0.667–721), which is
-exactly the wrong place to ship an unverifiable change. Both need a device run.
+Both shipped on the director's explicit go-ahead, with a device pass to follow.
+What made that defensible was moving the claims into assertions:
+
+- **B2** — the tests count **builds, not splits**. Asserting that a split
+  happened would prove nothing about whether work was saved; counting builds
+  fails if the cache silently stops working. The boundary rules live in pure
+  Dart so each negative case (a place where splitting would change the
+  markdown's meaning) is directly testable.
+- **B3** — the two behaviours the plan listed as "verify on device" became
+  tests, which is strictly better: they are properties of the *renderer*, so
+  they double as a regression net for the next version bump. The inline-code
+  test ships with a positive control, so "no highlighter" cannot pass by the
+  builder having been unwired entirely.
+
+**What that caught.** The bare-fence assertion failed — and an A/B probe of the
+same test against the pre-migration renderer failed too, proving it was not a
+regression but a **false claim in `markdown_builders.dart`'s doc comment**
+(bare fences have never been highlighted; the `markdown` package adds the
+`language-` class only when the fence declares an info string). The comment was
+corrected and the real behaviour pinned. Generalizable: when a test fails during
+a migration you cannot tell a regression from a false premise — push the same
+test to a throwaway branch off pre-migration `main` and let CI answer, *before*
+touching production code.
+
+**Still unverified:** how any of it looks. B2 mid-stream (especially list-heavy
+output, which is atomic and so gets few cuts) and B3 across the non-transcript
+surfaces — docs viewer, task detail, templates, reviews — were swept
+mechanically and carry no tests.
 
 ## 5. Sequencing & review anchors
 

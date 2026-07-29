@@ -1,8 +1,8 @@
 # Transcript P5 wedge — session integrity issues + streaming-markdown efficiency
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — **Track A shipped (A1·A2·A3)**;
-> Track B open
+> **Status:** In progress (2026-07-29) — **Track A shipped (A1 #437 · A3 #438 ·
+> A2 #439)** and **B1 #440**; B2/B3 blocked on a device run (§4)
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `a402423f`
 > **Parent:** [agent-transcript-redesign.md](agent-transcript-redesign.md) §P5

@@ -154,27 +154,32 @@ export async function pinSet(key: string, value: string): Promise<void> {
   await saveStore();
 }
 
+/// In-process read of a key from the safeStorage store, with the same lazy
+/// Tauri-migration fallback as the `keychain_get` IPC handler. Used by the
+/// browser bridge's audit poster (`hub_token_<profileId>`) so the hub bearer
+/// never crosses IPC.
+export async function keychainGetLocal(key: string): Promise<string | null> {
+  const s = await ready();
+  const b = s[key];
+  if (b !== undefined) return decrypt(b);
+  // Store miss — lazy per-item migration from the Tauri keychain service
+  // (see the header). Skipped under TERMIPOD_E2E like the boot migration
+  // (no real secrets on a throwaway profile; the cross-app read would pop a
+  // macOS password dialog).
+  if (process.env.TERMIPOD_E2E !== undefined) return null;
+  const legacy = await readTauriItem(key);
+  if (legacy === null) return null;
+  s[key] = encrypt(legacy);
+  await saveStore();
+  return legacy;
+}
+
 export const keychainHandlers: Record<string, Handler> = {
   // File store, no Credential Manager byte cap → persist.ts must not chunk.
   keychain_is_windows: () => false,
 
   keychain_get: async (args): Promise<string | null> => {
-    const key = String(args.key ?? '');
-    const s = await ready();
-    const b = s[key];
-    if (b !== undefined) return decrypt(b);
-    // Store miss — lazy per-item migration from the Tauri keychain service
-    // (see the header): covers pre-consolidation per-secret items the boot
-    // reader can't enumerate. Fold a hit into the store so later reads are
-    // local and the OS item is touched at most once. Skipped under
-    // TERMIPOD_E2E like the boot migration (no real secrets on a throwaway
-    // profile; the cross-app read would pop a macOS password dialog).
-    if (process.env.TERMIPOD_E2E !== undefined) return null;
-    const legacy = await readTauriItem(key);
-    if (legacy === null) return null;
-    s[key] = encrypt(legacy);
-    await saveStore();
-    return legacy;
+    return keychainGetLocal(String(args.key ?? ''));
   },
 
   keychain_set: async (args): Promise<void> => {

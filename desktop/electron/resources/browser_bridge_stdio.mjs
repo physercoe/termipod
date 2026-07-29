@@ -11,15 +11,20 @@
 ///
 /// Env (injected by the hostrunner from ~/.termipod/browser-bridge.json):
 ///   TP_BROWSER_URL    — full MCP endpoint, http://127.0.0.1:<port>/mcp
-///   TP_BROWSER_TOKEN  — per-app-run bearer
-///   TP_BROWSER_SCOPE  — 'read' (W1) | 'action' (W2 spawn opt-in); forwarded
-///                       as a header, the desktop enforces the tool set.
+///   TP_BROWSER_TOKEN  — per-app-run bearer (read token, or the action token
+///                       for spawns that opted in via browser_bridge: true)
+///   TP_BROWSER_SCOPE  — 'read' | 'action' (W2 spawn opt-in); informational —
+///                       the server derives scope from the bearer itself.
+///   TP_BROWSER_AGENT_ID — the spawn's hub agent id; forwarded as
+///                       x-tp-agent-id so the desktop's audit trail attributes
+///                       every action call to the calling agent.
 import http from 'node:http';
 import readline from 'node:readline';
 
 const URL_ = process.env.TP_BROWSER_URL;
 const TOKEN = process.env.TP_BROWSER_TOKEN;
 const SCOPE = process.env.TP_BROWSER_SCOPE ?? 'read';
+const AGENT_ID = process.env.TP_BROWSER_AGENT_ID ?? '';
 const TIMEOUT_MS = 30_000;
 
 // stderr is the only place we can log — stdout is the JSON-RPC channel and a
@@ -45,6 +50,7 @@ function forward(line) {
           'content-type': 'application/json',
           authorization: `Bearer ${TOKEN}`,
           'x-tp-browser-scope': SCOPE,
+          ...(AGENT_ID !== '' ? { 'x-tp-agent-id': AGENT_ID } : {}),
         },
         timeout: TIMEOUT_MS,
       },

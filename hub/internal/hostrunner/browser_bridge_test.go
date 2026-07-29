@@ -274,3 +274,104 @@ func TestBrowserBridgeInjectionMatrix(t *testing.T) {
 		}
 	})
 }
+
+// W2: the spawn-spec opt-in selects the action-scoped token; the agent id
+// always rides TP_BROWSER_AGENT_ID for the desktop's audit attribution.
+func TestBrowserBridgeActionScope(t *testing.T) {
+	withActionToken := func(t *testing.T, home string, d browserBridgeDiscovery) browserBridgeDiscovery {
+		t.Helper()
+		d.ActionToken = "tok-browser-action"
+		writeDiscovery(t, home, d)
+		return d
+	}
+
+	// envOf writes the family config and returns the injected bridge env.
+	envOf := func(t *testing.T, family string, req browserBridgeRequest) map[string]string {
+		t.Helper()
+		workdir := t.TempDir()
+		if err := writeMCPConfigForFamily(family, workdir, "https://hub.example/", "tok-hub", req); err != nil {
+			t.Fatalf("writeMCPConfigForFamily: %v", err)
+		}
+		body, err := os.ReadFile(familyConfigPath(t, family, workdir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if family == "codex" {
+			text := string(body)
+			out := map[string]string{}
+			for _, key := range []string{"TP_BROWSER_URL", "TP_BROWSER_TOKEN", "TP_BROWSER_SCOPE", "TP_BROWSER_AGENT_ID"} {
+				for _, line := range strings.Split(text, "\n") {
+					if strings.HasPrefix(line, key+" = ") {
+						out[key] = strings.Trim(strings.TrimPrefix(line, key+" = "), `"`)
+					}
+				}
+			}
+			if out["TP_BROWSER_TOKEN"] == "" {
+				t.Fatalf("codex bridge env unparsable:\n%s", text)
+			}
+			return out
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, body)
+		}
+		bb := parsed["mcpServers"].(map[string]any)["termipod-browser"].(map[string]any)
+		out := map[string]string{}
+		for k, v := range bb["env"].(map[string]any) {
+			out[k] = v.(string)
+		}
+		return out
+	}
+
+	for _, family := range []string{"claude-code", "kimi-code-ts", "gemini-cli", "codex"} {
+		t.Run(family+" opt-in gets the action token", func(t *testing.T) {
+			home, d := setupBridgeHome(t, true)
+			d = withActionToken(t, home, d)
+			env := envOf(t, family, browserBridgeRequest{optIn: true, agentID: "agent-123"})
+			if env["TP_BROWSER_TOKEN"] != d.ActionToken {
+				t.Errorf("token = %q; want the action token", env["TP_BROWSER_TOKEN"])
+			}
+			if env["TP_BROWSER_SCOPE"] != "action" {
+				t.Errorf("scope = %q; want action", env["TP_BROWSER_SCOPE"])
+			}
+			if env["TP_BROWSER_AGENT_ID"] != "agent-123" {
+				t.Errorf("agent id = %q; want agent-123", env["TP_BROWSER_AGENT_ID"])
+			}
+		})
+
+		t.Run(family+" default stays read scope", func(t *testing.T) {
+			home, d := setupBridgeHome(t, true)
+			d = withActionToken(t, home, d)
+			env := envOf(t, family, browserBridgeRequest{})
+			if env["TP_BROWSER_TOKEN"] != d.Token || env["TP_BROWSER_SCOPE"] != "read" {
+				t.Errorf("env = %v; want read token + scope=read", env)
+			}
+		})
+
+		t.Run(family+" opt-in with a W1-era discovery degrades to read", func(t *testing.T) {
+			setupBridgeHome(t, true) // no action_token written
+			env := envOf(t, family, browserBridgeRequest{optIn: true, agentID: "agent-123"})
+			if env["TP_BROWSER_SCOPE"] != "read" {
+				t.Errorf("scope = %q; want read (no action_token in discovery)", env["TP_BROWSER_SCOPE"])
+			}
+		})
+	}
+}
+
+// W2: the spawn_spec_yaml field parses through.
+func TestParseSpecBrowserBridge(t *testing.T) {
+	spec, err := ParseSpec("backend:\n  cmd: claude\nbrowser_bridge: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.BrowserBridge {
+		t.Error("browser_bridge: true did not parse")
+	}
+	spec, err = ParseSpec("backend:\n  cmd: claude\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.BrowserBridge {
+		t.Error("browser_bridge should default to false")
+	}
+}

@@ -103,6 +103,15 @@ type SpawnSpec struct {
 	// (oauth-personal for gemini-cli) doesn't match how the host caches
 	// credentials.
 	AuthMethod string `yaml:"auth_method"`
+
+	// BrowserBridge opts this spawn into the desktop browser bridge's
+	// ACTION scope (docs/plans/desktop-agent-browser-bridge.md W2). When
+	// true (and the desktop's discovery file carries an action_token), the
+	// injected termipod-browser MCP entry gets the action-scoped token so
+	// the agent can call browser_navigate/click/type/…; false (default)
+	// injects the read-scoped token only. Every action call is audited
+	// desktop-side (ring + hub agent_events mirror).
+	BrowserBridge bool `yaml:"browser_bridge"`
 }
 
 // ParseSpec tolerates empty input and returns a zero-valued spec so callers

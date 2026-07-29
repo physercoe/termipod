@@ -188,6 +188,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		}
 		if err := writeMCPConfigForFamily(
 			cfg.Spawn.Kind, expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken,
+			browserBridgeRequest{optIn: spec.BrowserBridge, agentID: cfg.Spawn.ChildID},
 		); err != nil {
 			return M1LaunchResult{}, fmt.Errorf("write mcp config: %w", err)
 		}

@@ -137,7 +137,9 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// mcp.json. Best-effort like the antigravity path: a failure
 	// degrades hub-MCP reachability, not the transcript.
 	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
-		if werr := writeMCPConfigForFamily(cfg.Spawn.Kind, workdir, cfg.HubURL, cfg.Spawn.MCPToken); werr != nil {
+		if werr := writeMCPConfigForFamily(cfg.Spawn.Kind, workdir, cfg.HubURL, cfg.Spawn.MCPToken,
+			browserBridgeRequest{optIn: spec.BrowserBridge, agentID: cfg.Spawn.ChildID},
+		); werr != nil {
 			cfg.Log.Warn("kimi wire-tail M4: write mcp config failed; agent runs without hub MCP",
 				"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 		}

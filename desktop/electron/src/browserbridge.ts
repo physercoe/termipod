@@ -22,15 +22,23 @@
 ///   - FRAGMENT REDACTION: the kimiweb embed URL carries its bearer token in
 ///     the hash (`#token=…`), so the bridge NEVER emits a URL fragment in any
 ///     tool output — every URL leaving this module passes stripFragment;
-///   - read tools only in W1 (action tools are W2, gated per-spawn); web
-///     content returned by snapshot/read_text is untrusted input to the agent
-///     — the tool descriptions say so explicitly.
+///   - TWO bearer scopes (W2): the read token (injected into every spawn)
+///     unlocks the read tools; the action token (injected only when the spawn
+///     opts in via `browser_bridge: true` in spawn_spec_yaml) also unlocks
+///     the action tools. Every action call is audit-recorded — a local ring
+///     buffer for the Settings debug view plus a best-effort hub agent_events
+///     row keyed to the calling agent (relayed per-spawn via x-tp-agent-id);
+///   - web content returned by snapshot/read_text/eval is untrusted input to
+///     the agent — the tool descriptions say so explicitly.
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { AddressInfo } from 'node:net';
+// Explicit .ts extension: this module runs under `node --test`'s strip-only
+// loader (which resolves like plain ESM) as well as esbuild.
+import { partitionPolicy } from './webtab_policy.ts';
 
 // ── Targets / backend ────────────────────────────────────────────────────────
 
@@ -59,6 +67,11 @@ export interface BridgeBackend {
   /// (`TARGET_GONE` when the tab vanished, `DEBUGGER_BUSY` when devtools or
   /// the user already holds the debugger) — surfaced as tool errors.
   sendCommand(tabId: number, method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /// The guest the user is currently viewing (W2 `browser_find_tab` with
+  /// `active:true` — WebBridge's "borrowed tab"). Reported renderer-side on
+  /// mount (`browserbridge_set_active_guest`); null when no browser tab is
+  /// visible. Optional so a minimal backend (tests) can omit it.
+  activeTabId?(): number | null;
 }
 
 /// A CDP failure the agent can act on. `code` rides the tool-error text so a
@@ -98,7 +111,11 @@ export function mintToken(): string {
 export interface BridgeDiscovery {
   /// The full MCP endpoint the stdio relay POSTs to (`http://127.0.0.1:<port>/mcp`).
   url: string;
+  /// Read scope: injected into every spawn while the bridge is live.
   token: string;
+  /// Action scope (W2): injected ONLY for spawns whose spec carries
+  /// `browser_bridge: true`. Same file (0o600), same per-run lifetime.
+  action_token: string;
   /// The Electron main pid — the hostrunner treats a dead pid as a stale
   /// file (app crashed without cleanup) and ignores + removes it.
   pid: number;
@@ -132,6 +149,88 @@ export function removeBridgeDiscovery(home: string): void {
     fs.unlinkSync(bridgeDiscoveryPath(home));
   } catch {
     /* never written / already gone */
+  }
+}
+
+// ── Action scope + audit (W2) ────────────────────────────────────────────────
+
+/// A request's provenance, resolved at the HTTP layer from the bearer (scope)
+/// and the per-spawn relay header (agent). Read scope lists and calls only
+/// READ_TOOLS; full scope adds ACTION_TOOLS.
+export type BridgeScope = 'read' | 'full';
+
+export interface BridgeRequestContext {
+  scope: BridgeScope;
+  /// The spawning agent's hub id (relay env TP_BROWSER_AGENT_ID →
+  /// x-tp-agent-id), or null for ad-hoc callers — the audit row records
+  /// 'unknown' rather than guessing.
+  agentId: string | null;
+}
+
+export const READ_CTX: BridgeRequestContext = { scope: 'read', agentId: null };
+
+/// One action call, recorded for the Settings debug view (ring below) and
+/// mirrored to the hub as an agent_events row (browserbridge_host.ts). Args
+/// are REDACTED at record time (typed text, eval bodies, single-char keys) —
+/// the audit says what happened, never what was typed.
+export interface BridgeAuditEntry {
+  ts: string;
+  tool: string;
+  agent_id: string;
+  tab_id: number | null;
+  /// The tab's URL at call time, fragment-stripped like every bridge URL.
+  url: string | null;
+  partition: string | null;
+  args: Record<string, unknown>;
+  ok: boolean;
+  /// The BridgeError code on failure (TARGET_GONE, PARTITION_READ_ONLY, …).
+  error: string | null;
+  /// Hub mirror status, filled in by the poster AFTER the entry is pushed
+  /// (the ring holds the reference): skipped (no hub context / no agent id),
+  /// ok, or failed. Local-only field, not part of the hub payload.
+  hub?: 'ok' | 'failed' | 'skipped';
+}
+
+/// Redact one tool's args for the audit trail. `browser_type`'s text is the
+/// payload of a login form as often as a search box — never recorded; a
+/// lone-character send_keys is the same leak one keystroke at a time; an eval
+/// expression is capped (audit wants the shape, not the payload). URLs pass
+/// through stripFragment like everywhere else.
+export function redactBridgeArgs(tool: string, args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (tool === 'browser_type' && k === 'text' && typeof v === 'string') {
+      out[k] = `<redacted ${String(v.length)} chars>`;
+    } else if (tool === 'browser_eval' && k === 'expression' && typeof v === 'string') {
+      out[k] = v.length > 200 ? `${v.slice(0, 200)}… (${String(v.length)} chars)` : v;
+    } else if (tool === 'browser_send_keys' && k === 'keys' && typeof v === 'string' && v.length === 1) {
+      out[k] = '<redacted char>';
+    } else if (k === 'url' && typeof v === 'string') {
+      out[k] = stripFragment(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/// The Settings "last 50 bridge actions" buffer (plan W2). Bounded FIFO;
+/// `list()` returns a copy oldest-first. Lives in the host process, in
+/// memory only — nothing is persisted between app runs.
+/// (No constructor parameter properties — this file runs under node --test's
+/// strip-only TypeScript, which rejects non-erasable syntax.)
+export class BridgeAuditRing {
+  private readonly cap: number;
+  private entries: BridgeAuditEntry[] = [];
+  constructor(cap = 50) {
+    this.cap = cap;
+  }
+  push(entry: BridgeAuditEntry): void {
+    this.entries.push(entry);
+    if (this.entries.length > this.cap) this.entries.splice(0, this.entries.length - this.cap);
+  }
+  list(): BridgeAuditEntry[] {
+    return [...this.entries];
   }
 }
 
@@ -241,7 +340,7 @@ export function compactAxTree(
   return { text: lines.join('\n'), refs, truncated };
 }
 
-// ── Tool surface (W1: read-only) ─────────────────────────────────────────────
+// ── Tool surface ─────────────────────────────────────────────────────────────
 
 export interface McpToolDef {
   name: string;
@@ -294,14 +393,128 @@ export const READ_TOOLS: readonly McpToolDef[] = [
 const READ_TEXT_DEFAULT_MAX = 8000;
 const READ_TEXT_HARD_MAX = 64000;
 
+// ── Action tools (W2) ────────────────────────────────────────────────────────
+// Gated TWICE: the request scope (action-token spawns only, see
+// handleMcpMessage) and the target partition's `bridge` capability
+// (requireActionTarget — kimiweb/rerunweb refuse with PARTITION_READ_ONLY).
+
+const REF_OR_SELECTOR = {
+  ref: { type: 'string', description: "@eN ref from this tab's latest browser_snapshot." },
+  selector: { type: 'string', description: 'CSS selector, used when no ref is given.' },
+} as const;
+
+export const ACTION_TOOLS: readonly McpToolDef[] = [
+  {
+    name: 'browser_navigate',
+    description:
+      'Navigate a tab to a URL. Enforced against the tab partition policy: webtab tabs allow http(s) only; loopback-pinned partitions (kimiweb, rerunweb) refuse anything non-loopback — and those partitions are read-only anyway (PARTITION_READ_ONLY).',
+    inputSchema: {
+      type: 'object',
+      properties: { tabId: TAB_ID_SCHEMA, url: { type: 'string', description: 'Destination URL (http/https for webtab tabs).' } },
+      required: ['tabId', 'url'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_find_tab',
+    description:
+      'Find a tab by URL substring, title substring, or active:true (the tab the user is currently viewing — the "borrowed tab"). Returns the tab row like browser_list_tabs. Action class: it selects the target for follow-up actions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Case-insensitive substring of the tab URL.' },
+        title: { type: 'string', description: 'Case-insensitive substring of the tab title.' },
+        active: { type: 'boolean', description: 'Match the tab the user is currently viewing.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_click',
+    description: 'Click an element, by @eN ref (preferred — no re-snapshot) or CSS selector. Scrolls it into view first.',
+    inputSchema: {
+      type: 'object',
+      properties: { tabId: TAB_ID_SCHEMA, ...REF_OR_SELECTOR },
+      required: ['tabId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_type',
+    description:
+      'Focus an element (by @eN ref or CSS selector) and insert text as if typed. For Enter/Tab/shortcuts use browser_send_keys. The typed text is redacted from the audit trail.',
+    inputSchema: {
+      type: 'object',
+      properties: { tabId: TAB_ID_SCHEMA, ...REF_OR_SELECTOR, text: { type: 'string', description: 'Text to insert.' } },
+      required: ['tabId', 'text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_send_keys',
+    description:
+      'Send a key or chord to the focused element: "Enter", "Tab", "Escape", "Backspace", arrows, "PageDown", a single character, or a chord like "Control+A" / "Shift+ArrowLeft" (modifiers: Control, Alt, Shift, Meta).',
+    inputSchema: {
+      type: 'object',
+      properties: { tabId: TAB_ID_SCHEMA, keys: { type: 'string', description: 'Key name, single char, or Modifier+Key chord.' } },
+      required: ['tabId', 'keys'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_scroll',
+    description: 'Scroll the page by a wheel delta (pixels, default dy=240 down). Negative dy scrolls up; dx scrolls sideways.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: TAB_ID_SCHEMA,
+        dx: { type: 'integer', description: 'Horizontal delta in px (default 0).' },
+        dy: { type: 'integer', description: 'Vertical delta in px (default 240).' },
+      },
+      required: ['tabId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_upload_file',
+    description:
+      'Set files on a file input (by @eN ref or CSS selector). Paths must be absolute and exist on this machine. File inputs only — CDP refuses anything else.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: TAB_ID_SCHEMA,
+        ...REF_OR_SELECTOR,
+        paths: { type: 'array', items: { type: 'string' }, description: 'Absolute file paths (1-8).' },
+      },
+      required: ['tabId', 'paths'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_eval',
+    description: `Evaluate arbitrary JavaScript in the tab and return the JSON result (capped). The escape hatch — powerful; prefer the dedicated tools.${UNTRUSTED}`,
+    inputSchema: {
+      type: 'object',
+      properties: { tabId: TAB_ID_SCHEMA, expression: { type: 'string', description: 'JS expression; the result is JSON-serialized (promises awaited).' } },
+      required: ['tabId', 'expression'],
+      additionalProperties: false,
+    },
+  },
+];
+
+const ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(ACTION_TOOLS.map((t) => t.name));
+
+const EVAL_RESULT_MAX = 8000;
+
 // ── MCP protocol handling ────────────────────────────────────────────────────
 
 export interface McpServerDeps {
   backend: BridgeBackend;
   serverInfo: { name: string; version: string };
-  /// The advertised + callable set. W1 is always READ_TOOLS; W2 appends the
-  /// action tools for action-scoped sessions.
-  tools?: readonly McpToolDef[];
+  /// W2 audit hook: called once per ACTION call (success or failure) with a
+  /// redacted entry. The host pushes it into the debug ring and mirrors it to
+  /// the hub as an agent_events row, both best-effort.
+  onAction?: (entry: BridgeAuditEntry) => void;
 }
 
 interface JsonRpcRequest {
@@ -338,6 +551,13 @@ function toolError(text: string): { content: Array<{ type: 'text'; text: string 
 /// these without a re-snapshot. Kept server-side; overwritten per snapshot.
 const snapshotRefs = new Map<number, Map<string, number>>();
 
+/// Drop a destroyed tab's ref map (the host calls this from the guest's
+/// `destroyed` hook) — without it every tab that ever snapshotted leaks its
+/// last ref map for the life of the process.
+export function pruneSnapshotRefs(tabId: number): void {
+  snapshotRefs.delete(tabId);
+}
+
 /// Resolve + validate a tabId argument against the live registry. Throws a
 /// coded BridgeError the tool wrapper renders as an isError result.
 function requireTarget(deps: McpServerDeps, args: Record<string, unknown>): BridgeTarget {
@@ -352,7 +572,269 @@ function requireTarget(deps: McpServerDeps, args: Record<string, unknown>): Brid
   return target;
 }
 
-async function callTool(deps: McpServerDeps, name: string, args: Record<string, unknown>): Promise<unknown> {
+/// Action-call gate #2 (scope is #1, in handleMcpMessage): the target's
+/// partition must be action-drivable. kimiweb/rerunweb are `read` — driving
+/// them would let one bridge-enabled agent prompt another agent's UI (or the
+/// episode viewer) with the user's authority (plan §3.5).
+function requireActionTarget(deps: McpServerDeps, args: Record<string, unknown>): BridgeTarget {
+  const target = requireTarget(deps, args);
+  if (target.bridge !== 'full') {
+    throw new BridgeError(
+      'PARTITION_READ_ONLY',
+      `tab ${String(target.tabId)} is in the read-only '${target.partition}' partition — action tools only drive 'full' partitions (persist:webtab)`,
+    );
+  }
+  return target;
+}
+
+// ── Element resolution (@eN refs + CSS selectors) ────────────────────────────
+
+/// Resolve a tool's ref/selector to a CDP remote object. Exactly one of the
+/// two is required; a ref only resolves against the tab's LATEST snapshot
+/// (refs are minted per snapshot — a stale one would click the wrong node).
+async function resolveElement(
+  deps: McpServerDeps,
+  target: BridgeTarget,
+  args: Record<string, unknown>,
+): Promise<{ objectId: string }> {
+  const ref = typeof args.ref === 'string' && args.ref !== '' ? args.ref : null;
+  const selector = typeof args.selector === 'string' && args.selector !== '' ? args.selector : null;
+  if ((ref === null) === (selector === null)) {
+    throw new BridgeError('INVALID_PARAMS', 'exactly one of ref or selector is required');
+  }
+  if (ref !== null) {
+    const backendNodeId = snapshotRefs.get(target.tabId)?.get(ref);
+    if (backendNodeId === undefined) {
+      throw new BridgeError('REF_STALE', `${ref} is not from tab ${String(target.tabId)}'s latest browser_snapshot — re-run browser_snapshot and use its refs`);
+    }
+    const res = (await deps.backend.sendCommand(target.tabId, 'DOM.resolveNode', { backendNodeId })) as {
+      object?: { objectId?: string };
+    };
+    if (typeof res.object?.objectId !== 'string') {
+      throw new BridgeError('ELEMENT_NOT_FOUND', `${ref} no longer resolves to a DOM node — the page changed; re-run browser_snapshot`);
+    }
+    return { objectId: res.object.objectId };
+  }
+  const expression = `document.querySelector(${JSON.stringify(selector)})`;
+  const res = (await deps.backend.sendCommand(target.tabId, 'Runtime.evaluate', { expression, returnByValue: false })) as {
+    result?: { objectId?: string; subtype?: string };
+  };
+  if (typeof res.result?.objectId !== 'string' || res.result.subtype === 'null') {
+    throw new BridgeError('ELEMENT_NOT_FOUND', `no element matches selector ${JSON.stringify(selector)}`);
+  }
+  return { objectId: res.result.objectId };
+}
+
+/// Best-effort remote-object release; never fails the tool call.
+async function releaseElement(deps: McpServerDeps, tabId: number, objectId: string): Promise<void> {
+  try {
+    await deps.backend.sendCommand(tabId, 'Runtime.releaseObject', { objectId });
+  } catch {
+    /* the target may already be gone */
+  }
+}
+
+// ── Action implementations (CDP via the injected backend) ────────────────────
+
+async function clickElement(deps: McpServerDeps, target: BridgeTarget, args: Record<string, unknown>): Promise<unknown> {
+  const { objectId } = await resolveElement(deps, target, args);
+  try {
+    const rect = (await deps.backend.sendCommand(target.tabId, 'Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration:
+        'function(){this.scrollIntoView({block:"center",inline:"center"});const r=this.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height};}',
+      returnByValue: true,
+    })) as { result?: { value?: { x?: number; y?: number; w?: number; h?: number } } };
+    const v = rect.result?.value;
+    if (v?.x === undefined || v.y === undefined || (v.w ?? 0) < 1 || (v.h ?? 0) < 1) {
+      throw new BridgeError('ELEMENT_NOT_VISIBLE', 'element has no clickable box (zero-size, hidden, or detached) — re-run browser_snapshot');
+    }
+    const x = v.x;
+    const y = v.y;
+    await deps.backend.sendCommand(target.tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await deps.backend.sendCommand(target.tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    return textContent(`clicked at (${String(Math.round(x))}, ${String(Math.round(y))})`);
+  } finally {
+    await releaseElement(deps, target.tabId, objectId);
+  }
+}
+
+async function typeIntoElement(deps: McpServerDeps, target: BridgeTarget, args: Record<string, unknown>): Promise<unknown> {
+  const text = args.text;
+  if (typeof text !== 'string' || text === '') {
+    throw new BridgeError('INVALID_PARAMS', 'text must be a non-empty string');
+  }
+  const { objectId } = await resolveElement(deps, target, args);
+  try {
+    await deps.backend.sendCommand(target.tabId, 'Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: 'function(){this.focus();}',
+      returnByValue: true,
+    });
+    await deps.backend.sendCommand(target.tabId, 'Input.insertText', { text });
+    // Echo the length, never the text — the agent knows what it typed, and
+    // the reply shouldn't re-paste credentials into the transcript.
+    return textContent(`typed ${String(text.length)} chars`);
+  } finally {
+    await releaseElement(deps, target.tabId, objectId);
+  }
+}
+
+const KEY_MODIFIERS: Record<string, number> = {
+  alt: 1,
+  option: 1,
+  control: 2,
+  ctrl: 2,
+  meta: 4,
+  cmd: 4,
+  command: 4,
+  shift: 8,
+};
+
+interface KeyDef {
+  key: string;
+  code: string;
+  vk: number;
+  /// When set the keyDown carries text (produces an input event); chorded
+  /// keys (Control/Alt/Meta held) send none — they're shortcuts, not typing.
+  text?: string;
+}
+
+const SPECIAL_KEYS: Record<string, KeyDef> = {
+  enter: { key: 'Enter', code: 'Enter', vk: 13, text: '\r' },
+  tab: { key: 'Tab', code: 'Tab', vk: 9 },
+  escape: { key: 'Escape', code: 'Escape', vk: 27 },
+  esc: { key: 'Escape', code: 'Escape', vk: 27 },
+  backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+  delete: { key: 'Delete', code: 'Delete', vk: 46 },
+  arrowup: { key: 'ArrowUp', code: 'ArrowUp', vk: 38 },
+  arrowdown: { key: 'ArrowDown', code: 'ArrowDown', vk: 40 },
+  arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', vk: 37 },
+  arrowright: { key: 'ArrowRight', code: 'ArrowRight', vk: 39 },
+  home: { key: 'Home', code: 'Home', vk: 36 },
+  end: { key: 'End', code: 'End', vk: 35 },
+  pageup: { key: 'PageUp', code: 'PageUp', vk: 33 },
+  pagedown: { key: 'PageDown', code: 'PageDown', vk: 34 },
+  space: { key: ' ', code: 'Space', vk: 32, text: ' ' },
+};
+
+/// Parse "Enter" / "a" / "Control+Shift+ArrowLeft" into CDP dispatch params.
+function parseKeyChord(raw: string): { modifiers: number; def: KeyDef } {
+  const parts = raw
+    .split('+')
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
+  let modifiers = 0;
+  let keyName: string | null = null;
+  for (const part of parts) {
+    const mod = KEY_MODIFIERS[part.toLowerCase()];
+    if (mod !== undefined) {
+      modifiers |= mod;
+      continue;
+    }
+    if (keyName !== null) {
+      throw new BridgeError('INVALID_PARAMS', `keys '${raw}' names more than one non-modifier key`);
+    }
+    keyName = part;
+  }
+  if (keyName === null) {
+    throw new BridgeError('INVALID_PARAMS', `keys '${raw}' has no key — e.g. "Enter", "Tab", "Control+A"`);
+  }
+  const special = SPECIAL_KEYS[keyName.toLowerCase()];
+  if (special !== undefined) return { modifiers, def: special };
+  if (keyName.length === 1) {
+    const upper = keyName.toUpperCase();
+    const isLetter = upper >= 'A' && upper <= 'Z';
+    const isDigit = keyName >= '0' && keyName <= '9';
+    return {
+      modifiers,
+      def: {
+        key: keyName,
+        code: isLetter ? `Key${upper}` : isDigit ? `Digit${keyName}` : '',
+        vk: upper.charCodeAt(0),
+        text: (modifiers & (1 | 2 | 4)) === 0 ? keyName : undefined,
+      },
+    };
+  }
+  throw new BridgeError(
+    'INVALID_PARAMS',
+    `unknown key '${keyName}' — use Enter/Tab/Escape/Backspace/Delete, arrows, Home/End/PageUp/PageDown/Space, or a single character`,
+  );
+}
+
+async function sendKeys(deps: McpServerDeps, target: BridgeTarget, args: Record<string, unknown>): Promise<unknown> {
+  const raw = args.keys;
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new BridgeError('INVALID_PARAMS', 'keys must be a non-empty string');
+  }
+  const { modifiers, def } = parseKeyChord(raw);
+  const base: Record<string, unknown> = {
+    key: def.key,
+    code: def.code,
+    windowsVirtualKeyCode: def.vk,
+    nativeVirtualKeyCode: def.vk,
+    modifiers,
+  };
+  await deps.backend.sendCommand(target.tabId, 'Input.dispatchKeyEvent', {
+    ...base,
+    type: def.text !== undefined ? 'keyDown' : 'rawKeyDown',
+    ...(def.text !== undefined ? { text: def.text } : {}),
+  });
+  await deps.backend.sendCommand(target.tabId, 'Input.dispatchKeyEvent', { ...base, type: 'keyUp' });
+  return textContent(`sent keys ${raw}`);
+}
+
+async function scrollPage(deps: McpServerDeps, target: BridgeTarget, args: Record<string, unknown>): Promise<unknown> {
+  const asDelta = (v: unknown, fallback: number): number => {
+    if (v === undefined) return fallback;
+    if (typeof v !== 'number' || !Number.isInteger(v) || Math.abs(v) > 100000) {
+      throw new BridgeError('INVALID_PARAMS', 'dx/dy must be integers within ±100000');
+    }
+    return v;
+  };
+  const dx = asDelta(args.dx, 0);
+  const dy = asDelta(args.dy, 240);
+  const size = (await deps.backend.sendCommand(target.tabId, 'Runtime.evaluate', {
+    expression: '[window.innerWidth, window.innerHeight]',
+    returnByValue: true,
+  })) as { result?: { value?: unknown } };
+  const dims: unknown[] = Array.isArray(size.result?.value) ? (size.result.value as unknown[]) : [];
+  const x = typeof dims[0] === 'number' ? dims[0] / 2 : 400;
+  const y = typeof dims[1] === 'number' ? dims[1] / 2 : 300;
+  await deps.backend.sendCommand(target.tabId, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: dx, deltaY: dy });
+  return textContent(`scrolled (${String(dx)}, ${String(dy)})`);
+}
+
+async function uploadFiles(deps: McpServerDeps, target: BridgeTarget, args: Record<string, unknown>): Promise<unknown> {
+  const raw = args.paths;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 8 || raw.some((p) => typeof p !== 'string' || p === '')) {
+    throw new BridgeError('INVALID_PARAMS', 'paths must be 1-8 non-empty strings');
+  }
+  const paths = raw as string[];
+  for (const p of paths) {
+    if (!path.isAbsolute(p)) {
+      throw new BridgeError('INVALID_PARAMS', `path must be absolute: ${p}`);
+    }
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(p);
+    } catch {
+      throw new BridgeError('INVALID_PARAMS', `file not found: ${p}`);
+    }
+    if (!st.isFile()) {
+      throw new BridgeError('INVALID_PARAMS', `not a regular file: ${p}`);
+    }
+  }
+  const { objectId } = await resolveElement(deps, target, args);
+  try {
+    await deps.backend.sendCommand(target.tabId, 'DOM.setFileInputFiles', { files: paths, objectId });
+    return textContent(`set ${String(paths.length)} file(s) on the input`);
+  } finally {
+    await releaseElement(deps, target.tabId, objectId);
+  }
+}
+
+async function runTool(deps: McpServerDeps, name: string, args: Record<string, unknown>): Promise<unknown> {
   const { backend } = deps;
   switch (name) {
     case 'browser_list_tabs': {
@@ -399,14 +881,140 @@ async function callTool(deps: McpServerDeps, name: string, args: Record<string, 
       const value = res.result?.value;
       return textContent(typeof value === 'string' && value !== '' ? value : '(no visible text)');
     }
+    case 'browser_navigate': {
+      const target = requireActionTarget(deps, args);
+      const url = args.url;
+      if (typeof url !== 'string' || url.trim() === '') {
+        throw new BridgeError('INVALID_PARAMS', 'url must be a non-empty string');
+      }
+      // The same predicate the navigation handlers enforce on user traffic —
+      // the agent gets no wider navigation than the partition already allows.
+      const policy = partitionPolicy(target.partition);
+      if (policy === null || !policy.allowTopFrame(url)) {
+        throw new BridgeError(
+          'NAVIGATION_DENIED',
+          `partition '${target.partition}' refuses this URL by policy (persist:webtab: http(s) only; kimiweb/rerunweb: loopback http(s) only)`,
+        );
+      }
+      const res = (await backend.sendCommand(target.tabId, 'Page.navigate', { url })) as { errorText?: string };
+      if (typeof res.errorText === 'string' && res.errorText !== '') {
+        throw new BridgeError('NAVIGATION_FAILED', res.errorText);
+      }
+      return textContent(`navigated to ${stripFragment(url)}`);
+    }
+    case 'browser_find_tab': {
+      const wantActive = args.active === true;
+      const wantUrl = typeof args.url === 'string' && args.url !== '' ? args.url.toLowerCase() : null;
+      const wantTitle = typeof args.title === 'string' && args.title !== '' ? args.title.toLowerCase() : null;
+      if (!wantActive && wantUrl === null && wantTitle === null) {
+        throw new BridgeError('INVALID_PARAMS', 'provide url, title, or active:true');
+      }
+      let candidates = deps.backend.listTargets();
+      if (wantActive) {
+        const activeId = deps.backend.activeTabId?.() ?? null;
+        candidates = activeId === null ? [] : candidates.filter((t) => t.tabId === activeId);
+      }
+      if (wantUrl !== null) candidates = candidates.filter((t) => stripFragment(t.url).toLowerCase().includes(wantUrl));
+      if (wantTitle !== null) candidates = candidates.filter((t) => t.title.toLowerCase().includes(wantTitle));
+      if (candidates.length === 0) {
+        throw new BridgeError('TARGET_GONE', 'no tab matches — call browser_list_tabs for the current set');
+      }
+      if (candidates.length > 1) {
+        const list = candidates.map((t) => `${String(t.tabId)} ${stripFragment(t.url)}`).join('; ');
+        throw new BridgeError('AMBIGUOUS', `${String(candidates.length)} tabs match — refine url/title: ${list}`);
+      }
+      const t: BridgeTarget | undefined = candidates[0];
+      if (t === undefined) throw new BridgeError('TARGET_GONE', 'no tab matches');
+      return textContent(
+        JSON.stringify({ tabId: t.tabId, url: stripFragment(t.url), title: t.title, partition: t.partition, bridge: t.bridge }, null, 2),
+      );
+    }
+    case 'browser_click': {
+      return clickElement(deps, requireActionTarget(deps, args), args);
+    }
+    case 'browser_type': {
+      return typeIntoElement(deps, requireActionTarget(deps, args), args);
+    }
+    case 'browser_send_keys': {
+      return sendKeys(deps, requireActionTarget(deps, args), args);
+    }
+    case 'browser_scroll': {
+      return scrollPage(deps, requireActionTarget(deps, args), args);
+    }
+    case 'browser_upload_file': {
+      return uploadFiles(deps, requireActionTarget(deps, args), args);
+    }
+    case 'browser_eval': {
+      const target = requireActionTarget(deps, args);
+      const expression = args.expression;
+      if (typeof expression !== 'string' || expression.trim() === '') {
+        throw new BridgeError('INVALID_PARAMS', 'expression must be a non-empty string');
+      }
+      const res = (await backend.sendCommand(target.tabId, 'Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise: true,
+      })) as { result?: { value?: unknown }; exceptionDetails?: { text?: string; exception?: { description?: string } } };
+      if (res.exceptionDetails !== undefined) {
+        const why = res.exceptionDetails.exception?.description ?? res.exceptionDetails.text ?? 'evaluation failed';
+        return toolError(`EVAL_EXCEPTION: ${why.slice(0, 500)}`);
+      }
+      let text: string;
+      try {
+        text = JSON.stringify(res.result?.value ?? null) ?? 'null';
+      } catch {
+        text = '"[unserializable result]"';
+      }
+      if (text.length > EVAL_RESULT_MAX) text = `${text.slice(0, EVAL_RESULT_MAX)}… (truncated at ${String(EVAL_RESULT_MAX)} chars)`;
+      return textContent(text);
+    }
     default:
       throw new BridgeError('UNKNOWN_TOOL', `unknown tool '${name}'`);
   }
 }
 
+/// Dispatch one tool call. Action calls are wrapped in the W2 audit hook:
+/// exactly one entry per call, success or failure, args redacted.
+async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: string, args: Record<string, unknown>): Promise<unknown> {
+  if (!ACTION_TOOL_NAMES.has(name)) return runTool(deps, name, args);
+  const tabId = typeof args.tabId === 'number' && Number.isInteger(args.tabId) ? args.tabId : null;
+  const target = tabId === null ? undefined : deps.backend.listTargets().find((t) => t.tabId === tabId);
+  const entry: BridgeAuditEntry = {
+    ts: new Date().toISOString(),
+    tool: name,
+    agent_id: ctx.agentId ?? 'unknown',
+    tab_id: tabId,
+    url: target !== undefined ? stripFragment(target.url) : null,
+    partition: target?.partition ?? null,
+    args: redactBridgeArgs(name, args),
+    ok: false,
+    error: null,
+  };
+  try {
+    const out = await runTool(deps, name, args);
+    entry.ok = true;
+    return out;
+  } catch (e) {
+    entry.error = e instanceof BridgeError ? e.code : 'INTERNAL';
+    throw e;
+  } finally {
+    try {
+      deps.onAction?.(entry);
+    } catch {
+      /* the audit hook never breaks a tool call */
+    }
+  }
+}
+
 /// Handle one JSON-RPC message. Returns the response object, or null for
-/// notifications (the HTTP layer answers 202 with an empty body).
-export async function handleMcpMessage(msg: JsonRpcRequest, deps: McpServerDeps): Promise<JsonRpcResponse | null> {
+/// notifications (the HTTP layer answers 202 with an empty body). `ctx` is
+/// the request's scope/provenance, resolved at the HTTP layer from the
+/// bearer + relay headers; it defaults to read-only for direct callers.
+export async function handleMcpMessage(
+  msg: JsonRpcRequest,
+  deps: McpServerDeps,
+  ctx: BridgeRequestContext = READ_CTX,
+): Promise<JsonRpcResponse | null> {
   const id = msg.id ?? null;
   const isNotification = msg.id === undefined;
   const method = msg.method;
@@ -430,17 +1038,29 @@ export async function handleMcpMessage(msg: JsonRpcRequest, deps: McpServerDeps)
     case 'ping':
       return rpcResult(id, {});
     case 'tools/list':
-      return rpcResult(id, { tools: deps.tools ?? READ_TOOLS });
+      // Scope gate #1: a read-scoped session never SEES the action tools.
+      return rpcResult(id, { tools: ctx.scope === 'full' ? [...READ_TOOLS, ...ACTION_TOOLS] : READ_TOOLS });
     case 'tools/call': {
       const params = (msg.params ?? {}) as { name?: unknown; arguments?: unknown };
       if (typeof params.name !== 'string') {
         return rpcError(id, -32602, 'invalid params: tools/call needs a string name');
       }
-      const known = (deps.tools ?? READ_TOOLS).some((t) => t.name === params.name);
-      if (!known) return rpcError(id, -32602, `unknown tool '${params.name}'`);
+      const isRead = READ_TOOLS.some((t) => t.name === params.name);
+      const isAction = ACTION_TOOL_NAMES.has(params.name);
+      if (!isRead && !isAction) return rpcError(id, -32602, `unknown tool '${params.name}'`);
+      if (isAction && ctx.scope !== 'full') {
+        // Callable-but-forbidden gets actionable text (isError), not the
+        // unknown-tool RPC error — the fix is a respawn flag, not a rename.
+        return rpcResult(
+          id,
+          toolError(
+            `SCOPE_READ_ONLY: tool '${params.name}' requires an action-scoped bridge session — respawn the agent with browser_bridge: true in its spawn_spec_yaml`,
+          ),
+        );
+      }
       const args = params.arguments !== null && typeof params.arguments === 'object' ? (params.arguments as Record<string, unknown>) : {};
       try {
-        return rpcResult(id, await callTool(deps, params.name, args));
+        return rpcResult(id, await callTool(deps, ctx, params.name, args));
       } catch (e) {
         if (e instanceof BridgeError) {
           // Every error text is fragment-safe: the only URLs that can appear
@@ -468,7 +1088,15 @@ const MAX_BODY = 1024 * 1024; // 1 MB — tool args are small; a bigger POST is 
 /// Binds port 0 (OS-assigned) — unlike kimiweb we bind directly instead of
 /// handing a guessed-free port to another process, so there is no close→bind
 /// race. The port lands in the discovery file.
-export function startBridgeServer(deps: McpServerDeps & { token: string }): Promise<BridgeServer> {
+///
+/// TWO bearers (W2): `token` grants read scope, `actionToken` (when set)
+/// grants full scope. The `x-tp-agent-id` header (set by the per-spawn stdio
+/// relay from its injected env) carries the calling agent's hub id into the
+/// audit record; absent = 'unknown'.
+export function startBridgeServer(deps: McpServerDeps & { token: string; actionToken?: string }): Promise<BridgeServer> {
+  if (deps.actionToken !== undefined && deps.actionToken === deps.token) {
+    throw new Error('action token must differ from the read token');
+  }
   const server = http.createServer((req, res) => {
     void (async () => {
       const send = (status: number, body: unknown): void => {
@@ -483,10 +1111,21 @@ export function startBridgeServer(deps: McpServerDeps & { token: string }): Prom
       // Constant-shape bearer check. Timing-safe compare is overkill here (the
       // token is per-run on loopback and the discovery file is 0o600), but an
       // exact string compare is the minimum bar.
-      if (req.headers.authorization !== `Bearer ${deps.token}`) {
+      const bearer = req.headers.authorization;
+      let scope: BridgeScope;
+      if (bearer === `Bearer ${deps.token}`) {
+        scope = 'read';
+      } else if (deps.actionToken !== undefined && bearer === `Bearer ${deps.actionToken}`) {
+        scope = 'full';
+      } else {
         send(401, { error: 'unauthorized' });
         return;
       }
+      const agentHeader = req.headers['x-tp-agent-id'];
+      const ctx: BridgeRequestContext = {
+        scope,
+        agentId: typeof agentHeader === 'string' && agentHeader !== '' ? agentHeader : null,
+      };
       let raw = '';
       let tooBig = false;
       req.on('data', (d: Buffer) => {
@@ -513,7 +1152,7 @@ export function startBridgeServer(deps: McpServerDeps & { token: string }): Prom
         send(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } });
         return;
       }
-      const out = await handleMcpMessage(msg, deps);
+      const out = await handleMcpMessage(msg, deps, ctx);
       if (out === null) {
         res.writeHead(202);
         res.end();

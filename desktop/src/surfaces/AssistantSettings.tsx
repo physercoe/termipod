@@ -114,6 +114,8 @@ export function AssistantSettings(): JSX.Element {
     // Reflect the bridge server's real state (the toggle is the setting;
     // `running` is the fact) — e.g. after a bind failure rolled it back.
     void useBrowserBridge.getState().refreshStatus();
+    // …and the W2 audit ring for the "recent bridge actions" view.
+    void useBrowserBridge.getState().refreshAudit();
     return () => {
       cancelled = true;
     };
@@ -211,6 +213,43 @@ export function AssistantSettings(): JSX.Element {
           </div>
         </div>
       )}
+      {bridge.enabled && (
+        <div className="assistant-cfg-row">
+          <div className="assistant-cfg-main">
+            <span className="assistant-cfg-label">{t('assistant.bridgeAudit')}</span>
+            <span className="small muted">{t('assistant.bridgeAuditBlurb')}</span>
+          </div>
+          <button className="import-btn" onClick={() => void bridge.refreshAudit()}>
+            <Icon name="refresh" size={13} /> {t('assistant.bridgeAuditRefresh')}
+          </button>
+        </div>
+      )}
+      {bridge.enabled &&
+        (bridge.audit.length === 0 ? (
+          <div className="assistant-cfg-row">
+            <div className="assistant-cfg-main">
+              <span className="small muted">{t('assistant.bridgeAuditEmpty')}</span>
+            </div>
+          </div>
+        ) : (
+          // Newest first. Only existing class names — the row layout is the
+          // same label/meta + pill pattern the config rows above use.
+          [...bridge.audit].reverse().map((e, i) => (
+            <div className="assistant-cfg-row" key={`${e.ts}-${String(i)}`}>
+              <div className="assistant-cfg-main">
+                <span className="mono small">
+                  {e.ts.slice(11, 19)} {e.tool}
+                </span>
+                <span className="mono small muted" title={e.url ?? undefined}>
+                  {e.agent_id.slice(0, 8)} · {e.partition ?? '—'}
+                  {e.error !== null ? ` · ${e.error}` : ''}
+                  {e.hub !== undefined ? ` · hub:${e.hub}` : ''}
+                </span>
+              </div>
+              <span className={`pill small ${e.ok ? 'ok' : ''}`}>{e.ok ? 'ok' : 'err'}</span>
+            </div>
+          ))
+        ))}
 
       {error !== null && <div className="error small">{error}</div>}
       {sections === null ? (

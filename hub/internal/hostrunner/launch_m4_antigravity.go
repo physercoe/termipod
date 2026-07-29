@@ -113,7 +113,9 @@ func launchM4Antigravity(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (*
 			cfg.Log.Warn("antigravity M4: write global mcp_config failed; launching without hub MCP",
 				"handle", cfg.Spawn.Handle, "err", werr)
 		}
-		if werr := writeMCPConfig(workdir, cfg.HubURL, cfg.Spawn.MCPToken); werr != nil {
+		if werr := writeMCPConfig(workdir, cfg.HubURL, cfg.Spawn.MCPToken,
+			browserBridgeRequest{optIn: spec.BrowserBridge, agentID: cfg.Spawn.ChildID},
+		); werr != nil {
 			cfg.Log.Warn("antigravity M4: write workdir .mcp.json failed; agy may use a stale cached token",
 				"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 		}

@@ -45,12 +45,15 @@ src/ipc/sync/s3.ts  S3 backend: s3_sync/verify (tree) + s3_zotero_sync —
                    ListObjectsV2, path-style, SigV4-signed fetch (M2.5d)
 src/ipc/vault.ts   nine vault_* commands → the WASM build of vault-core
                    (../../vault-wasm/pkg), lazy computed-path import (M2.6b)
-src/browserbridge.ts  agent browser bridge core (plan W1, electron-free):
-                   MCP/HTTP server, AX-tree compaction, fragment redaction,
-                   discovery-file lifecycle — unit-tested under node --test
+src/browserbridge.ts  agent browser bridge core (plan W1+W2, electron-free):
+                   MCP/HTTP server, dual-scope bearer auth (read/action),
+                   AX-tree compaction, action tools over CDP, audit ring +
+                   arg redaction, discovery-file lifecycle — unit-tested
+                   under node --test
 src/browserbridge_host.ts  bridge's Electron half: guest registry (webview
                    guests in bridge-capable partitions only), CDP via
-                   webContents.debugger, enable/disable + discovery file
+                   webContents.debugger, enable/disable + discovery file,
+                   audit ring → hub agent_events mirror, active-tab tracking
 resources/browser_bridge_stdio.mjs  agent-side stdio⇄HTTP MCP relay (plain
                    node, no deps); the hostrunner points injected engine MCP
                    configs at it. Shipped as an extraResource outside the asar
@@ -60,18 +63,30 @@ src/ipc/script.ts  one-shot child runs (child_process): script_run +
 esbuild.mjs        bundles main + preload → out/*.cjs
 ```
 
-## Agent browser bridge (W1)
+## Agent browser bridge (W1+W2)
 
 Settings → Assistant → *Agent browser bridge* (default **off**) lets agents
 spawned on this host drive the desktop's embedded browser tabs: an MCP server
-in this main process exposes read-only `browser_*` tools
+in this main process exposes `browser_*` tools over CDP against `<webview>`
+**guest** partitions only — never the `app://` shell. When on, the app
+publishes `~/.termipod/browser-bridge.json` (0o600: loopback MCP URL, TWO
+per-run bearer tokens, pid, stdio-relay path); the hostrunner reads it at
+spawn time and injects a `termipod-browser` MCP entry (the stdio relay above,
+token in env) into all four engine families.
+
+Two scopes (W2): every spawn gets the **read** token
 (`browser_list_tabs` / `browser_snapshot` / `browser_screenshot` /
-`browser_read_text`) over CDP against `<webview>` **guest** partitions only —
-never the `app://` shell. When on, the app publishes
-`~/.termipod/browser-bridge.json` (0o600: loopback MCP URL, per-run bearer
-token, pid, stdio-relay path); the hostrunner reads it at spawn time and
-injects a `termipod-browser` MCP entry (the stdio relay above, token in env)
-into all four engine families. Security model + W2/W3 roadmap:
+`browser_read_text`); only a spawn whose spec sets `browser_bridge: true`
+gets the **action** token, unlocking `browser_navigate` / `browser_find_tab`
+(incl. `{active:true}`, the tab the user is watching) / `browser_click` /
+`browser_type` / `browser_send_keys` / `browser_scroll` /
+`browser_upload_file` / `browser_eval`. kimiweb/rerunweb partitions refuse
+action calls (`PARTITION_READ_ONLY`); navigation is checked against each
+partition's own policy. Every action call is audited: a last-50 ring backs
+the Settings "Recent bridge actions" view, and each call is mirrored
+best-effort onto the calling agent's hub event stream (kind
+`browser_bridge`, producer `system`, typed text redacted). Security model +
+W3 roadmap:
 [`docs/plans/desktop-agent-browser-bridge.md`](../../docs/plans/desktop-agent-browser-bridge.md).
 
 ## Run

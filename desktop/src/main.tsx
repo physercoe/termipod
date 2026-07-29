@@ -53,9 +53,12 @@ async function boot(): Promise<void> {
   // Push the persisted browser-bridge toggle to the main process (no-op when
   // off — the default). Imported dynamically with the app graph so its store
   // reads localStorage AFTER the migration restore above; the main side owns
-  // the server + discovery file.
-  const { syncBrowserBridgeToMain } = await import('./state/browserBridge');
+  // the server + discovery file. The hub-context push feeds the W2 audit
+  // mirror (re-pushed automatically on profile switch via the store's
+  // useSession subscription).
+  const { syncBrowserBridgeToMain, pushBridgeHubContext } = await import('./state/browserBridge');
   syncBrowserBridgeToMain();
+  pushBridgeHubContext();
 }
 
 void boot();

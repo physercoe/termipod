@@ -80,6 +80,8 @@ class StdioMcp {
 interface Discovery {
   url: string;
   token: string;
+  /// W2: action-scoped bearer, handed to opted-in spawns only.
+  action_token: string;
   pid: number;
   bridge_path: string;
 }
@@ -226,5 +228,184 @@ test('browser bridge: MCP round-trip over the stdio relay against a live guest',
   } finally {
     mcp?.close();
     await new Promise<void>((r) => fixture.close(() => r()));
+  }
+});
+
+interface AuditRow {
+  tool: string;
+  agent_id: string;
+  args: Record<string, unknown>;
+  ok: boolean;
+  error: string | null;
+  hub?: string;
+}
+
+/// W2 (docs/plans/desktop-agent-browser-bridge.md): the action tools behind
+/// the spawn opt-in's ACTION bearer — navigate/click/type/eval against a live
+/// guest, the read bearer's refusal, and the audit ring (redacted args,
+/// hub:'skipped' with no signed-in hub).
+test('browser bridge W2: action scope drives a live guest; read scope refuses; audit recorded', async () => {
+  const fixture = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end(`<!doctype html><html><head><title>E2E Action Fixture</title></head><body>
+<button id="go">Go</button>
+<span id="count">count:0</span>
+<input id="q" type="text" placeholder="query">
+<div id="echo"></div>
+<script>
+let n = 0;
+document.getElementById('go').addEventListener('click', () => { n++; document.getElementById('count').textContent = 'count:' + n; });
+document.getElementById('q').addEventListener('input', (e) => { document.getElementById('echo').textContent = 'echo:' + e.target.value; });
+</script>
+</body></html>`);
+  });
+  await new Promise<void>((r) => fixture.listen(0, '127.0.0.1', () => r()));
+  const { port: fixturePort } = fixture.address() as AddressInfo;
+  const guestUrl = `http://127.0.0.1:${fixturePort}/`;
+
+  let mcp: StdioMcp | null = null;
+  let mcpRead: StdioMcp | null = null;
+  try {
+    // Re-enable (test 1 ends toggled off) and read the W2 discovery shape.
+    const on = await page.evaluate(() =>
+      window.__ELECTRON_BRIDGE__?.invoke<{ enabled: boolean; running: boolean }>('browserbridge_set_enabled', { enabled: true }),
+    );
+    expect(on?.running).toBe(true);
+    const discovery = JSON.parse(fs.readFileSync(discoveryPath(), 'utf8')) as Discovery;
+    expect(typeof discovery.action_token).toBe('string');
+    expect(discovery.action_token).not.toBe(discovery.token);
+
+    // The action-scoped relay: what an opted-in spawn (browser_bridge: true)
+    // gets injected, incl. the agent id the audit attributes calls to.
+    mcp = new StdioMcp(discovery.bridge_path, {
+      TP_BROWSER_URL: discovery.url,
+      TP_BROWSER_TOKEN: discovery.action_token,
+      TP_BROWSER_SCOPE: 'action',
+      TP_BROWSER_AGENT_ID: 'e2e-agent-1',
+    });
+    await mcp.request('initialize', {});
+    mcp.notify('notifications/initialized');
+
+    const list = (await mcp.request('tools/list')) as { tools: Array<{ name: string }> };
+    const names = list.tools.map((t) => t.name).sort();
+    for (const wanted of ['browser_navigate', 'browser_click', 'browser_type', 'browser_eval', 'browser_find_tab', 'browser_scroll']) {
+      expect(names).toContain(wanted);
+    }
+
+    // The read bearer stays read-only: no action tools listed, calls refused.
+    mcpRead = new StdioMcp(discovery.bridge_path, {
+      TP_BROWSER_URL: discovery.url,
+      TP_BROWSER_TOKEN: discovery.token,
+      TP_BROWSER_SCOPE: 'read',
+    });
+    await mcpRead.request('initialize', {});
+    const readList = (await mcpRead.request('tools/list')) as { tools: Array<{ name: string }> };
+    expect(readList.tools.map((t) => t.name).sort()).toEqual([
+      'browser_list_tabs',
+      'browser_read_text',
+      'browser_screenshot',
+      'browser_snapshot',
+    ]);
+    const refused = (await mcpRead.request('tools/call', { name: 'browser_click', arguments: { tabId: 1, selector: '#go' } })) as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]?.text).toContain('SCOPE_READ_ONLY');
+
+    // A live guest on the fixture page.
+    const wcId = await page.evaluate(async (url) => {
+      const wv = document.createElement('webview') as HTMLElement & { getWebContentsId(): number };
+      wv.setAttribute('src', url);
+      wv.setAttribute('partition', 'persist:webtab');
+      wv.style.width = '480px';
+      wv.style.height = '320px';
+      document.body.appendChild(wv);
+      await new Promise<void>((resolve, reject) => {
+        const to = setTimeout(() => reject(new Error('webview load timeout')), 15_000);
+        wv.addEventListener('did-finish-load', () => { clearTimeout(to); resolve(); }, { once: true });
+        wv.addEventListener('did-fail-load', () => { clearTimeout(to); reject(new Error('did-fail-load')); });
+      });
+      return wv.getWebContentsId();
+    }, guestUrl);
+
+    // browser_find_tab {active:true} after the app reports the visible guest.
+    await page.evaluate((id) => window.__ELECTRON_BRIDGE__?.invoke('browserbridge_set_active_guest', { id }), wcId);
+    const found = (await mcp.request('tools/call', { name: 'browser_find_tab', arguments: { active: true } })) as {
+      content: Array<{ text: string }>;
+    };
+    expect(found.content[0]?.text).toContain(`"tabId": ${String(wcId)}`);
+
+    // Navigate policy: javascript: is refused even by an action-scoped agent.
+    const denied = (await mcp.request('tools/call', { name: 'browser_navigate', arguments: { tabId: wcId, url: 'javascript:alert(1)' } })) as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(denied.isError).toBe(true);
+    expect(denied.content[0]?.text).toContain('NAVIGATION_DENIED');
+
+    // Snapshot → refs for the button and the input.
+    const snap = (await mcp.request('tools/call', { name: 'browser_snapshot', arguments: { tabId: wcId } })) as {
+      content: Array<{ text: string }>;
+    };
+    const snapText = snap.content[0]?.text ?? '';
+    const goRef = /button "Go" \[ref=(@e\d+)\]/.exec(snapText)?.[1];
+    const inputRef = /textbox[^\n]*\[ref=(@e\d+)\]/.exec(snapText)?.[1];
+    expect(goRef, `button ref in snapshot:\n${snapText}`).toBeDefined();
+    expect(inputRef, `textbox ref in snapshot:\n${snapText}`).toBeDefined();
+
+    // Click the button via its ref — the counter increments in-page.
+    const click = (await mcp.request('tools/call', { name: 'browser_click', arguments: { tabId: wcId, ref: goRef } })) as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(click.isError).not.toBe(true);
+
+    // Type into the input — the echo div mirrors it. The reply must not echo text.
+    const typed = (await mcp.request('tools/call', { name: 'browser_type', arguments: { tabId: wcId, ref: inputRef, text: 'hello' } })) as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(typed.isError).not.toBe(true);
+    expect(typed.content[0]?.text).toBe('typed 5 chars');
+
+    const readBack = (await mcp.request('tools/call', { name: 'browser_read_text', arguments: { tabId: wcId } })) as {
+      content: Array<{ text: string }>;
+    };
+    expect(readBack.content[0]?.text).toContain('count:1');
+    expect(readBack.content[0]?.text).toContain('echo:hello');
+
+    // browser_eval returns JSON.
+    const evaluated = (await mcp.request('tools/call', { name: 'browser_eval', arguments: { tabId: wcId, expression: 'document.title' } })) as {
+      content: Array<{ text: string }>;
+    };
+    expect(evaluated.content[0]?.text).toBe('"E2E Action Fixture"');
+
+    // The audit ring: every action call recorded, typed text redacted, hub
+    // mirror 'skipped' (no hub is signed in inside the e2e instance).
+    const audit = await page.evaluate(() =>
+      window.__ELECTRON_BRIDGE__?.invoke<{ entries: AuditRow[] }>('browserbridge_audit_tail'),
+    );
+    const tools = (audit?.entries ?? []).map((e) => e.tool);
+    for (const wanted of ['browser_navigate', 'browser_find_tab', 'browser_click', 'browser_type', 'browser_eval']) {
+      expect(tools).toContain(wanted);
+    }
+    const typeEntry = audit?.entries.find((e) => e.tool === 'browser_type');
+    expect(typeEntry?.args.text).toBe('<redacted 5 chars>');
+    expect(JSON.stringify(audit?.entries ?? [])).not.toContain('hello');
+    expect(typeEntry?.agent_id).toBe('e2e-agent-1');
+    expect(typeEntry?.ok).toBe(true);
+    expect(typeEntry?.hub).toBe('skipped');
+    // The scope-refused call from the read relay never reached the audit hook.
+    expect(audit?.entries.every((e) => e.agent_id === 'e2e-agent-1')).toBe(true);
+  } finally {
+    mcp?.close();
+    mcpRead?.close();
+    await new Promise<void>((r) => fixture.close(() => r()));
+    try {
+      await page.evaluate(() => window.__ELECTRON_BRIDGE__?.invoke('browserbridge_set_enabled', { enabled: false }));
+    } catch {
+      /* window already gone */
+    }
   }
 });

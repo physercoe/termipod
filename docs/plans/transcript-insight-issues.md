@@ -1,7 +1,7 @@
 # Transcript P5 wedge — session integrity issues + streaming-markdown efficiency
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — **A1 shipped**; A2/A3 + Track B open
+> **Status:** In progress (2026-07-29) — **A1 + A3 shipped**; A2 + Track B open
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `a402423f`
 > **Parent:** [agent-transcript-redesign.md](agent-transcript-redesign.md) §P5
@@ -275,15 +275,33 @@ plan: mobile state surfaces are bottom sheets, not docks/rails):
 
 ### A3 — desktop parity
 
-`RunReport.tsx` gains the same stat + a right-side drawer (existing drawer
-idiom in the transcript surface) rendering the identical grouping; row
-click drives the desktop seek path. **Parity is a review anchor, not an
-afterthought** — this family has shipped 4 mobile↔desktop misses
-(`callToolIdOf` ×3, stats strip #375); both clients must consume the same
-digest fields with the same severity ordering and the same
-hidden-at-zero rule. Extract shared fold/format logic where the desktop
-side already has the pattern (`state/transcriptStats.ts` precedent — pure
-module + node tests).
+**Shipped.** `RunReport.tsx` gains the Issues stat tile (hidden at zero,
+severity-tinted) which toggles an inline drawer under the stat grid: class rows
+grouped severity-first, each expanding to its samples, each sample seeking the
+transcript. Row click → `seekFromDigest` → switch to the live pane → the
+existing `jumpToContext` (which also clears a lens that would hide the target),
+because the drawer lives in the `digest` pane where no transcript list is
+mounted.
+
+The reading logic is a pure module, `state/digestIssues.ts` + node tests
+(`transcriptStats.ts` precedent), holding the two rules that must not be
+re-derived per call site: the severity ordering, and the seek anchor
+(`session_ordinal` when > 0, else `seq` — seq collides across a resumed
+session's agents).
+
+**Parity is a review anchor, not an afterthought** — this family has shipped 4
+mobile↔desktop misses (`callToolIdOf` ×3, stats strip #375); both clients must
+consume the same digest fields with the same severity ordering and the same
+hidden-at-zero rule. Two behaviours A2 must match exactly:
+
+- **hidden at zero, and absent when unknown.** A pre-v7 hub sends no `issues`
+  key at all, and the reader distinguishes that from "zero findings" — a hub
+  that never ran the checks must not render as a clean run.
+- **no silent caps.** An expanded class whose sample list is a prefix says
+  "showing first N of M".
+
+Desktop's RunReport was un-i18n'd; A3 moved the whole file onto `useT` (en + zh)
+rather than leaving it half-translated.
 
 ## 4. Track B — streaming-markdown efficiency (mobile-first)
 

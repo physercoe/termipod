@@ -4,12 +4,18 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	claudecode "github.com/termipod/hub/internal/drivers/local_log_tail/claude_code"
+	kimicode "github.com/termipod/hub/internal/drivers/local_log_tail/kimi_code"
 )
 
 // Engine-state snapshot/restore for session teleport (ADR-057 D-2/D-4). Beyond
@@ -19,12 +25,14 @@ import (
 // source and restores them at the equivalent path on the target.
 //
 // D-4: the paths are NOT declared as agent_families YAML globs — the resolver
-// logic (claude's cwd→slug encoding, kimi's workspaces.json lookup) already
-// lives in drivers/local_log_tail/*/pathresolver.go and would only diverge if
-// duplicated. This file reuses those resolvers so the same authority computes
-// both the source files to pack and the target paths to restore, making the
-// cwd→slug / cwd→wdID remap automatic. T1a covers claude-code; kimi-code-ts and
-// the remaining families slot in behind the same two functions.
+// logic (claude's cwd→slug encoding, kimi's workspaces.json lookup + wd_*
+// derivation) already lives in drivers/local_log_tail/*/pathresolver.go and
+// would only diverge if duplicated. This file reuses those resolvers so the
+// same authority computes both the source files to pack and the target paths
+// to restore, making the cwd→slug / cwd→wdID remap automatic. T1a covered
+// claude-code; T2b (#429) added kimi-code-ts (tree walk + state.json fixup +
+// workspaces.json synthesis); the remaining families slot in behind the same
+// two functions.
 
 // engineStateFile is one file in an engine-state bundle: TarName is the
 // host-independent name stored inside the tar, AbsPath is where it lives (pack)
@@ -40,7 +48,7 @@ type engineStateFile struct {
 type errUnsupportedTeleportEngine struct{ engine string }
 
 func (e errUnsupportedTeleportEngine) Error() string {
-	return "teleport: engine-state snapshot not supported for " + e.engine + " (T1: claude-code only)"
+	return "teleport: engine-state snapshot not supported for " + e.engine + " (covered: claude-code, kimi-code-ts)"
 }
 
 // engineStateEntries returns the on-disk files making up `engine`'s session
@@ -54,9 +62,74 @@ func engineStateEntries(engine, home, workdir, sessionID string) ([]engineStateF
 		}
 		jsonl := filepath.Join(claudecode.ProjectDirFor(home, workdir), sessionID+".jsonl")
 		return []engineStateFile{{TarName: "session.jsonl", AbsPath: jsonl}}, nil
+	case "kimi-code-ts":
+		if sessionID == "" {
+			return nil, fmt.Errorf("teleport: kimi-code-ts needs an engine session id to snapshot")
+		}
+		_, sessionDir, err := kimiSessionDirFor(home, workdir, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		// kimi's session state is a whole TREE (state.json +
+		// agents/<id>/wire.jsonl + logs/…), not claude's single JSONL.
+		// Walk it to a flat file list with host-independent subpath
+		// TarNames ("<sessionID>/<rel>") — packEngineState's
+		// regular-files-only contract holds per entry, and the target
+		// re-anchors the tree under ITS OWN wd_* via engineStateTargetPath.
+		var entries []engineStateFile
+		werr := filepath.WalkDir(sessionDir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !d.Type().IsRegular() {
+				return nil // directories are recreated on restore; symlinks skipped
+			}
+			rel, rerr := filepath.Rel(sessionDir, p)
+			if rerr != nil {
+				return rerr
+			}
+			entries = append(entries, engineStateFile{
+				TarName: sessionID + "/" + filepath.ToSlash(rel),
+				AbsPath: p,
+			})
+			return nil
+		})
+		if werr != nil {
+			return nil, fmt.Errorf("teleport: walk kimi-code-ts session dir: %w", werr)
+		}
+		if len(entries) == 0 {
+			// Same invariant as claude's missing JSONL: never teleport an
+			// empty engine state — the target would cold-start and the
+			// user loses the conversation they expected to continue.
+			return nil, fmt.Errorf("teleport: kimi-code-ts session dir %s is empty or missing", sessionDir)
+		}
+		return entries, nil
 	default:
 		return nil, errUnsupportedTeleportEngine{engine}
 	}
+}
+
+// kimiSessionDirFor resolves where kimi's on-disk session tree lives for
+// (home, workdir, sessionID): <store>/sessions/<wd_*>/<sessionID>. The wd_*
+// id comes from workspaces.json when kimi has opened this workdir on this
+// host (authoritative — covers any historical id-scheme drift), else from
+// kimi's deterministic id algorithm over the symlink-resolved workdir
+// (verified on-host against kimi-code 0.28.1 — see WorkspaceIDFor). The
+// same helper answers both sides of a teleport: on the source it finds the
+// tree to pack; on the target it computes where the tree must land so the
+// respawned kimi — which re-derives the SAME id from its cwd — finds it.
+func kimiSessionDirFor(home, workdir, sessionID string) (wdID, sessionDir string, err error) {
+	store := kimicode.StoreHomeFor(home)
+	wdID, err = kimicode.LookupWorkspaceID(store, workdir)
+	if err != nil {
+		if !errors.Is(err, kimicode.ErrNoWorkspace) {
+			return "", "", fmt.Errorf("teleport: resolve kimi workspace: %w", err)
+		}
+		// kimi never opened this workdir here (the common TARGET case):
+		// derive the id exactly as kimi will at launch.
+		wdID = kimicode.WorkspaceIDFor(kimicode.ResolveWorkdirRoot(workdir))
+	}
+	return wdID, filepath.Join(store, "sessions", wdID, sessionID), nil
 }
 
 // engineStateTargetPath is the inverse: where a bundle entry named tarName must
@@ -70,6 +143,16 @@ func engineStateTargetPath(engine, home, workdir, sessionID, tarName string) (st
 			return "", fmt.Errorf("teleport: unexpected claude-code bundle entry %q", tarName)
 		}
 		return filepath.Join(claudecode.ProjectDirFor(home, workdir), sessionID+".jsonl"), nil
+	case "kimi-code-ts":
+		rel, ok := strings.CutPrefix(tarName, sessionID+"/")
+		if !ok || rel == "" || rel == ".." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+			return "", fmt.Errorf("teleport: unexpected kimi-code-ts bundle entry %q", tarName)
+		}
+		_, sessionDir, err := kimiSessionDirFor(home, workdir, sessionID)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(sessionDir, filepath.FromSlash(rel)), nil
 	default:
 		return "", errUnsupportedTeleportEngine{engine}
 	}
@@ -160,6 +243,155 @@ func restoreEngineState(engine, home, workdir, sessionID string, bundle []byte) 
 		if err := os.WriteFile(dst, body, 0o600); err != nil {
 			return fmt.Errorf("teleport: write %s: %w", dst, err)
 		}
+	}
+	if engine == "kimi-code-ts" {
+		if err := finalizeKimiRestore(home, workdir, sessionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// finalizeKimiRestore makes a restored kimi session tree RESUMABLE from the
+// target workdir. Verified on-host against kimi-code 0.28.1 (ticket #429):
+// `kimi -r <id>` / ACP session/load resolves cwd → wd_* (computed, not via
+// workspaces.json) → sessions/<wd_*>/<id>/state.json and REFUSES a session
+// whose state.json workDir differs from the resolved cwd ("created under a
+// different directory"). Three fixups:
+//
+//  1. state.json: workDir → the target's resolved workdir; agents.*.homedir →
+//     the tree's new absolute location (both carried source-host paths).
+//  2. workspaces.json: synthesize the wd_* → root entry when absent. Resume
+//     doesn't consult it (verified), but the M4 wire-tail adapter's
+//     WaitForSession polls LookupWorkspaceID, which does — without the entry
+//     the target spawn's transcript never resolves.
+//  3. session_index.jsonl: append the target-correct {sessionId, sessionDir,
+//     workDir} line so kimi's interactive picker / vis / export stay coherent
+//     (the resume path itself ignores the index — verified).
+func finalizeKimiRestore(home, workdir, sessionID string) error {
+	wdID, sessionDir, err := kimiSessionDirFor(home, workdir, sessionID)
+	if err != nil {
+		return err
+	}
+	root := kimicode.ResolveWorkdirRoot(workdir)
+	if err := rewriteKimiStateJSON(sessionDir, root); err != nil {
+		return err
+	}
+	if err := ensureKimiWorkspaceEntry(kimicode.StoreHomeFor(home), wdID, root); err != nil {
+		return err
+	}
+	return appendKimiSessionIndex(kimicode.StoreHomeFor(home), sessionID, sessionDir, root)
+}
+
+// rewriteKimiStateJSON patches the restored state.json in place, preserving
+// every field it doesn't own (map round-trip, not a struct).
+func rewriteKimiStateJSON(sessionDir, root string) error {
+	statePath := filepath.Join(sessionDir, "state.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		// Hard error like a missing pack source: without state.json kimi
+		// cannot validate-or-resume the session — no silent cold-start.
+		return fmt.Errorf("teleport: restored kimi state.json: %w", err)
+	}
+	var st map[string]any
+	if err := json.Unmarshal(data, &st); err != nil {
+		return fmt.Errorf("teleport: parse kimi state.json: %w", err)
+	}
+	st["workDir"] = root
+	if agents, ok := st["agents"].(map[string]any); ok {
+		for id, a := range agents {
+			if m, ok := a.(map[string]any); ok {
+				m["homedir"] = filepath.Join(sessionDir, "agents", id)
+			}
+		}
+	}
+	out, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return fmt.Errorf("teleport: re-encode kimi state.json: %w", err)
+	}
+	if err := os.WriteFile(statePath, append(out, '\n'), 0o600); err != nil {
+		return fmt.Errorf("teleport: write kimi state.json: %w", err)
+	}
+	return nil
+}
+
+// ensureKimiWorkspaceEntry adds the wd_* → root mapping to the target store's
+// workspaces.json if kimi hasn't recorded it yet. The on-disk shape (verified
+// 0.28.1):
+//
+//	{"version":1,
+//	 "workspaces":{"<wdID>":{"root":…,"name":…,"created_at":…,"last_opened_at":…}},
+//	 "deleted_workspace_ids":[]}
+//
+// An existing entry is kimi's own and is left untouched. Map round-trip so
+// unrelated fields (deleted_workspace_ids, other workspaces) survive.
+func ensureKimiWorkspaceEntry(store, wdID, root string) error {
+	wsPath := filepath.Join(store, "workspaces.json")
+	wf := map[string]any{}
+	data, err := os.ReadFile(wsPath)
+	switch {
+	case err == nil:
+		if jerr := json.Unmarshal(data, &wf); jerr != nil {
+			return fmt.Errorf("teleport: parse kimi workspaces.json: %w", jerr)
+		}
+	case os.IsNotExist(err):
+		wf["version"] = 1
+		if _, ok := wf["deleted_workspace_ids"]; !ok {
+			wf["deleted_workspace_ids"] = []any{}
+		}
+	default:
+		return fmt.Errorf("teleport: read kimi workspaces.json: %w", err)
+	}
+	workspaces, ok := wf["workspaces"].(map[string]any)
+	if !ok {
+		workspaces = map[string]any{}
+	}
+	if _, exists := workspaces[wdID]; exists {
+		return nil // kimi (or an earlier teleport) already recorded it
+	}
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	workspaces[wdID] = map[string]any{
+		"root":           root,
+		"name":           filepath.Base(root),
+		"created_at":     now,
+		"last_opened_at": now,
+	}
+	wf["workspaces"] = workspaces
+	out, err := json.MarshalIndent(wf, "", "  ")
+	if err != nil {
+		return fmt.Errorf("teleport: re-encode kimi workspaces.json: %w", err)
+	}
+	if err := os.WriteFile(wsPath, append(out, '\n'), 0o600); err != nil {
+		return fmt.Errorf("teleport: write kimi workspaces.json: %w", err)
+	}
+	return nil
+}
+
+// appendKimiSessionIndex appends the target-correct line to the store's
+// session_index.jsonl ({"sessionId","sessionDir","workDir"} — verified
+// shape), skipping the append when an identical sessionId+sessionDir line is
+// already present (a re-teleport of the same session must not duplicate it).
+func appendKimiSessionIndex(store, sessionID, sessionDir, root string) error {
+	indexPath := filepath.Join(store, "session_index.jsonl")
+	needle := `"sessionId":"` + sessionID + `","sessionDir":"` + sessionDir + `"`
+	if data, err := os.ReadFile(indexPath); err == nil && strings.Contains(string(data), needle) {
+		return nil
+	}
+	line, err := json.Marshal(map[string]string{
+		"sessionId":  sessionID,
+		"sessionDir": sessionDir,
+		"workDir":    root,
+	})
+	if err != nil {
+		return fmt.Errorf("teleport: encode kimi session index line: %w", err)
+	}
+	f, err := os.OpenFile(indexPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("teleport: open kimi session_index.jsonl: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("teleport: append kimi session_index.jsonl: %w", err)
 	}
 	return nil
 }

@@ -213,3 +213,57 @@ func TestListAgentWireFiles(t *testing.T) {
 		t.Fatalf("wires = %+v", got)
 	}
 }
+
+// TestWorkspaceIDFor_GoldenVectors pins the wd_* derivation against the ids
+// kimi-code 0.28.1 actually recorded on-host (ticket #429 probe): sha256 of
+// the symlink-RESOLVED root, basename lowercased with non-[a-z0-9._-] runs
+// collapsed to '-'. If upstream changes the scheme these vectors must move —
+// they are the contract the teleport restore relies on.
+func TestWorkspaceIDFor_GoldenVectors(t *testing.T) {
+	cases := []struct{ root, want string }{
+		{"/Users/wb", "wd_wb_059d826285bc"},
+		{"/tmp", "wd_tmp_e9671acd2448"},
+		{"/private/tmp", "wd_tmp_11fe14a563f7"},
+		{"/tmp/acp-probe", "wd_acp-probe_ce5d3f91e678"},
+		{"/private/tmp/kimi-probe/wd-A", "wd_wd-a_cc34d079a4d4"},
+		{"/private/tmp/kimi-probe/My Proj.X", "wd_my-proj.x_d92d360abefd"},
+		{"/private/tmp/kimi-probe/café_x  y", "wd_caf-_x-y_5db2c497e225"},
+	}
+	for _, c := range cases {
+		if got := WorkspaceIDFor(c.root); got != c.want {
+			t.Errorf("WorkspaceIDFor(%q) = %q, want %q", c.root, got, c.want)
+		}
+	}
+}
+
+func TestStoreHomeFor_PureFromHome(t *testing.T) {
+	if got := StoreHomeFor("/home/x"); got != "/home/x/.kimi-code" {
+		t.Fatalf("StoreHomeFor = %q", got)
+	}
+	// The env override must NOT leak into the pure variant — teleport keys
+	// off an explicit host home, not this process's env.
+	t.Setenv("KIMI_CODE_HOME", "/elsewhere")
+	if got := StoreHomeFor("/home/x"); got != "/home/x/.kimi-code" {
+		t.Fatalf("StoreHomeFor honoured env: %q", got)
+	}
+}
+
+func TestResolveWorkdirRoot_ResolvesSymlinks(t *testing.T) {
+	// /tmp on macOS resolves to /private/tmp; on Linux it is itself. Either
+	// way the result must equal filepath.EvalSymlinks' answer — kimi hashes
+	// the resolved form (verified 0.28.1).
+	got := ResolveWorkdirRoot("/tmp")
+	want, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Skip("/tmp not resolvable here")
+	}
+	if got != want {
+		t.Fatalf("ResolveWorkdirRoot(/tmp) = %q, want resolved %q", got, want)
+	}
+	// A nonexistent path falls back to the cleaned absolute form
+	// deterministically (a not-yet-created workdir still needs an id).
+	missing := ResolveWorkdirRoot(filepath.Join("/tmp", "kimi-no-such-dir-xyz"))
+	if !filepath.IsAbs(missing) || missing == "" {
+		t.Fatalf("ResolveWorkdirRoot(missing) = %q", missing)
+	}
+}

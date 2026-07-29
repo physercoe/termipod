@@ -17,6 +17,7 @@ import {
   type DatasetSummary,
 } from '../state/replayDigest';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { EpisodePlayer } from './EpisodePlayer';
 
 /// J8 — Replay. The destination surface for episode data: a dataset library on
 /// the left, the selected dataset's digest and episodes table in the centre.
@@ -152,6 +153,10 @@ export function ReplaySurface(): JSX.Element {
   const handoff = useReplay((s) => s.handoff);
   const clearHandoff = useReplay((s) => s.clearHandoff);
   const [offset, setOffset] = useState(0);
+  /// The episode open in the player, by index. Surface-local: unlike the
+  /// dataset selection it is never handed over from another surface, and it
+  /// must not outlive the dataset it belongs to.
+  const [openEpisode, setOpenEpisode] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [newPath, setNewPath] = useState('');
   const [newHost, setNewHost] = useState('');
@@ -174,9 +179,11 @@ export function ReplaySurface(): JSX.Element {
   const datasetId = str(selected ?? {}, 'id') ?? '';
 
   // A new selection starts at the top of the table; leaving the old offset in
-  // place would open an unrelated dataset scrolled to page 7.
+  // place would open an unrelated dataset scrolled to page 7 — and the open
+  // player would be showing an episode of the dataset you just left.
   useEffect(() => {
     setOffset(0);
+    setOpenEpisode(null);
   }, [datasetId]);
 
   /// Consume an Inspect handoff (W1d). The decision itself lives in
@@ -217,6 +224,11 @@ export function ReplaySurface(): JSX.Element {
   });
   const page = readEpisodePage(episodesQ.data);
   const range = pageRangeLabel(page);
+  // The player needs the row, not just its index — length, duration and task
+  // are already on screen and asking the host for them again would be a second
+  // round-trip for data in hand. An episode scrolled off the current page
+  // closes the player rather than showing a stale header.
+  const playerEpisode = openEpisode === null ? undefined : page.rows.find((r) => r.index === openEpisode);
 
   /// Registration is explicit — nothing crawls a host looking for datasets
   /// (the no-surprise-scans posture). W1d moves the common case into the
@@ -384,6 +396,18 @@ export function ReplaySurface(): JSX.Element {
 
               <DigestCard summary={summary} />
 
+              {/* The player sits above the table rather than replacing it: an
+                  episode is chosen by comparing it against its neighbours, and
+                  swapping the table out loses the row you were reading. */}
+              {playerEpisode !== undefined && (
+                <EpisodePlayer
+                  datasetId={datasetId}
+                  episode={playerEpisode}
+                  summary={summary}
+                  onClose={() => setOpenEpisode(null)}
+                />
+              )}
+
               <div className="replay-table-wrap">
                 <table className="replay-table">
                   <thead>
@@ -397,7 +421,16 @@ export function ReplaySurface(): JSX.Element {
                   </thead>
                   <tbody>
                     {page.rows.map((row) => (
-                      <tr key={row.index}>
+                      // `role="button"` + `clickable-row` is what the other
+                      // clickable tables here use (ProjectBoard, AdminCockpit);
+                      // a new one inventing its own affordance would look and
+                      // behave subtly differently for no reason.
+                      <tr
+                        key={row.index}
+                        role="button"
+                        className={`clickable-row replay-row${row.index === openEpisode ? ' is-open' : ''}`}
+                        onClick={() => setOpenEpisode(row.index === openEpisode ? null : row.index)}
+                      >
                         <td className="mono">{row.index}</td>
                         <td className="mono">{formatCount(row.length)}</td>
                         <td className="mono">{formatDuration(row.durationSec)}</td>

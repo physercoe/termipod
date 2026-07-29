@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
@@ -401,7 +401,7 @@ class _BlobTile extends StatelessWidget {
 }
 
 /// Fullscreen reader for text-shaped blobs (markdown, plain text,
-/// JSON, YAML). Decoded as UTF-8; markdown renders via flutter_markdown,
+/// JSON, YAML). Decoded as UTF-8; markdown renders via flutter_markdown_plus,
 /// everything else falls back to a monospace `SelectableText` so the
 /// raw content stays copyable. Keeps the assets surface useful for the
 /// notes/configs testers upload to verify behavior without needing the

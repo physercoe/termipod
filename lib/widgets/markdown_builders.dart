@@ -4,7 +4,7 @@
 // module is the single home for code-fence highlighting, LaTeX inline
 // syntaxes, math element rendering, and the multiline-math
 // preprocessor that flatten-fixes well-formed `$$...$$` and `\[...\]`
-// regions before flutter_markdown sees them.
+// regions before flutter_markdown_plus sees them.
 //
 // Names dropped their underscore prefix on extraction (this codebase
 // does not use Dart `part`-of files; symbols moving across files have
@@ -14,7 +14,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/atom-one-light.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -23,13 +23,22 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/design_colors.dart';
 
 /// MarkdownElementBuilder that swaps `<pre><code class="language-X">` blocks
-/// out for a syntax-highlighted view. Inline `<code>` (no class attribute)
-/// returns null so flutter_markdown falls back to its own monochrome
-/// styleSheet rendering — we only want the heavy treatment on fenced
-/// blocks where the language is declared. Fenced blocks without a
-/// language (just ``` ```) get a plaintext highlight (no colors), which
-/// still picks up the themed background + padding so the block visually
-/// stands out from prose.
+/// out for a syntax-highlighted view.
+///
+/// A `code` element reaches the highlighter ONLY when it carries a
+/// `language-` class, which the `markdown` package adds only when the fence
+/// declares an info string. Everything else returns null and falls through to
+/// flutter_markdown_plus's own styleSheet rendering:
+///
+///   * **inline** `` `code` `` — monochrome, in the `code` text style;
+///   * **a bare fence** (just ``` ```) — the `codeblockDecoration` box, so it
+///     still reads as a code block, just without tokenizing.
+///
+/// The doc here previously claimed a bare fence got a *plaintext highlight*
+/// via `class="language-"`. It never did, under either renderer — the class is
+/// simply absent (markdown ≥0.10.0, "if a language is provided, it is added as
+/// a class"). Pinned now by markdown_plus_behaviour_test so the claim and the
+/// behaviour can't drift apart again.
 class HighlightedCodeBuilder extends MarkdownElementBuilder {
   final bool isDark;
   HighlightedCodeBuilder({required this.isDark});
@@ -37,8 +46,8 @@ class HighlightedCodeBuilder extends MarkdownElementBuilder {
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     final classAttr = element.attributes['class'] ?? '';
-    // Inline `<code>` has no class — let the base styleSheet handle it.
-    // Fenced blocks always get a class even with no language ("language-").
+    // No `language-` class ⇒ inline code, or a fence with no info string.
+    // Both belong to the styleSheet (see the class doc).
     if (!classAttr.startsWith('language-')) return null;
     var language = classAttr.substring('language-'.length).trim();
     // flutter_highlight expects a known id or 'plaintext'; an unknown id

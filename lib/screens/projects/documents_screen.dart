@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -383,7 +383,7 @@ class DocKindChip extends StatelessWidget {
 }
 
 /// Read-only viewer for a document with version history and "Request
-/// review" action. Inline markdown renders through flutter_markdown;
+/// review" action. Inline markdown renders through flutter_markdown_plus;
 /// artifact-backed docs show a placeholder pointer since the bytes live
 /// on the host (blueprint §6.7: metadata in hub, bytes stay put).
 class DocumentDetailScreen extends ConsumerStatefulWidget {

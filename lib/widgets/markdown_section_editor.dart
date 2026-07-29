@@ -9,7 +9,7 @@ import '../theme/tokens.dart';
 /// W5a — Basic markdown editor used by the Section Detail screen for
 /// manual edits. Textarea + simple toolbar (H1/H2/H3 / list / link /
 /// code block) per A4 §5.6 — explicitly NOT a rich editor; the
-/// underlying body is plain markdown that flutter_markdown renders on
+/// underlying body is plain markdown that flutter_markdown_plus renders on
 /// the read path.
 ///
 /// Returns the saved body via Navigator.pop, or `null` on cancel.

@@ -13,6 +13,8 @@ import {
 } from '../state/replaySeries';
 import type { EpisodeRow, EpisodeVideo } from '../state/replayDigest';
 import { episodeVideoUrl, fileTimeOf, isPastEnd } from '../state/replayMedia';
+import { pickPoseFeature } from '../state/robotManifest';
+import { ReplayPose3D } from './ReplayPose3D';
 import { isShell } from '../platform';
 
 /// The episode player's **plots** half (J8 W2c): one episode's channels against
@@ -54,6 +56,7 @@ export function EpisodePlayer({
   const client = useSession((s) => s.client);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState<number | null>(null);
+  const [showPose, setShowPose] = useState(true);
 
   const seriesQ = useQuery({
     queryKey: ['dataset-series', datasetId, episode.index],
@@ -78,6 +81,11 @@ export function EpisodePlayer({
   const shown = view.features.filter((f) => !hidden.has(f.key));
   const cursorIndex = cursor === null ? -1 : nearestPointIndex(view.timestamps, cursor);
   const cursorTime = cursorIndex >= 0 ? view.timestamps[cursorIndex] : null;
+
+  // The pose panel is driven by whichever feature describes the robot's own
+  // configuration — never by a hidden-feature toggle, which is about the plots.
+  const poseKey = pickPoseFeature(view.features.map((f) => f.key));
+  const poseFeature = poseKey === null ? null : (view.features.find((f) => f.key === poseKey) ?? null);
 
   /// Map a pointer position onto the episode clock. The SVG is scaled by CSS,
   /// so the ratio through the bounding box is what converts — reading clientX
@@ -120,6 +128,16 @@ export function EpisodePlayer({
           )}
         </div>
         <span className="spacer" />
+        {poseFeature !== null && (
+          <button
+            type="button"
+            className={`replay-toggle${showPose ? ' is-on' : ''}`}
+            onClick={() => setShowPose((s) => !s)}
+            aria-pressed={showPose}
+          >
+            {t('replay.pose.title')}
+          </button>
+        )}
         <button type="button" className="link-btn small" onClick={onClose}>
           {t('replay.player.close')}
         </button>
@@ -128,6 +146,10 @@ export function EpisodePlayer({
       {episode.tasks.length > 0 && <div className="replay-player-task small">{episode.tasks.join(' · ')}</div>}
 
       <VideoGrid rootPath={rootPath} episode={episode} summary={summary} cursor={cursorTime} />
+
+      {showPose && poseFeature !== null && (
+        <ReplayPose3D robotType={summary.robotType} feature={poseFeature} cursorIndex={cursorIndex} />
+      )}
 
       {seriesQ.isPending && <div className="muted small region-pad">{t('replay.player.loading')}</div>}
       {seriesQ.isError && (

@@ -6,8 +6,10 @@ import { fileURLToPath } from 'node:url';
 import {
   matFromAxisAngle,
   matFromXyzRpy,
+  frameDistance,
   movableJoints,
   multiplyMat4,
+  orbitPosition,
   originOf,
   parseUrdf,
   parseVec3,
@@ -367,6 +369,41 @@ test('a NaN channel parks the joint rather than poisoning every descendant', () 
   for (const l of pose.links) {
     for (const c of l.position) assert.ok(Number.isFinite(c), `${l.name} is not finite`);
   }
+});
+
+// ── framing ──────────────────────────────────────────────────────────────────
+
+test('the camera backs off far enough to hold the whole robot', () => {
+  const pose = solvePose(parseUrdf(SO100), {});
+  const d = frameDistance(pose, 50);
+  // Trigonometry, not a tuned constant: at half the field of view, the sphere
+  // of radius `pose.radius` must subtend no more than the frustum.
+  assert.ok(d > pose.radius, `${d} vs ${pose.radius}`);
+  assert.ok(Math.sin(((50 / 2) * Math.PI) / 180) * d >= pose.radius, 'the robot does not fit');
+  // A collapsed pose still has to be viewable — radius 0 would otherwise put
+  // the camera inside the model and render an empty panel.
+  const flat = solvePose(parseUrdf('<robot><link name="only"/></robot>'), {});
+  assert.equal(flat.radius, 0);
+  assert.ok(frameDistance(flat, 50) > 0);
+  // A nonsense field of view must not produce a NaN or negative distance.
+  for (const fov of [0, -10, 180, 1e9, Number.NaN]) assert.ok(frameDistance(pose, fov) > 0, `fov ${fov}`);
+});
+
+test('the orbit is Z-up, because URDF is', () => {
+  // Rendered in three.js's default Y-up frame the robot lies on its side, which
+  // reads as a broken model rather than as a wrong camera.
+  close(orbitPosition([0, 0, 0], 10, 0, 0), [10, 0, 0]);
+  close(orbitPosition([0, 0, 0], 10, Math.PI / 2, 0), [0, 10, 0]);
+  // Straight overhead is +Z, not +Y.
+  const top = orbitPosition([0, 0, 0], 10, 0, Math.PI / 2);
+  assert.ok(top[2] > 9.9, `${top}`);
+  assert.ok(Math.abs(top[1]) < 0.2, `${top}`);
+  // The target offsets the whole orbit.
+  close(orbitPosition([1, 2, 3], 10, 0, 0), [11, 2, 3]);
+  // Past the pole the up vector and the view direction become parallel and the
+  // view flips; the clamp keeps it just short.
+  const past = orbitPosition([0, 0, 0], 10, 0, Math.PI);
+  assert.ok(past[2] > 0, `elevation past the pole flipped the camera under the robot: ${past}`);
 });
 
 function close(got: Vec3 | number[], want: Vec3 | number[], eps = 1e-9, label = ''): void {

@@ -3195,6 +3195,57 @@ button > .ui-icon:not(:only-child):first-child,
   padding: var(--spacing-s8);
   text-align: center;
 }
+/* The 3D pose panel (W3). */
+.replay-pose {
+  margin-top: var(--spacing-s8);
+}
+.replay-pose-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+  color: var(--text-secondary);
+}
+.replay-pose-pick {
+  display: grid;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.replay-pose-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+}
+/* A fixed height, not an aspect-ratio: the panel sits above the plots in a
+   column that already scrolls, and a ratio-sized canvas would grow with the
+   window until the plots were pushed off screen entirely. The canvas inside is
+   sized from clientWidth/clientHeight by a ResizeObserver. */
+.replay-pose-canvas {
+  position: relative;
+  width: 100%;
+  height: 260px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none; /* or a drag scrolls the surface instead of orbiting */
+}
+.replay-pose-canvas:active {
+  cursor: grabbing;
+}
+.replay-pose-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.replay-pose-notes {
+  display: grid;
+  gap: var(--spacing-s2);
+  margin-top: var(--spacing-s4);
+}
 .replay-player-toggles {
   display: flex;
   flex-wrap: wrap;

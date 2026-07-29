@@ -484,6 +484,46 @@ export function solvePose(model: UrdfModel, values: Record<string, number>): Pos
   return { links, segments, ...extentOf(links), clamped };
 }
 
+// ── framing ──────────────────────────────────────────────────────────────────
+// The camera arithmetic lives here rather than in the renderer for the usual
+// reason: a wrongly framed robot and an empty viewport look identical on screen
+// and nowhere else.
+
+/// A floor on the framing radius. A single-link description, or a robot posed
+/// so every origin coincides, has radius 0 — dividing by which puts the camera
+/// inside the model and renders nothing at all.
+const MIN_RADIUS = 0.05;
+
+/// How far a perspective camera must sit to fit a sphere of `pose.radius` in a
+/// `fovDegrees` vertical field of view, with margin so the robot does not touch
+/// the edges.
+export function frameDistance(pose: Pose, fovDegrees: number, margin = 1.4): number {
+  const r = Math.max(pose.radius, MIN_RADIUS);
+  // `Math.min`/`Math.max` propagate NaN rather than clamping it, so an
+  // unreadable field of view has to be caught before the range is applied —
+  // otherwise the camera distance is NaN and the canvas draws nothing.
+  const fov = Number.isFinite(fovDegrees) ? Math.max(1, Math.min(179, fovDegrees)) : 50;
+  return (r / Math.sin((fov * Math.PI) / 360)) * margin;
+}
+
+/// A camera position on the orbit sphere around `target`.
+///
+/// **Z-up**, because URDF is Z-up and three.js defaults to Y-up. Rendered in
+/// the default frame a robot lies on its side, which reads as a broken model
+/// rather than as a wrong camera. Azimuth turns about +Z from the +X axis;
+/// elevation is clamped just short of the poles, where the up vector and the
+/// view direction become parallel and the view flips.
+export function orbitPosition(target: Vec3, distance: number, azimuth: number, elevation: number): Vec3 {
+  const limit = Math.PI / 2 - 0.01;
+  const e = Math.max(-limit, Math.min(limit, elevation));
+  const horizontal = distance * Math.cos(e);
+  return [
+    target[0] + horizontal * Math.cos(azimuth),
+    target[1] + horizontal * Math.sin(azimuth),
+    target[2] + distance * Math.sin(e),
+  ];
+}
+
 function extentOf(links: PoseLink[]): { center: Vec3; radius: number } {
   if (links.length === 0) return { center: [0, 0, 0], radius: 0 };
   const min: Vec3 = [Infinity, Infinity, Infinity];

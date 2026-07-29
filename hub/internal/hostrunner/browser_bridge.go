@@ -1,16 +1,22 @@
 package hostrunner
 
 // Browser-bridge MCP injection (docs/plans/desktop-agent-browser-bridge.md,
-// W1). When the TermiPod desktop's "agent browser bridge" toggle is on, the
+// W1+W2). When the TermiPod desktop's "agent browser bridge" toggle is on, the
 // Electron main process runs a loopback MCP server and publishes
 // ~/.termipod/browser-bridge.json. At spawn time we ADD a second, optional
 // mcpServers entry — `termipod-browser`, a stdio relay (node
 // browser_bridge_stdio.mjs) — beside the hub entry so agents on THIS host
-// get the bridge's read-only browser_* tools. The file's presence + a live
-// pid is the same-host proof: a remote host has no file, so nothing is
-// injected there. The token rides env (never argv), same rule as the hub
-// bridge. W1 injects read scope only (TP_BROWSER_SCOPE=read; action tools
-// are W2 behind a per-spawn opt-in).
+// get the bridge's browser_* tools. The file's presence + a live pid is the
+// same-host proof: a remote host has no file, so nothing is injected there.
+// The token rides env (never argv), same rule as the hub bridge.
+//
+// W2 scope split: the discovery file carries TWO per-run tokens. Every spawn
+// gets the READ token (TP_BROWSER_SCOPE=read); a spawn whose spec sets
+// `browser_bridge: true` gets the ACTION token (TP_BROWSER_SCOPE=action),
+// unlocking browser_navigate/click/type/… desktop-side. Either way the
+// spawn's agent id rides TP_BROWSER_AGENT_ID → the relay forwards it as
+// x-tp-agent-id so the desktop's audit trail attributes every action call
+// to the calling agent (hub agent_events mirror).
 
 import (
 	"encoding/json"
@@ -26,13 +32,39 @@ import (
 
 // browserBridgeDiscovery mirrors the JSON the desktop writes at
 // ~/.termipod/browser-bridge.json (desktop/electron/src/browserbridge.ts).
+// ActionToken is empty on discovery files written by a W1-era desktop —
+// treated as read-only (opted-in spawns degrade to read scope).
 type browserBridgeDiscovery struct {
-	URL        string `json:"url"`
-	Token      string `json:"token"`
-	PID        int    `json:"pid"`
-	StartedAt  string `json:"started_at"`
-	AppVersion string `json:"app_version"`
-	BridgePath string `json:"bridge_path"`
+	URL         string `json:"url"`
+	Token       string `json:"token"`
+	ActionToken string `json:"action_token"`
+	PID         int    `json:"pid"`
+	StartedAt   string `json:"started_at"`
+	AppVersion  string `json:"app_version"`
+	BridgePath  string `json:"bridge_path"`
+}
+
+// browserBridgeRequest is one spawn's bridge injection intent: whether the
+// spec opted into action scope (`browser_bridge: true`) and the agent id the
+// desktop's audit trail should attribute action calls to. The zero value is
+// the W1 behavior: read scope, unknown agent.
+type browserBridgeRequest struct {
+	optIn   bool
+	agentID string
+}
+
+// resolve picks the token/scope pair for this spawn against the validated
+// discovery. The action token is handed out only when the spawn opted in AND
+// the desktop wrote one (a W1-era discovery file has none — degrade to read
+// with a log note, never fail the spawn).
+func (r browserBridgeRequest) resolve(d *browserBridgeDiscovery) (token, scope string) {
+	if r.optIn {
+		if d.ActionToken != "" {
+			return d.ActionToken, "action"
+		}
+		slog.Info("browser bridge: spawn opted into action scope but discovery has no action_token (W1-era desktop?); injecting read scope")
+	}
+	return d.Token, "read"
 }
 
 // browserBridgeDiscoveryPath is the well-known location both sides share.
@@ -134,19 +166,27 @@ func browserBridgeAvailable() *browserBridgeDiscovery {
 // browserBridgeMCPServer returns the additive `termipod-browser` mcpServers
 // entry for the JSON-shaped engine configs (claude/kimi-code-ts/gemini), or
 // nil when browserBridgeAvailable is nil. The token rides env (never argv),
-// same rule as the hub bridge.
-func browserBridgeMCPServer() map[string]any {
+// same rule as the hub bridge. An optional browserBridgeRequest carries the
+// spawn's action-scope opt-in and agent id (W2); omitted = read scope,
+// anonymous agent.
+func browserBridgeMCPServer(req ...browserBridgeRequest) map[string]any {
 	d := browserBridgeAvailable()
 	if d == nil {
 		return nil
 	}
+	var r browserBridgeRequest
+	if len(req) > 0 {
+		r = req[0]
+	}
+	token, scope := r.resolve(d)
 	return map[string]any{
 		"command": "node",
 		"args":    []string{d.BridgePath},
 		"env": map[string]string{
-			"TP_BROWSER_URL":   d.URL,
-			"TP_BROWSER_TOKEN": d.Token,
-			"TP_BROWSER_SCOPE": "read",
+			"TP_BROWSER_URL":      d.URL,
+			"TP_BROWSER_TOKEN":    token,
+			"TP_BROWSER_SCOPE":    scope,
+			"TP_BROWSER_AGENT_ID": r.agentID,
 		},
 	}
 }
@@ -161,16 +201,23 @@ func browserBridgeMCPServer() map[string]any {
 //	TP_BROWSER_URL = "<url>"
 //	TP_BROWSER_TOKEN = "<token>"
 //	TP_BROWSER_SCOPE = "read"
+//	TP_BROWSER_AGENT_ID = "<agent>"
 //
 // "termipod-browser" is a legal TOML bare key (dashes allowed), matching the
 // JSON families' server name. Token in env, never argv.
-func codexBrowserBridgeTOML(d *browserBridgeDiscovery) string {
+func codexBrowserBridgeTOML(d *browserBridgeDiscovery, req ...browserBridgeRequest) string {
+	var r browserBridgeRequest
+	if len(req) > 0 {
+		r = req[0]
+	}
+	token, scope := r.resolve(d)
 	return "" +
 		"\n[mcp_servers.termipod-browser]\n" +
 		"command = " + tomlString("node") + "\n" +
 		"args = [" + tomlString(d.BridgePath) + "]\n" +
 		"\n[mcp_servers.termipod-browser.env]\n" +
 		"TP_BROWSER_URL = " + tomlString(d.URL) + "\n" +
-		"TP_BROWSER_TOKEN = " + tomlString(d.Token) + "\n" +
-		"TP_BROWSER_SCOPE = " + tomlString("read") + "\n"
+		"TP_BROWSER_TOKEN = " + tomlString(token) + "\n" +
+		"TP_BROWSER_SCOPE = " + tomlString(scope) + "\n" +
+		"TP_BROWSER_AGENT_ID = " + tomlString(r.agentID) + "\n"
 }

@@ -35,6 +35,7 @@ interface WebviewEl extends HTMLElement {
   stop(): void;
   canGoBack(): boolean;
   canGoForward(): boolean;
+  getWebContentsId(): number;
 }
 
 // `<webview>` is a host custom element; cast the tag so TS accepts the props we
@@ -154,17 +155,27 @@ export function BrowserView({
       if (ev.errorCode === -3 || ev.isMainFrame === false) return;
       setLoadError({ code: ev.errorCode ?? 0, desc: ev.errorDescription ?? '', url: ev.validatedURL ?? current });
     };
+    // Report this guest as the user's active browser tab so the agent browser
+    // bridge's `browser_find_tab {active:true}` ("borrowed tab") resolves it.
+    // This view unmounts while its tab is inactive, so the last reporter IS
+    // the visible one; the main side validates the id against its registry.
+    const onReady = (): void => {
+      if (!isShell()) return;
+      void invoke('browserbridge_set_active_guest', { id: v.getWebContentsId() }).catch(() => undefined);
+    };
     v.addEventListener('did-navigate', onNavigated);
     v.addEventListener('did-navigate-in-page', onNavigated);
     v.addEventListener('page-title-updated', onTitleUpdate);
     v.addEventListener('did-stop-loading', syncNavState);
     v.addEventListener('did-fail-load', onFail);
+    v.addEventListener('dom-ready', onReady);
     return () => {
       v.removeEventListener('did-navigate', onNavigated);
       v.removeEventListener('did-navigate-in-page', onNavigated);
       v.removeEventListener('page-title-updated', onTitleUpdate);
       v.removeEventListener('did-stop-loading', syncNavState);
       v.removeEventListener('did-fail-load', onFail);
+      v.removeEventListener('dom-ready', onReady);
     };
   }, [onTitle, onNavigate, syncNavState, current]);
 

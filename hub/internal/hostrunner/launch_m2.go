@@ -323,6 +323,7 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		}
 		if err := writeMCPConfigForFamily(
 			cfg.Spawn.Kind, expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken,
+			browserBridgeRequest{optIn: spec.BrowserBridge, agentID: cfg.Spawn.ChildID},
 		); err != nil {
 			return M2LaunchResult{}, fmt.Errorf("write mcp config: %w", err)
 		}
@@ -633,7 +634,7 @@ func writeContextFiles(workdir string, files map[string]string) error {
 //
 // Plaintext config at 0o600 — re-running overwrites; host-runner is
 // idempotent across spawns and a stale token must not linger.
-func writeMCPConfig(workdir, hubURL, token string) error {
+func writeMCPConfig(workdir, hubURL, token string, bb ...browserBridgeRequest) error {
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		return fmt.Errorf("mkdir workdir: %w", err)
 	}
@@ -649,8 +650,9 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 		},
 	}
 	// Additive browser-bridge entry when the desktop bridge is live on this
-	// host (plan W1) — read-scope only, absent everywhere else.
-	if bb := browserBridgeMCPServer(); bb != nil {
+	// host (plan W1+W2) — read scope by default, action scope for opted-in
+	// spawns; absent everywhere else.
+	if bb := browserBridgeMCPServer(bb...); bb != nil {
 		cfg["mcpServers"].(map[string]any)["termipod-browser"] = bb
 	}
 	body, err := json.MarshalIndent(cfg, "", "  ")
@@ -678,16 +680,20 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 // kimi reads project-scoped `<workdir>/.kimi-code/mcp.json`
 // automatically too (precedence over the user-level
 // ~/.kimi-code/mcp.json), so it needs no argv splice.
-func writeMCPConfigForFamily(family, workdir, hubURL, token string) error {
+//
+// The variadic browserBridgeRequest carries the spawn's browser-bridge
+// intent (W2: action-scope opt-in + audit agent id) through to the
+// additive termipod-browser entry; omitted = read scope.
+func writeMCPConfigForFamily(family, workdir, hubURL, token string, bb ...browserBridgeRequest) error {
 	switch family {
 	case "codex":
-		return writeCodexMCPConfig(workdir, hubURL, token)
+		return writeCodexMCPConfig(workdir, hubURL, token, bb...)
 	case "gemini-cli":
-		return writeGeminiMCPConfig(workdir, hubURL, token)
+		return writeGeminiMCPConfig(workdir, hubURL, token, bb...)
 	case "kimi-code-ts":
-		return writeKimiTSMCPConfig(workdir, hubURL, token)
+		return writeKimiTSMCPConfig(workdir, hubURL, token, bb...)
 	default:
-		return writeMCPConfig(workdir, hubURL, token)
+		return writeMCPConfig(workdir, hubURL, token, bb...)
 	}
 }
 
@@ -720,7 +726,7 @@ func writeMCPConfigForFamily(family, workdir, hubURL, token string) error {
 //	}
 //
 // File mode 0o600; .kimi-code directory mode 0o700.
-func writeKimiTSMCPConfig(workdir, hubURL, token string) error {
+func writeKimiTSMCPConfig(workdir, hubURL, token string, bb ...browserBridgeRequest) error {
 	dir := filepath.Join(workdir, ".kimi-code")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir .kimi-code: %w", err)
@@ -757,8 +763,9 @@ func writeKimiTSMCPConfig(workdir, hubURL, token string) error {
 		},
 	}
 	// Additive browser-bridge entry when the desktop bridge is live on this
-	// host (plan W1) — same env-carried-token shape as the hub entry.
-	if bb := browserBridgeMCPServer(); bb != nil {
+	// host (plan W1+W2) — same env-carried-token shape as the hub entry;
+	// read scope by default, action scope for opted-in spawns.
+	if bb := browserBridgeMCPServer(bb...); bb != nil {
 		servers["termipod-browser"] = bb
 	}
 	cfg["mcpServers"] = servers
@@ -787,7 +794,7 @@ func writeKimiTSMCPConfig(workdir, hubURL, token string) error {
 // command+env transport. Different file location (project-scoped
 // .gemini/ rather than top-level dotfile), same hub-mcp-bridge on
 // the other end. File mode 0o600; .gemini directory mode 0o700.
-func writeGeminiMCPConfig(workdir, hubURL, token string) error {
+func writeGeminiMCPConfig(workdir, hubURL, token string, bb ...browserBridgeRequest) error {
 	dir := filepath.Join(workdir, ".gemini")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir .gemini: %w", err)
@@ -804,8 +811,9 @@ func writeGeminiMCPConfig(workdir, hubURL, token string) error {
 		},
 	}
 	// Additive browser-bridge entry when the desktop bridge is live on this
-	// host (plan W1) — read-scope only.
-	if bb := browserBridgeMCPServer(); bb != nil {
+	// host (plan W1+W2) — read scope by default, action scope for opted-in
+	// spawns.
+	if bb := browserBridgeMCPServer(bb...); bb != nil {
 		cfg["mcpServers"].(map[string]any)["termipod-browser"] = bb
 	}
 	body, err := json.MarshalIndent(cfg, "", "  ")
@@ -845,16 +853,17 @@ func writeGeminiMCPConfig(workdir, hubURL, token string) error {
 // MCP config. Best-effort: a missing/unreadable source is logged but
 // does not fail the spawn, so a fully-headless deployment with auth
 // in env vars still works.
-func writeCodexMCPConfig(workdir, hubURL, token string) error {
+func writeCodexMCPConfig(workdir, hubURL, token string, bb ...browserBridgeRequest) error {
 	dir := filepath.Join(workdir, ".codex")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir .codex: %w", err)
 	}
 	body := codexConfigTOML(hub.MCPServerName, hubURL, token)
 	// Additive browser-bridge stanzas when the desktop bridge is live on this
-	// host (plan W1) — codex reads them from the same project-scoped config.
+	// host (plan W1+W2) — codex reads them from the same project-scoped config;
+	// read scope by default, action scope for opted-in spawns.
 	if d := browserBridgeAvailable(); d != nil {
-		body += codexBrowserBridgeTOML(d)
+		body += codexBrowserBridgeTOML(d, bb...)
 	}
 	target := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(target, []byte(body), 0o600); err != nil {

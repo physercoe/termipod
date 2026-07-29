@@ -5,8 +5,16 @@
 > (`browser_list_tabs`/`browser_snapshot`/`browser_screenshot`/
 > `browser_read_text`), desktop toggle (Settings → Assistant, default off),
 > discovery file, hostrunner injection for all four families (read scope),
-> stdio relay, unit + Playwright e2e coverage. W2 (action tools + audit) and
-> W3 (hub relay) remain as written below.
+> stdio relay, unit + Playwright e2e coverage. **W2 shipped**: the action
+> tool set (`browser_navigate`/`browser_find_tab`/`browser_click`/
+> `browser_type`/`browser_send_keys`/`browser_scroll`/`browser_upload_file`/
+> `browser_eval`) behind the per-spawn opt-in (`browser_bridge: true` → the
+> discovery file's action token), partition-policy enforcement on navigate +
+> `PARTITION_READ_ONLY` refusal on kimiweb/rerunweb, and the audit trail —
+> in-memory last-50 ring (Settings "Recent bridge actions") plus a
+> best-effort hub `agent_events` mirror (kind `browser_bridge`, producer
+> `system`, typed text redacted, agent attributed via the relay's
+> `x-tp-agent-id`). W3 (hub relay) remains as written below.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** origin/main `f02b8a83`; kimi-code 0.28.1 verified
 > on-host (macOS arm64)
@@ -213,7 +221,11 @@ result is capped.
 
 Entry shape (mirrors the hub bridge): `command: "node"`,
 `args: ["<appResources>/browser_bridge_stdio.mjs"]`,
-`env: {TP_BROWSER_URL, TP_BROWSER_TOKEN, TP_BROWSER_SCOPE}`. `node` is
+`env: {TP_BROWSER_URL, TP_BROWSER_TOKEN, TP_BROWSER_SCOPE,
+TP_BROWSER_AGENT_ID}`. `TP_BROWSER_TOKEN` is the read token by default, the
+discovery file's action token for opted-in spawns; the agent id rides every
+injection so the desktop's audit trail attributes each action call to the
+calling agent (the relay forwards it as `x-tp-agent-id`). `node` is
 usually present where the engine fleet runs (claude-code, kimi-code-ts and
 gemini-cli are node packages; codex is a native `codex-rs` binary, so node
 is NOT implied by it); when node is absent the entry is skipped with a

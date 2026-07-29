@@ -273,8 +273,18 @@ type Episode struct {
 	Videos map[string]VideoSlice `json:"videos,omitempty"`
 }
 
-// VideoSlice locates one episode inside one shared video file.
+// VideoSlice locates one episode inside one video file.
+//
+// Both generations report this shape, which is the point: v3.0 reads the range
+// from its episode metadata, v2.1 has one file per episode and therefore an
+// implicit [0, duration) — so a player can treat every dataset the same way
+// instead of branching on the format at the last possible moment.
 type VideoSlice struct {
+	// Path is the video file relative to the dataset root, already resolved
+	// through info.json's video_path template. The two generations differ in
+	// directory ORDER, not just placeholder names, so resolving it once here
+	// keeps that difference out of every consumer.
+	Path   string  `json:"path,omitempty"`
 	Chunk  int64   `json:"chunk"`
 	File   int64   `json:"file"`
 	FromTS float64 `json:"from_ts"`

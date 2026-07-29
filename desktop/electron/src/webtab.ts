@@ -55,8 +55,9 @@ function webtabSession(): Electron.Session {
 /// (`session.fromPartition` is memoized per partition string, so identity
 /// comparison works). `null` = not an allowlisted guest partition — the
 /// `will-attach-webview` guard already refused the attach, so this is only a
-/// defensive fallback that blocks everything.
-function policyForGuest(wc: Electron.WebContents): PartitionPolicy | null {
+/// defensive fallback that blocks everything. Exported for the browser-bridge
+/// host (browserbridge_host.ts), whose registry is built from the same lookup.
+export function policyForGuest(wc: Electron.WebContents): PartitionPolicy | null {
   for (const p of PARTITION_POLICIES) {
     if (wc.session === session.fromPartition(p.partition)) return p;
   }

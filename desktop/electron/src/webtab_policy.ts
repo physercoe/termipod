@@ -32,6 +32,15 @@ export interface PartitionPolicy {
   /// OS browser (the most restrictive path — the kimiweb guest never leaves
   /// loopback, so an in-tab popup would be blocked by the nav policy anyway).
   windowOpen: 'inline' | 'external';
+  /// Agent browser-bridge capability (docs/plans/desktop-agent-browser-bridge.md):
+  /// `full` — read + action tools (action tools land in W2); `read` — read
+  /// tools only, action tools refuse with PARTITION_READ_ONLY; `none` — the
+  /// partition never enters the bridge registry. Every partition chooses
+  /// deliberately — a future partition must set this explicitly instead of
+  /// being silently included or excluded. kimiweb is `read` by design: it
+  /// hosts an agent chat UI, so action-driving it would let one bridge-enabled
+  /// agent submit prompts into another agent's session with user authority.
+  bridge: 'full' | 'read' | 'none';
 }
 
 export const WEBTAB_PARTITION = 'persist:webtab';
@@ -56,13 +65,15 @@ export function isLoopbackHttpUrl(url: string): boolean {
 }
 
 export const PARTITION_POLICIES: readonly PartitionPolicy[] = [
-  { partition: WEBTAB_PARTITION, allowTopFrame: isHttpUrl, windowOpen: 'inline' },
-  { partition: KIMIWEB_PARTITION, allowTopFrame: isLoopbackHttpUrl, windowOpen: 'external' },
+  { partition: WEBTAB_PARTITION, allowTopFrame: isHttpUrl, windowOpen: 'inline', bridge: 'full' },
+  { partition: KIMIWEB_PARTITION, allowTopFrame: isLoopbackHttpUrl, windowOpen: 'external', bridge: 'read' },
   // Deliberately identical to kimiweb rather than looser. The rerun viewer is
   // served from the same machine that holds the recording, so it never needs a
   // remote origin, and a new partition must not relax the policy the existing
-  // ones set (the plan's partition-discipline anchor).
-  { partition: RERUNWEB_PARTITION, allowTopFrame: isLoopbackHttpUrl, windowOpen: 'external' },
+  // ones set (the plan's partition-discipline anchor). Bridge capability is
+  // 'read' like kimiweb: agents may inspect the episode viewer (useful for
+  // J8-style episode debugging) but never action-drive it.
+  { partition: RERUNWEB_PARTITION, allowTopFrame: isLoopbackHttpUrl, windowOpen: 'external', bridge: 'read' },
 ];
 
 /// The allowlist lookup — `null` means the partition may not host a guest at

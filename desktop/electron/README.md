@@ -45,11 +45,34 @@ src/ipc/sync/s3.ts  S3 backend: s3_sync/verify (tree) + s3_zotero_sync —
                    ListObjectsV2, path-style, SigV4-signed fetch (M2.5d)
 src/ipc/vault.ts   nine vault_* commands → the WASM build of vault-core
                    (../../vault-wasm/pkg), lazy computed-path import (M2.6b)
+src/browserbridge.ts  agent browser bridge core (plan W1, electron-free):
+                   MCP/HTTP server, AX-tree compaction, fragment redaction,
+                   discovery-file lifecycle — unit-tested under node --test
+src/browserbridge_host.ts  bridge's Electron half: guest registry (webview
+                   guests in bridge-capable partitions only), CDP via
+                   webContents.debugger, enable/disable + discovery file
+resources/browser_bridge_stdio.mjs  agent-side stdio⇄HTTP MCP relay (plain
+                   node, no deps); the hostrunner points injected engine MCP
+                   configs at it. Shipped as an extraResource outside the asar
 src/ipc/voice.ts   DashScope ASR WebSocket (ws): voice_open/send/finish/close (M2.3)
 src/ipc/script.ts  one-shot child runs (child_process): script_run +
                    local_agent_run — execFile, no shell (M2.4)
 esbuild.mjs        bundles main + preload → out/*.cjs
 ```
+
+## Agent browser bridge (W1)
+
+Settings → Assistant → *Agent browser bridge* (default **off**) lets agents
+spawned on this host drive the desktop's embedded browser tabs: an MCP server
+in this main process exposes read-only `browser_*` tools
+(`browser_list_tabs` / `browser_snapshot` / `browser_screenshot` /
+`browser_read_text`) over CDP against `<webview>` **guest** partitions only —
+never the `app://` shell. When on, the app publishes
+`~/.termipod/browser-bridge.json` (0o600: loopback MCP URL, per-run bearer
+token, pid, stdio-relay path); the hostrunner reads it at spawn time and
+injects a `termipod-browser` MCP entry (the stdio relay above, token in env)
+into all four engine families. Security model + W2/W3 roadmap:
+[`docs/plans/desktop-agent-browser-bridge.md`](../../docs/plans/desktop-agent-browser-bridge.md).
 
 ## Run
 
@@ -85,6 +108,10 @@ npm start          # esbuild → out/, then `electron .`
     ~50 MB iframe embed isn't downloaded).
   - **Figure export** — Chromium rasterizes an SVG to PNG via canvas (the half of
     `save_image_as` that isn't the native save dialog).
+  - **Browser bridge** — the W1 MCP round-trip: enable → discovery file → the
+    shipped stdio relay speaks initialize/tools/list; a live `<webview>` guest
+    shows in `browser_list_tabs` (fragment-stripped) and its fixture text in
+    `browser_snapshot`; no bearer → 401; toggle off → server refuses.
 
   The terminal test spawns node-pty, a native addon whose ABI must match Electron
   (not system Node), so the CI job **rebuilds it with plain node-gyp** (NOT

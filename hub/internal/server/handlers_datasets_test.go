@@ -526,3 +526,125 @@ func TestDatasetNameFromPath(t *testing.T) {
 		}
 	}
 }
+
+// ── episode series (W2) ──────────────────────────────────────────────────────
+
+func TestDatasetSeriesProxy(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	proj := seedTestProject(t, s, defaultTeamID)
+	seedDatasetHost(t, s, "host-a")
+	_, ds := registerDataset(t, s, token, map[string]any{
+		"project_id": proj, "host_id": "host-a", "root_path": "/data/nyu",
+	})
+	fake := serveHostVerb(t, s, token, "host-a", "host.dataset_series",
+		func([]byte) (int, any) {
+			return http.StatusOK, map[string]any{
+				"episode": 3, "length": 40, "stride": 4, "points": 10,
+				"timestamps": []float64{0, 0.8},
+				"series": []map[string]any{{
+					"key":      "action",
+					"channels": []map[string]any{{"name": "motor_0", "values": []float64{1, 2}}},
+				}},
+			}
+		})
+
+	status, raw := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/datasets/"+ds.ID+
+			"/episodes/3/series?features=action,observation.state&max_points=10", nil)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+	p := fake.lastPayload(t)
+	if p["root_path"] != "/data/nyu" {
+		t.Errorf("root_path = %v", p["root_path"])
+	}
+	if p["episode"].(float64) != 3 {
+		t.Errorf("episode = %v, want 3", p["episode"])
+	}
+	if p["max_points"].(float64) != 10 {
+		t.Errorf("max_points = %v, want 10", p["max_points"])
+	}
+	// Feature keys contain dots and must survive the comma split intact — a
+	// selection that arrives as "observation" plots nothing and warns about a
+	// feature the caller never named.
+	feats, _ := p["features"].([]any)
+	if len(feats) != 2 || feats[0] != "action" || feats[1] != "observation.state" {
+		t.Errorf("features = %v", p["features"])
+	}
+	var page map[string]any
+	_ = json.Unmarshal(raw, &page)
+	if page["points"].(float64) != 10 {
+		t.Errorf("page = %v", page)
+	}
+}
+
+func TestDatasetSeriesOmitsUnsetSelectors(t *testing.T) {
+	// A request with no filter must not forward empty ones: an empty feature
+	// list means "everything", and forwarding [""] would come back as a
+	// warning about a feature nobody asked for.
+	s, token := newA2ATestServer(t)
+	proj := seedTestProject(t, s, defaultTeamID)
+	seedDatasetHost(t, s, "host-a")
+	_, ds := registerDataset(t, s, token, map[string]any{
+		"project_id": proj, "host_id": "host-a", "root_path": "/d",
+	})
+	fake := serveHostVerb(t, s, token, "host-a", "host.dataset_series",
+		func([]byte) (int, any) { return http.StatusOK, map[string]any{"episode": 0} })
+
+	status, _ := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/datasets/"+ds.ID+"/episodes/0/series?features=", nil)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	p := fake.lastPayload(t)
+	if _, ok := p["features"]; ok {
+		t.Errorf("an empty features filter was forwarded as %v", p["features"])
+	}
+	if _, ok := p["max_points"]; ok {
+		t.Errorf("an unset max_points was forwarded as %v", p["max_points"])
+	}
+}
+
+func TestDatasetSeriesRejectsBadRequests(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	proj := seedTestProject(t, s, defaultTeamID)
+	seedDatasetHost(t, s, "host-a")
+	_, ds := registerDataset(t, s, token, map[string]any{
+		"project_id": proj, "host_id": "host-a", "root_path": "/d",
+	})
+	base := "/v1/teams/" + defaultTeamID + "/datasets/" + ds.ID + "/episodes/"
+	for _, path := range []string{
+		"-1/series", "abc/series", "0/series?max_points=0", "0/series?max_points=-5", "0/series?max_points=x",
+	} {
+		status, _ := doReq(t, s, token, http.MethodGet, base+path, nil)
+		if status != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400", path, status)
+		}
+	}
+}
+
+// The series read is subject to the same two refusals as the episodes table:
+// no host means nothing can read it, and a remote root is not servable yet.
+func TestDatasetSeriesRefusesWhatItCannotServe(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	proj := seedTestProject(t, s, defaultTeamID)
+	seedDatasetHost(t, s, "host-a")
+
+	_, noHost := registerDataset(t, s, token, map[string]any{
+		"project_id": proj, "root_path": "/d/nohost2",
+	})
+	status, _ := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/datasets/"+noHost.ID+"/episodes/0/series", nil)
+	if status != http.StatusConflict {
+		t.Errorf("hostless series status = %d, want 409", status)
+	}
+
+	_, remote := registerDataset(t, s, token, map[string]any{
+		"project_id": proj, "host_id": "host-a", "root_path": "/d/remote2", "source": "sftp",
+	})
+	status, _ = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/datasets/"+remote.ID+"/episodes/0/series", nil)
+	if status != http.StatusNotImplemented {
+		t.Errorf("remote series status = %d, want 501", status)
+	}
+}

@@ -52,6 +52,8 @@ func (r *Runner) handleHostVerb(ctx context.Context, env *a2a.TunnelEnvelope) *a
 		return r.handleHostDatasetDigest(env)
 	case "dataset_episodes":
 		return r.handleHostDatasetEpisodes(env)
+	case "dataset_series":
+		return r.handleHostDatasetSeries(env)
 	default:
 		// Unknown verb. Returning nil makes the tunnel loop emit the
 		// canonical unknown_verb envelope with host_version stamped.

@@ -267,6 +267,45 @@ paths:
         "501": { description: "Remote roots are not readable yet (SSH-forward wedge)" }
         "504": { description: "The host did not answer in time" }
 
+  /v1/teams/{team}/datasets/{dataset}/episodes/{episode}/series:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: dataset, in: path, required: true, schema: { type: string } }
+      - { name: episode, in: path, required: true, schema: { type: integer, minimum: 0 } }
+    get:
+      tags: [Datasets]
+      operationId: getDatasetEpisodeSeries
+      summary: >-
+        One episode's numeric channels against time, decimated host-side to a
+        point budget. Never stored: an episode is megabytes of parquet and the
+        answer is kilobytes of floats, which is precisely the split the
+        data-ownership law draws (blueprint §4).
+      parameters:
+        - name: features
+          in: query
+          required: false
+          description: >-
+            Comma-separated feature keys; omit for every numeric feature.
+            Keys contain dots ("observation.state") but never commas.
+          schema: { type: string }
+        - name: max_points
+          in: query
+          required: false
+          description: "Per-channel point budget; the host clamps it and reports the stride it applied."
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: One episode's series
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpisodeSeries" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "The dataset has no host, so it cannot be read" }
+        "422": { description: "The dataset's codebase_version is not supported" }
+        "501": { description: "Remote roots are not readable yet (SSH-forward wedge)" }
+        "504": { description: "The host did not answer in time" }
+
   /v1/teams/{team}/env-profiles:
     parameters:
       - $ref: "#/components/parameters/Team"
@@ -3118,6 +3157,54 @@ components:
         limit: { type: integer, description: Page size actually applied after clamping }
         total: { type: integer, format: int64, description: Episode count as declared by the dataset }
         truncated: { type: boolean, description: The requested limit was clamped down }
+
+    EpisodeSeries:
+      type: object
+      description: >-
+        One episode's numeric channels against time, decimated host-side.
+        Downsampling is decimation (every Nth frame), never averaging: a plot of
+        joint angles is read for its extremes, and averaging erases exactly the
+        spikes it is opened to find.
+      properties:
+        episode: { type: integer, format: int64 }
+        length:
+          type: integer
+          format: int64
+          description: "The episode's frame count BEFORE decimation, so a UI can say 1000 of 40000"
+        fps: { type: number }
+        stride: { type: integer, description: "Decimation applied; 1 means every frame" }
+        points: { type: integer, description: Samples per channel actually returned }
+        timestamps:
+          type: array
+          description: >-
+            Seconds from the START of the episode, one per point. LeRobot's own
+            timestamp column is already episode-relative in both generations.
+          items: { type: number }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/FeatureSeries" }
+        downsampled: { type: boolean, description: "stride > 1, so the plot is not frame-exact" }
+        truncated: { type: boolean, description: A cap dropped whole features or channels }
+        warnings: { type: array, items: { type: string } }
+
+    FeatureSeries:
+      type: object
+      description: One feature's channels — a 7-DoF arm yields seven.
+      properties:
+        key: { type: string }
+        dtype: { type: string }
+        channels:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "From info.json names when the dataset labels its channels; empty otherwise"
+              values:
+                type: array
+                description: "One value per point; null readings arrive as NaN, never 0"
+                items: { type: number }
 
     EnvProfile:
       type: object

@@ -456,6 +456,63 @@ func (s *Server) handleGetDatasetEpisodes(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write(body)
 }
 
+// handleGetDatasetEpisodeSeries proxies one episode's decimated channels.
+//
+// Not stored, for the same reason the episodes table is not: this is bulk data
+// derived from bytes the hub does not own. The host decimates to a point budget
+// and the hub passes the answer through — so a 40,000-frame episode costs the
+// same here as a 40-frame one.
+func (s *Server) handleGetDatasetEpisodeSeries(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	ds, err := s.datasetInTeam(r.Context(), team, chi.URLParam(r, "dataset"))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "dataset not found")
+		return
+	}
+	if err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
+	episode, err := strconv.ParseInt(chi.URLParam(r, "episode"), 10, 64)
+	if err != nil || episode < 0 {
+		writeErr(w, http.StatusBadRequest, "invalid episode index")
+		return
+	}
+	args := map[string]any{"root_path": ds.RootPath, "episode": episode}
+	// Feature keys contain dots ("observation.state") but never commas, so a
+	// comma list needs no escaping. Blank entries are dropped rather than
+	// forwarded: "?features=" is how a UI spells "no filter", and passing an
+	// empty key through would come back as a warning about a feature nobody
+	// asked for.
+	if v := r.URL.Query().Get("features"); v != "" {
+		var keys []string
+		for _, k := range strings.Split(v, ",") {
+			if k = strings.TrimSpace(k); k != "" {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			args["features"] = keys
+		}
+	}
+	if v := r.URL.Query().Get("max_points"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			writeErr(w, http.StatusBadRequest, "invalid max_points")
+			return
+		}
+		args["max_points"] = n
+	}
+	body, status, err := s.datasetHostVerb(r.Context(), ds, "host.dataset_series", args)
+	if err != nil {
+		writeErr(w, status, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
 // datasetHostVerb sends a dataset verb to the host owning the bytes and returns
 // the host's raw body and status.
 func (s *Server) datasetHostVerb(ctx context.Context, ds datasetOut, verb string, args map[string]any) ([]byte, int, error) {

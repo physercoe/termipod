@@ -1,9 +1,9 @@
 # J8 Replay — datasets, episodes & multimodal rollout analysis (embodied pilot, round 1)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — W1 complete; W2 plots shipped, video next
+> **Status:** In progress (2026-07-29) — W1 + W2 complete; W3/W4 next
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `7680559c` (W2b merged)
+> **Last verified vs code:** origin/main `a486d260` (W2 complete)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -335,13 +335,28 @@ media protocol, which is a wedge of its own:
 | **W2a** | #457 | `datasetmeta.ReadSeries` — per-episode channels from the data parquet, decimated |
 | **W2b** | #458 | `host.dataset_series` + `GET /datasets/{id}/episodes/{n}/series` |
 | **W2c** | #459 | the player's plots: channel lanes, shared cursor, feature toggles |
-| **W2d** | open | the video grid + the capped range-request media protocol |
+| **W2d** | #461 · #462 | uniform video slices; the `termipod-media://` range scheme; the camera grid |
 
-The plots half ships first because it is the half that can be *verified*
-here: the geometry is a pure module with 18 assertions, while a video pane
-is a thing you have to look at. A player showing plots and saying plainly
-that video is not built yet is more useful — and more honest — than one
-showing a black rectangle.
+The plots shipped first because they are the half that can be *verified*
+here — the geometry is a pure module with 18 assertions, while a video pane
+is a thing you have to look at.
+
+**Decision #1 is retired, not implemented.** It assumed host-side `ffmpeg
+-ss/-to -c copy` extraction and flagged the keyframe question as the thing
+to check before building. Measured on the real mp4s (parsed box by box —
+no ffprobe on the build host): the v3.0 file carries **220 sync samples
+across 440 frames**, a keyframe every 0.4s, every second frame at 5 fps.
+A seek to an episode start therefore costs at most one extra decoded
+frame, so cutting the clip out server-side would buy nothing and cost a
+dependency, a temp file and a copy. W2d serves the file over a
+range-supporting scheme and lets each `<video>` seek instead.
+
+Worth recording precisely, because it is the part that would have bitten:
+episode boundaries *do* land on keyframes in these fixtures, but only
+because every episode length is even and keyframes fall on even frames.
+That is arithmetic, not a format guarantee — a dataset with odd episode
+lengths would have broken a stream-copy cut. Seeking is robust to that
+case, which is the better reason to prefer it.
 
 **What the real data files corrected** (the pinned fixtures gained
 `data/`, ~23 KB):
@@ -377,9 +392,26 @@ showing a black rectangle.
   one arm are the same physical quantity, and per-channel normalization
   draws a motionless joint exactly like a sweeping one.
 
-**Still unverified:** decision #1's keyframe assumption. Nothing in W2a–W2c
-touches video, so `ffmpeg -ss/-to -c copy` remains unchecked against real
-v3 files — that check gates W2d, not this wedge.
+**W2d also unified the two generations' video metadata.** v3.0 reads a
+slice from its episode table; v2.1 has one file per episode and records
+nothing, so its slice is *derived* as `[0, length/fps)` of the templated
+path. Both now report the same shape — a path plus a range — and the
+player never branches on `codebase_version`. The video path templates
+differ in directory **order**, not just placeholder names
+(`videos/chunk-XXX/{key}/…` vs `videos/{key}/chunk-XXX/…`), which is why
+one expansion driven by info.json beats two hardcoded layouts.
+
+**Security posture of the media scheme:** the handler attaches to
+`defaultSession` only, and every `<webview>` guest runs in an isolated
+partition with no handler for the scheme — so untrusted remote content
+cannot reach it. Within the app's own renderer it is the privilege
+`localfs_read` already grants; what is added is streaming, not reach. A
+media-extension allowlist, normalization before the extension check, a
+non-file stat refusal, and caps on file size and single-range length
+bound the rest.
+
+**Still unseen:** no video has been watched and no plot has been looked
+at. Every claim above is asserted by a test; the *look* is not.
 
 ## 6. W3 — 3D pose panel (EMBED: three.js + `urdf-loader`)
 

@@ -138,6 +138,23 @@ export function describeById(id: string): RobotDescription | null {
   return ROBOT_DESCRIPTIONS.find((d) => d.id === id) ?? null;
 }
 
+/// Which of an episode's features should drive the pose.
+///
+/// `observation.state` is what the robot *was*; `action` is what it was *told*.
+/// They differ by tracking error, which is exactly the thing a replay is being
+/// watched for — so the measured one wins, and `action` is only a fallback for
+/// datasets that record no state at all.
+export function pickPoseFeature(keys: string[]): string | null {
+  for (const want of ['observation.state', 'observation.states', 'state']) {
+    const hit = keys.find((k) => k.toLowerCase() === want);
+    if (hit !== undefined) return hit;
+  }
+  const suffixed = keys.find((k) => k.toLowerCase().endsWith('.state'));
+  if (suffixed !== undefined) return suffixed;
+  const action = keys.find((k) => k.toLowerCase() === 'action');
+  return action ?? null;
+}
+
 /// Strip the measurement suffix LeRobot appends to a channel name.
 ///
 /// v3.0 SO-ARM datasets name their channels `shoulder_pan.pos`, which is the

@@ -11,6 +11,7 @@ import {
   isPlaceholderChannel,
   matchRobot,
   normalizeRobotType,
+  pickPoseFeature,
   resolveJointValues,
 } from './robotManifest.ts';
 
@@ -99,6 +100,17 @@ test('a mislabelled dataset matches what it declared, not what it is', () => {
   // second-guessing a declared field on the strength of a repo NAME is how you
   // get a confidently wrong robot.
   assert.equal(matchRobot('so100_follower')?.id, 'so_arm100');
+});
+
+test('the measured state drives the pose, not the commanded action', () => {
+  // They differ by tracking error, which is the thing a replay is being watched
+  // for. Driving the pose from `action` would draw what the policy asked for
+  // and label it what the robot did.
+  assert.equal(pickPoseFeature(['action', 'observation.state', 'next.reward']), 'observation.state');
+  assert.equal(pickPoseFeature(['action']), 'action');
+  assert.equal(pickPoseFeature(['observation.arm.state', 'action']), 'observation.arm.state');
+  assert.equal(pickPoseFeature(['next.reward', 'next.done']), null);
+  assert.equal(pickPoseFeature([]), null);
 });
 
 test('a measurement suffix is not part of the joint name', () => {

@@ -50,7 +50,10 @@ type runOut struct {
 	TrackioHostID string `json:"trackio_host_id,omitempty"`
 	TrackioRunURI string `json:"trackio_run_uri,omitempty"`
 	ParentRunID   string `json:"parent_run_id,omitempty"`
-	CreatedAt     string `json:"created_at"`
+	// The dataset this run trained on or rolled out against (plan W5).
+	// Empty when the run is not about a dataset, which is most runs.
+	DatasetID string `json:"dataset_id,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 type completeRunIn struct {
@@ -179,7 +182,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(r.config_json, ''), r.seed, r.status,
 		       COALESCE(r.started_at, ''), COALESCE(r.finished_at, ''),
 		       COALESCE(r.trackio_host_id, ''), COALESCE(r.trackio_run_uri, ''),
-		       COALESCE(r.parent_run_id, ''), r.created_at
+		       COALESCE(r.parent_run_id, ''), COALESCE(r.dataset_id, ''), r.created_at
 		FROM runs r
 		JOIN projects p ON p.id = r.project_id
 		WHERE p.team_id = ?`
@@ -225,7 +228,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			&ro.ConfigJSON, &seed, &ro.Status,
 			&ro.StartedAt, &ro.FinishedAt,
 			&ro.TrackioHostID, &ro.TrackioRunURI,
-			&ro.ParentRunID, &ro.CreatedAt); err != nil {
+			&ro.ParentRunID, &ro.DatasetID, &ro.CreatedAt); err != nil {
 			s.writeDBErr(w, err)
 			return
 		}
@@ -259,7 +262,7 @@ func (s *Server) writeRunByID(w http.ResponseWriter, r *http.Request, team, runI
 		       COALESCE(r.config_json, ''), r.seed, r.status,
 		       COALESCE(r.started_at, ''), COALESCE(r.finished_at, ''),
 		       COALESCE(r.trackio_host_id, ''), COALESCE(r.trackio_run_uri, ''),
-		       COALESCE(r.parent_run_id, ''), r.created_at
+		       COALESCE(r.parent_run_id, ''), COALESCE(r.dataset_id, ''), r.created_at
 		FROM runs r
 		JOIN projects p ON p.id = r.project_id
 		WHERE r.id = ? AND p.team_id = ?`, runID, team).Scan(
@@ -267,7 +270,7 @@ func (s *Server) writeRunByID(w http.ResponseWriter, r *http.Request, team, runI
 		&ro.ConfigJSON, &seed, &ro.Status,
 		&ro.StartedAt, &ro.FinishedAt,
 		&ro.TrackioHostID, &ro.TrackioRunURI,
-		&ro.ParentRunID, &ro.CreatedAt)
+		&ro.ParentRunID, &ro.DatasetID, &ro.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "run not found")
 		return
@@ -334,6 +337,7 @@ type runUpdateIn struct {
 	TrackioHostID *string          `json:"trackio_host_id,omitempty"`
 	TrackioRunURI *string          `json:"trackio_run_uri,omitempty"`
 	ParentRunID   *string          `json:"parent_run_id,omitempty"`
+	DatasetID     *string          `json:"dataset_id,omitempty"`
 }
 
 // handleUpdateRun is PATCH /v1/teams/{team}/runs/{run} — a partial
@@ -411,6 +415,28 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.ParentRunID != nil {
 		add("parent_run_id", nullIfEmpty(*in.ParentRunID))
+	}
+	if in.DatasetID != nil {
+		// The column carries no foreign key (0069: SQLite cannot add one with
+		// ALTER TABLE), so the scope rule is enforced here or nowhere. Same
+		// project, not merely same team: a run pointing at another project's
+		// dataset would show episodes nobody expects to reach from it.
+		if *in.DatasetID != "" {
+			var found string
+			err := s.db.QueryRowContext(r.Context(),
+				`SELECT d.id FROM datasets d
+				 JOIN runs r ON r.project_id = d.project_id
+				 WHERE d.id = ? AND r.id = ?`, *in.DatasetID, runID).Scan(&found)
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusBadRequest, "dataset not found in the run's project")
+				return
+			}
+			if err != nil {
+				s.writeDBErr(w, err)
+				return
+			}
+		}
+		add("dataset_id", nullIfEmpty(*in.DatasetID))
 	}
 	if len(sets) == 0 {
 		writeErr(w, http.StatusBadRequest, "no updatable fields supplied")

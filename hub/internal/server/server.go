@@ -676,6 +676,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/system_metrics", s.handleGetRunSystemMetrics)
 				r.Put("/alerts", s.handlePutRunAlerts)
 				r.Get("/alerts", s.handleGetRunAlerts)
+				// What dataset this run's config names, and whether the
+				// project already has it registered (plan W5). Read-only —
+				// linking is PATCH /runs/{run} with dataset_id.
+				r.Get("/dataset_hint", s.handleGetRunDatasetHint)
 			})
 		})
 		// Datasets (replay plan W1) — episode corpora a policy trains on

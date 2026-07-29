@@ -30,10 +30,12 @@
 /// `ssh_connect` resolves, before the round-trip banner arrives). `ssh-data`
 /// carries the raw channel Buffer — no re-encoding, unlike the PTY string path.
 import type { WebContents } from 'electron';
+import type { Duplex } from 'node:stream';
 import type { Client as Ssh2Client, ClientChannel, ConnectConfig, SFTPWrapper } from 'ssh2';
 import { emit } from '../events';
 import { assertSafeRemoteDelete } from './fsutil';
 import { pinGet, pinSet } from './keychain';
+import { socks5Connect } from './socks5';
 import { loadSsh2 } from './ssh2mod';
 import type { Ssh2Module } from './ssh2mod';
 import type { Handler } from './dispatch';
@@ -52,12 +54,30 @@ interface SshConnectReq {
   cols: number;
   rows: number;
   connect_id?: string;
+  // Jump host (ProxyJump) — mobile-parity chain (lib/services/ssh/ssh_client.dart):
+  // an SSH client authenticates to the jump host first, then the target
+  // handshake rides a direct-tcpip channel forwarded through it.
+  jump_host?: string;
+  jump_port?: number;
+  jump_user?: string;
+  jump_password?: string;
+  jump_private_key?: string;
+  jump_passphrase?: string;
+  // SOCKS5 proxy — the outermost hop; it tunnels the TCP stream to the FIRST
+  // SSH hop (the jump host when one is set, else the target).
+  proxy_host?: string;
+  proxy_port?: number;
+  proxy_username?: string;
+  proxy_password?: string;
 }
 
 /// A live SSH connection: the ssh2 Client plus the ids of the shell sessions
-/// sharing it, so the Client is ended only when the last shell closes.
+/// sharing it, so the Client is ended only when the last shell closes. `jump`
+/// is the jump-host Client whose forwarded channel carries `client`'s whole
+/// transport — it must outlive every shell and die with the last one.
 interface Conn {
   client: Ssh2Client;
+  jump: Ssh2Client | null;
   refs: Set<string>;
 }
 
@@ -113,6 +133,11 @@ function registerShell(conn: Conn, stream: ClientChannel, sender: WebContents): 
     if (conn.refs.size === 0) {
       try {
         conn.client.end();
+      } catch {
+        /* already ended */
+      }
+      try {
+        conn.jump?.end();
       } catch {
         /* already ended */
       }
@@ -232,10 +257,22 @@ export const sshHandlers: Record<string, Handler> = {
     const privateKey = typeof req.private_key === 'string' && req.private_key.trim() !== '' ? req.private_key : undefined;
     const password = typeof req.password === 'string' ? req.password : undefined;
     const passphrase = typeof req.passphrase === 'string' && req.passphrase !== '' ? req.passphrase : undefined;
+    const jumpHost = typeof req.jump_host === 'string' && req.jump_host.trim() !== '' ? req.jump_host.trim() : undefined;
+    const jumpPort = Math.trunc(Number(req.jump_port)) || 22;
+    const jumpUser = typeof req.jump_user === 'string' && req.jump_user.trim() !== '' ? req.jump_user.trim() : user;
+    const jumpKey = typeof req.jump_private_key === 'string' && req.jump_private_key.trim() !== '' ? req.jump_private_key : undefined;
+    const jumpPassword = typeof req.jump_password === 'string' && req.jump_password !== '' ? req.jump_password : undefined;
+    const jumpPassphrase = typeof req.jump_passphrase === 'string' && req.jump_passphrase !== '' ? req.jump_passphrase : undefined;
+    const proxyHost = typeof req.proxy_host === 'string' && req.proxy_host.trim() !== '' ? req.proxy_host.trim() : undefined;
+    const proxyPort = Math.trunc(Number(req.proxy_port)) || 1080;
+    const proxyUsername = typeof req.proxy_username === 'string' && req.proxy_username !== '' ? req.proxy_username : undefined;
+    const proxyPassword = typeof req.proxy_password === 'string' ? req.proxy_password : undefined;
     const sender = ctx.sender;
 
     const ssh2 = await loadSsh2();
     const client = new ssh2.Client();
+    let jumpClient: Ssh2Client | null = null;
+    let proxySock: Duplex | null = null;
 
     emitPhase(sender, connectId, 'tcp');
     return new Promise<string>((resolve, reject) => {
@@ -248,13 +285,25 @@ export const sshHandlers: Record<string, Handler> = {
         } catch {
           /* not connected */
         }
+        try {
+          jumpClient?.end();
+        } catch {
+          /* not connected */
+        }
+        // A proxy tunnel that never got handed to an ssh2 Client must be
+        // destroyed here or the TCP socket leaks.
+        try {
+          proxySock?.destroy();
+        } catch {
+          /* already gone */
+        }
         reject(e);
       };
 
       client.on('handshake', () => emitPhase(sender, connectId, 'auth'));
       client.on('ready', () => {
         emitPhase(sender, connectId, 'channel');
-        const conn: Conn = { client, refs: new Set() };
+        const conn: Conn = { client, jump: jumpClient, refs: new Set() };
         openShell(conn, cols, rows, sender).then(
           (id) => {
             if (settled) return;
@@ -288,7 +337,69 @@ export const sshHandlers: Record<string, Handler> = {
         fail(new Error('no credentials supplied'));
         return;
       }
-      client.connect(cfg);
+
+      // Authenticate to the jump host and open a direct-tcpip channel to the
+      // target; the target handshake rides that channel as its transport. The
+      // jump host gets its own TOFU pin under its own host:port.
+      const openJumpStream = (sock: Duplex | undefined): Promise<ClientChannel> =>
+        new Promise<ClientChannel>((res, rej) => {
+          const jc = new ssh2.Client();
+          jumpClient = jc;
+          jc.on('ready', () => {
+            jc.forwardOut('127.0.0.1', 0, host, port, (err, channel) => {
+              if (err) rej(new Error(`jump forward: ${err.message}`));
+              else res(channel);
+            });
+          });
+          jc.on('error', (err: Error) => rej(new Error(`jump connect: ${err.message}`)));
+          // Late rejections (e.g. the teardown close after the session ends)
+          // land on an already-settled promise and are no-ops.
+          jc.on('close', () => rej(new Error('jump connect: connection closed')));
+          const jcfg: ConnectConfig = {
+            host: jumpHost,
+            port: jumpPort,
+            username: jumpUser,
+            readyTimeout: 30_000,
+            hostVerifier: (keyBuf: Buffer, verify: (valid: boolean) => void) => {
+              verifyHostKey(jumpHost ?? '', jumpPort, keyBuf, ssh2).then(verify, () => verify(false));
+            },
+          };
+          if (sock !== undefined) jcfg.sock = sock;
+          if (jumpKey !== undefined) {
+            jcfg.privateKey = jumpKey;
+            if (jumpPassphrase !== undefined) jcfg.passphrase = jumpPassphrase;
+          } else if (jumpPassword !== undefined) {
+            jcfg.password = jumpPassword;
+          } else {
+            rej(new Error('no credentials supplied for jump host'));
+            return;
+          }
+          jc.connect(jcfg);
+        });
+
+      // Build the transport chain, outermost first — SOCKS5 tunnels to the
+      // first SSH hop, the jump hop forwards to the target (mobile parity).
+      void (async () => {
+        let sock: Duplex | undefined;
+        if (proxyHost !== undefined) {
+          proxySock = await socks5Connect({
+            proxyHost,
+            proxyPort,
+            targetHost: jumpHost ?? host,
+            targetPort: jumpHost !== undefined ? jumpPort : port,
+            username: proxyUsername,
+            password: proxyPassword,
+          });
+          sock = proxySock;
+        }
+        if (jumpHost !== undefined) {
+          cfg.sock = await openJumpStream(sock);
+        } else if (sock !== undefined) {
+          cfg.sock = sock;
+        }
+        if (settled) return; // failed/torn down while the chain was forming
+        client.connect(cfg);
+      })().catch((e) => fail(e instanceof Error ? e : new Error(String(e))));
     });
   },
 
@@ -483,7 +594,10 @@ export const sshHandlers: Record<string, Handler> = {
 /// leaves a dangling socket. Best-effort.
 export function disposeAllSsh(): void {
   const clients = new Set<Ssh2Client>();
-  for (const s of sessions.values()) clients.add(s.conn.client);
+  for (const s of sessions.values()) {
+    clients.add(s.conn.client);
+    if (s.conn.jump !== null) clients.add(s.conn.jump);
+  }
   sessions.clear();
   for (const c of clients) {
     try {

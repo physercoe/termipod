@@ -21,6 +21,21 @@ export interface SshConnectReq {
   /** Frontend-minted attempt id — echoed on the core's `ssh-connect-progress`
    *  phase ticks so the form can match ticks to this attempt (#319). */
   connect_id?: string;
+  /** Jump host (ProxyJump) — the target handshake rides a direct-tcpip channel
+   *  forwarded through this host (mobile parity). */
+  jump_host?: string;
+  jump_port?: number;
+  /** Defaults to the main `user` when omitted. */
+  jump_user?: string;
+  jump_password?: string;
+  jump_private_key?: string;
+  jump_passphrase?: string;
+  /** SOCKS5 proxy — outermost hop; tunnels to the jump host when one is set,
+   *  else to the target. */
+  proxy_host?: string;
+  proxy_port?: number;
+  proxy_username?: string;
+  proxy_password?: string;
 }
 
 /** Open a session + PTY; resolves to the session id used by the calls below. */

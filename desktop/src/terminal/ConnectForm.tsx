@@ -11,9 +11,11 @@ import {
 import {
   DEFAULT_GROUP,
   deleteConnection,
+  getConnectionJumpPassword,
   getConnectionPassword,
   listConnections,
   navGroups,
+  setConnectionJumpPassword,
   setConnectionPassword,
   touchConnection,
   upsertConnection,
@@ -60,6 +62,18 @@ interface FormSnapshot {
   keyId: string;
   privateKey: string;
   passphrase: string;
+  useJump: boolean;
+  jumpHost: string;
+  jumpPort: string;
+  jumpUser: string;
+  jumpAuth: Auth;
+  jumpKeyId: string;
+  jumpPassword: string;
+  useProxy: boolean;
+  proxyHost: string;
+  proxyPort: string;
+  proxyUser: string;
+  proxyPassword: string;
 }
 const BLANK_FORM: FormSnapshot = {
   name: '',
@@ -72,6 +86,18 @@ const BLANK_FORM: FormSnapshot = {
   keyId: '',
   privateKey: '',
   passphrase: '',
+  useJump: false,
+  jumpHost: '',
+  jumpPort: '22',
+  jumpUser: '',
+  jumpAuth: 'password',
+  jumpKeyId: '',
+  jumpPassword: '',
+  useProxy: false,
+  proxyHost: '',
+  proxyPort: '1080',
+  proxyUser: '',
+  proxyPassword: '',
 };
 
 /// The SSH connect surface (saved connections + key store over a connect form).
@@ -101,6 +127,19 @@ export function ConnectForm({
   const [keyId, setKeyId] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  // Jump host (ProxyJump) + SOCKS5 proxy — parity with the mobile form.
+  const [useJump, setUseJump] = useState(false);
+  const [jumpHost, setJumpHost] = useState('');
+  const [jumpPort, setJumpPort] = useState('22');
+  const [jumpUser, setJumpUser] = useState('');
+  const [jumpAuth, setJumpAuth] = useState<Auth>('password');
+  const [jumpKeyId, setJumpKeyId] = useState('');
+  const [jumpPassword, setJumpPassword] = useState('');
+  const [useProxy, setUseProxy] = useState(false);
+  const [proxyHost, setProxyHost] = useState('');
+  const [proxyPort, setProxyPort] = useState('1080');
+  const [proxyUser, setProxyUser] = useState('');
+  const [proxyPassword, setProxyPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<SshConnectPhase | null>(null);
   // The in-flight attempt, flagged by Cancel/timeout — the invoke itself can't
@@ -133,6 +172,18 @@ export function ConnectForm({
     setKeyId('');
     setPrivateKey('');
     setPassphrase('');
+    setUseJump(false);
+    setJumpHost('');
+    setJumpPort('22');
+    setJumpUser('');
+    setJumpAuth('password');
+    setJumpKeyId('');
+    setJumpPassword('');
+    setUseProxy(false);
+    setProxyHost('');
+    setProxyPort('1080');
+    setProxyUser('');
+    setProxyPassword('');
     setError(null);
     setBase(BLANK_FORM);
   }
@@ -140,6 +191,10 @@ export function ConnectForm({
   async function applyConnection(c: Connection): Promise<void> {
     const pw = c.authMethod === 'password' ? ((await getConnectionPassword(c.id)) ?? '') : '';
     const grp = (c.group ?? '').trim() || DEFAULT_GROUP;
+    const jump = (c.jumpHost ?? '') !== '';
+    const jAuth: Auth = c.jumpAuthMethod === 'key' ? 'key' : 'password';
+    const jpw = jump && jAuth === 'password' ? ((await getConnectionJumpPassword(c.id)) ?? '') : '';
+    const prox = (c.proxyHost ?? '') !== '';
     setId(c.id);
     setName(c.name);
     setGroup(grp);
@@ -150,6 +205,18 @@ export function ConnectForm({
     setKeyId(c.keyId ?? '');
     setPrivateKey('');
     setPassphrase('');
+    setUseJump(jump);
+    setJumpHost(c.jumpHost ?? '');
+    setJumpPort(String(c.jumpPort ?? 22));
+    setJumpUser(c.jumpUsername ?? '');
+    setJumpAuth(jAuth);
+    setJumpKeyId(c.jumpKeyId ?? '');
+    setJumpPassword(jpw);
+    setUseProxy(prox);
+    setProxyHost(c.proxyHost ?? '');
+    setProxyPort(String(c.proxyPort ?? 1080));
+    setProxyUser(c.proxyUsername ?? '');
+    setProxyPassword(c.proxyPassword ?? '');
     setError(null);
     setPassword(pw);
     setBase({
@@ -163,12 +230,26 @@ export function ConnectForm({
       keyId: c.keyId ?? '',
       privateKey: '',
       passphrase: '',
+      useJump: jump,
+      jumpHost: c.jumpHost ?? '',
+      jumpPort: String(c.jumpPort ?? 22),
+      jumpUser: c.jumpUsername ?? '',
+      jumpAuth: jAuth,
+      jumpKeyId: c.jumpKeyId ?? '',
+      jumpPassword: jpw,
+      useProxy: prox,
+      proxyHost: c.proxyHost ?? '',
+      proxyPort: String(c.proxyPort ?? 1080),
+      proxyUser: c.proxyUsername ?? '',
+      proxyPassword: c.proxyPassword ?? '',
     });
   }
 
   async function saveCurrent(): Promise<void> {
     setError(null);
     try {
+      const jumpOn = useJump && jumpHost.trim() !== '';
+      const proxyOn = useProxy && proxyHost.trim() !== '';
       const conn = upsertConnection({
         id: id ?? undefined,
         name: name.trim() || host.trim(),
@@ -178,8 +259,21 @@ export function ConnectForm({
         username: user.trim(),
         authMethod: auth,
         keyId: auth === 'key' && keyId !== '' ? keyId : null,
+        // Explicit nulls clear a disabled section (presence-keyed carry-over in
+        // upsertConnection) — same shape the mobile form writes.
+        jumpHost: jumpOn ? jumpHost.trim() : null,
+        jumpPort: jumpOn ? Number(jumpPort) || 22 : null,
+        jumpUsername: jumpOn && jumpUser.trim() !== '' ? jumpUser.trim() : null,
+        jumpAuthMethod: jumpOn ? jumpAuth : null,
+        jumpKeyId: jumpOn && jumpAuth === 'key' && jumpKeyId !== '' ? jumpKeyId : null,
+        proxyHost: proxyOn ? proxyHost.trim() : null,
+        proxyPort: proxyOn ? Number(proxyPort) || 1080 : null,
+        proxyUsername: proxyOn && proxyUser.trim() !== '' ? proxyUser.trim() : null,
+        proxyPassword: proxyOn && proxyPassword !== '' ? proxyPassword : null,
       });
       if (auth === 'password' && password !== '') await setConnectionPassword(conn.id, password);
+      // Empty (or disabled jump / key-auth jump) deletes the keychain slot.
+      await setConnectionJumpPassword(conn.id, jumpOn && jumpAuth === 'password' ? jumpPassword : '');
       setId(conn.id);
     } catch (e) {
       setError(msg(e));
@@ -204,6 +298,9 @@ export function ConnectForm({
     setPhase(null);
     const attempt = { cancelled: false };
     attemptRef.current = attempt;
+    // Each extra hop (SOCKS5 handshake, jump-host auth + forward) adds its own
+    // round-trips, so the single-hop ceiling would abort legitimate chains.
+    const timeoutMs = CONNECT_TIMEOUT_MS + (useJump ? 15_000 : 0) + (useProxy ? 10_000 : 0);
     const timer = setTimeout(() => {
       if (attempt.cancelled) return;
       attempt.cancelled = true;
@@ -211,7 +308,7 @@ export function ConnectForm({
       setBusy(false);
       setPhase(null);
       setError(t('term.connectTimeout'));
-    }, CONNECT_TIMEOUT_MS);
+    }, timeoutMs);
     // Minted per attempt and echoed on the core's phase ticks, so a stale
     // attempt's ticks never update this attempt's display.
     const attemptId = `c${++connectSeq}`;
@@ -236,6 +333,27 @@ export function ConnectForm({
         req = { ...base, private_key: pem, passphrase: pass ?? undefined };
       } else {
         req = { ...base, private_key: privateKey, passphrase };
+      }
+      if (useJump && jumpHost.trim() !== '') {
+        req.jump_host = jumpHost.trim();
+        req.jump_port = Number(jumpPort) || 22;
+        if (jumpUser.trim() !== '') req.jump_user = jumpUser.trim();
+        if (jumpAuth === 'key' && jumpKeyId !== '') {
+          const { pem, passphrase: pass } = await getKeyMaterial(jumpKeyId);
+          if (pem === null) throw new Error(t('term.keyMissing'));
+          req.jump_private_key = pem;
+          req.jump_passphrase = pass ?? undefined;
+        } else {
+          // Mobile parity: an empty jump password reuses the main password.
+          const jpw = jumpPassword !== '' ? jumpPassword : password;
+          if (jpw !== '') req.jump_password = jpw;
+        }
+      }
+      if (useProxy && proxyHost.trim() !== '') {
+        req.proxy_host = proxyHost.trim();
+        req.proxy_port = Number(proxyPort) || 1080;
+        if (proxyUser.trim() !== '') req.proxy_username = proxyUser.trim();
+        if (proxyPassword !== '') req.proxy_password = proxyPassword;
       }
       const sid = await sshConnect(req);
       if (attempt.cancelled) {
@@ -276,7 +394,11 @@ export function ConnectForm({
   const canConnect =
     host.trim() !== '' &&
     user.trim() !== '' &&
-    (auth === 'password' ? password !== '' : keyId !== '' || privateKey.trim() !== '');
+    (auth === 'password' ? password !== '' : keyId !== '' || privateKey.trim() !== '') &&
+    (!useJump ||
+      (jumpHost.trim() !== '' &&
+        (jumpAuth === 'key' ? jumpKeyId !== '' : jumpPassword !== '' || password !== ''))) &&
+    (!useProxy || proxyHost.trim() !== '');
 
   // Dirty-close guard (#313): cancelling with unsaved edits used to drop them
   // silently — confirm before dropping them.
@@ -290,7 +412,19 @@ export function ConnectForm({
     password !== base.password ||
     keyId !== base.keyId ||
     privateKey !== base.privateKey ||
-    passphrase !== base.passphrase;
+    passphrase !== base.passphrase ||
+    useJump !== base.useJump ||
+    jumpHost !== base.jumpHost ||
+    jumpPort !== base.jumpPort ||
+    jumpUser !== base.jumpUser ||
+    jumpAuth !== base.jumpAuth ||
+    jumpKeyId !== base.jumpKeyId ||
+    jumpPassword !== base.jumpPassword ||
+    useProxy !== base.useProxy ||
+    proxyHost !== base.proxyHost ||
+    proxyPort !== base.proxyPort ||
+    proxyUser !== base.proxyUser ||
+    proxyPassword !== base.proxyPassword;
   async function attemptCancel(): Promise<void> {
     if (!dirty || (await confirmAsk({ message: t('confirm.discardChanges'), danger: true }))) onCancel?.();
   }
@@ -384,6 +518,93 @@ export function ConnectForm({
             )}
           </>
         )}
+
+        {/* Jump host (ProxyJump) — mobile-form parity. */}
+        <label className="wide term-toggle">
+          <input type="checkbox" checked={useJump} onChange={(e) => setUseJump(e.target.checked)} />
+          {t('term.useJumpHost')}
+        </label>
+        {useJump && (
+          <>
+            <label className="wide">
+              {t('term.jumpHost')}
+              <input value={jumpHost} onChange={(e) => setJumpHost(e.target.value)} placeholder="bastion.example.com" />
+            </label>
+            <label>
+              {t('term.jumpPort')}
+              <input value={jumpPort} onChange={(e) => setJumpPort(e.target.value)} inputMode="numeric" />
+            </label>
+            <label>
+              {t('term.jumpUser')}
+              <input value={jumpUser} onChange={(e) => setJumpUser(e.target.value)} placeholder={user.trim()} />
+            </label>
+            <label className="wide">
+              {t('term.jumpAuth')}
+              <div className="seg">
+                <button
+                  className={jumpAuth === 'password' ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => setJumpAuth('password')}
+                >
+                  {t('term.password')}
+                </button>
+                <button className={jumpAuth === 'key' ? 'seg-btn active' : 'seg-btn'} onClick={() => setJumpAuth('key')}>
+                  {t('term.privateKey')}
+                </button>
+              </div>
+            </label>
+            {jumpAuth === 'password' ? (
+              <label className="wide">
+                {t('term.jumpPassword')}
+                <input
+                  type="password"
+                  value={jumpPassword}
+                  onChange={(e) => setJumpPassword(e.target.value)}
+                  placeholder={t('term.jumpPasswordHint')}
+                />
+              </label>
+            ) : (
+              <label className="wide">
+                {t('term.useKey')}
+                <select value={jumpKeyId} onChange={(e) => setJumpKeyId(e.target.value)}>
+                  <option value="">{t('term.jumpPickKey')}</option>
+                  {keys.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.name} ({k.type})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
+        )}
+
+        {/* SOCKS5 proxy — the outermost hop (tunnels to the jump host when one
+            is set, else to the target), mobile-form parity. */}
+        <label className="wide term-toggle">
+          <input type="checkbox" checked={useProxy} onChange={(e) => setUseProxy(e.target.checked)} />
+          {t('term.useProxy')}
+        </label>
+        {useProxy && (
+          <>
+            <label className="wide">
+              {t('term.proxyHost')}
+              <input value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
+            </label>
+            <label>
+              {t('term.proxyPort')}
+              <input value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} inputMode="numeric" />
+            </label>
+            <label>
+              {t('term.proxyUser')}
+              <input value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} />
+            </label>
+            <label className="wide">
+              {t('term.proxyPassword')}
+              <input type="password" value={proxyPassword} onChange={(e) => setProxyPassword(e.target.value)} />
+            </label>
+          </>
+        )}
+
         {error !== null && <div className="error wide">{error}</div>}
         <div className="wide term-actions">
           <button disabled={host.trim() === '' || user.trim() === ''} onClick={() => void saveCurrent()}>

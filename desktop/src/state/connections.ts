@@ -23,8 +23,8 @@ export interface Connection {
   createdAt: string; // ISO-8601
   lastConnectedAt: string | null;
   deepLinkId: string | null;
-  // Jump host (stored for data + vault parity; jump-through connect is a
-  // transport follow-up — the Rust ssh_connect has no ProxyJump yet).
+  // Jump host (ProxyJump) + SOCKS5 proxy — mobile-parity fields, driven by the
+  // connect form and honoured by the Electron transport (`ipc/ssh.ts`).
   jumpHost?: string | null;
   jumpPort?: number | null;
   jumpUsername?: string | null;
@@ -138,6 +138,14 @@ function persist(list: Connection[]): void {
   saveJson(STORAGE_KEY, list);
 }
 
+function pickField<K extends keyof Connection>(
+  input: Partial<Connection>,
+  existing: Connection | undefined,
+  key: K,
+): Connection[K] | null {
+  return key in input ? (input[key] ?? null) : (existing?.[key] ?? null);
+}
+
 /** Create or update a connection's metadata; returns the stored record. */
 export function upsertConnection(input: Partial<Connection> & { name: string; host: string; username: string }): Connection {
   const list = listConnections();
@@ -157,18 +165,20 @@ export function upsertConnection(input: Partial<Connection> & { name: string; ho
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     lastConnectedAt: input.lastConnectedAt ?? existing?.lastConnectedAt ?? null,
     deepLinkId: existing?.deepLinkId ?? null,
-    // Carry over the whole jump/proxy cluster — these are stored for vault parity
-    // (sync can populate them from a mobile bundle) and a form that doesn't touch
-    // them must not wipe them on save.
-    jumpHost: input.jumpHost ?? existing?.jumpHost ?? null,
-    jumpPort: input.jumpPort ?? existing?.jumpPort ?? null,
-    jumpUsername: input.jumpUsername ?? existing?.jumpUsername ?? null,
-    jumpAuthMethod: input.jumpAuthMethod ?? existing?.jumpAuthMethod ?? null,
-    jumpKeyId: input.jumpKeyId ?? existing?.jumpKeyId ?? null,
-    proxyHost: input.proxyHost ?? existing?.proxyHost ?? null,
-    proxyPort: input.proxyPort ?? existing?.proxyPort ?? null,
-    proxyUsername: input.proxyUsername ?? existing?.proxyUsername ?? null,
-    proxyPassword: input.proxyPassword ?? existing?.proxyPassword ?? null,
+    // The jump/proxy cluster carries over by KEY PRESENCE, not nullishness: a
+    // caller that omits a key keeps the stored value (a save from a surface
+    // that doesn't touch these must not wipe what a mobile bundle synced in),
+    // while the connect form passes every key explicitly — including `null` to
+    // clear a disabled section, which `??` could never express.
+    jumpHost: pickField(input, existing, 'jumpHost'),
+    jumpPort: pickField(input, existing, 'jumpPort'),
+    jumpUsername: pickField(input, existing, 'jumpUsername'),
+    jumpAuthMethod: pickField(input, existing, 'jumpAuthMethod'),
+    jumpKeyId: pickField(input, existing, 'jumpKeyId'),
+    proxyHost: pickField(input, existing, 'proxyHost'),
+    proxyPort: pickField(input, existing, 'proxyPort'),
+    proxyUsername: pickField(input, existing, 'proxyUsername'),
+    proxyPassword: pickField(input, existing, 'proxyPassword'),
   };
   const next = existing ? list.map((c) => (c.id === id ? conn : c)) : [...list, conn];
   persist(next);
@@ -197,4 +207,12 @@ export function setConnectionPassword(id: string, password: string): Promise<voi
 }
 export function getConnectionPassword(id: string): Promise<string | null> {
   return secretGet(pwKey(id));
+}
+/** Jump-host password, at the `password_<id>_jump` keychain slot the mobile
+ * bundle already syncs. An empty string deletes the slot. */
+export function setConnectionJumpPassword(id: string, password: string): Promise<void> {
+  return password === '' ? secretDeleteMany([jumpPwKey(id)]) : secretSet(jumpPwKey(id), password);
+}
+export function getConnectionJumpPassword(id: string): Promise<string | null> {
+  return secretGet(jumpPwKey(id));
 }

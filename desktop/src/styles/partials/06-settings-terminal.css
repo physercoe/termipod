@@ -486,6 +486,14 @@
 .term-form .wide {
   grid-column: 1 / -1;
 }
+/* Section enable-toggles (jump host / SOCKS5 proxy): checkbox and caption on
+   one row, unlike the stacked field labels. */
+.term-form .term-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s4);
+}
 .term-form textarea {
   min-height: 96px;
   resize: vertical;

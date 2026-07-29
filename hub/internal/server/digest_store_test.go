@@ -159,7 +159,8 @@ func TestDigestLazyBackfill(t *testing.T) {
 func loadAllTurns(ctx context.Context, q digestStore, agentID string) ([]turnRow, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT turn_id, idx, start_seq, start_ts, end_seq, end_ts, duration_ms,
-		       status, cost_usd, in_tokens, out_tokens, tool_count, tool_failed, error_count
+		       status, cost_usd, in_tokens, out_tokens, tool_count, tool_failed,
+		       error_count, issue_count
 		  FROM agent_turns WHERE agent_id = ? ORDER BY idx ASC`, agentID)
 	if err != nil {
 		return nil, err
@@ -170,7 +171,7 @@ func loadAllTurns(ctx context.Context, q digestStore, agentID string) ([]turnRow
 		var t turnRow
 		if err := rows.Scan(&t.TurnID, &t.Idx, &t.StartSeq, &t.StartTS, &t.EndSeq, &t.EndTS,
 			&t.DurationMs, &t.Status, &t.CostUSD, &t.InTokens, &t.OutTokens,
-			&t.ToolCount, &t.ToolFailed, &t.ErrorCount); err != nil {
+			&t.ToolCount, &t.ToolFailed, &t.ErrorCount, &t.IssueCount); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

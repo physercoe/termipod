@@ -302,10 +302,14 @@ func ensureEventsSchema(db *sql.DB) error {
 	return nil
 }
 
-// ensureDigestSchema runs the digest.db DDL on an already-open pool. Idempotent.
+// ensureDigestSchema runs the digest.db DDL on an already-open pool, then
+// brings a pre-existing file forward to the current column set. Idempotent.
 func ensureDigestSchema(db *sql.DB) error {
 	if _, err := db.Exec(digestStoreDDL); err != nil {
 		return fmt.Errorf("digest store schema: %w", err)
 	}
-	return nil
+	// IF NOT EXISTS creates a fresh file complete but leaves an existing one
+	// exactly as it was — the added-column list is what evolves it (see
+	// shardColumn's doc for why these tables have no migration chain).
+	return ensureShardColumns(db, digestStoreAddedColumns)
 }

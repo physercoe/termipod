@@ -180,6 +180,16 @@ func shardOneTeam(controlPath, eventsPath, digestPath, teamsRoot, team string) (
 		dg.Close()
 		return 0, fmt.Errorf("copy turns: %w", err)
 	}
+	// The column lists above are deliberately the pre-shard set: the attached
+	// source is whatever shape its hub left it in, and naming a column it may
+	// not have would fail the whole split. Anything newer therefore arrives at
+	// its DEFAULT — so reset schema_version to force the lazy refold
+	// (ensureAgentDigest) to recompute those fields on first read, rather than
+	// serving a v-current row with silently empty columns.
+	if _, err := dg.Exec(`UPDATE agent_event_digests SET schema_version = 0`); err != nil {
+		dg.Close()
+		return 0, fmt.Errorf("mark digests for refold: %w", err)
+	}
 	dg.Close()
 	return n, nil
 }

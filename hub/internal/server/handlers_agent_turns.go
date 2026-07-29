@@ -39,6 +39,10 @@ type turnJSON struct {
 	ToolCount    int64   `json:"tool_count"`
 	ToolFailed   int64   `json:"tool_failed"`
 	ErrorCount   int64   `json:"error_count"`
+	// IssueCount is this turn's structural-issue tally (digest_issues.go) —
+	// what the funnel/minimap will mark issue-bearing turns with once the
+	// drawer proves the taxonomy (plan §6).
+	IssueCount int64 `json:"issue_count"`
 }
 
 func (s *Server) handleListAgentTurns(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +148,7 @@ func turnLimit(r *http.Request) int {
 
 const turnCols = `agent_id, turn_id, idx, start_seq, start_ordinal, start_ts, end_seq, end_ts,
 	duration_ms, status, cost_usd, in_tokens, out_tokens, tool_count,
-	tool_failed, error_count`
+	tool_failed, error_count, issue_count`
 
 func (s *Server) listAgentTurns(ctx context.Context, agent string, after, limit int) ([]turnJSON, error) {
 	dr, err := s.digestReaderForAgent(ctx, agent)
@@ -206,7 +210,7 @@ func scanTurns(rows *sql.Rows, err error) ([]turnJSON, error) {
 		if err := rows.Scan(
 			&t.AgentID, &t.TurnID, &t.Idx, &t.StartSeq, &startOrd, &t.StartTS, &t.EndSeq,
 			&t.EndTS, &t.DurationMs, &t.Status, &t.CostUSD, &t.InTokens,
-			&t.OutTokens, &t.ToolCount, &t.ToolFailed, &t.ErrorCount,
+			&t.OutTokens, &t.ToolCount, &t.ToolFailed, &t.ErrorCount, &t.IssueCount,
 		); err != nil {
 			return nil, err
 		}

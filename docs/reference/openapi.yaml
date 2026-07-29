@@ -71,6 +71,10 @@ tags:
     description: Single MCP service entry point
   - name: EnvProfiles
     description: Reusable environment profiles attached to spawns (setup script + env + secret refs + net policy)
+  - name: Datasets
+    description: Episode corpora a policy trains on or is evaluated against (replay plan W1)
+  - name: References
+    description: The hub-owned research reference library + PDF annotations (ADR-053)
 
 paths:
 
@@ -119,6 +123,149 @@ paths:
   # ======================================================================
   # Hosts + A2A
   # ======================================================================
+
+  /v1/teams/{team}/datasets:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Datasets]
+      operationId: listDatasets
+      summary: List the team's registered datasets (replay plan W1)
+      parameters:
+        - { name: project, in: query, required: false, schema: { type: string } }
+        - { name: host, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Datasets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Dataset" }
+    post:
+      tags: [Datasets]
+      operationId: createDataset
+      summary: >-
+        Register a dataset root. Idempotent on (project, host, root_path):
+        a repeat returns 200 with the existing row rather than a duplicate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Dataset" }
+      responses:
+        "200":
+          description: Already registered; the existing row
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dataset" }
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dataset" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: "Project or host not found in this team" }
+
+  /v1/teams/{team}/datasets/{dataset}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: dataset, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Datasets]
+      operationId: getDataset
+      summary: Get one dataset
+      responses:
+        "200":
+          description: Dataset
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dataset" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Datasets]
+      operationId: updateDataset
+      summary: >-
+        Update the human-owned fields (name, env_ref). Location and digest are
+        deliberately not patchable: moving a root is a re-registration, and a
+        digest that did not come from a host read would be an unchecked fact.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Dataset" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dataset" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Datasets]
+      operationId: deleteDataset
+      summary: >-
+        Remove the hub's index entry. Never touches the host — the dataset's
+        bytes are not the hub's to delete.
+      responses:
+        "204": { description: "De-registered" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/teams/{team}/datasets/{dataset}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: dataset, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Datasets]
+      operationId: refreshDatasetDigest
+      summary: >-
+        Ask the owning host to re-read the root and store the fold. Manual by
+        design (replay plan decision #4) — nothing re-reads a dataset unasked.
+      responses:
+        "200":
+          description: Refreshed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dataset" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "The dataset has no host, so it cannot be read" }
+        "422":
+          description: >-
+            The host recognised a dataset but refuses its generation. The
+            codebase_version it refused is carried through so the client can
+            name it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatasetUnsupportedFormat" }
+        "501": { description: "Remote roots are not readable yet (SSH-forward wedge)" }
+        "504": { description: "The host did not answer in time" }
+
+  /v1/teams/{team}/datasets/{dataset}/episodes:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: dataset, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Datasets]
+      operationId: listDatasetEpisodes
+      summary: >-
+        One window of the dataset's episodes table, proxied from the host. The
+        table is never stored hub-side — a 50k-episode listing is bulk data
+        (blueprint §4), so it is read on demand, windowed and capped.
+      parameters:
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: One page of episodes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpisodePage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "The dataset has no host, so it cannot be read" }
+        "501": { description: "Remote roots are not readable yet (SSH-forward wedge)" }
+        "504": { description: "The host did not answer in time" }
 
   /v1/teams/{team}/env-profiles:
     parameters:
@@ -2870,6 +3017,107 @@ components:
         runner_build_time: { type: string }
         runner_modified: { type: boolean }
         created_at: { type: string, format: date-time }
+
+    Dataset:
+      type: object
+      description: >-
+        A dataset is a root of episodes — synchronized multimodal streams
+        (multi-cam video, proprioception, actions, language) — that a policy is
+        trained on or evaluated against (replay plan W1). The hub owns the row
+        and the folded digest; the episodes themselves stay on the host.
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        host_id: { type: string, description: Host holding the bytes }
+        name: { type: string }
+        root_path: { type: string }
+        source:
+          type: string
+          enum: [local, sftp, hf]
+          description: Only `local` is readable today; the others register ahead of the SSH-forward wedge.
+        format:
+          type: string
+          description: >-
+            Filled from the digest once a host has read the root (e.g.
+            lerobot_v3.0). Empty until then — use digest_ts to tell "not read
+            yet" from "format not recognised".
+        env_ref:
+          type: string
+          description: >-
+            Opaque "family:env_id@version" provenance handle, reserved by the
+            replay plan §3 and deliberately unvalidated. A refresh fills it only
+            when empty, so a human-set value is never overwritten.
+        digest:
+          type: object
+          additionalProperties: true
+          description: The host-computed fold (ADR-038 shape).
+        digest_schema_version: { type: integer }
+        digest_ts: { type: string, format: date-time }
+        fingerprint:
+          $ref: "#/components/schemas/DatasetFingerprint"
+        registered_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    DatasetFingerprint:
+      type: object
+      description: >-
+        Stat-only summary of the meta/ tree at fold time. Re-statting is cheap,
+        so a client can say "digest may be stale — Refresh" without re-reading.
+      properties:
+        files: { type: integer }
+        bytes: { type: integer, format: int64 }
+        max_mod_time: { type: string, format: date-time }
+
+    DatasetUnsupportedFormat:
+      type: object
+      description: >-
+        A dataset whose generation this build refuses to parse. Never a
+        best-effort partial read: invented numbers presented as dataset facts
+        are worse than an honest refusal.
+      properties:
+        error: { type: string, enum: [unsupported_format] }
+        codebase_version: { type: string }
+        detail: { type: string }
+
+    Episode:
+      type: object
+      description: >-
+        One episode. The location fields answer "where are this episode's
+        bytes" for layouts where many episodes share a file; in per-episode-file
+        layouts they are absent.
+      properties:
+        index: { type: integer, format: int64 }
+        length: { type: integer, format: int64, description: Frame count }
+        duration_sec: { type: number }
+        tasks: { type: array, items: { type: string } }
+        data_chunk: { type: integer, format: int64 }
+        data_file: { type: integer, format: int64 }
+        from_index: { type: integer, format: int64, description: First row, inclusive }
+        to_index: { type: integer, format: int64, description: Last row, exclusive }
+        videos:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/EpisodeVideoSlice" }
+          description: Video feature key to this episode's slice of the shared file.
+
+    EpisodeVideoSlice:
+      type: object
+      properties:
+        chunk: { type: integer, format: int64 }
+        file: { type: integer, format: int64 }
+        from_ts: { type: number }
+        to_ts: { type: number }
+
+    EpisodePage:
+      type: object
+      description: One window of the episodes table, with the caps that shaped it stated.
+      properties:
+        episodes:
+          type: array
+          items: { $ref: "#/components/schemas/Episode" }
+        offset: { type: integer, format: int64 }
+        limit: { type: integer, description: Page size actually applied after clamping }
+        total: { type: integer, format: int64, description: Episode count as declared by the dataset }
+        truncated: { type: boolean, description: The requested limit was clamped down }
 
     EnvProfile:
       type: object

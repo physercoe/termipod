@@ -169,7 +169,7 @@ func (s *Server) sessionAgentIDs(ctx context.Context, team, session string) ([]s
 	// and avoids caching a transient "no events yet" state).
 	if sealed && !cached.Valid && len(out) > 0 {
 		if blob, err := json.Marshal(out); err == nil {
-			_, _ = s.db.ExecContext(ctx,
+			_, _ = s.writeDB.ExecContext(ctx,
 				`UPDATE sessions SET agent_ids_json = ? WHERE id = ? AND agent_ids_json IS NULL`,
 				string(blob), session)
 		}

@@ -892,6 +892,18 @@ acceptance criteria, channels, schedules, artifacts, runs.
   not a library you install from.
 - *Canonical:* migration `0001_initial.up.sql` + `0034_project_lifecycle`.
 
+### run
+One execution with a reproducibility contract: frozen config, a seed,
+a status, and metric series. Project-scoped. Metric time-series live on
+the host (trackio/wandb/TensorBoard) and are only *referenced* here —
+the hub stores digests, never bulk curves (blueprint §4).
+- *Distinguish from:* **dataset** — a run is an execution; a dataset is
+  the material it consumes or produces. A run may name one
+  (`run.dataset_id`), and an eval run's rollouts may register as one.
+- *Distinguish from:* **agent** — an agent is a spawned engine
+  instance; a run is what it executed. A run may carry `agent_id`.
+- *Canonical:* migration `0006_runs.up.sql`.
+
 ### project spec (config_yaml)
 A project's full definition, carried **inline** in its own
 `config_yaml` (ADR-046): `phases:` (≥1; a one-off job is a 1-phase
@@ -1218,6 +1230,71 @@ The five-line header every doc must have (Type / Status / Audience
 
 ---
 
+## 11. Datasets & episodes (J8 Replay)
+
+### dataset
+A root of **episodes** — synchronized multimodal streams (multi-cam
+video, depth, proprioception, actions, language) — that a policy is
+trained on or evaluated against. A hub entity since the replay plan's
+W1: project-scoped, registered explicitly (never crawled), carrying a
+folded **dataset digest**. The hub owns the row; the episodes' bytes
+stay on the host (blueprint §4).
+
+Not a **run**: a run is one execution with a reproducibility contract;
+a dataset is the material a run consumes or produces. A run may point
+at a dataset (`run.dataset_id`), and an eval run's rollouts may
+themselves register as one.
+
+### episode
+One continuous recording within a dataset: a trajectory with a frame
+count, a duration, one or more task strings, and per-camera video.
+**Not materialized hub-side** — the episodes table is served from the
+host on demand, windowed and capped, because a 50k-episode listing is
+bulk data. An episode becomes a hub row only when something references
+it (an eval rollout, a J6 record), as a `robot.episode` element.
+
+Interchangeable with **rollout** only when the episode was produced by
+a policy rather than a demonstrator; prefer *rollout* for generated
+trajectories and *episode* for the dataset-resident record.
+
+### rollout
+An episode produced by a policy rather than a demonstrator — what a
+model did, not what a human showed it. Same shape as an **episode**
+and stored the same way; the word records provenance. Eval runs emit
+rollouts, which W5 links back to the run that produced them.
+
+### dataset digest
+The ADR-038-shaped fold of a dataset's `meta/` tree: episode/frame
+counts, fps, video streams, feature dims, task strings, per-feature
+statistics, episode-length histogram. Computed **host-side** and stored
+on the hub. Never recomputed automatically — refresh is manual, driven
+by a stat-only staleness check (replay plan decision #4).
+
+### LeRobot v2.1 / v3.0
+The two dataset layouts termipod reads, marked by `meta/info.json`'s
+`codebase_version`. v2.1 is JSON/JSONL metadata with one file per
+episode; v3.0 is parquet metadata where many episodes share a file and
+an episode is a **slice** located by row offsets and video timestamps.
+An unrecognized `codebase_version` is refused by name, never parsed
+best-effort.
+
+### Replay (the J8 job)
+The activity-bar job for replaying time-synchronized robot experience:
+the dataset library, the episodes table, and the episode player
+(video grid + timeline + channel plots). Sits between J5 Compare and
+J6 Record. Capitalized when it names the job.
+
+Distinct from **raw-wire replay** below — the term overlap is known and
+accepted (replay plan §1): this tab never says "replay" about
+transcripts, and vice versa.
+
+### raw-wire replay
+An internal mode of the agent-transcript surface that re-renders a
+stored event stream as it arrived. A transcript concept, unrelated to
+the **Replay** job's episodes.
+
+---
+
 ## 12. Index of "easy to confuse with" pairs
 
 A flat list of the high-traffic confusion points, for grep:
@@ -1235,6 +1312,12 @@ A flat list of the high-traffic confusion points, for grep:
 - **driving mode** vs **permission mode** vs **output mode**.
 - **status** (agent) vs **status** (session) vs **pause_state**.
 - **worktree** vs **workdir**.
+- **dataset** vs **run** — material consumed/produced vs one
+  execution with a reproducibility contract.
+- **episode** vs **rollout** — dataset-resident recording vs a
+  policy-generated trajectory; same shape, different provenance.
+- **Replay** (the J8 job) vs **raw-wire replay** (a transcript
+  mode) — different surfaces, different entities.
 - **steward** vs **worker** vs **agent** vs **principal**.
 - **general steward** vs **domain steward** — frozen-persistent vs
   overlay-project-scoped, both *steward* role.

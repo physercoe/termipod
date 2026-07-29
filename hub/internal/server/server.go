@@ -678,6 +678,25 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/alerts", s.handleGetRunAlerts)
 			})
 		})
+		// Datasets (replay plan W1) — episode corpora a policy trains on
+		// or is evaluated against. Team-scoped via their project, like
+		// runs, and for the same reason: a dataset belongs to a line of
+		// work, and the run<->dataset provenance edges join on that scope.
+		//
+		// The hub owns the row and the folded digest; the bytes stay on
+		// the host, so /refresh and /episodes reach the owning host over
+		// the tunnel rather than reading anything here.
+		r.Route("/datasets", func(r chi.Router) {
+			r.Get("/", s.handleListDatasets)
+			r.Post("/", s.handleCreateDataset)
+			r.Route("/{dataset}", func(r chi.Router) {
+				r.Get("/", s.handleGetDataset)
+				r.Patch("/", s.handleUpdateDataset)
+				r.Delete("/", s.handleDeleteDataset)
+				r.Post("/refresh", s.handleRefreshDatasetDigest)
+				r.Get("/episodes", s.handleGetDatasetEpisodes)
+			})
+		})
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project
 		// via ?project=. Sits at team scope (not nested under /projects) so
 		// that cross-project review queues can be listed with a single query.

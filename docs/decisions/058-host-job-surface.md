@@ -7,7 +7,7 @@
 > carry). Written before any job code exists so the mechanism lands in the
 > right layer instead of inside a feature wedge.
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** origin/main `c6a71b7e`
+> **Last verified vs code:** origin/main `589a01b0`
 > (`datasetVerbTimeout` `hub/internal/server/handlers_datasets.go:40`,
 > `tickCommands` `hub/internal/hostrunner/runner.go:503`,
 > `chunkBundle` `hub/internal/hostrunner/teleport_commands.go:122`,
@@ -24,8 +24,10 @@ result, and cancellation all reuse the existing pull-only command queue
 (migration 0002) — no new transport, no hub-initiated connection, NAT-safe
 as today. What is genuinely new is small: job kinds run in a **goroutine
 with a single-flight guard** instead of inline on the poll tick (which is
-serial — an inline job would starve pause/resume/teleport for its whole
-duration), a **`progress_json` heartbeat** on the command row, a
+serial, and it shares the single main-loop goroutine with the spawn,
+reconcile and idle ticks — an inline job would starve not just
+pause/resume/teleport but spawn launches and status reconciliation for
+its whole duration), a **`progress_json` heartbeat** on the command row, a
 **`job_cancel` kind**, and a **host-side artifact cache with LRU eviction**
 shared with §11's ffmpeg extraction. Artifacts stay on the host
 (data-ownership law: hosts own bytes); v1 returns a host-local path, which
@@ -67,9 +69,16 @@ restarts, queues/priorities/scheduling, and modeling jobs as runs.
   built chunked artifact transport: `chunkBundle` splits a bundle into
   ≤25 MiB parts in the content-addressed blob store behind a manifest.
   What does not exist: detached execution (`tickCommands`,
-  `runner.go:503`, runs commands serially inline on the poll tick),
+  `runner.go:503`, runs commands serially inline, on the same
+  single main-loop goroutine as the spawn/reconcile/idle ticks),
   progress reporting, cancellation of an in-flight command, and any
-  artifact lifecycle on the host.
+  artifact lifecycle on the host. Note the teleport kinds already
+  run long *inline* today — a multi-minute `session_handoff_pack`
+  blocks the whole loop, a cost ADR-057 implicitly accepted for a
+  rare, deliberate, user-initiated operation. Jobs arrive at browsing
+  frequency, which is why detached execution is the line item here;
+  migrating the teleport kinds onto the job executor afterwards is a
+  natural follow-up, not a prerequisite.
 
 ## Decision
 
@@ -94,10 +103,14 @@ cache root (§4).
 job executor that runs the work in a goroutine and returns immediately, so
 the poll tick keeps servicing pause/resume/capture/teleport. The executor
 holds an in-memory map `command_id → {cancel func, started_at}` and a
-per-host concurrency cap of **one running job** in v1 — the queue itself
-holds the backlog (commands are delivered in `created_at` order); a job
-kind pulled while another runs is left `pending` (not listed as claimable)
-until the slot frees.
+per-host concurrency cap of **one running job** in v1. Backlog semantics
+follow the shipped delivery contract: the list endpoint flips `pending →
+delivered` **on read** (`handlers_commands.go:86-88`, `created_at`
+order), so a job kind pulled while another runs cannot be "left pending"
+— the executor accepts it as `delivered` and holds it in an in-memory
+FIFO until the slot frees. A crash while queued is already covered by
+the restart reconciliation in §3 (startup fails the runner's own
+`delivered` job rows), so the in-memory queue adds no new loss mode.
 
 The job body for `dataset_export_rrd`: probe the pinned
 `(lerobot, rerun-sdk)` environment (capability probe, #394 soft-degrade —

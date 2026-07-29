@@ -1,9 +1,9 @@
 # J8 Replay — datasets, episodes & multimodal rollout analysis (embodied pilot, round 1)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — W1a/W1b/W1c shipped, W1d next
+> **Status:** In progress (2026-07-29) — W1 complete; W2 plots shipped, video next
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `70a3c7ed` (W1b merged)
+> **Last verified vs code:** origin/main `7680559c` (W2b merged)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -216,14 +216,33 @@ W1 is three subsystems plus a handoff, so it landed as four wedges:
 | **W1a** | #446 | `hub/internal/hostrunner/datasetmeta/` — format sniff, v2.1 + v3.0 readers, digest fold, windowed episodes |
 | **W1b** | #447 | hub `datasets` entity (migration 0068) + REST CRUD + `host.dataset_digest` / `host.dataset_episodes` verbs |
 | **W1c** | #448 | desktop **J8 Replay** job — library rail, digest card, paged episodes table, inline register form |
-| **W1d** | open | the Inspect handoff |
+| **W1d** | #454 | the Inspect handoff — a per-file context menu, "Open in Replay" on a `meta/info.json` row |
 
-**W1d is still open, and it is bigger than the plan implied.** §4 assumed
-#393's menu machinery covered it; `InspectTree` in fact has only
-*root-level* and *panel-level* context menus, with no per-file row menu at
-all. Building that is the wedge. W1c ships an inline register form so the
-surface is usable without it — and that form stays afterwards as the
-escape hatch for a root that is not open in a tree.
+**W1d was bigger than the plan implied, and it does less than the plan
+asked.** §4 assumed #393's menu machinery covered it; `InspectTree` in fact
+had only *root-level* and *panel-level* context menus, with no per-file row
+menu at all, so building that was most of the wedge.
+
+And "registers (idempotent) + jumps to J8 with the dataset selected" turned
+out not to be honest. A dataset row is keyed `(project, host, root_path)`
+and Inspect has **neither** key:
+
+- **No project.** Only a hub root carries one. Registering into whichever
+  project sorts first would not merely be arbitrary — it would defeat the
+  idempotent register, creating a second row instead of finding the
+  existing one.
+- **No host, not even for a remote root that looks like it knows one.**
+  `InspectRoot.hostId` is an SSH *connection* id (`state/connections.ts`
+  stores breakglass credentials with no hub-host field), while
+  `datasets.host_id` is a foreign key into `hosts`. Same word, different
+  entity; passing one as the other writes a dangling reference. The first
+  cut did exactly that and type-checked perfectly.
+
+So the handoff carries a **location**, and Replay resolves it: a unique
+match in the current project is selected, anything else opens the register
+form prefilled. Ambiguity belongs in the form — whose host select is the
+answer — not in a coin flip between two machines' datasets. The inline
+register form stays as the escape hatch for a root not open in a tree.
 
 ### What the real LeRobot fixtures corrected
 
@@ -305,6 +324,62 @@ slow path.
 **Charts**: uPlot-or-existing-Sparkline for W2 (tiny, fast, sufficient for
 scrub-sync); the landscape's Plotly/ECharts choice stays reserved for J5-wall
 work — don't spend a big chart dep on a cursor-synced strip chart.
+
+### W2 as shipped (2026-07-29) — plots, not yet video
+
+W2 splits along the same seam as W1 — reader, transport, surface — plus the
+media protocol, which is a wedge of its own:
+
+| | | |
+|---|---|---|
+| **W2a** | #457 | `datasetmeta.ReadSeries` — per-episode channels from the data parquet, decimated |
+| **W2b** | #458 | `host.dataset_series` + `GET /datasets/{id}/episodes/{n}/series` |
+| **W2c** | #459 | the player's plots: channel lanes, shared cursor, feature toggles |
+| **W2d** | open | the video grid + the capped range-request media protocol |
+
+The plots half ships first because it is the half that can be *verified*
+here: the geometry is a pure module with 18 assertions, while a video pane
+is a thing you have to look at. A player showing plots and saying plainly
+that video is not built yet is more useful — and more honest — than one
+showing a black rectangle.
+
+**What the real data files corrected** (the pinned fixtures gained
+`data/`, ~23 KB):
+
+- **`data_path` is a template, and the generations spell their
+  placeholders differently**: v2.1 `{episode_chunk:03d}` /
+  `{episode_index:06d}`, v3.0 `{chunk_index:03d}` / `{file_index:03d}`.
+  The *video* templates also differ in directory **order**
+  (`videos/chunk-XXX/{key}/…` vs `videos/{key}/chunk-XXX/…`) — W2d needs
+  that. So the template is expanded, never reimplemented per generation,
+  and an unknown placeholder is an error rather than an empty string: a
+  substituted blank builds a plausible path that misses, and a miss reads
+  as "this episode has no data file".
+- **`observation.state` is a parquet `list<float>`**, so its channels split
+  on the *repetition level*, not on `info.json`'s declared shape. Trusting
+  the shape lets a file whose rows disagree with it interleave two joints
+  into one plot.
+- **`timestamp` is already episode-relative in both generations** — it
+  resets to 0 at each boundary (verified at rows 39/40 of the shared v3.0
+  file). Had it been absolute, scrubbing episode 1 would have put the
+  cursor 8s into a 6s clip.
+- **Nulls are NaN, not 0**, end to end: the host emits NaN, JSON carries it
+  as null, and the plot *breaks the line* rather than drawing through the
+  gap. A line over a hole asserts readings nobody took.
+
+**Decisions this settled:**
+
+- Downsampling is **decimation**, never averaging. A joint-angle plot is
+  read for its extremes, and averaging erases exactly the spikes it is
+  opened to find. A decimated page says so and still reports the episode's
+  real frame count.
+- The y-range is shared **per feature**, not per channel: seven joints of
+  one arm are the same physical quantity, and per-channel normalization
+  draws a motionless joint exactly like a sweeping one.
+
+**Still unverified:** decision #1's keyframe assumption. Nothing in W2a–W2c
+touches video, so `ffmpeg -ss/-to -c copy` remains unchecked against real
+v3 files — that check gates W2d, not this wedge.
 
 ## 6. W3 — 3D pose panel (EMBED: three.js + `urdf-loader`)
 

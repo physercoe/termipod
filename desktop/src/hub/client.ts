@@ -229,6 +229,23 @@ export class HubClient {
       limit: params.limit !== undefined ? String(params.limit) : undefined,
     }) as Promise<Entity>;
   }
+  /**
+   * One episode's numeric channels against time, decimated host-side.
+   *
+   * `features` is a comma list — feature keys contain dots but never commas.
+   * An empty list is omitted rather than sent, because "?features=" would mean
+   * "no filter" to the hub and the caller means "everything".
+   */
+  getEpisodeSeries(
+    id: string,
+    episode: number,
+    params: { features?: string[]; maxPoints?: number } = {},
+  ): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/datasets/${id}/episodes/${episode}/series`), {
+      features: params.features && params.features.length > 0 ? params.features.join(',') : undefined,
+      max_points: params.maxPoints !== undefined ? String(params.maxPoints) : undefined,
+    }) as Promise<Entity>;
+  }
 
   async listEnvProfiles(): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team('/env-profiles'));

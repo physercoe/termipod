@@ -3147,6 +3147,15 @@ button > .ui-icon:not(:only-child):first-child,
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+/* The register form was opened by a handoff, not by the human — say so, or the
+   prefilled path reads as a mystery after the shell switched jobs under them. */
+.replay-handoff {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-left: 2px solid var(--accent);
+  background: var(--accent-tint);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+}
 .replay-input {
   width: 100%;
   min-width: 0;

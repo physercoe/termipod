@@ -5,6 +5,7 @@ import { str, type Entity } from '../hub/types';
 import { useHubAction } from '../hub/action';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { useReplay } from '../state/replay';
 import {
   formatCount,
   formatDuration,
@@ -12,6 +13,7 @@ import {
   pageRangeLabel,
   readDatasetSummary,
   readEpisodePage,
+  resolveHandoff,
   type DatasetSummary,
 } from '../state/replayDigest';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
@@ -143,11 +145,20 @@ export function ReplaySurface(): JSX.Element {
   const projectsQ = useProjects();
   const projects = projectsQ.data ?? [];
   const [projectId, setProjectId] = useState('');
-  const [selectedId, setSelectedId] = useState('');
+  // Selection lives in the store, not here, so an Inspect handoff can set it
+  // before this surface mounts (see state/replay.ts).
+  const selectedId = useReplay((s) => s.selectedId);
+  const setSelectedId = useReplay((s) => s.select);
+  const handoff = useReplay((s) => s.handoff);
+  const clearHandoff = useReplay((s) => s.clearHandoff);
   const [offset, setOffset] = useState(0);
   const [adding, setAdding] = useState(false);
   const [newPath, setNewPath] = useState('');
   const [newHost, setNewHost] = useState('');
+  /// True when the form was filled in by a handoff rather than typed. The rail
+  /// is easy to miss when the shell has just switched jobs under you, so the
+  /// arrival says why the form is open instead of leaving a mystery prefill.
+  const [prefilled, setPrefilled] = useState(false);
   const { run: act, busy, error } = useHubAction();
   const hosts = useHosts().data ?? [];
 
@@ -167,6 +178,32 @@ export function ReplaySurface(): JSX.Element {
   useEffect(() => {
     setOffset(0);
   }, [datasetId]);
+
+  /// Consume an Inspect handoff (W1d). The decision itself lives in
+  /// `resolveHandoff` so it can be asserted headlessly; this only dispatches it.
+  ///
+  /// The wait is the subtle part: a disabled TanStack query never leaves
+  /// `isFetched`, so "no hub / no project" has to count as settled — otherwise
+  /// the handoff sits unconsumed forever with nothing on screen to explain why.
+  /// And acting before the library loads is worse than waiting: an unsettled
+  /// query looks exactly like an empty one, so it would offer to register a
+  /// dataset that is already there.
+  const libraryLoaded = datasetsQ.isFetched || client === null || effectiveProject === '';
+  useEffect(() => {
+    if (handoff === null || !libraryLoaded) return;
+    const next = resolveHandoff(handoff, datasets);
+    if (next.action === 'select') {
+      setSelectedId(next.datasetId);
+      setAdding(false);
+      setPrefilled(false);
+    } else {
+      setNewPath(next.rootPath);
+      setAdding(true);
+      setPrefilled(true);
+    }
+    clearHandoff();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoff, libraryLoaded, datasets]);
 
   const summary = readDatasetSummary(selected);
 
@@ -203,6 +240,7 @@ export function ReplaySurface(): JSX.Element {
       if (id !== '') setSelectedId(id);
       setNewPath('');
       setAdding(false);
+      setPrefilled(false);
     }
   }
 
@@ -247,12 +285,20 @@ export function ReplaySurface(): JSX.Element {
           <div className="replay-rail-head muted small">
             {t('replay.library')}
             <span className="spacer" />
-            <button type="button" className="link-btn small" onClick={() => setAdding((v) => !v)}>
+            <button
+              type="button"
+              className="link-btn small"
+              onClick={() => {
+                setAdding((v) => !v);
+                setPrefilled(false);
+              }}
+            >
               {adding ? t('replay.register.cancel') : t('replay.register')}
             </button>
           </div>
           {adding && (
             <div className="replay-register">
+              {prefilled && <div className="replay-handoff small">{t('replay.register.fromInspect')}</div>}
               <input
                 className="replay-input mono"
                 value={newPath}

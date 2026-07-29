@@ -8,6 +8,8 @@ import {
   formatCount,
   formatResolution,
   pageRangeLabel,
+  datasetRootFromMetaInfo,
+  resolveHandoff,
 } from './replayDigest.ts';
 
 // The wire shapes below mirror what hub/internal/hostrunner/datasetmeta
@@ -263,4 +265,121 @@ test('a stream missing its name falls back to the full key', () => {
     digest: { video_streams: [{ key: 'observation.images.up' }] },
   });
   assert.equal(s.videoStreams[0].name, 'observation.images.up');
+});
+
+// ── the Inspect handoff gate (W1d) ───────────────────────────────────────────
+
+test('a meta/info.json row resolves to the directory containing meta/', () => {
+  // The root is the dataset directory, NOT the meta directory — getting this
+  // wrong registers a root the host will read as an empty dataset.
+  assert.equal(datasetRootFromMetaInfo('/data/nyu_rot/meta/info.json'), '/data/nyu_rot');
+  assert.equal(datasetRootFromMetaInfo('/data/nyu_rot/meta/'), null);
+  assert.equal(datasetRootFromMetaInfo('/data/nyu_rot/meta'), null);
+});
+
+test('the gate is separator-agnostic and preserves the input style', () => {
+  // A Windows local root and an SFTP path both flow through this one rule, and
+  // the result goes back to a host that expects its own separators.
+  assert.equal(datasetRootFromMetaInfo('C:\\data\\nyu_rot\\meta\\info.json'), 'C:\\data\\nyu_rot');
+  assert.equal(datasetRootFromMetaInfo('/srv/robot data/ds one/meta/info.json'), '/srv/robot data/ds one');
+});
+
+test('only meta/info.json opens the handoff', () => {
+  for (const p of [
+    '/data/ds/meta/episodes.jsonl',
+    '/data/ds/info.json',
+    '/data/ds/meta/info.jsonl',
+    '/data/ds/meta/info.json.bak',
+    '/data/ds/Meta/info.json', // LeRobot writes it lowercase; don't guess at casing
+    '/data/ds/meta/sub/info.json',
+    '',
+  ]) {
+    assert.equal(datasetRootFromMetaInfo(p), null, p);
+  }
+});
+
+test('a dataset nested under a directory named meta resolves to its own root', () => {
+  // Greedy prefix: the last meta/info.json wins.
+  assert.equal(datasetRootFromMetaInfo('/srv/meta/ds/meta/info.json'), '/srv/meta/ds');
+});
+
+test('a root with nothing above it is refused rather than guessed at', () => {
+  assert.equal(datasetRootFromMetaInfo('/meta/info.json'), null);
+  assert.equal(datasetRootFromMetaInfo('meta/info.json'), null);
+});
+
+test('a relative root survives the gate for the form to correct', () => {
+  // Not a validity check: the host refuses a relative root with a message that
+  // names the problem, which beats an action that silently never appears.
+  assert.equal(datasetRootFromMetaInfo('datasets/ds/meta/info.json'), 'datasets/ds');
+});
+
+const LIB = [
+  { id: 'ds-local', root_path: '/data/nyu_rot', host_id: '' },
+  { id: 'ds-star', root_path: '/srv/data/nyu_rot', host_id: 'host-star' },
+];
+
+test('a handoff to an already-registered location selects it', () => {
+  assert.deepEqual(resolveHandoff({ rootPath: '/srv/data/nyu_rot' }, LIB), {
+    action: 'select',
+    datasetId: 'ds-star',
+  });
+  assert.deepEqual(resolveHandoff({ rootPath: '/data/nyu_rot' }, LIB), {
+    action: 'select',
+    datasetId: 'ds-local',
+  });
+});
+
+test('the same path on two hosts is ambiguous, so it goes to the form', () => {
+  // The handoff carries no host — Inspect has an SSH connection id, not a hub
+  // host id — so two rows sharing a path cannot be told apart here. Picking
+  // either would be a coin flip between two machines' datasets; the form's host
+  // select is where that question actually gets answered.
+  const twoHosts = [
+    { id: 'ds-a', root_path: '/srv/data/ds', host_id: 'host-star' },
+    { id: 'ds-b', root_path: '/srv/data/ds', host_id: 'host-gpu' },
+  ];
+  assert.deepEqual(resolveHandoff({ rootPath: '/srv/data/ds' }, twoHosts), {
+    action: 'register',
+    rootPath: '/srv/data/ds',
+  });
+});
+
+test('a trailing separator is not part of a root path identity', () => {
+  // The hub stores the string as sent (only the host cleans it, at read time),
+  // so both spellings are the same dataset — a raw compare would offer to
+  // register one that is already registered.
+  assert.deepEqual(resolveHandoff({ rootPath: '/data/nyu_rot/' }, LIB), {
+    action: 'select',
+    datasetId: 'ds-local',
+  });
+  assert.deepEqual(resolveHandoff({ rootPath: '/data/nyu_rot' }, [{ id: 'x', root_path: '/data/nyu_rot/' }]), {
+    action: 'select',
+    datasetId: 'x',
+  });
+});
+
+test('an unregistered location, and an empty library, resolve to register', () => {
+  assert.deepEqual(resolveHandoff({ rootPath: '/data/other' }, LIB), {
+    action: 'register',
+    rootPath: '/data/other',
+  });
+  assert.deepEqual(resolveHandoff({ rootPath: '/data/ds' }, []), {
+    action: 'register',
+    rootPath: '/data/ds',
+  });
+});
+
+test('a row without a usable id cannot be selected', () => {
+  // Defensive for the same reason the rest of this module is: the hub row is an
+  // untyped map, and "select ''" would silently fall back to the first dataset.
+  assert.deepEqual(resolveHandoff({ rootPath: '/data/ds' }, [{ root_path: '/data/ds' }]), {
+    action: 'register',
+    rootPath: '/data/ds',
+  });
+  // …and a malformed row must not hide a good one at the same path.
+  assert.deepEqual(
+    resolveHandoff({ rootPath: '/data/ds' }, [{ root_path: '/data/ds' }, { id: 'good', root_path: '/data/ds' }]),
+    { action: 'select', datasetId: 'good' },
+  );
 });

@@ -10,9 +10,12 @@ import { localHome, localList, localRead } from '../state/localfs';
 
 /// Settings → Assistant: the config home for the embedded kimi-code assistant.
 /// Shows the shared `kimi web` server status + dock control, then the assistant's
-/// customization surfaces — config.toml, MCP servers, skills, agents/prompts,
-/// plugins — resolved from the kimi-code data root (`$KIMI_CODE_HOME`, asked of
-/// the main process via `kimiweb_home`) plus the tool-shared `~/.agents/*` dirs.
+/// customization surfaces — config.toml, MCP servers, skills, plugins — resolved
+/// from the kimi-code data root (`$KIMI_CODE_HOME`, asked of the main process
+/// via `kimiweb_home`) plus the tool-shared `~/.agents/skills` dir. The listed
+/// paths are verified against the kimi-code 0.28.1 binary (#451): there is NO
+/// SYSTEM.md or agents-directory convention (don't re-add those rows), plugins
+/// live in `plugins/` (installed.json + marketplace.json, not plugins/managed).
 /// Read-and-open v1: each row shows what exists and opens the file in the
 /// Inspect tab (J3) for viewing; editing stays with the tools that own these
 /// files. All listing is via the existing localfs IPC — no new privileges.
@@ -32,8 +35,6 @@ interface Sections {
   config: ConfigRow;
   mcp: ConfigRow;
   skills: ConfigRow[];
-  agents: ConfigRow[];
-  system: ConfigRow;
   plugins: ConfigRow;
 }
 
@@ -78,17 +79,16 @@ async function statMcp(path: string): Promise<ConfigRow> {
 async function loadSections(): Promise<Sections> {
   const osHome = await localHome();
   const { home } = await invoke<{ home: string }>('kimiweb_home');
-  const [config, mcp, system, plugins, kimiSkills, agentsSkills, kimiAgents, agentsAgents] = await Promise.all([
+  const [config, mcp, plugins, kimiSkills, agentsSkills] = await Promise.all([
     statFile(`${home}/config.toml`),
     statMcp(`${home}/mcp.json`),
-    statFile(`${home}/SYSTEM.md`),
-    statDir(`${home}/plugins/managed`),
+    // kimi-code 0.28.1's plugin root: installed.json + marketplace.json +
+    // one dir per installed plugin (NOT plugins/managed — see #451).
+    statDir(`${home}/plugins`),
     statDir(`${home}/skills`),
     statDir(`${osHome}/.agents/skills`),
-    statDir(`${home}/agents`),
-    statDir(`${osHome}/.agents/agents`),
   ]);
-  return { home, config, mcp, system, plugins, skills: [kimiSkills, agentsSkills], agents: [kimiAgents, agentsAgents] };
+  return { home, config, mcp, plugins, skills: [kimiSkills, agentsSkills] };
 }
 
 export function AssistantSettings(): JSX.Element {
@@ -196,13 +196,10 @@ export function AssistantSettings(): JSX.Element {
         <>
           <h4 className="assistant-cfg-h">{t('assistant.secConfig')}</h4>
           {fileRow(t('assistant.rowConfig'), sections.config)}
-          {fileRow(t('assistant.rowSystem'), sections.system, t('assistant.rowSystemHint'))}
           <h4 className="assistant-cfg-h">{t('assistant.secMcp')}</h4>
           {fileRow(t('assistant.rowMcp'), sections.mcp)}
           <h4 className="assistant-cfg-h">{t('assistant.secSkills')}</h4>
           {sections.skills.map((r) => fileRow(t('assistant.rowSkillsDir'), r))}
-          <h4 className="assistant-cfg-h">{t('assistant.secAgents')}</h4>
-          {sections.agents.map((r) => fileRow(t('assistant.rowAgentsDir'), r, t('assistant.rowAgentsHint')))}
           <h4 className="assistant-cfg-h">{t('assistant.secPlugins')}</h4>
           {fileRow(t('assistant.rowPlugins'), sections.plugins)}
         </>

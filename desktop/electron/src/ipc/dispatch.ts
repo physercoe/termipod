@@ -39,6 +39,7 @@ import { drawioHandlers } from '../drawio';
 import { webtabHandlers } from '../webtab';
 import { kimiwebHandlers } from '../kimiweb';
 import { kimiwebWinHandlers } from '../kimiwebwin';
+import { rerunHandlers } from '../rerun';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -75,6 +76,7 @@ const handlers: Record<string, Handler> = {
   ...webtabHandlers,
   ...kimiwebHandlers,
   ...kimiwebWinHandlers,
+  ...rerunHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

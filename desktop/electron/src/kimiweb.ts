@@ -223,7 +223,11 @@ function recoveredPath(): Promise<string | null> {
 
 /// The spawn env: a copy of process.env with PATH rebuilt from the inherited
 /// PATH + the platform-recovered PATH + the well-known kimi bin dirs.
-async function buildSpawnEnv(): Promise<NodeJS.ProcessEnv> {
+/// Exported for the Rerun companion (J8 W4), which needs the same PATH
+/// recovery for the same reason: a Finder/Dock launch inherits no login-shell
+/// PATH, so a binary the user can run in a terminal is invisible to us. The
+/// kimi-specific backstop dirs it appends are simply inert for other binaries.
+export async function buildSpawnEnv(): Promise<NodeJS.ProcessEnv> {
   const env: NodeJS.ProcessEnv = { ...process.env };
   env.PATH = mergePathDirs([env.PATH, await recoveredPath(), ...wellKnownBinDirs(env)]);
   return env;

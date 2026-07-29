@@ -156,3 +156,21 @@ test('only media extensions are servable', () => {
     assert.equal(MEDIA_TYPES[ext], undefined, ext);
   }
 });
+
+test('sftp flavour: round-trip, host discrimination, traversal refused', async () => {
+  const { mediaSftpOf, mediaSftpUrl } = await import('./media_policy.ts');
+  const url = mediaSftpUrl('s7', '/data/ds/videos/cam.mp4');
+  assert.deepEqual(mediaSftpOf(url), { sessionId: 's7', path: '/data/ds/videos/cam.mp4' });
+  // The two flavours never cross: a file URL is not an sftp target and an
+  // sftp URL must never resolve as a LOCAL path.
+  assert.equal(mediaSftpOf(mediaUrl('/data/x.mp4')), null);
+  assert.equal(mediaPathOf(url), null);
+  // Remote paths are POSIX-absolute and normalize BEFORE the extension check
+  // — the same posture as the local flavour: any absolute path is requestable
+  // (the renderer already holds sftp_read), the allowlist bounds what serves.
+  assert.equal(mediaSftpOf(mediaSftpUrl('s7', 'videos/cam.mp4')), null);
+  assert.equal(mediaSftpOf(mediaSftpUrl('s7', '/../etc/passwd'))?.path, '/etc/passwd');
+  assert.equal(mediaSftpOf(mediaSftpUrl('s7', '/a/../b/cam.mp4'))?.path, '/b/cam.mp4');
+  assert.equal(mediaSftpOf(`${MEDIA_SCHEME}://sftp/?p=%2Fx.mp4`), null); // no session
+  assert.equal(mediaSftpOf(`${MEDIA_SCHEME}://sftp/?s=s7`), null); // no path
+});

@@ -62,6 +62,34 @@ export function sshExec(id: string, command: string): Promise<string> {
   return invoke<string>('ssh_exec', { id, command });
 }
 
+export interface SshForwardInfo {
+  forward_id: string;
+  local_port: number;
+  remote_host: string;
+  remote_port: number;
+}
+/** Start a local port forward (`ssh -L`) over a session's existing connection:
+ * `127.0.0.1:<local_port>` tunnels to `remoteHost:remotePort` as seen from the
+ * remote side. Forwards are parasitic on the connection — they close with its
+ * last shell (listen via `onSshForwardClosed`), never keep it alive. */
+export function sshForwardStart(id: string, remoteHost: string, remotePort: number): Promise<SshForwardInfo> {
+  return invoke<SshForwardInfo>('ssh_forward_start', { id, remote_host: remoteHost, remote_port: remotePort });
+}
+export function sshForwardStop(forwardId: string): Promise<void> {
+  return invoke('ssh_forward_stop', { forward_id: forwardId });
+}
+/** Active forwards on the session's connection (shared across its shells). */
+export function sshForwardList(id: string): Promise<SshForwardInfo[]> {
+  return invoke<SshForwardInfo[]>('ssh_forward_list', { id });
+}
+interface ForwardClosedPayload {
+  forward_id: string;
+}
+/** Fired when a forward dies with its session (not on an explicit stop). */
+export function onSshForwardClosed(cb: (forwardId: string) => void): Promise<UnlistenFn> {
+  return listen<ForwardClosedPayload>('ssh-forward-closed', (e) => cb(e.payload.forward_id));
+}
+
 export interface SftpEntry {
   name: string;
   is_dir: boolean;

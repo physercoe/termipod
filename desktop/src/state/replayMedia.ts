@@ -42,6 +42,16 @@ export function episodeVideoUrl(rootPath: string, video: EpisodeVideo): string |
   return `${MEDIA_SCHEME}://file/?p=${encodeURIComponent(joinDatasetPath(rootPath, video.path))}`;
 }
 
+/// The remote flavour (J8 remote datasets): the same video, streamed over a
+/// live SSH session's SFTP channel (`mediaSftpOf` in media_policy.ts is the
+/// authority for this shape). The session id is the ephemeral `ssh_connect`
+/// id of an open terminal session to the dataset's machine.
+export function episodeVideoSftpUrl(sessionId: string, rootPath: string, video: EpisodeVideo): string | null {
+  if (sessionId === '' || rootPath.trim() === '' || video.path.trim() === '') return null;
+  const p = joinDatasetPath(rootPath, video.path);
+  return `${MEDIA_SCHEME}://sftp/?s=${encodeURIComponent(sessionId)}&p=${encodeURIComponent(p)}`;
+}
+
 /// Where the playhead should sit for a given moment in the EPISODE.
 ///
 /// The episode clock starts at 0; the file clock starts at `fromTS`, which is

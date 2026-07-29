@@ -393,7 +393,10 @@ the wire store:
 1. **P0 — accepted, local-first.** The embedded kimi-web panel is wanted;
    ship the local spawn/attach path. The remote SSH-forward wedge
    (`ssh_forward_start/stop` over the existing ssh2 connection) is its own
-   follow-up PR.
+   follow-up PR. *Wedge SHIPPED 2026-07-29* (`electron/src/ipc/ssh_forward.ts`
+   + `ssh_forward_start/stop/list` + `ssh-forward-closed`; forwards are
+   parasitic on the connection — they die with its last shell, never hold it
+   open). Wiring the kimi-web panel to a forwarded remote port remains open.
 2. **Web-panel kind — kimi-scoped UI, registry-shaped internals.** Build the
    panel-kind plumbing so another agent web UI is one registry row later; no
    generic UI now.

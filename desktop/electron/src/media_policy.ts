@@ -99,6 +99,10 @@ export function mediaPathOf(rawUrl: string): string | null {
   } catch {
     return null;
   }
+  // Host discriminates the flavour: 'file' is the local-disk read. Anything
+  // else (notably 'sftp') must NOT fall through here, or a remote path would
+  // be read off the local disk.
+  if (url.host !== 'file') return null;
   const p = url.searchParams.get('p');
   if (p === null || p.trim() === '') return null;
   if (!path.isAbsolute(p)) return null;
@@ -111,5 +115,39 @@ export function mediaPathOf(rawUrl: string): string | null {
 /// tests agree on the shape by construction rather than by convention.
 export function mediaUrl(absPath: string): string {
   return `${MEDIA_SCHEME}://file/?p=${encodeURIComponent(absPath)}`;
+}
+
+/// The remote flavour (J8 remote datasets): bytes streamed over a live SSH
+/// session's SFTP channel instead of the local disk. `s` names the ssh session
+/// (`ipc/ssh.ts` session id — ephemeral, minted by ssh_connect), `p` the
+/// POSIX-absolute path on the REMOTE machine. Same extension allowlist and
+/// range arithmetic as the file flavour; the session id adds no privilege the
+/// renderer doesn't already hold (it can `sftp_read` arbitrary remote paths).
+export interface MediaSftpTarget {
+  sessionId: string;
+  path: string;
+}
+
+export function mediaSftpOf(rawUrl: string): MediaSftpTarget | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.host !== 'sftp') return null;
+  const s = url.searchParams.get('s');
+  const p = url.searchParams.get('p');
+  if (s === null || s.trim() === '' || p === null || p.trim() === '') return null;
+  // Remote hosts are POSIX; require absolute and normalize BEFORE the
+  // caller's extension check (the same order the file flavour uses). An
+  // absolute posix path cannot keep a `..` segment through normalize, so no
+  // further traversal check is needed — and the allowlist bounds what serves.
+  if (!p.startsWith('/')) return null;
+  return { sessionId: s, path: path.posix.normalize(p) };
+}
+
+export function mediaSftpUrl(sessionId: string, remotePath: string): string {
+  return `${MEDIA_SCHEME}://sftp/?s=${encodeURIComponent(sessionId)}&p=${encodeURIComponent(remotePath)}`;
 }
 

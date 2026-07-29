@@ -102,3 +102,16 @@ test('the end of a slice is where playback must stop', () => {
   assert.equal(isPastEnd(v21, 5.9), false);
   assert.equal(isPastEnd(v21, 6), true);
 });
+
+test('episodeVideoSftpUrl mirrors the sftp flavour shape', async () => {
+  const { episodeVideoSftpUrl } = await import('./replayMedia.ts');
+  const v = { key: 'cam', path: 'videos/cam.mp4', fromTS: 0, toTS: 1 };
+  assert.equal(
+    episodeVideoSftpUrl('s7', '/data/ds', v),
+    `termipod-media://sftp/?s=s7&p=${encodeURIComponent('/data/ds/videos/cam.mp4')}`,
+  );
+  // Null for anything unplayable, same contract as the local builder.
+  assert.equal(episodeVideoSftpUrl('', '/data/ds', v), null);
+  assert.equal(episodeVideoSftpUrl('s7', '', v), null);
+  assert.equal(episodeVideoSftpUrl('s7', '/data/ds', { ...v, path: '' }), null);
+});

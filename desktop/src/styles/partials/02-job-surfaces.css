@@ -3157,6 +3157,17 @@ button > .ui-icon:not(:only-child):first-child,
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
 }
+/* Video-source picker (remote datasets): local disk vs a live SSH session. */
+.replay-video-source {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s8);
+}
+.replay-video-source-warn {
+  color: var(--warning, var(--text-secondary));
+}
+
 /* The camera grid. auto-fit so a one-camera dataset gets one wide pane and a
    four-camera rig wraps, without the component knowing the count. */
 .replay-video-grid {

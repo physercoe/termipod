@@ -324,6 +324,19 @@ follow-up** — the P0/kimi-web decision repeated deliberately; the UI shows
 the honest "local datasets only (remote coming)" empty state rather than a
 slow path.
 
+*Remote follow-up SHIPPED 2026-07-29 for hub-host datasets*: digest/episodes/
+series already rode the hub tunnel; the missing half was video bytes, which
+now stream over a live SSH terminal session's SFTP channel via a second media
+flavour (`termipod-media://sftp/?s=<session>&p=<path>` — same allowlist and
+range arithmetic; one SFTP channel per range request). The player grows a
+per-dataset "Video source" picker (this machine | any saved connection with
+an open ssh tab; the CONNECTION id persists, sessions are resolved live).
+Ranged SFTP reads, not a port forward — a port has nothing serving media;
+the `ssh_forward_start/stop` primitive shipped alongside for the kimi-web
+consumer. Still open: datasets with NO host-runner (`source: 'sftp'`) keep
+their honest 501 — series decode needs `datasetmeta` (parquet), which stays
+host-side by design.
+
 **Charts**: uPlot-or-existing-Sparkline for W2 (tiny, fast, sufficient for
 scrub-sync); the landscape's Plotly/ECharts choice stays reserved for J5-wall
 work — don't spend a big chart dep on a cursor-synced strip chart.

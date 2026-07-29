@@ -36,6 +36,7 @@ import { emit } from '../events';
 import { assertSafeRemoteDelete } from './fsutil';
 import { pinGet, pinSet } from './keychain';
 import { socks5Connect } from './socks5';
+import { autoCloseForwards, disposeAllForwards, listForwards, startForward, stopForward } from './ssh_forward';
 import { loadSsh2 } from './ssh2mod';
 import type { Ssh2Module } from './ssh2mod';
 import type { Handler } from './dispatch';
@@ -79,6 +80,10 @@ interface Conn {
   client: Ssh2Client;
   jump: Ssh2Client | null;
   refs: Set<string>;
+  /// Port-forward ids riding this connection (ssh_forward.ts). Parasitic: they
+  /// do NOT count as refs — the connection ends with its last shell and the
+  /// forwards are auto-closed with it (`ssh-forward-closed` tells the renderer).
+  forwards: Set<string>;
 }
 
 interface Session {
@@ -131,6 +136,8 @@ function registerShell(conn: Conn, stream: ClientChannel, sender: WebContents): 
     sessions.delete(id);
     conn.refs.delete(id);
     if (conn.refs.size === 0) {
+      autoCloseForwards(conn.forwards);
+      conn.forwards.clear();
       try {
         conn.client.end();
       } catch {
@@ -303,7 +310,7 @@ export const sshHandlers: Record<string, Handler> = {
       client.on('handshake', () => emitPhase(sender, connectId, 'auth'));
       client.on('ready', () => {
         emitPhase(sender, connectId, 'channel');
-        const conn: Conn = { client, jump: jumpClient, refs: new Set() };
+        const conn: Conn = { client, jump: jumpClient, refs: new Set(), forwards: new Set() };
         openShell(conn, cols, rows, sender).then(
           (id) => {
             if (settled) return;
@@ -575,6 +582,46 @@ export const sshHandlers: Record<string, Handler> = {
     }
   },
 
+  /// Start a local port forward (`ssh -L` semantics) over a session's existing
+  /// connection: loopback listener on an ephemeral port, each accepted
+  /// connection piped over a direct-tcpip channel. The SSH-forward wedge
+  /// (agent-transcript-redesign §7 decision 1 / replay plan remote follow-up).
+  ssh_forward_start: async (args, ctx): Promise<unknown> => {
+    const id = String(args.id ?? '');
+    const remoteHost = String(args.remote_host ?? '').trim();
+    const remotePort = Math.trunc(Number(args.remote_port)) || 0;
+    if (remoteHost === '' || remotePort <= 0 || remotePort > 65535) throw new Error('forward: bad remote target');
+    const s = sessions.get(id);
+    if (s === undefined) throw new Error('no such session');
+    const conn = s.conn;
+    const sender = ctx.sender;
+    const openChannel = (): Promise<ClientChannel> =>
+      new Promise((resolve, reject) => {
+        conn.client.forwardOut('127.0.0.1', 0, remoteHost, remotePort, (err, ch) => {
+          if (err) reject(new Error(`forward channel: ${err.message}`));
+          else resolve(ch);
+        });
+      });
+    const info = await startForward(openChannel, remoteHost, remotePort, (fid) => {
+      emit(sender, 'ssh-forward-closed', { forward_id: fid });
+    });
+    conn.forwards.add(info.forward_id);
+    return info;
+  },
+
+  ssh_forward_stop: async (args): Promise<void> => {
+    const fid = String(args.forward_id ?? '');
+    stopForward(fid);
+    for (const s of sessions.values()) s.conn.forwards.delete(fid);
+  },
+
+  /// Active forwards for a session's connection (shared across its shells).
+  ssh_forward_list: async (args): Promise<unknown> => {
+    const s = sessions.get(String(args.id ?? ''));
+    if (s === undefined) return [];
+    return listForwards(s.conn.forwards);
+  },
+
   sftp_rename: async (args): Promise<void> => {
     const id = String(args.id ?? '');
     const from = String(args.from ?? '');
@@ -590,9 +637,47 @@ export const sshHandlers: Record<string, Handler> = {
   },
 };
 
+/// Ranged remote-media access for the `termipod-media://sftp/` flavour
+/// (mediascheme.ts): stat the remote file, then open one bounded read stream
+/// per range request on a per-call SFTP channel. `close` must be called when
+/// the stream is done (or on refusal) so the channel doesn't leak. Returns
+/// null when the session is gone or the path isn't a regular file — the
+/// handler turns both into 404, same as a missing local file.
+export interface SftpMediaFile {
+  size: number;
+  open: (start: number, end: number) => NodeJS.ReadableStream;
+  close: () => void;
+}
+
+export async function openSftpMedia(sessionId: string, remotePath: string): Promise<SftpMediaFile | null> {
+  if (!sessions.has(sessionId)) return null;
+  let sftp: SFTPWrapper;
+  try {
+    sftp = await openSftp(sessionId);
+  } catch {
+    return null;
+  }
+  const st = await new Promise<{ size: number; isFile: boolean } | null>((resolve) => {
+    sftp.stat(remotePath, (err, s) => {
+      if (err) resolve(null);
+      else resolve({ size: s.size ?? 0, isFile: s.isFile() });
+    });
+  });
+  if (st === null || !st.isFile) {
+    sftp.end();
+    return null;
+  }
+  return {
+    size: st.size,
+    open: (start, end) => sftp.createReadStream(remotePath, { start, end }),
+    close: () => sftp.end(),
+  };
+}
+
 /// End every live SSH connection — wired to `before-quit` so quitting never
 /// leaves a dangling socket. Best-effort.
 export function disposeAllSsh(): void {
+  disposeAllForwards();
   const clients = new Set<Ssh2Client>();
   for (const s of sessions.values()) {
     clients.add(s.conn.client);

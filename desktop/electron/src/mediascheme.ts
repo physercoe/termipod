@@ -26,12 +26,72 @@ import { stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import path from 'node:path';
 
-import { MEDIA_SCHEME, MEDIA_TYPES, MAX_MEDIA_BYTES, mediaPathOf, parseRange } from './media_policy';
+import { MEDIA_SCHEME, MEDIA_TYPES, MAX_MEDIA_BYTES, mediaPathOf, mediaSftpOf, parseRange } from './media_policy';
+import { openSftpMedia } from './ipc/ssh';
+
+/// Shared tail of both flavours: range-check a known size, then stream the
+/// window. `open` supplies the bounded byte stream; `done` releases whatever
+/// backs it (the SFTP channel; a no-op for local files).
+function rangedResponse(
+  req: Request,
+  size: number,
+  type: string,
+  open: (start: number, end: number) => NodeJS.ReadableStream,
+  done: () => void,
+): Response {
+  if (size > MAX_MEDIA_BYTES) {
+    done();
+    return new Response('file too large', { status: 413 });
+  }
+  const range = parseRange(req.headers.get('range'), size);
+  if (range === null) {
+    done();
+    return new Response('range not satisfiable', {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${size}`, 'Accept-Ranges': 'bytes' },
+    });
+  }
+  const headers = new Headers({
+    'Content-Type': type,
+    // Without this Chromium will not offer seeking at all, even though every
+    // range request would have been honoured.
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(range.end - range.start + 1),
+    'Cache-Control': 'no-store',
+  });
+  if (range.partial) headers.set('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+
+  // An empty file has no byte to stream; createReadStream(0, -1) would throw.
+  if (size === 0) {
+    done();
+    return new Response(null, { status: range.partial ? 206 : 200, headers });
+  }
+
+  const stream = open(range.start, range.end) as Readable;
+  stream.once('close', done);
+  stream.once('error', done);
+  return new Response(Readable.toWeb(stream) as ReadableStream, {
+    status: range.partial ? 206 : 200,
+    headers,
+  });
+}
 
 /// Attach the media handler to a session. Call after app ready, and only for
 /// `defaultSession` — see the reachability note above.
 export function registerMediaScheme(sess: Electron.Session): void {
   sess.protocol.handle(MEDIA_SCHEME, async (req): Promise<Response> => {
+    // Remote flavour (J8 remote datasets): bytes ride a live SSH session's
+    // SFTP channel — same allowlist, same range discipline, one channel per
+    // request, released when the response stream closes.
+    const sftpTarget = mediaSftpOf(req.url);
+    if (sftpTarget !== null) {
+      const type = MEDIA_TYPES[path.posix.extname(sftpTarget.path).toLowerCase()];
+      if (type === undefined) return new Response('unsupported media type', { status: 415 });
+      const media = await openSftpMedia(sftpTarget.sessionId, sftpTarget.path);
+      if (media === null) return new Response('not found', { status: 404 });
+      return rangedResponse(req, media.size, type, media.open, media.close);
+    }
+
     const target = mediaPathOf(req.url);
     if (target === null) return new Response('bad request', { status: 400 });
 
@@ -48,33 +108,13 @@ export function registerMediaScheme(sess: Electron.Session): void {
     } catch {
       return new Response('not found', { status: 404 });
     }
-    if (size > MAX_MEDIA_BYTES) return new Response('file too large', { status: 413 });
 
-    const range = parseRange(req.headers.get('range'), size);
-    if (range === null) {
-      return new Response('range not satisfiable', {
-        status: 416,
-        headers: { 'Content-Range': `bytes */${size}`, 'Accept-Ranges': 'bytes' },
-      });
-    }
-
-    const headers = new Headers({
-      'Content-Type': type,
-      // Without this Chromium will not offer seeking at all, even though every
-      // range request would have been honoured.
-      'Accept-Ranges': 'bytes',
-      'Content-Length': String(range.end - range.start + 1),
-      'Cache-Control': 'no-store',
-    });
-    if (range.partial) headers.set('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
-
-    // An empty file has no byte to stream; createReadStream(0, -1) would throw.
-    if (size === 0) return new Response(null, { status: range.partial ? 206 : 200, headers });
-
-    const stream = createReadStream(target, { start: range.start, end: range.end });
-    return new Response(Readable.toWeb(stream) as ReadableStream, {
-      status: range.partial ? 206 : 200,
-      headers,
-    });
+    return rangedResponse(
+      req,
+      size,
+      type,
+      (start, end) => createReadStream(target, { start, end }),
+      () => undefined,
+    );
   });
 }

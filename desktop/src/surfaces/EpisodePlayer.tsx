@@ -12,7 +12,11 @@ import {
   xToTime,
 } from '../state/replaySeries';
 import type { EpisodeRow, EpisodeVideo } from '../state/replayDigest';
-import { episodeVideoUrl, fileTimeOf, isPastEnd } from '../state/replayMedia';
+import { episodeVideoSftpUrl, episodeVideoUrl, fileTimeOf, isPastEnd } from '../state/replayMedia';
+import { liveConnIds, liveSessionFor } from '../state/replayRemote';
+import { remoteMediaConn, setRemoteMediaConn } from '../state/replayRemoteStore';
+import { listConnections } from '../state/connections';
+import { useTerminals } from '../terminal/store';
 import { pickPoseFeature } from '../state/robotManifest';
 import { ReplayPose3D } from './ReplayPose3D';
 import { isShell } from '../platform';
@@ -145,7 +149,7 @@ export function EpisodePlayer({
 
       {episode.tasks.length > 0 && <div className="replay-player-task small">{episode.tasks.join(' · ')}</div>}
 
-      <VideoGrid rootPath={rootPath} episode={episode} summary={summary} cursor={cursorTime} />
+      <VideoGrid datasetId={datasetId} rootPath={rootPath} episode={episode} summary={summary} cursor={cursorTime} />
 
       {showPose && poseFeature !== null && (
         <ReplayPose3D robotType={summary.robotType} feature={poseFeature} cursorIndex={cursorIndex} />
@@ -276,17 +280,25 @@ function traceColor(i: number): string {
 /// the slice end; left alone, playback rolls into the next episode and looks
 /// like the robot teleporting rather than like a player that forgot to stop.
 function VideoGrid({
+  datasetId,
   rootPath,
   episode,
   summary,
   cursor,
 }: {
+  datasetId: string;
   rootPath: string;
   episode: EpisodeRow;
   summary: DatasetSummary;
   cursor: number | null;
 }): JSX.Element | null {
   const t = useT();
+  const tabs = useTerminals((s) => s.tabs);
+  // The persisted source choice for THIS dataset: null = this machine's disk,
+  // a connection id = stream over that connection's live SSH session (J8
+  // remote datasets — plots already ride the hub; video bytes ride SFTP).
+  const [conn, setConn] = useState<string | null>(() => remoteMediaConn(datasetId));
+  const [anyFailed, setAnyFailed] = useState(false);
 
   // The dataset declares cameras but this episode carries no playable slice —
   // an older digest, or a template the host could not resolve. Saying which of
@@ -305,28 +317,67 @@ function VideoGrid({
     return <div className="replay-player-novideo small muted">{t('replay.player.videoDesktopOnly')}</div>;
   }
 
+  const session = conn !== null ? liveSessionFor(conn, tabs) : null;
+  const urlFor = (v: EpisodeVideo): string | null =>
+    conn !== null && session !== null ? episodeVideoSftpUrl(session, rootPath, v) : episodeVideoUrl(rootPath, v);
+  const pick = (next: string | null): void => {
+    setRemoteMediaConn(datasetId, next);
+    setConn(next);
+    setAnyFailed(false);
+  };
+  // Offer the picker once local playback failed, or whenever a remote source
+  // is (or could be) in play — an all-local dataset that plays never shows it.
+  const options = liveConnIds(tabs);
+  const conns = listConnections();
+  const nameOf = (id: string): string => conns.find((c) => c.id === id)?.name ?? id;
+  const showPicker = anyFailed || conn !== null;
+
   return (
-    <div className="replay-video-grid">
-      {episode.videos.map((v) => (
-        <VideoPane key={v.key} rootPath={rootPath} video={v} cursor={cursor} />
-      ))}
-    </div>
+    <>
+      {showPicker && (
+        <div className="replay-video-source small">
+          <span className="muted">{t('replay.player.videoSource')}</span>
+          <select value={conn ?? ''} onChange={(e) => pick(e.target.value === '' ? null : e.target.value)}>
+            <option value="">{t('replay.player.videoSourceLocal')}</option>
+            {options.map((id) => (
+              <option key={id} value={id}>
+                {nameOf(id)}
+              </option>
+            ))}
+            {conn !== null && !options.includes(conn) && (
+              <option value={conn}>{nameOf(conn)}</option>
+            )}
+          </select>
+          {conn !== null && session === null && (
+            <span className="replay-video-source-warn">
+              {t('replay.player.videoSourceDead').replace('{name}', nameOf(conn))}
+            </span>
+          )}
+        </div>
+      )}
+      <div className="replay-video-grid">
+        {episode.videos.map((v) => (
+          <VideoPane key={v.key} url={urlFor(v)} video={v} cursor={cursor} onFail={() => setAnyFailed(true)} />
+        ))}
+      </div>
+    </>
   );
 }
 
 function VideoPane({
-  rootPath,
+  url,
   video,
   cursor,
+  onFail,
 }: {
-  rootPath: string;
+  url: string | null;
   video: EpisodeVideo;
   cursor: number | null;
+  onFail: () => void;
 }): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
-  const url = episodeVideoUrl(rootPath, video);
 
   // Park the playhead at the episode's start whenever the slice changes. A
   // shared v3.0 file opens at 0, which is some other episode entirely.
@@ -371,7 +422,10 @@ function VideoPane({
         src={url}
         controls
         preload="metadata"
-        onError={() => setFailed(true)}
+        onError={() => {
+          setFailed(true);
+          onFail();
+        }}
         // Stop at the slice end rather than rolling into the next episode.
         onTimeUpdate={(e) => {
           const el = e.currentTarget;

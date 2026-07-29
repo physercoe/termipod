@@ -1278,6 +1278,28 @@ an episode is a **slice** located by row offsets and video timestamps.
 An unrecognized `codebase_version` is refused by name, never parsed
 best-effort.
 
+### episode series
+One feature's values over an episode's frames — `action`,
+`observation.state` — read from the data parquet, decimated host-side to
+a point budget, and plotted against the episode clock. Never stored on
+the hub: an episode is megabytes of parquet and a series is kilobytes of
+floats, which is exactly the split the data-ownership law draws.
+
+Downsampling is **decimation** (every Nth frame), never averaging: a
+channel plot is read for its shape and its extremes, and averaging
+erases exactly the spikes it was opened to find. A decimated page says
+so, and still reports the episode's real frame count, so a UI can say
+"1,000 of 40,000".
+
+### channel
+One scalar track inside an **episode series**: a 7-DoF arm's `action`
+has seven channels. Labels come from `info.json`'s `names` when the
+dataset supplies them, and reach the plot legend unchanged.
+
+- *Distinguish from:* a **project channel**'s messages (§4, deferred) —
+  unrelated, and the reason this entry exists. A channel here is an axis
+  of a robot signal, never a place anyone posts.
+
 ### Replay (the J8 job)
 The activity-bar job for replaying time-synchronized robot experience:
 the dataset library, the episodes table, and the episode player
@@ -1318,6 +1340,9 @@ A flat list of the high-traffic confusion points, for grep:
   policy-generated trajectory; same shape, different provenance.
 - **Replay** (the J8 job) vs **raw-wire replay** (a transcript
   mode) — different surfaces, different entities.
+- **channel** (an axis of an **episode series**, §11) vs a project
+  channel's messages (§4, deferred) — a robot signal's track vs a place
+  to post.
 - **steward** vs **worker** vs **agent** vs **principal**.
 - **general steward** vs **domain steward** — frozen-persistent vs
   overlay-project-scoped, both *steward* role.

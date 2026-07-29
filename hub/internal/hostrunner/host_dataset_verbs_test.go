@@ -61,7 +61,7 @@ func callDatasetVerb(t *testing.T, kind string, payload map[string]any) (int, ma
 // without its route.
 func TestDatasetVerbsAreRouted(t *testing.T) {
 	r := datasetTestRunner()
-	for _, kind := range []string{"host.dataset_digest", "host.dataset_episodes"} {
+	for _, kind := range []string{"host.dataset_digest", "host.dataset_episodes", "host.dataset_series"} {
 		resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
 			ReqID: "r", Kind: kind, Payload: json.RawMessage(`{}`),
 		})
@@ -209,5 +209,77 @@ func TestHostDatasetVerbCannotEscapeTheRoot(t *testing.T) {
 				t.Errorf("verb response carries %q — it must return a fold, not file bytes", forbidden)
 			}
 		}
+	}
+}
+
+// ── host.dataset_series (W2) ─────────────────────────────────────────────────
+
+func TestDatasetSeriesVerbReadsAnEpisode(t *testing.T) {
+	status, out := callDatasetVerb(t, "host.dataset_series", map[string]any{
+		"root_path": fixtureRoot(t, "lerobot/nyu_rot_dataset/v3.0"),
+		"episode":   1,
+	})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, body = %v", status, out)
+	}
+	if out["length"] != float64(30) {
+		t.Errorf("length = %v, want 30", out["length"])
+	}
+	series, _ := out["series"].([]any)
+	if len(series) == 0 {
+		t.Fatal("no series returned")
+	}
+	// The verb must carry the channel split through the wire, not just the
+	// count: a 7-DoF arm collapsed to one channel is a plot of nonsense.
+	first, _ := series[0].(map[string]any)
+	chans, _ := first["channels"].([]any)
+	if len(chans) == 0 {
+		t.Fatalf("first series %v has no channels", first["key"])
+	}
+}
+
+func TestDatasetSeriesVerbHonoursTheRequest(t *testing.T) {
+	status, out := callDatasetVerb(t, "host.dataset_series", map[string]any{
+		"root_path":  fixtureRoot(t, "lerobot/nyu_rot_dataset/v3.0"),
+		"episode":    0,
+		"features":   []string{"action"},
+		"max_points": 10,
+	})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, body = %v", status, out)
+	}
+	series, _ := out["series"].([]any)
+	if len(series) != 1 {
+		t.Fatalf("feature filter returned %d series, want 1", len(series))
+	}
+	if out["points"] != float64(10) || out["stride"] != float64(4) {
+		t.Errorf("points/stride = %v/%v, want 10/4", out["points"], out["stride"])
+	}
+	if out["downsampled"] != true {
+		t.Error("a decimated read did not say so")
+	}
+}
+
+func TestDatasetSeriesVerbRefusesWhatItCannotRead(t *testing.T) {
+	root := fixtureRoot(t, "lerobot/nyu_rot_dataset/v3.0")
+	for _, tc := range []struct {
+		name    string
+		payload map[string]any
+		status  int
+	}{
+		{"relative root", map[string]any{"root_path": "relative/path", "episode": 0}, http.StatusBadRequest},
+		{"no root", map[string]any{"episode": 0}, http.StatusBadRequest},
+		{"negative episode", map[string]any{"root_path": root, "episode": -1}, http.StatusBadRequest},
+		{"absent episode", map[string]any{"root_path": root, "episode": 9999}, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, out := callDatasetVerb(t, "host.dataset_series", tc.payload)
+			if status != tc.status {
+				t.Fatalf("status = %d, want %d (body %v)", status, tc.status, out)
+			}
+			if out["error"] == nil {
+				t.Errorf("refusal carried no error code: %v", out)
+			}
+		})
 	}
 }

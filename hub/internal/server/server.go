@@ -695,6 +695,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Delete("/", s.handleDeleteDataset)
 				r.Post("/refresh", s.handleRefreshDatasetDigest)
 				r.Get("/episodes", s.handleGetDatasetEpisodes)
+				r.Get("/episodes/{episode}/series", s.handleGetDatasetEpisodeSeries)
 			})
 		})
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project

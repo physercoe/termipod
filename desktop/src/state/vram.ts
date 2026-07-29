@@ -256,9 +256,10 @@ export type KvCacheClass = 'low' | 'moderate' | 'high' | 'very-high';
 // Thresholds in BYTES per token (whole model, all caching layers, 2-byte KV).
 // Calibrated against real models: MLA + hybrid linear-attention (DeepSeek-V3
 // ~69 KB, Kimi K3 ~28 KB, Qwen3-Next ~24 KB) → 'low'; small-KV-head GQA
-// (Llama-3-8B ~128 KB, Qwen3-235B ~376 KB) → 'moderate'; wide GQA (MiniMax-M2
-// ~496 KB, Gemma-3-27B ~992 KB) → 'high'; big dense MHA (>1 MB/token) →
-// 'very-high'. The split is chosen so compressed-KV designs read 'low'.
+// (Llama-3-8B 128 KB, MiniMax-M2 ~248 KB, Qwen3-235B ~376 KB) → 'moderate';
+// many-KV-head GQA (Gemma-3-27B ~496 KB, 2·62·16·128·2) → 'high'; big dense
+// MHA (>1 MB/token) → 'very-high'. The split is chosen so compressed-KV
+// designs read 'low'.
 const KV_CLASS_THRESHOLDS: Array<{ max: number; cls: KvCacheClass }> = [
   { max: 96 * 1024, cls: 'low' },
   { max: 384 * 1024, cls: 'moderate' },

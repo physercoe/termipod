@@ -224,7 +224,7 @@ func (s *Server) handleCreateDataset(w http.ResponseWriter, r *http.Request) {
 	if in.HostID != "" {
 		hostID = in.HostID
 	}
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		INSERT INTO datasets (id, project_id, host_id, name, root_path, source,
 			env_ref, registered_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -312,7 +312,7 @@ func (s *Server) handleUpdateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	sets = append(sets, "updated_at = ?")
 	args = append(args, time.Now().UTC().Format(time.RFC3339), id)
-	if _, err := s.db.ExecContext(r.Context(),
+	if _, err := s.writeDB.ExecContext(r.Context(),
 		`UPDATE datasets SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
 		s.writeDBErr(w, err)
 		return
@@ -340,7 +340,7 @@ func (s *Server) handleDeleteDataset(w http.ResponseWriter, r *http.Request) {
 		s.writeDBErr(w, err)
 		return
 	}
-	if _, err := s.db.ExecContext(r.Context(), `DELETE FROM datasets WHERE id = ?`, id); err != nil {
+	if _, err := s.writeDB.ExecContext(r.Context(), `DELETE FROM datasets WHERE id = ?`, id); err != nil {
 		s.writeDBErr(w, err)
 		return
 	}
@@ -397,7 +397,7 @@ func (s *Server) handleRefreshDatasetDigest(w http.ResponseWriter, r *http.Reque
 	// env_ref is only ever filled in, never overwritten: the host derives it
 	// from robot_type, but a human may have set something more specific, and a
 	// refresh must not quietly undo that.
-	_, err = s.db.ExecContext(r.Context(), `
+	_, err = s.writeDB.ExecContext(r.Context(), `
 		UPDATE datasets
 		SET digest_json = ?, digest_schema_version = ?, digest_ts = ?,
 		    fingerprint_json = ?, format = ?, updated_at = ?,

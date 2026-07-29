@@ -31,9 +31,9 @@ written) and **`env_ref`** (opaque, unvalidated, reserved so provenance
 accumulates before the Environment registry exists). External viewers
 integrate as **one policy-registry row + a managed local process**
 (`rerunweb`), never as a new surface; long host-side computations are
-[ADR-058](058-host-job-surface.md) jobs. The blueprint §3 data-ownership
-law (hub owns metadata, hosts own bytes) is the axiom throughout — this
-ADR records how J8 instantiates it, not the law itself.
+[ADR-058](058-host-job-surface.md) jobs. The blueprint §4 data-ownership
+law (hub owns metadata, hosts own bytes; axiom A2) governs throughout —
+this ADR records how J8 instantiates it, not the law itself.
 
 ## Context
 
@@ -187,8 +187,8 @@ integrates LeRobot's own exporter host-side under a pinned
 - ADRs: [038](038-per-run-event-digest.md) (digest shape) ·
   [050](050-desktop-workbench-delivery-model.md) (desktop-only J-jobs) ·
   [058](058-host-job-surface.md) (long host computations) ·
-  [`spine/blueprint.md`](../spine/blueprint.md) §3 A2 (the
-  data-ownership axiom)
+  [`spine/blueprint.md`](../spine/blueprint.md) §4 (the
+  data-ownership law; axiom A2)
 - Plans: [`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md)
   (§3 model, §11 decisions) ·
   [`plans/environments-and-embodiments.md`](../plans/environments-and-embodiments.md)

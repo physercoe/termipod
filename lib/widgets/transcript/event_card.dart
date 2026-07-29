@@ -25,6 +25,7 @@ import '../markdown_builders.dart';
 import 'approval_cards.dart';
 import 'feed_reducer.dart';
 import 'feed_render.dart';
+import 'streaming_markdown.dart';
 import 'tool_renderers.dart';
 
 /// Per-event card. The kind drives which fields get a first-class
@@ -721,7 +722,34 @@ class AgentEventCard extends StatefulWidget {
   /// so a COMPLETED message looks exactly as it always did — the only visible
   /// difference is that colour and formulas arrive when the message finishes
   /// instead of being recomputed on every keystroke of it.
+  ///
+  /// B2 takes the remaining term: a partial is split at completed block
+  /// boundaries and the settled blocks are cached, so a chunk costs one tail
+  /// block instead of the whole message. The completed message is still
+  /// rendered as ONE body, so its layout is identical to pre-B2 by
+  /// construction — no seam to verify.
   Widget _markdownBody(
+    BuildContext ctx,
+    String s, {
+    bool isThought = false,
+    bool isPartial = false,
+  }) {
+    if (!isPartial) {
+      return _markdownDoc(ctx, s, isThought: isThought, isPartial: false);
+    }
+    return StreamingMarkdownBody(
+      text: s,
+      // Both inputs that change how a block renders; a mid-turn theme flip
+      // must not leave settled blocks in the old colours.
+      styleKey: '${Theme.of(ctx).brightness}|$isThought',
+      buildBlock: (block) =>
+          _markdownDoc(ctx, block, isThought: isThought, isPartial: true),
+    );
+  }
+
+  /// Renders one markdown document — the whole message when complete, one
+  /// block of it while streaming.
+  Widget _markdownDoc(
     BuildContext ctx,
     String s, {
     bool isThought = false,

@@ -1,9 +1,11 @@
-/// Tests for the browser-bridge core (plan W1+W2): fragment redaction (the
+/// Tests for the browser-bridge core (plan W1+W2+W3): fragment redaction (the
 /// kimiweb-token regression), AX compaction, the MCP handshake/tool dispatch
 /// against a fake backend, bearer auth, the discovery-file lifecycle — and
 /// the W2 halves: scope gating (read vs action bearer), the action tools'
 /// CDP sequences, partition/nav-policy refusal, and the audit trail (ring +
-/// arg redaction). Run with `node --test` (Node strips the type annotations).
+/// arg redaction); plus the W3 hub dispatch (dispatchHubInvoke: unknown_tool
+/// / revoked gating, via:'hub' audit) and the remote-sessions fold. Run with
+/// `node --test` (Node strips the type annotations).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,6 +16,8 @@ import {
   BridgeAuditRing,
   BridgeError,
   compactAxTree,
+  dispatchHubInvoke,
+  foldRemoteSessions,
   handleMcpMessage,
   mintToken,
   pruneSnapshotRefs,
@@ -683,6 +687,7 @@ test('W2 redactBridgeArgs + BridgeAuditRing units', () => {
       ts: `t${String(i)}`,
       tool: 'browser_click',
       agent_id: 'a',
+      via: 'local',
       tab_id: 7,
       url: null,
       partition: null,
@@ -736,4 +741,130 @@ test('W2 HTTP: action bearer grants full scope; x-tp-agent-id flows into the aud
   } finally {
     await server.close();
   }
+});
+
+// ── W3: hub dispatch (remote agents via the reverse tunnel) ──────────────────
+// dispatchHubInvoke is the in-process entry the host's tunnel loop funnels
+// browser.invoke envelopes into: same tool machinery as the MCP path, bearer
+// parse skipped, action calls pre-authorized hub-side but re-gated here by
+// the per-run revoked set, audited once with via:'hub'.
+
+test('W3 dispatch: read tool runs for any agent, unaudited — even a revoked one', async () => {
+  const { deps, entries } = auditDeps(actionBackend());
+  const out = await dispatchHubInvoke(
+    deps,
+    { tool: 'browser_list_tabs', args: {}, agent_id: 'agent-remote', agent_handle: 'r2d2' },
+    new Set(),
+  );
+  assert.equal(out.ok, true);
+  if (out.ok) assert.match((out.result as ToolResult).content[0]?.text ?? '', /"tabId": 7/);
+  assert.equal(entries.length, 0, 'read tools are not audited');
+
+  const revoked = await dispatchHubInvoke(deps, { tool: 'browser_list_tabs', args: {}, agent_id: 'agent-remote' }, new Set(['agent-remote']));
+  assert.equal(revoked.ok, true, 'the revoked set gates action tools only');
+  assert.equal(entries.length, 0);
+});
+
+test('W3 dispatch: unknown tool refused without touching the backend', async () => {
+  const backend = actionBackend();
+  const { deps, entries } = auditDeps(backend);
+  const out = await dispatchHubInvoke(deps, { tool: 'browser_nuke', args: {}, agent_id: 'agent-remote' }, new Set());
+  assert.deepEqual(out, { ok: false, error: 'unknown_tool' });
+  assert.equal(backend.calls.length, 0);
+  assert.equal(entries.length, 0);
+});
+
+test('W3 dispatch: action call runs pre-authorized, audited once with via:hub', async () => {
+  const { deps, entries } = auditDeps(actionBackend());
+  const out = await dispatchHubInvoke(
+    deps,
+    { tool: 'browser_navigate', args: { tabId: 7, url: 'https://example.com/#frag' }, agent_id: 'agent-remote', agent_handle: 'r2d2' },
+    new Set(),
+  );
+  assert.equal(out.ok, true);
+  assert.equal(entries.length, 1, 'exactly one audit entry per action call');
+  assert.equal(entries[0]?.via, 'hub');
+  assert.equal(entries[0]?.agent_id, 'agent-remote');
+  assert.equal(entries[0]?.agent_handle, 'r2d2');
+  assert.equal(entries[0]?.tool, 'browser_navigate');
+  assert.equal(entries[0]?.ok, true);
+  assert.equal(entries[0]?.args.url, 'https://example.com/', 'fragment stripped in the audit args');
+
+  // A failed action is audited once too, and the envelope carries CODE: msg.
+  const gone = await dispatchHubInvoke(
+    deps,
+    { tool: 'browser_navigate', args: { tabId: 999, url: 'https://example.com/' }, agent_id: 'agent-remote' },
+    new Set(),
+  );
+  assert.equal(gone.ok, false);
+  if (!gone.ok) assert.match(gone.error, /^TARGET_GONE: /);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[1]?.ok, false);
+  assert.equal(entries[1]?.error, 'TARGET_GONE');
+  assert.equal(entries[1]?.via, 'hub');
+});
+
+test('W3 dispatch: a revoked agent is refused before the tool machinery', async () => {
+  const backend = actionBackend();
+  const { deps, entries } = auditDeps(backend);
+  const out = await dispatchHubInvoke(
+    deps,
+    { tool: 'browser_click', args: { tabId: 7, selector: '#go' }, agent_id: 'agent-remote' },
+    new Set(['agent-remote']),
+  );
+  assert.deepEqual(out, { ok: false, error: 'revoked by user on desktop' });
+  assert.equal(backend.calls.length, 0, 'refused before any CDP call');
+  assert.equal(entries.length, 0, 'a revoked refusal is a gate event, not an audited action');
+});
+
+test('W3 dispatch: a tool-level isError result maps to the error half of the envelope', async () => {
+  const { deps, entries } = auditDeps(actionBackend());
+  const out = await dispatchHubInvoke(
+    deps,
+    { tool: 'browser_eval', args: { tabId: 7, expression: 'thrower()' }, agent_id: 'agent-remote' },
+    new Set(),
+  );
+  assert.equal(out.ok, false);
+  if (!out.ok) {
+    assert.match(out.error, /EVAL_EXCEPTION/);
+    assert.match(out.error, /boom/);
+  }
+  assert.equal(entries.length, 1, 'the action ran and was audited');
+  assert.equal(entries[0]?.ok, true, 'runTool returned (an isError result), so the call itself did not throw');
+});
+
+test('W3 via: the local MCP path keeps recording via:local', async () => {
+  const { deps, entries } = auditDeps(actionBackend());
+  await callTool2(deps, 'browser_navigate', { tabId: 7, url: 'https://example.com/' });
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.via, 'local');
+  assert.equal(entries[0]?.agent_handle, undefined, 'local calls carry no hub handle');
+});
+
+test('W3 foldRemoteSessions: hub entries fold per-agent, newest first, revoke flag', () => {
+  const mk = (ts: string, agentId: string, tool: string, via: 'local' | 'hub', handle?: string): BridgeAuditEntry => ({
+    ts,
+    tool,
+    agent_id: agentId,
+    via,
+    tab_id: 7,
+    url: null,
+    partition: null,
+    args: {},
+    ok: true,
+    error: null,
+    ...(handle !== undefined ? { agent_handle: handle } : {}),
+  });
+  const entries = [
+    mk('2026-07-29T10:00:00Z', 'agent-a', 'browser_navigate', 'hub', 'r2d2'),
+    mk('2026-07-29T10:01:00Z', 'agent-b', 'browser_click', 'hub'),
+    mk('2026-07-29T10:02:00Z', 'agent-a', 'browser_type', 'hub', 'r2d2'),
+    mk('2026-07-29T10:03:00Z', 'agent-c', 'browser_click', 'local'), // local calls never fold in
+  ];
+  const sessions = foldRemoteSessions(entries, new Set(['agent-b']));
+  assert.deepEqual(sessions, [
+    { agent_id: 'agent-a', agent_handle: 'r2d2', last_tool: 'browser_type', last_ts: '2026-07-29T10:02:00Z', revoked: false },
+    { agent_id: 'agent-b', last_tool: 'browser_click', last_ts: '2026-07-29T10:01:00Z', revoked: true },
+  ]);
+  assert.deepEqual(foldRemoteSessions([], new Set()), []);
 });

@@ -68,6 +68,13 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
           {preview(pending['input']) !== '' && <div className="mono">{preview(pending['input'])}</div>}
         </div>
       )}
+      {kind === 'browser_action' && pending !== undefined && (
+        <div className="card-detail">
+          <code>{str(pending, 'tool') ?? 'browser tool'}</code>
+          {str(pending, 'host_name') !== undefined && <span> · {str(pending, 'host_name')}</span>}
+          {preview(pending['args']) !== '' && <div className="mono">{preview(pending['args'])}</div>}
+        </div>
+      )}
       {changeKind !== undefined && (
         <div className="card-detail mono">{preview(item['change_spec'] ?? item['target_ref'])}</div>
       )}
@@ -98,6 +105,21 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
           </button>
           <button disabled={busy} onClick={() => void decide('reject')}>
             {t('att.dismiss')}
+          </button>
+        </div>
+      ) : kind === 'browser_action' ? (
+        // W3 browser bridge: approve routes this one call; "session" also
+        // records a hub-side grant so the agent's later action calls on this
+        // desktop skip the card (revocable under Settings → Remote driving).
+        <div className="card-actions">
+          <button className="primary" disabled={busy} onClick={() => void decide('approve')}>
+            {t('att.allowOnce')}
+          </button>
+          <button disabled={busy} onClick={() => void decide('approve', { option_id: 'session' })}>
+            {t('att.allowSession')}
+          </button>
+          <button disabled={busy} onClick={() => void decide('reject')}>
+            {t('att.reject')}
           </button>
         </div>
       ) : (

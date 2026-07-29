@@ -1,22 +1,20 @@
 # Desktop agent browser bridge — MCP-driven webtabs (WebBridge model, MCP-native)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — **W1 shipped**: the read-only bridge
+> **Status:** W1+W2+W3 shipped (2026-07-29) — W1: the read-only bridge
 > (`browser_list_tabs`/`browser_snapshot`/`browser_screenshot`/
 > `browser_read_text`), desktop toggle (Settings → Assistant, default off),
-> discovery file, hostrunner injection for all four families (read scope),
-> stdio relay, unit + Playwright e2e coverage. **W2 shipped**: the action
-> tool set (`browser_navigate`/`browser_find_tab`/`browser_click`/
-> `browser_type`/`browser_send_keys`/`browser_scroll`/`browser_upload_file`/
-> `browser_eval`) behind the per-spawn opt-in (`browser_bridge: true` → the
-> discovery file's action token), partition-policy enforcement on navigate +
-> `PARTITION_READ_ONLY` refusal on kimiweb/rerunweb, and the audit trail —
-> in-memory last-50 ring (Settings "Recent bridge actions") plus a
-> best-effort hub `agent_events` mirror (kind `browser_bridge`, producer
-> `system`, typed text redacted, agent attributed via the relay's
-> `x-tp-agent-id`). W3 (hub relay) remains as written below.
+> discovery file, hostrunner injection (read scope), stdio relay, unit +
+> Playwright e2e coverage. W2: the action tool set behind the per-spawn
+> opt-in (`browser_bridge: true` → the discovery file's action token),
+> partition-policy enforcement, and the audit trail (last-50 ring +
+> best-effort hub `agent_events` mirror, typed text redacted). W3: the
+> hub-relayed bridge — remote agents call the hub-native `browser_invoke`
+> through the A2A reverse tunnel; ACTION tools are approval-gated per
+> (desktop, agent) by a `browser_action` card (approve once / session
+> grant), revocable from Settings → Remote driving.
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** origin/main `f02b8a83`; kimi-code 0.28.1 verified
+> **Last verified vs code:** origin/main `589a01b0`; kimi-code 0.28.1 verified
 > on-host (macOS arm64)
 
 **TL;DR.** Let agents drive the desktop's embedded browser: an MCP server in
@@ -309,11 +307,25 @@ opt-in; partition-policy enforcement on navigate + kimiweb action refusal
 per action call (who/what/which tab/which args, redacting typed text);
 Settings "last 50 bridge actions" debug view.
 
-**W3 — hub-relayed bridge.** The bridge registers as a hub-side surface so
-agents on *remote* hosts reach the desktop browser through the hub WS
-(reuses the host_commands/host-visibility model); action calls route
-through hub attention approvals instead of the spawn-time flag; revoke
-per-session from the desktop.
+**W3 — hub-relayed bridge (shipped).** The bridge registers as a hub-side
+surface — a `hosts` row advertising `capabilities.browser_bridge`, kept
+online by a 10s heartbeat — so agents on *remote* hosts reach the desktop
+browser through the hub: the hub-native MCP tool `browser_invoke` wraps the
+call in a `browser.invoke` A2A reverse-tunnel envelope, the desktop's poll
+loop dispatches it into the same tool machinery in-process, and the result
+rides back as the tunnel response. Action calls route through a hub
+`browser_action` attention approval per (desktop, agent) instead of the
+spawn-time flag — approve once, or approve the session
+(`option_id: "session"` → in-memory hub grant); revoke per-session from
+Settings → Remote driving (desktop per-run revoked set + best-effort hub
+grant clear). Channel decision (open question 3, resolved): the **A2A
+reverse tunnel**, not `host_commands` and not SSE — it is the only existing
+synchronous request/response hub→machine channel (`enqueueAndWait` blocks
+the relaying MCP call until the desktop posts the response); `host_commands`
+would add the 3s poll cadence to every click, and the event bus has no
+response path. The desktop speaks the tunnel protocol with its user token
+without becoming a spawn target: `teamGate` + `authorizeHostInTeam` auth,
+and spawn mode-resolution refuses the engine-less capabilities row.
 
 ## 5. Testing
 
@@ -352,5 +364,6 @@ per-session from the desktop.
 2. Is `browser_eval` worth shipping in W2 at all, or do click/type/scroll
    cover the real workflows? (Proposal: ship it — extraction workflows need
    it — but action-gated and result-capped.)
-3. W3 relay: reuse `host_commands` (pull) or the session WS (push) for the
-   desktop↔hub channel? Decide when W3 is scoped.
+3. ~~W3 relay: reuse `host_commands` (pull) or the session WS (push) for the
+   desktop↔hub channel?~~ **Resolved in W3**: the A2A reverse tunnel — the
+   only synchronous request/response channel; see the W3 wedge.

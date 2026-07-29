@@ -25,24 +25,39 @@
 ///   - the "borrowed tab": the renderer reports the visible browser guest's
 ///     webContents id (`browserbridge_set_active_guest`) so W2's
 ///     `browser_find_tab {active:true}` resolves the tab the user is watching.
+///   - W3 REMOTE DRIVING: while the bridge is enabled AND a hub context is
+///     set, the desktop registers as a hub `hosts` row (capabilities
+///     .browser_bridge), heartbeats every 10s, and long-polls the hub's A2A
+///     reverse tunnel — incoming browser.invoke envelopes dispatch into the
+///     electron-free core in-process and their results POST back. Settings →
+///     Remote driving lists the remote sessions (folded from the audit ring)
+///     and can revoke one (per-run set + best-effort hub grant clear).
 ///
 /// Off by default: no toggle, no server, no discovery file, no injection.
 import { app, webContents, type WebContents } from 'electron';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  ACTION_TOOLS,
   BridgeAuditRing,
   BridgeError,
+  dispatchHubInvoke,
+  foldRemoteSessions,
   mintToken,
   pruneSnapshotRefs,
+  READ_TOOLS,
   removeBridgeDiscovery,
   startBridgeServer,
   stripFragment,
   writeBridgeDiscovery,
   type BridgeAuditEntry,
   type BridgeBackend,
+  type BridgeRemoteSession,
   type BridgeServer,
   type BridgeTarget,
+  type HubInvokePayload,
+  type HubInvokeResult,
+  type McpServerDeps,
 } from './browserbridge';
 import { policyForGuest } from './webtab';
 import { keychainGetLocal } from './ipc/keychain';
@@ -203,6 +218,7 @@ async function postBridgeAudit(entry: BridgeAuditEntry): Promise<void> {
               ts: entry.ts,
               tool: entry.tool,
               agent_id: entry.agent_id,
+              via: entry.via,
               tab_id: entry.tab_id,
               url: entry.url,
               partition: entry.partition,
@@ -226,6 +242,10 @@ async function postBridgeAudit(entry: BridgeAuditEntry): Promise<void> {
 // ── Enable/disable lifecycle ─────────────────────────────────────────────────
 
 let server: BridgeServer | null = null;
+/// The deps the HTTP server AND the W3 hub dispatch share — same backend,
+/// same audit hook (recordAction → ring + hub mirror). Set at enable,
+/// cleared at disable; the tunnel dispatch refuses while null.
+let mcpDeps: McpServerDeps | null = null;
 let enabled = false;
 
 async function enable(): Promise<void> {
@@ -236,13 +256,12 @@ async function enable(): Promise<void> {
   // and the hostrunner hands it to opted-in spawns alone.
   const actionToken = mintToken();
   const version = app.getVersion();
-  server = await startBridgeServer({
+  mcpDeps = {
     backend,
-    token,
-    actionToken,
     serverInfo: { name: 'termipod-browser', version },
     onAction: recordAction,
-  });
+  };
+  server = await startBridgeServer({ ...mcpDeps, token, actionToken });
   writeBridgeDiscovery(os.homedir(), {
     url: `http://127.0.0.1:${String(server.port)}/mcp`,
     token,
@@ -252,14 +271,208 @@ async function enable(): Promise<void> {
     app_version: version,
     bridge_path: stdioBridgePath(),
   });
+  // W3: register + heartbeat + tunnel poll when a hub session is around.
+  syncHubRelay();
 }
 
 async function disable(): Promise<void> {
   const s = server;
   server = null;
+  mcpDeps = null;
+  stopHubRelay();
   removeBridgeDiscovery(os.homedir());
   if (s !== null) await s.close();
 }
+
+// ── W3 hub relay (remote driving through the reverse tunnel) ─────────────────
+// While the bridge is enabled AND a hub context is set, the desktop is a hub
+// `hosts` row advertising capabilities.browser_bridge: it registers (upsert
+// on (team,name) — safe to re-post on every enable), heartbeats every 10s
+// (the hub sweep flips silent hosts offline; 10s matches the hostrunner
+// cadence), and long-polls the A2A reverse tunnel for browser.invoke
+// envelopes from remote agents. The bearer is the signed-in user's hub token
+// read from the main-process keychain at registration time — never IPC. All
+// of it dies on disable / hub-context change / quit; a hub or network outage
+// just backs the poll off.
+
+/// One live relay: the registration id, the heartbeat timer, and the abort
+/// handle the poll loop + in-flight dispatch share.
+interface HubRelay {
+  ctx: BridgeHubContext;
+  hostId: string;
+  token: string;
+  abort: AbortController;
+  heartbeat: ReturnType<typeof setInterval>;
+}
+
+let hubRelay: HubRelay | null = null;
+/// Bumped on every stop/start so a superseded async start abandons its
+/// result instead of clobbering the newer relay.
+let hubRelayGen = 0;
+
+const TUNNEL_WAIT_MS = 25000;
+
+function hubRelayKey(ctx: BridgeHubContext): string {
+  return `${ctx.baseUrl}|${ctx.teamId}|${ctx.profileId}`;
+}
+
+/// (Re)concile the relay with the current enabled + hub-context state: start
+/// when both are present, restart when the profile changed, stop otherwise.
+/// Fire-and-forget — a registration failure retries on the next sync, and
+/// the poll loop backs off on its own.
+function syncHubRelay(): void {
+  const want = enabled && hubContext !== null ? hubContext : null;
+  if (want !== null && hubRelay !== null && hubRelayKey(hubRelay.ctx) === hubRelayKey(want)) return;
+  stopHubRelay();
+  if (want !== null) void startHubRelay(want);
+}
+
+function stopHubRelay(): void {
+  hubRelayGen += 1;
+  const r = hubRelay;
+  hubRelay = null;
+  if (r === null) return;
+  clearInterval(r.heartbeat);
+  r.abort.abort();
+}
+
+async function startHubRelay(ctx: BridgeHubContext): Promise<void> {
+  const gen = ++hubRelayGen;
+  const token = await keychainGetLocal(`hub_token_${ctx.profileId}`);
+  if (gen !== hubRelayGen) return;
+  if (token === null || token === '') return; // signed out — local-relay-only mode
+  try {
+    const res = await fetch(`${ctx.baseUrl}/v1/teams/${encodeURIComponent(ctx.teamId)}/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        name: `desktop-${os.hostname()}`,
+        capabilities: { browser_bridge: true, app_version: app.getVersion(), tools: READ_TOOLS.length + ACTION_TOOLS.length },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return;
+    const body = (await res.json()) as { id?: unknown };
+    if (typeof body.id !== 'string' || body.id === '' || gen !== hubRelayGen) return;
+    const abort = new AbortController();
+    const relay: HubRelay = {
+      ctx,
+      hostId: body.id,
+      token,
+      abort,
+      heartbeat: setInterval(() => {
+        void postHubHeartbeat(relay);
+      }, 10000),
+    };
+    hubRelay = relay;
+    void hubTunnelLoop(relay);
+  } catch {
+    /* hub unreachable — the next sync (context push / enable) retries */
+  }
+}
+
+/// One heartbeat. Best-effort: a missed beat flips the host offline at the
+/// hub's sweep and the next success flips it back.
+async function postHubHeartbeat(relay: HubRelay): Promise<void> {
+  try {
+    await fetch(
+      `${relay.ctx.baseUrl}/v1/teams/${encodeURIComponent(relay.ctx.teamId)}/hosts/${encodeURIComponent(relay.hostId)}/heartbeat`,
+      { method: 'POST', headers: { authorization: `Bearer ${relay.token}` }, signal: AbortSignal.timeout(5000) },
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+/// Abortable sleep for the poll backoff.
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(done, ms);
+    function done(): void {
+      signal.removeEventListener('abort', done);
+      clearTimeout(t);
+      resolve();
+    }
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
+/// The tunnel envelope JSON (hub tunnelRequest), narrowed to what W3 reads.
+interface TunnelEnvelope {
+  req_id?: string;
+  kind?: string;
+  payload?: unknown;
+}
+
+/// The reverse-tunnel poll: long-poll /a2a/tunnel/next, dispatch
+/// browser.invoke envelopes in-process, POST the {ok,result|error} body back
+/// base64'd. 204 → reconnect immediately; transport/5xx → backoff 1s
+/// doubling to 15s. Runs until the relay's abort fires (disable / context
+/// change / quit).
+async function hubTunnelLoop(relay: HubRelay): Promise<void> {
+  const base = `${relay.ctx.baseUrl}/v1/teams/${encodeURIComponent(relay.ctx.teamId)}/hosts/${encodeURIComponent(relay.hostId)}`;
+  let backoff = 1000;
+  while (!relay.abort.signal.aborted) {
+    let env: TunnelEnvelope;
+    try {
+      const res = await fetch(`${base}/a2a/tunnel/next?wait_ms=${String(TUNNEL_WAIT_MS)}`, {
+        headers: { authorization: `Bearer ${relay.token}` },
+        signal: relay.abort.signal,
+      });
+      if (relay.abort.signal.aborted) return;
+      if (res.status === 204) {
+        backoff = 1000;
+        continue;
+      }
+      if (!res.ok) throw new Error(`tunnel next: HTTP ${String(res.status)}`);
+      env = (await res.json()) as TunnelEnvelope;
+      backoff = 1000;
+    } catch {
+      if (relay.abort.signal.aborted) return;
+      await sleep(backoff, relay.abort.signal);
+      backoff = Math.min(backoff * 2, 15000);
+      continue;
+    }
+    const reqId = typeof env.req_id === 'string' ? env.req_id : '';
+    if (reqId === '') continue; // malformed envelope — nothing to answer to
+    // One at a time, inline: the hub's enqueueAndWait already serializes per
+    // desktop, and a slow navigate mustn't fan out into parallel CDP work. A
+    // bad envelope answers {ok:false} — the loop never dies on dispatch.
+    const out = await answerTunnelEnvelope(env);
+    try {
+      await fetch(`${base}/a2a/tunnel/responses`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${relay.token}` },
+        body: JSON.stringify({ req_id: reqId, status: 200, body_b64: Buffer.from(JSON.stringify(out), 'utf8').toString('base64') }),
+        signal: relay.abort.signal,
+      });
+    } catch {
+      /* the hub-side waiter times out (60s) — nothing to retry against */
+    }
+  }
+}
+
+/// Route one envelope. Only kind browser.invoke is ours; anything else gets
+/// the contract's unknown_kind error rather than killing the loop.
+async function answerTunnelEnvelope(env: TunnelEnvelope): Promise<HubInvokeResult> {
+  if (env.kind !== 'browser.invoke') return { ok: false, error: 'unknown_kind' };
+  const deps = mcpDeps;
+  if (deps === null) return { ok: false, error: 'bridge not running' };
+  const p = (env.payload !== null && typeof env.payload === 'object' ? env.payload : {}) as Record<string, unknown>;
+  const payload: HubInvokePayload = {
+    tool: typeof p.tool === 'string' ? p.tool : '',
+    args: p.args !== null && typeof p.args === 'object' && !Array.isArray(p.args) ? (p.args as Record<string, unknown>) : {},
+    agent_id: typeof p.agent_id === 'string' ? p.agent_id : '',
+    ...(typeof p.agent_handle === 'string' && p.agent_handle !== '' ? { agent_handle: p.agent_handle } : {}),
+  };
+  return dispatchHubInvoke(deps, payload, revokedAgents);
+}
+
+/// W3: agent ids the user revoked from Settings → Remote driving. In-memory,
+/// per app run — a restart re-allows (the longer-lived half is the hub-side
+/// session grant, cleared best-effort by browserbridge_revoke_remote; that
+/// dies with the hub process anyway).
+const revokedAgents = new Set<string>();
 
 /// The Settings toggle's reach. Idempotent; failures roll the flag back so
 /// the UI can't show enabled over a dead server.
@@ -279,6 +492,8 @@ export async function setBrowserBridgeEnabled(next: boolean): Promise<void> {
 /// purpose — the process is going down; in-flight requests die with it.
 export function disposeBrowserBridge(): void {
   enabled = false;
+  stopHubRelay();
+  mcpDeps = null;
   removeBridgeDiscovery(os.homedir());
   const s = server;
   server = null;
@@ -309,6 +524,7 @@ export const browserBridgeHandlers: Record<string, Handler> = {
   browserbridge_hub_context: async (args): Promise<{ ok: boolean }> => {
     if (args.context === null) {
       hubContext = null;
+      syncHubRelay(); // context gone — the W3 relay stops
       return { ok: true };
     }
     const c = args.context as Record<string, unknown> | undefined;
@@ -320,6 +536,7 @@ export const browserBridgeHandlers: Record<string, Handler> = {
       c.baseUrl.startsWith('http')
     ) {
       hubContext = { baseUrl: c.baseUrl.replace(/\/+$/, ''), teamId: c.teamId, profileId: c.profileId };
+      syncHubRelay(); // start (or restart against the new profile) when enabled
       return { ok: true };
     }
     return { ok: false };
@@ -337,4 +554,39 @@ export const browserBridgeHandlers: Record<string, Handler> = {
   /// oldest-first. Entries' `hub` field fills in asynchronously as the mirror
   /// post resolves (skipped/ok/failed).
   browserbridge_audit_tail: async (): Promise<{ entries: BridgeAuditEntry[] }> => ({ entries: auditRing.list() }),
+  /// W3: the Settings "Remote driving" view — one row per remote agent that
+  /// ran an action call via the hub this app run, folded from the audit ring
+  /// (electron-free foldRemoteSessions), most-recent-first.
+  browserbridge_remote_sessions: async (): Promise<{ sessions: BridgeRemoteSession[] }> => ({
+    sessions: foldRemoteSessions(auditRing.list(), revokedAgents),
+  }),
+  /// W3: revoke one remote agent. The local effect is immediate — the
+  /// dispatch gate refuses its next action call ("revoked by user on
+  /// desktop"); the hub-side session grant is cleared best-effort (same
+  /// posture as the audit poster). No un-revoke: the set dies with the app
+  /// run, the hub grant with the hub process.
+  browserbridge_revoke_remote: async (args): Promise<{ ok: boolean; hub: 'ok' | 'failed' | 'skipped' }> => {
+    const agentId = typeof args.agent_id === 'string' && args.agent_id !== '' ? args.agent_id : null;
+    if (agentId === null) return { ok: false, hub: 'skipped' };
+    revokedAgents.add(agentId);
+    const ctx = hubContext;
+    const hostId = hubRelay?.hostId ?? null;
+    if (ctx === null || hostId === null) return { ok: true, hub: 'skipped' };
+    try {
+      const token = await keychainGetLocal(`hub_token_${ctx.profileId}`);
+      if (token === null || token === '') return { ok: true, hub: 'skipped' };
+      const res = await fetch(
+        `${ctx.baseUrl}/v1/teams/${encodeURIComponent(ctx.teamId)}/hosts/${encodeURIComponent(hostId)}/browserbridge/revoke`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          body: JSON.stringify({ agent_id: agentId }),
+          signal: AbortSignal.timeout(4000),
+        },
+      );
+      return { ok: true, hub: res.ok ? 'ok' : 'failed' };
+    } catch {
+      return { ok: true, hub: 'failed' };
+    }
+  },
 };

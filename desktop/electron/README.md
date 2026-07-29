@@ -45,15 +45,18 @@ src/ipc/sync/s3.ts  S3 backend: s3_sync/verify (tree) + s3_zotero_sync —
                    ListObjectsV2, path-style, SigV4-signed fetch (M2.5d)
 src/ipc/vault.ts   nine vault_* commands → the WASM build of vault-core
                    (../../vault-wasm/pkg), lazy computed-path import (M2.6b)
-src/browserbridge.ts  agent browser bridge core (plan W1+W2, electron-free):
+src/browserbridge.ts  agent browser bridge core (plan W1+W2+W3, electron-free):
                    MCP/HTTP server, dual-scope bearer auth (read/action),
                    AX-tree compaction, action tools over CDP, audit ring +
-                   arg redaction, discovery-file lifecycle — unit-tested
-                   under node --test
+                   arg redaction, discovery-file lifecycle, the hub-tunnel
+                   dispatch (dispatchHubInvoke) + remote-sessions fold —
+                   unit-tested under node --test
 src/browserbridge_host.ts  bridge's Electron half: guest registry (webview
                    guests in bridge-capable partitions only), CDP via
                    webContents.debugger, enable/disable + discovery file,
-                   audit ring → hub agent_events mirror, active-tab tracking
+                   audit ring → hub agent_events mirror, active-tab tracking,
+                   W3 hub relay (hosts registration, heartbeat, reverse-
+                   tunnel poll) + the per-run revoked set
 resources/browser_bridge_stdio.mjs  agent-side stdio⇄HTTP MCP relay (plain
                    node, no deps); the hostrunner points injected engine MCP
                    configs at it. Shipped as an extraResource outside the asar
@@ -63,7 +66,7 @@ src/ipc/script.ts  one-shot child runs (child_process): script_run +
 esbuild.mjs        bundles main + preload → out/*.cjs
 ```
 
-## Agent browser bridge (W1+W2)
+## Agent browser bridge (W1+W2+W3)
 
 Settings → Assistant → *Agent browser bridge* (default **off**) lets agents
 spawned on this host drive the desktop's embedded browser tabs: an MCP server
@@ -85,8 +88,21 @@ action calls (`PARTITION_READ_ONLY`); navigation is checked against each
 partition's own policy. Every action call is audited: a last-50 ring backs
 the Settings "Recent bridge actions" view, and each call is mirrored
 best-effort onto the calling agent's hub event stream (kind
-`browser_bridge`, producer `system`, typed text redacted). Security model +
-W3 roadmap:
+`browser_bridge`, producer `system`, typed text redacted).
+
+**W3 — remote driving through the hub.** With the bridge on AND signed into
+a hub, the desktop registers itself as a hub `hosts` row
+(`desktop-<hostname>`, `capabilities.browser_bridge`), heartbeats every
+10s, and long-polls the hub's A2A reverse tunnel. An agent on ANY host can
+then call the hub's `browser_invoke` MCP tool against this desktop: read
+tools route straight through; action tools first raise a `browser_action`
+approval card in the Attention dock — approving with the "session" option
+grants the (desktop, agent) pair for the rest of the hub process. Remote
+action calls are audited like local ones, stamped `via: "hub"` in the ring
+and the hub mirror. Settings → Assistant → *Remote driving* lists the
+remote sessions seen this app run and can **Revoke** one: the desktop then
+refuses that agent's action calls (`revoked by user on desktop`) and the
+hub-side session grant is cleared best-effort. Security model:
 [`docs/plans/desktop-agent-browser-bridge.md`](../../docs/plans/desktop-agent-browser-bridge.md).
 
 ## Run

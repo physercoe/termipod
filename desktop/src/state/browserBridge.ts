@@ -19,6 +19,12 @@ import { useSession } from './session';
 /// action calls as hub agent_events — the bearer never crosses IPC (main
 /// reads its own keychain). The Settings "recent bridge actions" view reads
 /// the main-side ring via `refreshAudit`.
+///
+/// W3: with the bridge on AND a hub context pushed, main registers as a hub
+/// host and long-polls the reverse tunnel so REMOTE agents can drive the
+/// browser (approval-gated hub-side). The Settings "Remote driving" block
+/// reads those sessions via `refreshRemoteSessions` and revokes one via
+/// `revokeRemote`.
 
 const LS_KEY = 'termipod.browserBridge.enabled';
 
@@ -44,6 +50,9 @@ export interface BridgeActionRow {
   ts: string;
   tool: string;
   agent_id: string;
+  /// W3: 'local' (same-host spawn) or 'hub' (remote agent via the hub tunnel).
+  via: 'local' | 'hub';
+  agent_handle?: string;
   tab_id: number | null;
   url: string | null;
   partition: string | null;
@@ -51,6 +60,17 @@ export interface BridgeActionRow {
   ok: boolean;
   error: string | null;
   hub?: 'ok' | 'failed' | 'skipped';
+}
+
+/// One row of the W3 "Remote driving" view (mirrors BridgeRemoteSession in
+/// electron/src/browserbridge.ts): a remote agent that drove this desktop's
+/// browser via the hub this app run.
+export interface BridgeRemoteSessionRow {
+  agent_id: string;
+  agent_handle?: string;
+  last_tool: string;
+  last_ts: string;
+  revoked: boolean;
 }
 
 interface BrowserBridgeState {
@@ -61,15 +81,21 @@ interface BrowserBridgeState {
   running: boolean;
   /// The last-50 action ring (browserbridge_audit_tail), oldest-first.
   audit: BridgeActionRow[];
+  /// W3: remote hub-driven sessions (browserbridge_remote_sessions),
+  /// most-recent-first.
+  remoteSessions: BridgeRemoteSessionRow[];
   setEnabled: (v: boolean) => void;
   refreshStatus: () => Promise<void>;
   refreshAudit: () => Promise<void>;
+  refreshRemoteSessions: () => Promise<void>;
+  revokeRemote: (agentId: string) => void;
 }
 
-export const useBrowserBridge = create<BrowserBridgeState>((set) => ({
+export const useBrowserBridge = create<BrowserBridgeState>((set, get) => ({
   enabled: loadEnabled(),
   running: false,
   audit: [],
+  remoteSessions: [],
   setEnabled: (v) => {
     persistEnabled(v);
     set({ enabled: v });
@@ -102,6 +128,22 @@ export const useBrowserBridge = create<BrowserBridgeState>((set) => ({
     } catch {
       /* older main without W2 handlers — leave the list as-is */
     }
+  },
+  refreshRemoteSessions: async () => {
+    if (!isShell()) return;
+    try {
+      const r = await invoke<{ sessions: BridgeRemoteSessionRow[] }>('browserbridge_remote_sessions');
+      set({ remoteSessions: r.sessions });
+    } catch {
+      /* older main without W3 handlers — leave the list as-is */
+    }
+  },
+  revokeRemote: (agentId) => {
+    // Confirm-less: mark the row revoked immediately; the IPC result only
+    // reports the hub-side grant clear, which the row doesn't display.
+    set({ remoteSessions: get().remoteSessions.map((s) => (s.agent_id === agentId ? { ...s, revoked: true } : s)) });
+    if (!isShell()) return;
+    void invoke('browserbridge_revoke_remote', { agent_id: agentId }).catch(() => undefined);
   },
 }));
 

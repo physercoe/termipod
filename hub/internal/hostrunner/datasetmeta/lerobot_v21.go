@@ -183,6 +183,9 @@ func episodesV21(src Source, info *Info, offset int64, limit int, page *EpisodeP
 		if fps > 0 {
 			ep.DurationSec = float64(r.Length) / fps
 		}
+		// v2.1 records no video metadata; the slices are derived from the path
+		// template so a player sees the same shape it sees in v3.0.
+		synthesizeVideoSlices(info, &ep)
 		page.Episodes = append(page.Episodes, ep)
 		return nil
 	})

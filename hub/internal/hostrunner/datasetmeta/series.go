@@ -322,7 +322,7 @@ func findEpisodeV30(src Source, info *Info, episode int64) (Episode, error) {
 				}
 				seen := int64(0)
 				page := &EpisodePage{}
-				if err := readEpisodeRows(rg, sc, info.FPS, pos, 1, &seen, page); err != nil {
+				if err := readEpisodeRows(rg, sc, info, pos, 1, &seen, page); err != nil {
 					return err
 				}
 				if len(page.Episodes) == 1 {

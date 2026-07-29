@@ -401,7 +401,6 @@ func episodesV30(src Source, info *Info, offset int64, limit int, page *EpisodeP
 	if err != nil {
 		return err
 	}
-	fps := info.FPS
 	seen := int64(0)
 	for _, shard := range shards {
 		if len(page.Episodes) >= limit {
@@ -425,7 +424,7 @@ func episodesV30(src Source, info *Info, offset int64, limit int, page *EpisodeP
 				if len(page.Episodes) >= limit {
 					return nil
 				}
-				if err := readEpisodeRows(rg, sc, fps, offset, limit, &seen, page); err != nil {
+				if err := readEpisodeRows(rg, sc, info, offset, limit, &seen, page); err != nil {
 					return err
 				}
 			}
@@ -439,7 +438,7 @@ func episodesV30(src Source, info *Info, offset int64, limit int, page *EpisodeP
 }
 
 // readEpisodeRows decodes rows of one row group into the page.
-func readEpisodeRows(rg parquet.RowGroup, sc *v30Schema, fps float64, offset int64, limit int, seen *int64, page *EpisodePage) error {
+func readEpisodeRows(rg parquet.RowGroup, sc *v30Schema, info *Info, offset int64, limit int, seen *int64, page *EpisodePage) error {
 	rows := rg.Rows()
 	defer rows.Close()
 	buf := make([]parquet.Row, 64)
@@ -454,7 +453,11 @@ func readEpisodeRows(rg parquet.RowGroup, sc *v30Schema, fps float64, offset int
 			if len(page.Episodes) >= limit {
 				return nil
 			}
-			page.Episodes = append(page.Episodes, decodeEpisodeRow(buf[i], sc, fps))
+			ep := decodeEpisodeRow(buf[i], sc, info.FPS)
+			// The episode metadata says WHICH file and WHEN inside it; the
+			// path template says WHERE. A player needs both.
+			attachVideoPaths(info, &ep)
+			page.Episodes = append(page.Episodes, ep)
 		}
 		if err != nil {
 			if isEOF(err) {

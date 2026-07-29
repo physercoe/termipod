@@ -1,9 +1,9 @@
 # Transcript P5 wedge — session integrity issues + streaming-markdown efficiency
 
 > **Type:** plan
-> **Status:** Draft (2026-07-27) — for fleet implementation
+> **Status:** In progress (2026-07-29) — **A1 shipped**; A2/A3 + Track B open
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `1e9a2b46`
+> **Last verified vs code:** origin/main `a402423f`
 > **Parent:** [agent-transcript-redesign.md](agent-transcript-redesign.md) §P5
 > (the recorded-not-scheduled bucket). This wedge schedules two of its items
 > and leaves the rest recorded (§6 below). It does NOT touch the J3 **Inspect**
@@ -133,16 +133,38 @@ Separately: `flutter_markdown` was **discontinued by the Flutter team**
 Ported from vis and adjusted to our event kinds. Severity: `error` |
 `warning` | `info`.
 
-| class | severity | rule (over normalized `agent_events`) |
-|---|---|---|
-| `missing_tool_result` | error | `tool_call` whose id never receives a terminal `tool_result`/`tool_call_update` by **turn close** (sweep at `closeTurn`) or by agent terminal state (sweep at `finalizeDigestOutcome`) |
-| `orphan_tool_result` | warning | `tool_result` whose id matches no prior `tool_call` (`resolveToolAnchor` miss — *both* id shapes checked, see anchors §5) |
-| `truncated_output` | warning | tool result payload carrying a truncation marker (engines vary; detect the flags we actually map — kimi wire `truncated`, claude-code `is_truncated`-style fields — extend per-mapper as found) |
-| `incomplete_turn` | warning | turn still open when the agent reaches a terminal state (`finalizeDigestOutcome`, `digest_store.go` line ~278) |
-| `unanswered_permission` | warning | permission/approval request with no recorded decision by turn close |
-| `rejected_permission` | info | approval decision = rejected (visible in feed, but the drawer aggregates) |
-| `abnormal_stop` | warning | turn/stop reason `max_tokens`, `filtered`, `refusal` where the mapper carries one |
-| `mixed_id_shape` | info | the same session carries tool ids under different key shapes across events (the `callToolIdOf` class made *self-reporting*) |
+| class | severity | rule (over normalized `agent_events`) | state |
+|---|---|---|---|
+| `missing_tool_result` | error | `tool_call` whose id never receives a terminal `tool_result`/`tool_call_update` by **turn close** (sweep at `closeTurn`) or by agent terminal state (the seal) | shipped |
+| `orphan_tool_result` | warning | `tool_result`/`tool_call_update` whose id matches no *prior* `tool_call` (`resolveToolAnchor` miss — *both* id shapes checked, see anchors §5) | shipped |
+| `incomplete_turn` | warning | turn still open when the agent reaches a terminal state (the seal, `finalizeDigestOutcome`) | shipped |
+| `unanswered_permission` | warning | a permission/approval gate call (`permission_prompt`, `request_approval`) with no result by turn close | shipped |
+| `abnormal_stop` | warning | `turn.result` whose `stop_reason`/`terminal_reason` is not a normal end, and which is not already a reported failure | shipped |
+| `mixed_id_shape` | info | the same event **kind** carries tool ids under two key spellings (the `callToolIdOf` class made *self-reporting*) | shipped |
+| `truncated_output` | warning | tool result payload carrying a truncation marker | **deferred — blocked**, see below |
+| `rejected_permission` | info | approval decision = rejected | **deferred — blocked**, see below |
+
+**The two deferred rules are blocked on the same missing thing, and finding
+that out answered §7 Q1 and Q2.** Both would have to read a *body* field, and
+the fold cannot: `foldEventCols` (`digest_store.go`) strips
+`$.text/$.content/$.message/$.delta/$.output/$.thinking/$.thought/$.reasoning`
+server-side before a row reaches the brute-force fold, while the incremental
+fold sees the raw payload — so a rule reading a stripped field would make the
+two paths disagree (`TestFoldStripsBodiesWithoutChangingDigest` pins it).
+Concretely:
+
+- `truncated_output` — grep finds **no mapper emitting a normalized truncation
+  flag at all** today. So Q1 answers itself: the mapper-side `truncated: true`
+  has to come first, as a top-level field, and then the fold rule is one line.
+- `rejected_permission` — the decision travels as the MCP tool result's
+  *content* (`{"behavior":"deny",…}`, `mcp_more.go`), i.e. inside `$.content`.
+  A denial is only reachable as a normalized top-level field, or (claude M2
+  only) via `turn.result.permission_denials` — which would make the class fire
+  for one engine and stay silent for the others, exactly the kind of
+  half-present signal that misleads a cross-engine reader.
+
+Both are recorded in §6 rather than half-implemented (D-4 honesty: a rule that
+fires for one engine reads as "the others are clean").
 
 Notes:
 - **Reported errors stay in `Errors`** — no overlap. Issues are structural
@@ -159,17 +181,42 @@ Notes:
 ### Schema & wire
 
 - `agentDigest` gains `Issues map[string]*issueClassAgg` (same shape as
-  `errorClassAgg`: count + aligned sample slices + per-sample label),
-  persisted as `issues_json` beside `errors_json`; bump
+  `errorClassAgg`: count + aligned sample slices + per-sample label, plus
+  `severity`), persisted as `issues_json` beside `errors_json`; bump
   `digestSchemaVersion` → **7**. Sealed sessions refold lazily on next
-  read (`ensureAgentDigest` — no migration step needed); the column is
-  additive so old clients ignore it.
+  read (`ensureAgentDigest`); the column is additive so old clients ignore it.
 - Digest GET body: `issues` object `{class → {count, severity, sample_seqs,
-  sample_ordinals, sample_tss, sample_labels}}` + rolled-up
-  `issue_count` / `issue_worst_severity` for the chip.
-- Turn rows: per-turn `issue_count` beside `ErrorCount` (cheap, same
+  sample_ordinals, sample_ts, sample_labels}}` + rolled-up
+  `issue_count` / `issue_worst_severity` for the chip. Session digest merges
+  them exactly like `errors`.
+- Turn rows: per-turn `issue_count` beside `error_count` (same
   `recordError`-style tally) so the funnel can mark issue-bearing turns
-  later (deferred, §6).
+  later (deferred, §6). Exposed on the turns listing.
+
+Three things the implementation had to add that the plan did not anticipate,
+each recorded because it is load-bearing for anyone reading the code:
+
+1. **`fold_state_json` — the folder's carry-over state.** The pairing rules need
+   to know which calls are still open. The alternative (a set-difference SQL
+   query at turn close, mirroring `resolveToolName`/`resolveToolAnchor`) would
+   be a *second* implementation of the pairing logic — and two implementations
+   that must agree is precisely the bug class this wedge exists to catch.
+   Persisting the state keeps exactly one implementation (`step`), so
+   incremental == brute holds by construction rather than by test.
+2. **The sharded stores had no additive-column path.** `digest.db` sits outside
+   the golang-migrate chain (migrations run on `hub.db`, and the split *drops*
+   these tables from it — which is why nothing after `0054` names them), and its
+   DDL is `CREATE TABLE IF NOT EXISTS`, a no-op on a file that already exists.
+   A new column would therefore have reached fresh installs only, and every
+   existing shard would have failed on first query. Fixed generally, not for
+   this column: `ensureShardColumns` + an append-only `digestStoreAddedColumns`
+   list, the mechanism the next post-split column change uses too.
+3. **A refold wiped `outcome`.** `outcome` is written by the terminal hook, never
+   by the fold, so `backfillAgentDigest` — which recomputes from the event log —
+   silently cleared it. Latent until now and invisible; bumping the schema
+   version refolds *every sealed digest in the fleet*, so this wedge would have
+   fired it. `backfillAgentDigest` now carries the prior stamp forward, and uses
+   it to decide whether to re-apply the seal.
 
 ## 3. Track A2/A3 — clients: the Issues drawer
 
@@ -313,20 +360,40 @@ Review anchors (named for the recurring bug classes):
   shareable debug bundles.
 - **Funnel issue marks** (per-turn `issue_count` is folded in A1; the
   funnel/minimap glyphs wait until the drawer proves the taxonomy).
+- **A normalized `truncated` flag + permission decision on the mappers** —
+  the prerequisite for `truncated_output` and `rejected_permission` (§2, §7).
+  One top-level field per mapper; its own small wedge because it touches every
+  driver's translate().
 - Mermaid rendering on mobile (webview-per-diagram — desktop's kimi-web
   panel covers the need today).
 
 ## 7. Open questions
 
-1. `truncated_output` detection is per-mapper opportunistic — is a
-   mapper-side normalized `truncated: true` payload field worth
-   standardizing first (one-line per mapper), so the fold rule is single?
-2. Should `rejected_permission` be in the drawer at all, or is it noise
-   once `unanswered_permission` exists? (vis keeps it as info; start there,
-   demote on feedback.)
+1. ~~`truncated_output` detection is per-mapper opportunistic — is a
+   mapper-side normalized `truncated: true` payload field worth standardizing
+   first?~~ **Answered by A1: yes, and it is a prerequisite, not a preference.**
+   No mapper emits any truncation flag today, and the body fields one would
+   otherwise live in are stripped before the fold sees them (§2). The rule
+   cannot ship until a mapper writes a *top-level* `truncated: true`.
+2. ~~Should `rejected_permission` be in the drawer at all?~~ **Moot for now:
+   it is not detectable.** The decision rides inside the tool result's content
+   (§2), which the fold never reads. Revisit together with Q1 — one normalized
+   top-level field per mapper unblocks both.
 3. B2 on desktop: worth porting the block cache to `react-markdown`
    (memoized block components), or is React reconciliation + B1's gating
    enough there? Measure first.
+
+New, from building A1:
+
+4. `abnormal_stop` classifies by a **denylist of normal** stop reasons
+   (`end_turn`/`success`/`completed`/`cancelled`/absent), so a reason no engine
+   has shipped yet surfaces rather than vanishing. That is the right default for
+   a surface whose point is that silent failures are invisible — but it means a
+   new engine's benign spelling shows up as a warning until someone adds it.
+   Watch the first real fleet run for false positives.
+5. `missing_tool_result` sweeps at **turn close**, so a tool whose result
+   genuinely lands in the *next* turn reads as missing. No mapper does this
+   today; if one appears, the sweep needs a grace window rather than a boundary.
 
 ## Related
 

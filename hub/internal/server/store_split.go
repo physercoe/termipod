@@ -104,7 +104,10 @@ CREATE TABLE IF NOT EXISTS agent_event_digests (
     tool_failed       INTEGER NOT NULL DEFAULT 0,
     tools_json        TEXT NOT NULL DEFAULT '{}',
     latency_hist_json TEXT NOT NULL DEFAULT '{}',
-    outcome           TEXT NOT NULL DEFAULT ''
+    outcome           TEXT NOT NULL DEFAULT '',
+    issue_count       INTEGER NOT NULL DEFAULT 0,
+    issues_json       TEXT NOT NULL DEFAULT '{}',
+    fold_state_json   TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_agent_event_digests_team ON agent_event_digests(team_id);
 
@@ -127,6 +130,7 @@ CREATE TABLE IF NOT EXISTS agent_turns (
     error_count   INTEGER NOT NULL DEFAULT 0,
     start_ordinal INTEGER,
     session_id    TEXT NOT NULL DEFAULT '',
+    issue_count   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (agent_id, turn_id)
 );
 CREATE INDEX IF NOT EXISTS idx_agent_turns_agent_idx     ON agent_turns(agent_id, idx);
@@ -212,11 +216,85 @@ func ensureDigestStore(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open digest store: %w", err)
 	}
-	if _, err := db.Exec(digestStoreDDL); err != nil {
+	if err := ensureDigestSchema(db); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("digest store schema: %w", err)
+		return nil, err
 	}
 	return db, nil
+}
+
+// shardColumn is one column a shard table gained after its CREATE TABLE was
+// first shipped.
+//
+// The sharded stores (events.db / digest.db) sit OUTSIDE the golang-migrate
+// chain: migrations run against hub.db only, and the split drops these tables
+// from hub.db entirely — so a migration naming one would fail on every split
+// install (which is why nothing after 0054 touches them). Their schema is the
+// `CREATE TABLE IF NOT EXISTS` DDL above, and IF NOT EXISTS is a no-op on a
+// file that already exists: without this list, a column added to the DDL would
+// reach new installs only and every existing shard would fail on first query.
+//
+// So: add the column to the DDL (for fresh files) AND list it here (for
+// existing ones). SQLite's ALTER TABLE ADD COLUMN requires a non-NULL default
+// for a NOT NULL column — keep the declaration's DEFAULT in step with the DDL
+// so both paths produce the same shape.
+type shardColumn struct{ table, name, decl string }
+
+// digestStoreAddedColumns evolves an existing digest.db to the current
+// digestStoreDDL shape. Append-only, like the migration chain it stands in for.
+var digestStoreAddedColumns = []shardColumn{
+	// v7 (transcript P5): structural issues + the folder's carry-over state.
+	{"agent_event_digests", "issue_count", "INTEGER NOT NULL DEFAULT 0"},
+	{"agent_event_digests", "issues_json", "TEXT NOT NULL DEFAULT '{}'"},
+	{"agent_event_digests", "fold_state_json", "TEXT NOT NULL DEFAULT '{}'"},
+	{"agent_turns", "issue_count", "INTEGER NOT NULL DEFAULT 0"},
+}
+
+// ensureShardColumns adds any listed column the table is missing. Idempotent:
+// it reads the live column set first, so re-running is a no-op and a fresh file
+// (already complete from the DDL) adds nothing.
+func ensureShardColumns(db *sql.DB, cols []shardColumn) error {
+	have := map[string]map[string]bool{}
+	for _, c := range cols {
+		if have[c.table] != nil {
+			continue
+		}
+		names, err := tableColumns(db, c.table)
+		if err != nil {
+			return err
+		}
+		have[c.table] = names
+	}
+	for _, c := range cols {
+		if have[c.table][c.name] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.name + ` ` + c.decl); err != nil {
+			return fmt.Errorf("add column %s.%s: %w", c.table, c.name, err)
+		}
+		have[c.table][c.name] = true
+	}
+	return nil
+}
+
+// tableColumns reads a table's column-name set. An absent table yields an empty
+// set (PRAGMA table_info returns no rows), so ensureShardColumns can't run
+// before the CREATE TABLE that owns it.
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return nil, fmt.Errorf("table_info %s: %w", table, err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
 }
 
 // controlHasMovingTables reports whether hub.db still holds the moving tables —

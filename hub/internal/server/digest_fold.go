@@ -48,7 +48,13 @@ const (
 	// row below), and a failed_turn samples the turn's first event (not the
 	// turn.result end marker). The bump refolds sealed digests so their Errors
 	// tab lands on the request that failed, not its result.
-	digestSchemaVersion = 6
+	//
+	// v7 adds the structural issues aggregation (digest_issues.go): findings
+	// nothing reported — an unpaired tool_call, an orphan result, a turn left
+	// open, an abnormal stop reason, an unanswered permission gate — folded
+	// beside (never merged into) the reported Errors. The bump refolds sealed
+	// digests so an already-finished run gains its Issues drawer.
+	digestSchemaVersion = 7
 	// Cap the per-tool sample-seq lists so a pathological run can't bloat the
 	// JSON blob. Tool samples are navigation anchors, not a complete index
 	// (agent_turns + the kind-filtered listing are that).
@@ -167,11 +173,23 @@ type agentDigest struct {
 	ByModel       map[string]*byModelAgg
 	ErrorCount    int64
 	Errors        map[string]*errorClassAgg
-	ToolTotal     int64
-	ToolFailed    int64
-	Tools         map[string]*toolAgg
-	Latency       latencyHist
-	Outcome       string
+	// IssueCount / Issues are the STRUCTURAL findings (digest_issues.go) — the
+	// failures nothing reported. Deliberately disjoint from ErrorCount/Errors:
+	// error_count has to keep reconciling with the /v1/insights window count
+	// (canonicalErrorSQLPredicate), so issues are counted beside it, never into
+	// it. A client that wants one "what went wrong" list merges the two.
+	IssueCount int64
+	Issues     map[string]*issueClassAgg
+	ToolTotal  int64
+	ToolFailed int64
+	Tools      map[string]*toolAgg
+	Latency    latencyHist
+	Outcome    string
+	// State is the folder's carry-over working state (open tool calls, id-key
+	// spellings, the sealed flag) — persisted so the incremental path resumes
+	// with exactly the state a brute-force scan would hold at the same
+	// watermark. Never nil after newAgentDigest / loadAgentDigest.
+	State *foldState
 }
 
 func newAgentDigest(agentID, teamID string) *agentDigest {
@@ -181,8 +199,10 @@ func newAgentDigest(agentID, teamID string) *agentDigest {
 		SchemaVersion: digestSchemaVersion,
 		ByModel:       map[string]*byModelAgg{},
 		Errors:        map[string]*errorClassAgg{},
+		Issues:        map[string]*issueClassAgg{},
 		Tools:         map[string]*toolAgg{},
 		Latency:       newLatencyHist(),
+		State:         newFoldState(),
 	}
 }
 
@@ -209,6 +229,11 @@ type turnRow struct {
 	ToolCount  int64
 	ToolFailed int64
 	ErrorCount int64
+	// IssueCount is the structural-issue tally for this turn, the per-turn
+	// sibling of ErrorCount. Accumulated by recordIssue as findings happen
+	// (including the sweep at this turn's own close, which runs while the turn
+	// is still open).
+	IssueCount int64
 }
 
 // toolNameResolver maps a tool-call id to its tool name. The brute-force
@@ -270,15 +295,44 @@ func newDigestFolder(d *agentDigest) *digestFolder {
 // turn list (brute force). Used by the lazy backfill and the shared test
 // vector.
 func computeAgentDigest(agentID, teamID string, events []foldEvent) (*agentDigest, []turnRow) {
+	return computeAgentDigestTerminal(agentID, teamID, events, false)
+}
+
+// computeAgentDigestTerminal is computeAgentDigest with the end-of-run seal
+// applied when the agent has already stopped.
+//
+// The seal (an open turn, tool calls that never resolved) is knowable only from
+// the run's terminal state, which is not in the event log — so the caller
+// supplies it. Without this, a refold of an already-sealed digest would drop
+// findings the live fold recorded, and incremental != brute (ADR-038).
+// backfillAgentDigest passes terminal=true when the row it is replacing
+// carries an outcome.
+func computeAgentDigestTerminal(agentID, teamID string, events []foldEvent, terminal bool) (*agentDigest, []turnRow) {
 	f := newDigestFolder(newAgentDigest(agentID, teamID))
 	for _, e := range events {
 		f.step(e)
+	}
+	if terminal {
+		// Before the open turn is snapshotted below, so its issue_count lands
+		// on the persisted row.
+		f.seal()
 	}
 	turns := append([]turnRow(nil), f.closed...)
 	if f.open != nil {
 		turns = append(turns, *f.open)
 	}
 	return f.digest, turns
+}
+
+// state returns the folder's carry-over working state, tolerating a digest
+// loaded from a pre-v7 row (nil State) or a JSON round-trip that dropped its
+// empty maps.
+func (f *digestFolder) state() *foldState {
+	if f.digest.State == nil {
+		f.digest.State = newFoldState()
+	}
+	f.digest.State.normalize()
+	return f.digest.State
 }
 
 // step folds exactly one event. The body is the single source of truth for
@@ -346,15 +400,55 @@ func (f *digestFolder) step(e foldEvent) {
 		if name == "" {
 			name = "unknown"
 		}
-		if id := eventToolID(e.Kind, e.Payload); id != "" && f.callName != nil {
-			f.callName[id] = name
-			f.callAnchor[id] = foldAnchor{Seq: e.Seq, Ordinal: e.Ordinal, TS: e.TS}
+		if id, key := eventToolIDKey(e.Kind, e.Payload); id != "" {
+			f.noteIDShape(e, key)
+			// Open the call. Tracked in BOTH fold paths (unlike callName /
+			// callAnchor, which are the brute-force-only mirrors of a DB
+			// lookup) because the pending set is persisted state, not a
+			// resolver — see foldState's doc.
+			if st := f.state(); len(st.Pending) < maxPendingCalls {
+				st.Pending[id] = &pendingCall{
+					Name: name, Seq: e.Seq, Ordinal: e.Ordinal, TS: e.TS,
+					Gate: isPermissionGateTool(name),
+				}
+			}
+			if f.callName != nil {
+				f.callName[id] = name
+				f.callAnchor[id] = foldAnchor{Seq: e.Seq, Ordinal: e.Ordinal, TS: e.TS}
+			}
 		}
 		t := f.tool(name)
 		t.Calls++
 		addSample(&t.SampleSeqs, e.Seq)
 		if f.open != nil {
 			f.open.ToolCount++
+		}
+	case "tool_result", "tool_call_update":
+		// Pairing bookkeeping (issues). The reported-failure accounting for
+		// these kinds runs in the canonical-error block below, untouched.
+		id, key := eventToolIDKey(e.Kind, e.Payload)
+		if id == "" {
+			break
+		}
+		f.noteIDShape(e, key)
+		st := f.state()
+		if _, open := st.Pending[id]; !open {
+			// Nothing open under this id. Either the call was already resolved
+			// (a trailing update after a terminal one — normal) or it never
+			// existed (an orphan). Only the call index can tell them apart.
+			//
+			// The `a.Seq < e.Seq` guard keeps the two fold paths equal: the
+			// brute-force map holds only calls seen SO FAR, while the
+			// incremental resolver's query is unbounded and could return a
+			// call that comes later in the log.
+			if f.resolveAnchor != nil {
+				if a, ok := f.resolveAnchor(id); !ok || a.Seq >= e.Seq {
+					f.recordIssue(issueOrphanToolResult, e.Seq, e.Ordinal, e.TS,
+						toolNameFromPayload(e.Payload))
+				}
+			}
+		} else if toolCallIsResolved(e.Kind, e.Payload) {
+			delete(st.Pending, id)
 		}
 	case "turn.result":
 		// Subagent-flagged terminal frames (kimi M4 wire-tail stamps
@@ -402,6 +496,13 @@ func (f *digestFolder) step(e foldEvent) {
 		if class, ok := canonicalErrorClass(e); ok {
 			seq, ord, ts := f.errorAnchor(e, class)
 			f.recordError(class, seq, ord, ts, f.errorSampleLabel(e))
+		} else if reason := abnormalStopReason(e.Payload); reason != "" {
+			// Only when the turn is NOT already a reported failure, so the two
+			// taxonomies stay disjoint. Anchored on the turn's first event —
+			// the same "land on what was asked, not on the marker that ended
+			// it" convention failed_turn uses.
+			seq, ord, ts := f.turnStartAnchor(e)
+			f.recordIssue(issueAbnormalStop, seq, ord, ts, reason)
 		}
 		f.closeTurn(status, e.TS)
 		return
@@ -447,6 +548,12 @@ func (f *digestFolder) closeTurn(status, endTS string) {
 	if f.open == nil {
 		return
 	}
+	// Sweep before the turn row is snapshotted (and while f.open is still set,
+	// so the findings land on this turn's issue_count): a tool call still open
+	// at the boundary is one whose result never arrived. Deferring the sweep to
+	// the close is what keeps a live run flicker-free — a tool that is
+	// legitimately still running is never "missing" mid-turn.
+	f.sweepPendingCalls()
 	f.open.EndSeq = f.digest.WatermarkSeq
 	f.open.EndTS = endTS
 	if status != "" {
@@ -507,14 +614,106 @@ func (f *digestFolder) errorAnchor(e foldEvent, class string) (int64, int64, str
 			}
 		}
 	case "failed_turn":
-		// Anchor on the open turn (the one this turn.result is closing) — its
-		// first event. Gate on StartSeq, not StartOrdinal, so the relocation also
-		// holds for session-less agents whose ordinals are all 0.
-		if f.open != nil && f.open.StartSeq > 0 {
-			return f.open.StartSeq, f.open.StartOrdinal, f.open.StartTS
-		}
+		return f.turnStartAnchor(e)
 	}
 	return e.Seq, e.Ordinal, e.TS
+}
+
+// turnStartAnchor returns the open turn's first-event anchor, falling back to
+// the event's own. Used by every finding a turn.result carries (failed_turn,
+// abnormal_stop) so the reader lands at the top of the turn that went wrong
+// rather than on its end marker. Gates on StartSeq, not StartOrdinal, so the
+// relocation also holds for session-less agents whose ordinals are all 0.
+func (f *digestFolder) turnStartAnchor(e foldEvent) (int64, int64, string) {
+	if f.open != nil && f.open.StartSeq > 0 {
+		return f.open.StartSeq, f.open.StartOrdinal, f.open.StartTS
+	}
+	return e.Seq, e.Ordinal, e.TS
+}
+
+// recordIssue tallies one structural finding on the digest and the open turn.
+// The mirror of recordError, deliberately kept as a separate counter set.
+func (f *digestFolder) recordIssue(class string, seq, ordinal int64, ts, label string) {
+	f.digest.IssueCount++
+	if f.open != nil {
+		f.open.IssueCount++
+	}
+	if f.digest.Issues == nil {
+		f.digest.Issues = map[string]*issueClassAgg{}
+	}
+	c := f.digest.Issues[class]
+	if c == nil {
+		c = &issueClassAgg{Severity: issueSeverityOf(class)}
+		f.digest.Issues[class] = c
+	}
+	c.Count++
+	addSampleTS(&c.SampleSeqs, &c.SampleOrdinals, &c.SampleTSs, &c.SampleLabels, seq, ordinal, ts, label)
+}
+
+// noteIDShape records which payload key carried this event's tool id and raises
+// the mixed_id_shape canary the first time one kind is seen using a second
+// spelling. Cross-KIND variation is normal (claude writes tool_call.id and
+// tool_result.tool_use_id); the same kind disagreeing with itself is not — it
+// means a consumer reading one spelling is silently dropping the other's rows,
+// which is the `callToolIdOf` bug that shipped three times.
+func (f *digestFolder) noteIDShape(e foldEvent, key string) {
+	if key == "" {
+		return
+	}
+	st := f.state()
+	seen := st.IDShapes[e.Kind]
+	for _, k := range seen {
+		if k == key {
+			return
+		}
+	}
+	st.IDShapes[e.Kind] = append(seen, key)
+	if len(st.IDShapes[e.Kind]) > 1 {
+		f.recordIssue(issueMixedIDShape, e.Seq, e.Ordinal, e.TS, e.Kind+"."+key)
+	}
+}
+
+// sweepPendingCalls records one finding per tool call still open at a boundary
+// (turn close, or the seal) and clears the set. Each finding anchors on the
+// CALL, not on the sweep, so the reader lands on the request that never came
+// back.
+func (f *digestFolder) sweepPendingCalls() {
+	st := f.state()
+	if len(st.Pending) == 0 {
+		return
+	}
+	for _, id := range sortPendingIDs(st.Pending) {
+		c := st.Pending[id]
+		class := issueMissingToolResult
+		if c.Gate {
+			class = issueUnansweredPermission
+		}
+		f.recordIssue(class, c.Seq, c.Ordinal, c.TS, c.Name)
+	}
+	st.Pending = map[string]*pendingCall{}
+}
+
+// seal folds the findings that are only knowable once the run has stopped: a
+// turn still open (the agent died or was killed mid-turn) and any tool calls
+// left pending in it. Idempotent — the flag lives in the persisted fold state,
+// so the terminal hook can run more than once and a refold reproduces the seal
+// exactly once (computeAgentDigestTerminal).
+//
+// The open turn is annotated, NOT closed: a turn's end_seq/status describe what
+// the engine reported, and inventing an ending would change what the turn index
+// means. The issue is the honest record.
+func (f *digestFolder) seal() bool {
+	st := f.state()
+	if st.Sealed {
+		return false
+	}
+	st.Sealed = true
+	if f.open != nil {
+		f.recordIssue(issueIncompleteTurn, f.open.StartSeq, f.open.StartOrdinal,
+			f.open.StartTS, f.open.TurnID)
+	}
+	f.sweepPendingCalls()
+	return true
 }
 
 func (f *digestFolder) recordError(class string, seq, ordinal int64, ts, label string) {
@@ -633,28 +832,11 @@ func isFailedTurn(p map[string]any) bool {
 
 // eventToolID extracts the tool-call id an event refers to. tool_call uses
 // `id`; tool_result uses `tool_use_id`; tool_call_update uses `toolCallId`.
+// The key precedence lives in ONE place (eventToolIDKey, digest_issues.go) so
+// no consumer re-derives it — see that function's doc for why.
 func eventToolID(kind string, p map[string]any) string {
-	switch kind {
-	case "tool_call":
-		if id := stringOf(p["id"]); id != "" {
-			return id
-		}
-		return stringOf(p["toolCallId"])
-	case "tool_result":
-		if id := stringOf(p["tool_use_id"]); id != "" {
-			return id
-		}
-		if id := stringOf(p["toolCallId"]); id != "" {
-			return id
-		}
-		return stringOf(p["id"])
-	case "tool_call_update":
-		if id := stringOf(p["toolCallId"]); id != "" {
-			return id
-		}
-		return stringOf(p["id"])
-	}
-	return ""
+	id, _ := eventToolIDKey(kind, p)
+	return id
 }
 
 // toolNameFromPayload reads a tool name carried directly on an event payload,
@@ -720,10 +902,12 @@ func addSample(dst *[]int64, seq int64) {
 }
 
 // addSampleTS appends a (seq, ordinal, ts, label) sample keeping the four
-// slices aligned 1:1. Used only by the error path (recordError + the session
-// error-class merge), so it caps at maxDigestErrorSeqs — the Errors lens wants
-// the whole-run list, not a 25-cap sample. A missing ordinal/ts/label is
-// appended as 0/"" so the indices never drift.
+// slices aligned 1:1. Used by the analysis-critical paths — recordError /
+// recordIssue and their session-rollup merges — so it caps at
+// maxDigestErrorSeqs: those lenses want the whole-run list, not a 25-cap
+// sample. A missing ordinal/ts/label is appended as 0/"" so the indices never
+// drift. The cap is surfaced to the reader (count > len(sample_seqs) means the
+// list is partial), so a truncated list is never mistaken for a complete one.
 func addSampleTS(seqs, ords *[]int64, tss, labels *[]string, seq, ord int64, ts, label string) {
 	if len(*seqs) >= maxDigestErrorSeqs {
 		return

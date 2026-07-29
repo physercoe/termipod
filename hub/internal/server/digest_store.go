@@ -32,18 +32,20 @@ func marshalJSON(v any) string {
 // caller backfills). Maps not present in the JSON blobs default to empty.
 func loadAgentDigest(ctx context.Context, q digestStore, agentID string) (*agentDigest, bool, error) {
 	d := newAgentDigest(agentID, "")
-	var byModel, errors, tools, latency string
+	var byModel, errors, tools, latency, issues, foldStateJSON string
 	err := q.QueryRowContext(ctx, `
 		SELECT team_id, schema_version, watermark_seq, event_count, turn_count,
 		       first_ts, last_ts, duration_ms, cost_usd, by_model_json,
-		       error_count, errors_json, tool_total, tool_failed, tools_json,
-		       latency_hist_json, outcome
+		       error_count, errors_json, issue_count, issues_json,
+		       tool_total, tool_failed, tools_json,
+		       latency_hist_json, outcome, fold_state_json
 		  FROM agent_event_digests WHERE agent_id = ?`, agentID,
 	).Scan(
 		&d.TeamID, &d.SchemaVersion, &d.WatermarkSeq, &d.EventCount, &d.TurnCount,
 		&d.FirstTS, &d.LastTS, &d.DurationMs, &d.CostUSD, &byModel,
-		&d.ErrorCount, &errors, &d.ToolTotal, &d.ToolFailed, &tools,
-		&latency, &d.Outcome,
+		&d.ErrorCount, &errors, &d.IssueCount, &issues,
+		&d.ToolTotal, &d.ToolFailed, &tools,
+		&latency, &d.Outcome, &foldStateJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
@@ -53,17 +55,26 @@ func loadAgentDigest(ctx context.Context, q digestStore, agentID string) (*agent
 	}
 	_ = json.Unmarshal([]byte(byModel), &d.ByModel)
 	_ = json.Unmarshal([]byte(errors), &d.Errors)
+	_ = json.Unmarshal([]byte(issues), &d.Issues)
 	_ = json.Unmarshal([]byte(tools), &d.Tools)
 	_ = json.Unmarshal([]byte(latency), &d.Latency)
+	_ = json.Unmarshal([]byte(foldStateJSON), &d.State)
 	if d.ByModel == nil {
 		d.ByModel = map[string]*byModelAgg{}
 	}
 	if d.Errors == nil {
 		d.Errors = map[string]*errorClassAgg{}
 	}
+	if d.Issues == nil {
+		d.Issues = map[string]*issueClassAgg{}
+	}
 	if d.Tools == nil {
 		d.Tools = map[string]*toolAgg{}
 	}
+	if d.State == nil {
+		d.State = newFoldState()
+	}
+	d.State.normalize()
 	if len(d.Latency.Counts) != len(latencyBoundsMs)+1 {
 		d.Latency = newLatencyHist()
 	}
@@ -76,9 +87,10 @@ func saveAgentDigest(ctx context.Context, q digestStore, d *agentDigest) error {
 		INSERT INTO agent_event_digests (
 			agent_id, team_id, schema_version, updated_at, watermark_seq,
 			event_count, turn_count, first_ts, last_ts, duration_ms, cost_usd,
-			by_model_json, error_count, errors_json, tool_total, tool_failed,
-			tools_json, latency_hist_json, outcome
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			by_model_json, error_count, errors_json, issue_count, issues_json,
+			tool_total, tool_failed, tools_json, latency_hist_json, outcome,
+			fold_state_json
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(agent_id) DO UPDATE SET
 			team_id=excluded.team_id, schema_version=excluded.schema_version,
 			updated_at=excluded.updated_at, watermark_seq=excluded.watermark_seq,
@@ -86,13 +98,17 @@ func saveAgentDigest(ctx context.Context, q digestStore, d *agentDigest) error {
 			first_ts=excluded.first_ts, last_ts=excluded.last_ts,
 			duration_ms=excluded.duration_ms, cost_usd=excluded.cost_usd,
 			by_model_json=excluded.by_model_json, error_count=excluded.error_count,
-			errors_json=excluded.errors_json, tool_total=excluded.tool_total,
+			errors_json=excluded.errors_json, issue_count=excluded.issue_count,
+			issues_json=excluded.issues_json, tool_total=excluded.tool_total,
 			tool_failed=excluded.tool_failed, tools_json=excluded.tools_json,
-			latency_hist_json=excluded.latency_hist_json, outcome=excluded.outcome`,
+			latency_hist_json=excluded.latency_hist_json, outcome=excluded.outcome,
+			fold_state_json=excluded.fold_state_json`,
 		d.AgentID, d.TeamID, d.SchemaVersion, NowUTC(), d.WatermarkSeq,
 		d.EventCount, d.TurnCount, d.FirstTS, d.LastTS, d.DurationMs, d.CostUSD,
-		marshalJSON(d.ByModel), d.ErrorCount, marshalJSON(d.Errors), d.ToolTotal,
+		marshalJSON(d.ByModel), d.ErrorCount, marshalJSON(d.Errors),
+		d.IssueCount, marshalJSON(d.Issues), d.ToolTotal,
 		d.ToolFailed, marshalJSON(d.Tools), marshalJSON(d.Latency), d.Outcome,
+		marshalJSON(d.State),
 	)
 	return err
 }
@@ -103,8 +119,8 @@ func saveTurnRow(ctx context.Context, q digestStore, agentID, teamID string, t *
 		INSERT INTO agent_turns (
 			agent_id, turn_id, team_id, idx, start_seq, start_ordinal, start_ts, session_id, end_seq,
 			end_ts, duration_ms, status, cost_usd, in_tokens, out_tokens,
-			tool_count, tool_failed, error_count
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			tool_count, tool_failed, error_count, issue_count
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(agent_id, turn_id) DO UPDATE SET
 			team_id=excluded.team_id, idx=excluded.idx, start_seq=excluded.start_seq,
 			start_ordinal=excluded.start_ordinal, session_id=excluded.session_id,
@@ -112,10 +128,11 @@ func saveTurnRow(ctx context.Context, q digestStore, agentID, teamID string, t *
 			duration_ms=excluded.duration_ms, status=excluded.status,
 			cost_usd=excluded.cost_usd, in_tokens=excluded.in_tokens,
 			out_tokens=excluded.out_tokens, tool_count=excluded.tool_count,
-			tool_failed=excluded.tool_failed, error_count=excluded.error_count`,
+			tool_failed=excluded.tool_failed, error_count=excluded.error_count,
+			issue_count=excluded.issue_count`,
 		agentID, t.TurnID, teamID, t.Idx, t.StartSeq, t.StartOrdinal, t.StartTS, t.SessionID, t.EndSeq,
 		t.EndTS, t.DurationMs, t.Status, t.CostUSD, t.InTokens, t.OutTokens,
-		t.ToolCount, t.ToolFailed, t.ErrorCount,
+		t.ToolCount, t.ToolFailed, t.ErrorCount, t.IssueCount,
 	)
 	return err
 }
@@ -137,14 +154,14 @@ func loadOpenTurn(ctx context.Context, q digestStore, agentID string) (*turnRow,
 	err := q.QueryRowContext(ctx, `
 		SELECT turn_id, idx, start_seq, start_ordinal, start_ts, session_id, end_seq, end_ts, duration_ms,
 		       status, cost_usd, in_tokens, out_tokens, tool_count, tool_failed,
-		       error_count
+		       error_count, issue_count
 		  FROM agent_turns
 		 WHERE agent_id = ? AND end_seq = 0
 		 ORDER BY idx DESC LIMIT 1`, agentID,
 	).Scan(
 		&t.TurnID, &t.Idx, &t.StartSeq, &startOrd, &t.StartTS, &sessionID, &t.EndSeq, &t.EndTS,
 		&t.DurationMs, &t.Status, &t.CostUSD, &t.InTokens, &t.OutTokens,
-		&t.ToolCount, &t.ToolFailed, &t.ErrorCount,
+		&t.ToolCount, &t.ToolFailed, &t.ErrorCount, &t.IssueCount,
 	)
 	t.StartOrdinal = startOrd.Int64
 	t.SessionID = sessionID.String
@@ -274,7 +291,14 @@ func (s *Server) foldEventIntoDigest(ctx context.Context, team, agent string, se
 }
 
 // finalizeDigestOutcome stamps the digest's terminal outcome when a session
-// stops (ADR-038 §2 — the O(1) terminal-hook step). Best-effort.
+// stops (ADR-038 §2 — the O(1) terminal-hook step) and seals its end-of-run
+// issues. Best-effort.
+//
+// The seal is here because "the run has stopped" is not in the event log: an
+// open turn and a tool call still waiting are perfectly normal a second before
+// the agent exits, and become findings only once it has. Both are idempotent
+// (folder.seal guards on the persisted fold state), so a repeated terminal hook
+// is a no-op.
 func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string) {
 	if agentID == "" {
 		return
@@ -283,13 +307,33 @@ func (s *Server) finalizeDigestOutcome(ctx context.Context, team, agentID string
 	if err != nil {
 		return
 	}
-	outcome := s.deriveDigestOutcome(ctx, team, agentID)
-	if outcome == "" || outcome == d.Outcome {
+	dw, err := s.digestWriter(team)
+	if err != nil {
 		return
 	}
-	d.Outcome = outcome
-	if dw, err := s.digestWriter(team); err == nil {
-		_ = saveAgentDigest(ctx, dw, d)
+
+	// Seal first: the open turn it annotates is loaded from the same store the
+	// write goes to, so the turn row and the digest stay consistent.
+	open, nextIdx, err := loadOpenTurn(ctx, dw, agentID)
+	if err != nil {
+		return
+	}
+	f := newDigestFolder(d)
+	f.open, f.nextIdx = open, nextIdx
+	changed := f.seal()
+
+	if outcome := s.deriveDigestOutcome(ctx, team, agentID); outcome != "" && outcome != d.Outcome {
+		d.Outcome = outcome
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	if err := saveAgentDigest(ctx, dw, d); err != nil {
+		return
+	}
+	if f.open != nil {
+		_ = saveTurnRow(ctx, dw, agentID, d.TeamID, f.open)
 	}
 }
 
@@ -424,7 +468,21 @@ func (s *Server) backfillAgentDigest(ctx context.Context, agentID, teamID string
 	if err != nil {
 		return nil, err
 	}
-	d, turns := computeAgentDigest(agentID, teamID, events)
+	// Carry the terminal stamp across the refold. `outcome` is written by the
+	// terminal hook, not by the fold, so recomputing from the event log alone
+	// would silently clear it — and every schema bump refolds every sealed
+	// digest, so the loss would be fleet-wide and permanent (the hook only ever
+	// runs once, when the session stops). It also decides whether to re-apply
+	// the seal, keeping a refolded digest equal to the incremental one.
+	prior, hadPrior := (*agentDigest)(nil), false
+	if dr, derr := s.digestReader(teamID); derr == nil {
+		prior, hadPrior, _ = loadAgentDigest(ctx, dr, agentID)
+	}
+	terminal := hadPrior && prior.Outcome != ""
+	d, turns := computeAgentDigestTerminal(agentID, teamID, events, terminal)
+	if terminal {
+		d.Outcome = prior.Outcome
+	}
 
 	dw, err := s.digestWriter(teamID)
 	if err != nil {

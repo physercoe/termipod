@@ -184,6 +184,7 @@ func mergeDigest(dst, src *agentDigest) {
 	dst.TurnCount += src.TurnCount
 	dst.CostUSD += src.CostUSD
 	dst.ErrorCount += src.ErrorCount
+	dst.IssueCount += src.IssueCount
 	dst.ToolTotal += src.ToolTotal
 	dst.ToolFailed += src.ToolFailed
 	if src.WatermarkSeq > dst.WatermarkSeq {
@@ -213,6 +214,33 @@ func mergeDigest(dst, src *agentDigest) {
 		if d == nil {
 			d = &errorClassAgg{}
 			dst.Errors[class] = d
+		}
+		d.Count += c.Count
+		for i, seq := range c.SampleSeqs {
+			var ts, label string
+			var ord int64
+			if i < len(c.SampleOrdinals) {
+				ord = c.SampleOrdinals[i]
+			}
+			if i < len(c.SampleTSs) {
+				ts = c.SampleTSs[i]
+			}
+			if i < len(c.SampleLabels) {
+				label = c.SampleLabels[i]
+			}
+			addSampleTS(&d.SampleSeqs, &d.SampleOrdinals, &d.SampleTSs, &d.SampleLabels, seq, ord, ts, label)
+		}
+	}
+	// Issues merge exactly like Errors — same aligned-sample discipline, same
+	// cap — so a resumed session's drawer reads as one run's findings.
+	for class, c := range src.Issues {
+		d := dst.Issues[class]
+		if d == nil {
+			d = &issueClassAgg{Severity: c.Severity}
+			dst.Issues[class] = d
+		}
+		if d.Severity == "" {
+			d.Severity = issueSeverityOf(class)
 		}
 		d.Count += c.Count
 		for i, seq := range c.SampleSeqs {
@@ -266,9 +294,16 @@ func digestJSON(d *agentDigest) map[string]any {
 		"by_model":      d.ByModel,
 		"error_count":   d.ErrorCount,
 		"errors":        d.Errors,
-		"tool_total":    d.ToolTotal,
-		"tool_failed":   d.ToolFailed,
-		"tools":         d.Tools,
+		// Structural findings (digest_issues.go), beside the reported errors —
+		// never merged into them. issue_worst_severity is the rollup the
+		// clients' stat chip tints itself with, so neither has to hard-code the
+		// class → severity table.
+		"issue_count":          d.IssueCount,
+		"issues":               d.Issues,
+		"issue_worst_severity": worstIssueSeverity(d.Issues),
+		"tool_total":           d.ToolTotal,
+		"tool_failed":          d.ToolFailed,
+		"tools":                d.Tools,
 		"latency": map[string]any{
 			"p50_ms":  histogramPercentile(d.Latency, 0.50),
 			"p95_ms":  histogramPercentile(d.Latency, 0.95),

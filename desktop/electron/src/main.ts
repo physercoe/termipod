@@ -15,6 +15,7 @@ import path from 'node:path';
 import './schemes'; // registers privileged app:// + drawio:// before app ready
 import { APP_ORIGIN, registerAppScheme } from './appscheme';
 import { registerDrawioScheme } from './drawio';
+import { registerMediaScheme } from './mediascheme';
 import { installHubCors } from './hubcors';
 import { setupWebtab } from './webtab';
 import { startKeychainMigration } from './ipc/keychain';
@@ -127,6 +128,10 @@ if (!app.requestSingleInstanceLock()) {
     initEvents();
     registerAppScheme(session.defaultSession, DIST);
     registerDrawioScheme(session.defaultSession);
+    // defaultSession ONLY: webview guests run in isolated partitions, so
+    // untrusted remote content has no handler for this scheme and cannot reach
+    // the local filesystem through it.
+    registerMediaScheme(session.defaultSession);
     // Let the renderer's app:// origin reach the hub directly (renderer-direct
     // transport; plan §7 rows 1–2) — no Rust proxy.
     installHubCors(session.defaultSession);

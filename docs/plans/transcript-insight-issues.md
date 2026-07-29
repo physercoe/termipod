@@ -1,7 +1,8 @@
 # Transcript P5 wedge — session integrity issues + streaming-markdown efficiency
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — **A1 + A3 shipped**; A2 + Track B open
+> **Status:** In progress (2026-07-29) — **Track A shipped (A1·A2·A3)**;
+> Track B open
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `a402423f`
 > **Parent:** [agent-transcript-redesign.md](agent-transcript-redesign.md) §P5
@@ -254,6 +255,14 @@ plan: mobile state surfaces are bottom sheets, not docks/rails):
 │  8 checks · engine kimi-code-ts · v7     │  ← footer: provenance line
 ╰──────────────────────────────────────────╯
 ```
+
+**Shipped.** The reading logic is a pure module,
+`lib/widgets/transcript/digest_issues.dart`, mirroring the desktop reader
+one-for-one with the *same test assertions on both sides* — that is how the
+parity anchor is enforced rather than merely stated. The sheet is
+`lib/widgets/transcript/issues_sheet.dart`; the `RunReportCard` stat opens it.
+The lens-bar badge (entry point 2 below) is **not** in this slice — the stat is,
+and it proves the taxonomy first.
 
 - `DraggableScrollableSheet`, initial ~55% height, drag to full; list is
   grouped **severity-first, then class** (vis's sort), each class row

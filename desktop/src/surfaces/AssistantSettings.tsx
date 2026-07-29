@@ -4,6 +4,7 @@ import { Icon } from '../ui/Icon';
 import { invoke } from '../bridge';
 import { isShell } from '../platform';
 import { useAssistant } from '../state/assistant';
+import { useBrowserBridge } from '../state/browserBridge';
 import { useWorkbench } from '../state/workbench';
 import { kindForInspectFile, useInspect } from '../state/inspect';
 import { localHome, localList, localRead } from '../state/localfs';
@@ -96,6 +97,7 @@ export function AssistantSettings(): JSX.Element {
   const shell = isShell();
   const setJob = useWorkbench((s) => s.setJob);
   const { open: dockOpen, setOpen } = useAssistant();
+  const bridge = useBrowserBridge();
   const [status, setStatus] = useState<{ running: boolean } | null>(null);
   const [sections, setSections] = useState<Sections | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +111,9 @@ export function AssistantSettings(): JSX.Element {
     loadSections()
       .then((s) => !cancelled && setSections(s))
       .catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
+    // Reflect the bridge server's real state (the toggle is the setting;
+    // `running` is the fact) — e.g. after a bind failure rolled it back.
+    void useBrowserBridge.getState().refreshStatus();
     return () => {
       cancelled = true;
     };
@@ -188,6 +193,24 @@ export function AssistantSettings(): JSX.Element {
           <Icon name="globe" size={13} /> {dockOpen ? t('assistant.hide') : t('assistant.openDock')}
         </button>
       </div>
+
+      <h4 className="assistant-cfg-h">{t('assistant.secBridge')}</h4>
+      <div className="assistant-cfg-row">
+        <div className="assistant-cfg-main">
+          <span className="assistant-cfg-label">{t('assistant.bridgeToggle')}</span>
+          <span className="small muted">{t('assistant.bridgeBlurb')}</span>
+        </div>
+        <input type="checkbox" checked={bridge.enabled} onChange={(e) => bridge.setEnabled(e.target.checked)} />
+      </div>
+      {bridge.enabled && (
+        <div className="assistant-cfg-row">
+          <div className="assistant-cfg-main">
+            <span className={`pill small ${bridge.running ? 'ok' : ''}`}>
+              {bridge.running ? t('assistant.bridgeRunning') : t('assistant.bridgeStopped')}
+            </span>
+          </div>
+        </div>
+      )}
 
       {error !== null && <div className="error small">{error}</div>}
       {sections === null ? (

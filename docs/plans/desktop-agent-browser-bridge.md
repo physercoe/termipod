@@ -1,7 +1,12 @@
 # Desktop agent browser bridge — MCP-driven webtabs (WebBridge model, MCP-native)
 
 > **Type:** plan
-> **Status:** Draft — for maintainer review (ticket #455)
+> **Status:** In progress (2026-07-29) — **W1 shipped**: the read-only bridge
+> (`browser_list_tabs`/`browser_snapshot`/`browser_screenshot`/
+> `browser_read_text`), desktop toggle (Settings → Assistant, default off),
+> discovery file, hostrunner injection for all four families (read scope),
+> stdio relay, unit + Playwright e2e coverage. W2 (action tools + audit) and
+> W3 (hub relay) remain as written below.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** origin/main `f02b8a83`; kimi-code 0.28.1 verified
 > on-host (macOS arm64)

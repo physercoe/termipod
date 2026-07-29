@@ -50,6 +50,12 @@ async function boot(): Promise<void> {
   // Chromium/Electron has no default right-click menu; add a native
   // Cut/Copy/Paste fallback for surfaces without their own (electron-only).
   installNativeContextMenu();
+  // Push the persisted browser-bridge toggle to the main process (no-op when
+  // off — the default). Imported dynamically with the app graph so its store
+  // reads localStorage AFTER the migration restore above; the main side owns
+  // the server + discovery file.
+  const { syncBrowserBridgeToMain } = await import('./state/browserBridge');
+  syncBrowserBridgeToMain();
 }
 
 void boot();

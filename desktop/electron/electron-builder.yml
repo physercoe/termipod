@@ -54,6 +54,11 @@ extraResources:
     to: dist
   - from: ../vault-wasm/pkg
     to: vault-wasm/pkg
+  # The browser bridge's agent-side stdio relay (plan W1 §3.4): the hostrunner
+  # points injected MCP configs at this absolute path (via the discovery
+  # file's bridge_path), so it must sit OUTSIDE the asar as a real file.
+  - from: resources/browser_bridge_stdio.mjs
+    to: browser_bridge_stdio.mjs
 
 # electron-updater feed (M3.2/M3.4). NOT the GitHub provider: that resolves the
 # update via GitHub's `releases/latest`, which in this shared repo belongs to

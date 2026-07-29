@@ -40,6 +40,7 @@ import { webtabHandlers } from '../webtab';
 import { kimiwebHandlers } from '../kimiweb';
 import { kimiwebWinHandlers } from '../kimiwebwin';
 import { rerunHandlers } from '../rerun';
+import { browserBridgeHandlers } from '../browserbridge_host';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -77,6 +78,7 @@ const handlers: Record<string, Handler> = {
   ...kimiwebHandlers,
   ...kimiwebWinHandlers,
   ...rerunHandlers,
+  ...browserBridgeHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

@@ -1,9 +1,9 @@
 # J8 Replay — datasets, episodes & multimodal rollout analysis (embodied pilot, round 1)
 
 > **Type:** plan
-> **Status:** Draft (2026-07-27) — for fleet implementation
+> **Status:** In progress (2026-07-29) — W1a/W1b/W1c shipped, W1d next
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `f3d4a0f8`
+> **Last verified vs code:** origin/main `70a3c7ed` (W1b merged)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -206,6 +206,78 @@ cannot even *see* a dataset).
 roots first) get an **Open in Replay** context-menu action (#393's menu
 machinery) → registers (idempotent) + jumps to J8 with the dataset selected.
 Mirror of §5a's "a config.json from any source flips to the ArchCard".
+
+### W1 as shipped (2026-07-29)
+
+W1 is three subsystems plus a handoff, so it landed as four wedges:
+
+| | | |
+|---|---|---|
+| **W1a** | #446 | `hub/internal/hostrunner/datasetmeta/` — format sniff, v2.1 + v3.0 readers, digest fold, windowed episodes |
+| **W1b** | #447 | hub `datasets` entity (migration 0068) + REST CRUD + `host.dataset_digest` / `host.dataset_episodes` verbs |
+| **W1c** | #448 | desktop **J8 Replay** job — library rail, digest card, paged episodes table, inline register form |
+| **W1d** | open | the Inspect handoff |
+
+**W1d is still open, and it is bigger than the plan implied.** §4 assumed
+#393's menu machinery covered it; `InspectTree` in fact has only
+*root-level* and *panel-level* context menus, with no per-file row menu at
+all. Building that is the wedge. W1c ships an inline register form so the
+surface is usable without it — and that form stays afterwards as the
+escape hatch for a root that is not open in a tree.
+
+### What the real LeRobot fixtures corrected
+
+The plan's §2 format notes were right about layout and wrong about
+prevalence, and the details that actually break readers were not
+predictable from the docs. All of the below came from pinned real `meta/`
+trees (`datasetmeta/testdata/fetch-fixtures.sh`):
+
+- **v3.0 is the dominant format now**, not the newer edge case. Every
+  canonical `lerobot/*` dataset on HF `main` is v3.0. Usefully, both
+  generations survive as *tags on the same repo*, which is what makes the
+  cross-generation tests below possible at all.
+- **`names` has three shapes in a single file** — `null`, a list, and an
+  object (`{"motors": [...]}`). A `[]string` field fails the whole
+  `info.json` parse on the third. Feature dimension therefore comes from
+  `shape`, never `len(names)`: `names` is null on every scalar feature.
+- **A v3.0 column named `data/chunk_index` is one flat name containing a
+  slash**, not a nested group. Reading it as a path finds nothing — and
+  finding nothing is indistinguishable from "this dataset has no offsets".
+  Repeated columns are the exception: `["tasks", "list", "element"]`.
+- **`tasks.parquet`'s task-string column name is not stable.** Curated
+  `lerobot/*` datasets leave it in the pandas artifact
+  `__index_level_0__`; a freshly recorded community dataset names it
+  `task`. Curated-only fixtures would have hardcoded the first and broken
+  on most real datasets.
+- **v2.1 ships no `meta/stats.json`** — that file arrives with v3.0. The
+  dataset-level statistics have to be folded from
+  `meta/episodes_stats.jsonl` (count-weighted mean; standard deviation
+  recovered from the second moment). Checked rather than assumed: folding
+  a dataset's v2.1 stats reproduces the *same dataset's* v3.0
+  `stats.json` across all 10 features to 2.5e-9 — float round-off.
+
+That last one is the wedge's strongest test, and it is not an A==B
+tautology: different files, different formats, different decoders, no
+shared code below the comparison.
+
+**Toolchain constraint:** `parquet-go` is pinned to **v0.25.0**. v0.26.0
+is the first release whose go directive is 1.24.9, and `hub/go.mod` plus
+both CI workflows are on 1.23. Raising it needs the toolchain bump first.
+
+### Amendments to §11's decisions
+
+- **Decision #4 (manual refresh + staleness indicator) is half-shipped.**
+  W1b stores `fingerprint_json` (files, bytes, newest mtime) at fold time,
+  but nothing re-stats to compare it, so there is no "digest may be stale"
+  hint yet. The UI shows `as of <ts>` plus a manual Refresh, which is
+  honest but is not the decision. Wiring the comparison needs one more
+  cheap host round-trip and belongs with W2.
+- **Decision #1 (host-side per-episode extraction) is unverified.** The
+  v3.0 episode metadata does carry what it needs —
+  `dataset_from_index`/`dataset_to_index` for rows and per-video
+  `from_timestamp`/`to_timestamp` for seconds — but whether episodes start
+  on keyframes, which is what makes `ffmpeg -ss/-to -c copy` near-free,
+  still has to be checked against real v3 video files at W2.
 
 ## 5. W2 — Episode player: synced video + channel plots (BUILD, local-first)
 

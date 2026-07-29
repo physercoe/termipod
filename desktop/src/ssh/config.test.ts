@@ -62,3 +62,44 @@ test('exportSshConfig: duplicate names disambiguated, blank name falls back to h
     ['dev', 'dev-2', 'box.example.com'],
   );
 });
+
+test('parseSshConfig: ProxyJump variants — bare, user@host:port, brackets, chain and none skipped', () => {
+  const hosts = parseSshConfig(`
+Host plain
+  HostName t1
+  ProxyJump bastion.example.com
+Host full
+  HostName t2
+  ProxyJump jump@bastion.example.com:2200
+Host v6
+  HostName t3
+  ProxyJump [2001:db8::1]:2222
+Host chain
+  HostName t4
+  ProxyJump a.example.com,b.example.com
+Host disabled
+  HostName t5
+  ProxyJump none
+`);
+  const by = Object.fromEntries(hosts.map((h) => [h.name, h]));
+  assert.deepEqual(
+    [by.plain.jumpHost, by.plain.jumpPort, by.plain.jumpUser],
+    ['bastion.example.com', null, null],
+  );
+  assert.deepEqual([by.full.jumpHost, by.full.jumpPort, by.full.jumpUser], ['bastion.example.com', 2200, 'jump']);
+  assert.deepEqual([by.v6.jumpHost, by.v6.jumpPort], ['2001:db8::1', 2222]);
+  // One jump slot in the model: chains and `none` import as no jump at all.
+  assert.equal(by.chain.jumpHost, null);
+  assert.equal(by.disabled.jumpHost, null);
+});
+
+test('exportSshConfig → parseSshConfig round-trips the jump hop', () => {
+  const text = exportSshConfig([conn({ jumpHost: 'bastion.example.com', jumpUsername: 'jump', jumpPort: 2200 })]);
+  const [h] = parseSshConfig(text);
+  assert.equal(h.jumpHost, 'bastion.example.com');
+  assert.equal(h.jumpPort, 2200);
+  assert.equal(h.jumpUser, 'jump');
+  // Default jump port is omitted on export and comes back null on parse.
+  const [d] = parseSshConfig(exportSshConfig([conn({ jumpHost: 'b.example.com' })]));
+  assert.deepEqual([d.jumpHost, d.jumpPort, d.jumpUser], ['b.example.com', null, null]);
+});

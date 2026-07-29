@@ -80,6 +80,20 @@ export async function importSshConfig(
       username: h.user,
       authMethod: h.identityFile !== null ? 'key' : 'password',
       keyId,
+      // ProxyJump imports as a password-auth jump (configs carry no jump
+      // credentials; connect falls back to the main password). When the config
+      // has no ProxyJump the keys are OMITTED, not nulled — a re-import must
+      // not wipe a hand-configured jump/proxy (presence-keyed carry-over in
+      // upsertConnection).
+      ...(h.jumpHost !== null
+        ? {
+            jumpHost: h.jumpHost,
+            jumpPort: h.jumpPort ?? 22,
+            jumpUsername: h.jumpUser,
+            jumpAuthMethod: 'password',
+            jumpKeyId: null,
+          }
+        : {}),
     });
   }
   return { count: parsed.length, keysAdded };

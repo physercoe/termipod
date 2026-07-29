@@ -11,6 +11,40 @@ export interface ParsedSshHost {
   user: string;
   port: number;
   identityFile: string | null;
+  // ProxyJump, single-hop only (the connection model holds one jump host —
+  // comma chains are skipped rather than half-imported).
+  jumpHost: string | null;
+  jumpPort: number | null;
+  jumpUser: string | null;
+}
+
+/// Parse one ProxyJump destination: `[user@]host[:port]`, with `[v6addr]:port`
+/// bracket syntax. Returns null for chains (commas), `none`, and empty values.
+export function parseProxyJump(val: string): { host: string; port: number | null; user: string | null } | null {
+  const v = val.trim();
+  if (v === '' || v.toLowerCase() === 'none' || v.includes(',')) return null;
+  const at = v.lastIndexOf('@');
+  const user = at > 0 ? v.slice(0, at) : null;
+  let rest = at > 0 ? v.slice(at + 1) : v;
+  let port: number | null = null;
+  const bracket = rest.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (bracket !== null) {
+    rest = bracket[1];
+    if (bracket[2] !== undefined) port = Number(bracket[2]);
+  } else {
+    const colon = rest.lastIndexOf(':');
+    // A lone colon splits host:port; more than one without brackets is a bare
+    // IPv6 address, which has no port to split off.
+    if (colon > 0 && rest.indexOf(':') === colon) {
+      const p = Number(rest.slice(colon + 1));
+      if (Number.isFinite(p) && p > 0) {
+        port = p;
+        rest = rest.slice(0, colon);
+      }
+    }
+  }
+  if (rest === '') return null;
+  return { host: rest, port, user };
 }
 
 /// Parse an OpenSSH client config (`~/.ssh/config`). Handles the common
@@ -35,7 +69,10 @@ export function parseSshConfig(text: string): ParsedSshHost[] {
       flush();
       // A Host line can list several patterns; take the first concrete one.
       const alias = val.split(/\s+/).find((p) => !p.includes('*') && !p.includes('?'));
-      cur = alias !== undefined ? { name: alias, host: alias, user: '', port: 22, identityFile: null } : null;
+      cur =
+        alias !== undefined
+          ? { name: alias, host: alias, user: '', port: 22, identityFile: null, jumpHost: null, jumpPort: null, jumpUser: null }
+          : null;
     } else if (key === 'match') {
       flush();
       cur = null; // Match blocks aren't concrete hosts.
@@ -46,6 +83,12 @@ export function parseSshConfig(text: string): ParsedSshHost[] {
         const p = Number(val);
         if (Number.isFinite(p) && p > 0) cur.port = p;
       } else if (key === 'identityfile') cur.identityFile = val;
+      else if (key === 'proxyjump') {
+        const j = parseProxyJump(val);
+        cur.jumpHost = j?.host ?? null;
+        cur.jumpPort = j?.port ?? null;
+        cur.jumpUser = j?.user ?? null;
+      }
     }
   }
   flush();

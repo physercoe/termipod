@@ -7,6 +7,11 @@
 /// Two partitions are allowed today:
 ///   - `persist:webtab` — the Read surface's browser tab. Persistent, any
 ///     http(s) origin, safe `target=_blank` stays in-tab (reading flow).
+///   - `rerunweb` — the Rerun viewer companion (J8 Replay W4). NON-persistent:
+///     it hosts a locally-served recording and has nothing worth keeping on
+///     disk between sessions. Same posture as kimiweb — loopback-pinned top
+///     frame, window-open never in-tab — because it is the same kind of guest:
+///     a third-party web UI we start ourselves and point at a local server.
 ///   - `kimiweb` — embedded agent web UIs (`kimi web`). NON-persistent: the
 ///     bearer token rides the URL hash (`#token=…`), and a persistent partition
 ///     would keep it in guest history on disk; the token is re-captured at each
@@ -31,6 +36,7 @@ export interface PartitionPolicy {
 
 export const WEBTAB_PARTITION = 'persist:webtab';
 export const KIMIWEB_PARTITION = 'kimiweb';
+export const RERUNWEB_PARTITION = 'rerunweb';
 
 export function isHttpUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
@@ -52,6 +58,11 @@ export function isLoopbackHttpUrl(url: string): boolean {
 export const PARTITION_POLICIES: readonly PartitionPolicy[] = [
   { partition: WEBTAB_PARTITION, allowTopFrame: isHttpUrl, windowOpen: 'inline' },
   { partition: KIMIWEB_PARTITION, allowTopFrame: isLoopbackHttpUrl, windowOpen: 'external' },
+  // Deliberately identical to kimiweb rather than looser. The rerun viewer is
+  // served from the same machine that holds the recording, so it never needs a
+  // remote origin, and a new partition must not relax the policy the existing
+  // ones set (the plan's partition-discipline anchor).
+  { partition: RERUNWEB_PARTITION, allowTopFrame: isLoopbackHttpUrl, windowOpen: 'external' },
 ];
 
 /// The allowlist lookup — `null` means the partition may not host a guest at

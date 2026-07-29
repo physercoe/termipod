@@ -8,21 +8,52 @@ import assert from 'node:assert/strict';
 import {
   buildGuestMenuTemplate,
   KIMIWEB_PARTITION,
+  RERUNWEB_PARTITION,
   WEBTAB_PARTITION,
   isLoopbackHttpUrl,
   partitionPolicy,
   type GuestMenuContext,
 } from './webtab_policy.ts';
 
-test('allowlist: webtab + kimiweb are allowed, everything else is rejected', () => {
+test('allowlist: webtab + kimiweb + rerunweb are allowed, everything else is rejected', () => {
   assert.ok(partitionPolicy(WEBTAB_PARTITION) !== null);
   assert.ok(partitionPolicy(KIMIWEB_PARTITION) !== null);
+  assert.ok(partitionPolicy(RERUNWEB_PARTITION) !== null);
   // …including the default session (where the app:// scheme handlers and the
   // hub-CORS bearer injection live) and any other persistent partition.
   assert.equal(partitionPolicy(''), null);
   assert.equal(partitionPolicy('default'), null);
   assert.equal(partitionPolicy('persist:evil'), null);
   assert.equal(partitionPolicy('webtab'), null); // missing the persist: prefix
+});
+
+test('rerunweb policy: a new partition must not relax the existing ones', () => {
+  // The plan's partition-discipline anchor, as an assertion. The Rerun viewer
+  // is served from the same machine that holds the recording, so it never needs
+  // a remote origin — and the whole promise of "another web UI is one registry
+  // row" only holds if a new row cannot quietly widen the policy.
+  const p = partitionPolicy(RERUNWEB_PARTITION)!;
+  const kimi = partitionPolicy(KIMIWEB_PARTITION)!;
+  assert.equal(p.windowOpen, kimi.windowOpen);
+  assert.equal(p.windowOpen, 'external');
+  // The URL the companion actually loads: loopback, our chosen port, the
+  // recording named in the query string.
+  assert.ok(p.allowTopFrame('http://127.0.0.1:9090?url=rerun%2Bhttp://127.0.0.1:9876/proxy'));
+  assert.ok(p.allowTopFrame('http://localhost:9090/'));
+  // Everything the kimiweb row refuses, this one refuses identically —
+  // including rerun's own hosted viewer, which would ship the recording's URL
+  // to a third party.
+  for (const url of [
+    'https://app.rerun.io/',
+    'https://example.com/',
+    'http://127.0.0.1.evil.com/',
+    'http://169.254.169.254/latest/meta-data',
+    'http://0.0.0.0:9090/',
+    'file:///etc/passwd',
+  ]) {
+    assert.equal(p.allowTopFrame(url), false, url);
+    assert.equal(kimi.allowTopFrame(url), false, url);
+  }
 });
 
 test('webtab policy: any http(s) top frame, popups may stay in-tab', () => {

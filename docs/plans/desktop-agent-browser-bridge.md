@@ -24,7 +24,7 @@ gated action tools; W3 relays through the hub for remote hosts.
 service with a Chrome extension; the agent sends commands to the service,
 which drives the user's real Chrome/Edge over CDP. Verified against the
 installed kimi-code 0.28.1 binary (`~/.kimi-code/bin/kimi`): WebBridge appears
-only as a **pinned marketplace promo** (`id: "kimi-webbridge"`,
+only as a pinned marketplace promo (`id: "kimi-webbridge"`,
 `mime: application/x-google-chrome-extension`, status "open in browser" →
 `WEB_BRIDGE_URL = https://www.kimi.com/features/webbridge#local-agent`). The
 CLI ships **no WebBridge client** — the driving agent is Kimi Work / the Kimi
@@ -73,7 +73,7 @@ Guests are already locked down in main (`webtab.ts` +
 - `kimiweb` (embedded `kimi web` SPA): top frame pinned to loopback, popups
   external only.
 
-The bridge drives guests **through the same policy object** — it inherits the
+The bridge drives guests through the same policy object — it inherits the
 rules instead of bypassing them.
 
 ### 1.3 The tool-delivery channel exists today
@@ -151,11 +151,17 @@ Electron-free core + thin main wiring, mirroring `kimiweb.ts`'s structure
   on quit. The hostrunner reads it at spawn time (§3.4); a stale file (dead
   pid) is ignored and removed.
 - **Target registry**: guests discovered via
-  `webContents.getAllWebContents()` filtered to `session.fromPartition(
-  WEBTAB_PARTITION | KIMIWEB_PARTITION)`, plus `did-attach`/`destroyed`
-  tracking. Each target gets a stable `tabId` (webContents id), `url`,
-  `title`, `partition`. The shell and any non-allowlisted partition are
-  unreachable by construction — the registry never contains them.
+  `webContents.getAllWebContents()` filtered against the
+  `webtab_policy.ts` allowlist — each `PartitionPolicy` entry gains an
+  explicit `bridge: 'full' | 'read' | 'none'` capability so a future
+  partition (e.g. J8 W4's `rerunweb`) makes a deliberate bridge choice
+  instead of being silently included or excluded — plus
+  `did-attach`/`destroyed` tracking. Initial policy: `persist:webtab` →
+  `full`, `kimiweb` → `read` (see §3.5 on why kimiweb is never
+  action-drivable). Each target gets a stable `tabId` (webContents id),
+  `url` (fragment always stripped — §3.5), `title`, `partition`. The
+  shell and any non-allowlisted partition are unreachable by
+  construction — the registry never contains them.
 - **Debugger sessions**: `wc.debugger.attach('1.3')` lazily on first tool
   call against a target, `detach` on target destroyed; one session per
   target. If the user (or devtools) already attached, surface a clear
@@ -168,7 +174,7 @@ experience transfers. Two classes with separate gates (§3.5):
 
 | Tool | Class | CDP backing | Returns |
 |---|---|---|---|
-| `browser_list_tabs` | read | registry | `[{tabId, url, title, partition, borrowed?}]` |
+| `browser_list_tabs` | read | registry | `[{tabId, url, title, partition, borrowed?}]` (url fragment stripped — §3.5) |
 | `browser_snapshot` | read | `Accessibility.getFullAXTree` | compact AX tree (roles/names/values, `@eN` refs on interactive nodes) |
 | `browser_screenshot` | read | `Page.captureScreenshot` | PNG (image content) |
 | `browser_read_text` | read | `Runtime.evaluate` (innerText, Readability-style main-content slice) | text (bounded, default 8k chars) |
@@ -203,8 +209,9 @@ result is capped.
 Entry shape (mirrors the hub bridge): `command: "node"`,
 `args: ["<appResources>/browser_bridge_stdio.mjs"]`,
 `env: {TP_BROWSER_URL, TP_BROWSER_TOKEN, TP_BROWSER_SCOPE}`. `node` is
-already a de-facto requirement of the engine fleet (claude/codex/kimi all
-ship as node packages); when node is absent the entry is skipped with a
+usually present where the engine fleet runs (claude-code, kimi-code-ts and
+gemini-cli are node packages; codex is a native `codex-rs` binary, so node
+is NOT implied by it); when node is absent the entry is skipped with a
 spawn-log note, never a failure. The stdio script is plain-node-runnable
 (no Electron runtime), keeping the agent-side process ~10 MB, not a second
 Electron.
@@ -230,6 +237,22 @@ unverified, and env carries the token more safely than a config-file URL.
   checked against `isLoopbackHttpUrl` (its partition policy); `webtab`
   targets allow http(s) only. No tool can change partition, open windows,
   or reach `chrome://`/devtools.
+- **Fragment redaction (kimiweb token)**: the kimiweb embed URL carries its
+  bearer token in the hash — `http://127.0.0.1:<port>/#token=<tok>`
+  (`kimiweb.ts`; the very reason `webtab_policy.ts` makes the partition
+  non-persistent is to keep that token off disk). The bridge therefore
+  **never emits a URL fragment anywhere**: `browser_list_tabs` rows,
+  `browser_navigate` results, and error hints all strip the fragment
+  before returning. Without this, the most basic W1 read tool would hand
+  every bridge-injected agent a token that controls the kimi web session.
+- kimiweb is read-only for the bridge (`bridge: 'read'`, §3.2): the
+  kimiweb guest hosts an agent's chat UI, so `browser_type`/`browser_click`
+  there would let one bridge-enabled agent submit prompts into another
+  agent's session with the user's authority — cross-agent prompt injection
+  by construction, and the loopback navigation pin does nothing to stop
+  typing. Action tools refuse kimiweb targets with `PARTITION_READ_ONLY`;
+  if a real workflow ever needs it, W3's per-call approval card is the
+  gate to revisit under, not the spawn-time flag.
 - **Prompt-injection posture**: web content read by `browser_snapshot` /
   `browser_read_text` / `browser_eval` results is untrusted input to the
   agent. Tool descriptions say so explicitly (the MCP-tool-description
@@ -247,10 +270,11 @@ unverified, and env carries the token more safely than a config-file URL.
   `TARGET_GONE` with a fresh `browser_list_tabs` hint.
 - Two agents on the same tab: last-writer-wins (same as two humans); the
   audit trail disambiguates. No locking in W1/W2.
-- `kimiweb` target is drivable but flagged in `browser_list_tabs`
-  (`partition: "kimiweb"`) — it hosts the agent's own web UI; read tools
-  are genuinely useful (self-debugging), action tools allowed but
-  policy-pinned to loopback anyway.
+- `kimiweb` target is listed and readable (`partition: "kimiweb"`,
+  fragment-stripped URL) — read tools are genuinely useful
+  (self-debugging) — but action tools refuse it (`PARTITION_READ_ONLY`,
+  §3.5): it hosts an agent chat UI, and driving it would mean one agent
+  prompting another with user authority.
 
 ## 4. Wedges
 
@@ -262,8 +286,9 @@ registry filter, AX compaction, policy checks, token auth) + Playwright e2e
 (spawn a real guest, drive `browser_list_tabs`/`browser_snapshot` over
 stdio). Docs: desktop README + this plan's status header.
 
-**W2 — action tools + audit.** The five action tools behind spawn opt-in;
-partition-policy enforcement on navigate; hub `agent_events` audit entries
+**W2 — action tools + audit.** The action tool set (§3.3) behind spawn
+opt-in; partition-policy enforcement on navigate + kimiweb action refusal
+(§3.5); hub `agent_events` audit entries
 per action call (who/what/which tab/which args, redacting typed text);
 Settings "last 50 bridge actions" debug view.
 
@@ -276,7 +301,10 @@ per-session from the desktop.
 ## 5. Testing
 
 - **Unit (node --test, electron-free core)**: MCP handshake/tool listing
-  per scope; registry partition filter (shell never listed); AX-tree
+  per scope; registry partition filter (shell never listed); **fragment
+  redaction** (a `#token=…` URL never appears in any tool output — the
+  regression test for the kimiweb token); kimiweb action refusal
+  (`PARTITION_READ_ONLY` for every action tool); AX-tree
   compaction (bounded size, stable node ids); navigate policy table
   (webtab http(s) ok / kimiweb loopback only / non-http refused); discovery
   file lifecycle (fresh/stale/dead-pid); token auth (401 without bearer).

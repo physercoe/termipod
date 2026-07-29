@@ -2565,6 +2565,41 @@ paths:
                   config: { type: object, nullable: true }
                   updated_at: { type: string }
 
+  /v1/teams/{team}/runs/{run}/dataset_hint:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    get:
+      tags: [Runs]
+      operationId: getRunDatasetHint
+      summary: What dataset this run's config names, and whether it is registered
+      description: >-
+        Reads the run's logged config (falling back to the frozen one) for a
+        LeRobot-style dataset field, and resolves it against the datasets
+        already registered in the run's project. Read-only and advisory —
+        linking is PATCH /runs/{run} with dataset_id. `hint` is null when the
+        config names no dataset, which is most runs.
+      responses:
+        "200":
+          description: Hint (null when the config names no dataset)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hint:
+                    nullable: true
+                    allOf: [{ $ref: "#/components/schemas/DatasetHint" }]
+                  dataset_id:
+                    type: string
+                    description: >-
+                      The registered dataset at the hinted location, or absent
+                      when the project has never registered it.
+                  linked_dataset_id:
+                    type: string
+                    description: The dataset already linked to this run, if any.
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/teams/{team}/runs/{run}/system_metrics:
     parameters:
       - $ref: "#/components/parameters/Team"
@@ -3157,6 +3192,24 @@ components:
         limit: { type: integer, description: Page size actually applied after clamping }
         total: { type: integer, format: int64, description: Episode count as declared by the dataset }
         truncated: { type: boolean, description: The requested limit was clamped down }
+
+    DatasetHint:
+      type: object
+      required: [value, kind, key]
+      properties:
+        value:
+          type: string
+          description: The root path or repo id read out of the run config.
+        kind:
+          type: string
+          enum: [path, repo_id]
+          description: >-
+            How `value` identifies a dataset — a filesystem root matches
+            `root_path` exactly, a repo id matches the dataset name or a root
+            ending in that org/name pair.
+        key:
+          type: string
+          description: The config key it came from, so a wrong proposal is debuggable.
 
     EpisodeSeries:
       type: object
@@ -4094,6 +4147,12 @@ components:
         trackio_host_id: { type: string, nullable: true }
         trackio_run_uri: { type: string, nullable: true }
         parent_run_id: { type: string, nullable: true }
+        dataset_id:
+          type: string
+          nullable: true
+          description: >-
+            The dataset this run trained on or rolled out against (replay plan
+            W5). Set with PATCH; cleared when that dataset is deleted.
         final_metrics_json: { type: object }
 
     RunCreateRequest:

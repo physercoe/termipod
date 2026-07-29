@@ -340,6 +340,15 @@ func (s *Server) handleDeleteDataset(w http.ResponseWriter, r *http.Request) {
 		s.writeDBErr(w, err)
 		return
 	}
+	// Clear the runs that point here first. `runs.dataset_id` carries no
+	// foreign key (0069 — SQLite cannot add one with ALTER TABLE), so nothing
+	// in the schema would cascade, and a dangling id reads downstream as "this
+	// run has a dataset" right up until the episodes fail to load.
+	if _, err := s.writeDB.ExecContext(r.Context(),
+		`UPDATE runs SET dataset_id = NULL WHERE dataset_id = ?`, id); err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
 	if _, err := s.writeDB.ExecContext(r.Context(), `DELETE FROM datasets WHERE id = ?`, id); err != nil {
 		s.writeDBErr(w, err)
 		return

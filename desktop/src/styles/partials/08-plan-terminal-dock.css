@@ -1229,27 +1229,27 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-menu);
-  background: color-mix(in srgb, var(--bg, #0b0b10) 42%, transparent);
+  background: color-mix(in srgb, var(--bg) 42%, transparent);
   cursor: crosshair;
 }
 .annot-hint {
   position: absolute;
-  top: var(--spacing-s16, 16px);
+  top: var(--spacing-s16);
   left: 50%;
   transform: translateX(-50%);
-  padding: 4px var(--spacing-s12, 12px);
+  padding: 4px var(--spacing-s12);
   border: 1px solid var(--border);
   border-radius: var(--radius-stadium);
   background: var(--surface);
-  color: var(--fg, inherit);
+  color: var(--text);
   font-size: var(--font-size-label);
   box-shadow: var(--sh-2);
   pointer-events: none;
   white-space: nowrap;
 }
 .annot-hint.refused {
-  border-color: var(--danger, #e5484d);
-  color: var(--danger, #e5484d);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .annot-selection {
   position: absolute;
@@ -1265,15 +1265,15 @@
 .annot-target {
   position: absolute;
   left: 50%;
-  bottom: var(--spacing-s16, 16px);
+  bottom: var(--spacing-s16);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
   max-width: min(720px, calc(100vw - 48px));
-  padding: var(--spacing-s8) var(--spacing-s12, 12px);
+  padding: var(--spacing-s8) var(--spacing-s12);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--sh-3);
 }
@@ -1282,7 +1282,7 @@
   height: 40px;
   object-fit: cover;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-sm);
   flex: none;
 }
 .annot-note {

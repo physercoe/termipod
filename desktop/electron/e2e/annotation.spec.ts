@@ -38,7 +38,14 @@ declare global {
 
 const MAIN_ENTRY = path.resolve(__dirname, '..', 'out', 'main.cjs');
 const DIST_DIR = path.resolve(__dirname, '..', '..', 'dist');
-const CI_FLAGS = ['--no-sandbox', '--disable-gpu'];
+// `--no-sandbox` (the Chromium setuid sandbox can't run in an unprivileged CI
+// container) and `--disable-gpu` (xvfb has no real GPU — force SwiftShader).
+// `--password-store=basic`: this spec connects a hub profile, which writes the
+// token via safeStorage — on headless Linux there is no dbus/kwallet/libsecret
+// backend and safeStorage.encryptString throws "Encryption is not available"
+// (the connect modal then never closes). The basic_text store needs no system
+// service. macOS uses the Keychain either way, so the flag only bites in CI.
+const CI_FLAGS = ['--no-sandbox', '--disable-gpu', '--password-store=basic'];
 
 const AGENT = {
   id: 'ag_e2e1',

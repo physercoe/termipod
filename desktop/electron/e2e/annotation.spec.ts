@@ -41,10 +41,12 @@ const DIST_DIR = path.resolve(__dirname, '..', '..', 'dist');
 // `--no-sandbox` (the Chromium setuid sandbox can't run in an unprivileged CI
 // container) and `--disable-gpu` (xvfb has no real GPU — force SwiftShader).
 // `--password-store=basic`: this spec connects a hub profile, which writes the
-// token via safeStorage — on headless Linux there is no dbus/kwallet/libsecret
-// backend and safeStorage.encryptString throws "Encryption is not available"
-// (the connect modal then never closes). The basic_text store needs no system
-// service. macOS uses the Keychain either way, so the flag only bites in CI.
+// token via safeStorage — headless Linux has no dbus/kwallet/libsecret, and
+// Electron 43 gates encryptString on IsEncryptionAvailable() =
+// `OSCrypt available || (plaintext opt-in && backend == "basic_text")`
+// (electron_api_safe_storage.cc). The flag pins the backend; the matching
+// opt-in lives main-side in ipc/keychain.ts under TERMIPOD_E2E. macOS uses
+// the Keychain either way, so the flag only bites in CI.
 const CI_FLAGS = ['--no-sandbox', '--disable-gpu', '--password-store=basic'];
 
 const AGENT = {

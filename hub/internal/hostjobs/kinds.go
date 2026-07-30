@@ -40,6 +40,15 @@ const (
 // very job it is meant to stop.
 const KindCancel = "job_cancel"
 
+// ToolLeRobotExport is the host-capabilities key under `tools` carrying the
+// pinned (lerobot, rerun-sdk) pair KindDatasetExportRRD needs.
+//
+// It lives here for the same reason the kinds do: the host-runner writes the
+// entry and the hub reads it to refuse a submission early (ADR-058 §2, the #394
+// soft-degrade), and a key spelled differently on the two sides is a gate that
+// silently never fires.
+const ToolLeRobotExport = "lerobot-export"
+
 // detached is the allowlist itself. Keep it in sync with the constants above —
 // a constant without an entry here runs inline, which for a long computation
 // means blocking the host-runner's single main-loop goroutine.

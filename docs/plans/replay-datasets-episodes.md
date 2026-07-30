@@ -1,16 +1,17 @@
 # J8 Replay — datasets, episodes & multimodal rollout analysis (embodied pilot, round 1)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-30) — W1, W2, W3 and W5 complete;
-> W4 half-landed (W4a); W4b rides the
-> [ADR-058](../decisions/058-host-job-surface.md) host-job surface, whose
-> executor has now landed — what W4b-1 still needs is the
-> `dataset_export_rrd` handler and the desktop wiring; W4b-2 additionally
-> needs blob lifetime
+> **Status:** In progress (2026-07-30) — W1, W2, W3, W5 and **W4** complete
+> in code: W4b rides the
+> [ADR-058](../decisions/058-host-job-surface.md) host-job surface, and its
+> executor, the `dataset_export_rrd` kind and the desktop wiring have all
+> landed. ★ The **render is still unverified** — no rerun viewer has been
+> watched displaying a real `.rrd` (§7 carries the checklist). W4b-2 (remote
+> fetch) additionally needs blob lifetime
 > ([ADR-061](../decisions/061-blob-lifetime.md)) (§7)
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `cb54991a` (W1–W3, W5 complete) ·
-> `8fb89590` (§7's host-job executor claims)
+> `8fb89590` (§7's host-job executor) · `869694ed` (the export kind)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -527,7 +528,7 @@ plugin API, SDK↔viewer lock-step; pin the Rerun version pair in one place).
 Remote episodes ride the same SSH-forward follow-up as W2.
 
 
-### W4 as half-shipped (2026-07-30) — W4a landed; W4b's substrate landed, its export kind has not
+### W4 as shipped in code (2026-07-30) — W4a + W4b-1; the render is unverified
 
 **W4a** (#469) is the desktop half this section describes: a `rerunweb`
 partition row in `webtab_policy.ts`, a pure `rerun_policy.ts` (argv, viewer
@@ -669,12 +670,50 @@ Either sub-wedge needs the host to actually *have* the pinned
 family. Without it the failure mode is a fifteen-minute poll ending in a
 Python traceback.
 
-Until W4b-1 lands, W4a's IPC handlers have **no caller**, which is stated
-rather than dressed up: the panel can host a recording, and nothing yet
-produces one. And no rerun process has ever been started against W4a's
-code (`rerun_policy.ts` says so in its own header), so even W4b-1 ends at
-"produces a file and points the panel at it" — whether the viewer renders
-is unverified until someone runs it.
+**W4b-1 has landed.** The chain is: an "Export to Rerun" button in the
+episode player → `POST /datasets/{id}/export` → a `dataset_export_rrd`
+command row → a 2s poll of `GET /commands/{cmd}` reading `progress` →
+`rerun_start` with `result.path` → a `rerunweb` webview on the loopback
+viewer. The flow's decisions live in a pure module
+(`state/rerunExport.ts`) and are asserted there; `job_cancel` is reachable
+from the UI while the job runs.
+
+Two things about it are worth stating plainly rather than dressing up.
+
+**W4a's IPC handlers now have a caller** — that gap is closed. And a rerun
+process *has* now been launched against W4a's code
+(`electron/src/rerun_spawn.test.ts`), which had never happened: it spawns a
+stub launcher and asserts that `--bind 127.0.0.1` reaches the process's
+**real argv**, not merely the argv builder's output. That matters because
+`WebViewerConfig.bind_ip` defaults to `0.0.0.0`, so the difference between
+those two claims is whether the robot's video is on the network. The
+assertion was mutation-checked by deleting the flag.
+
+**What is still unverified is the render.** Nobody has watched a Rerun
+viewer display a real `.rrd` produced by this path, because it cannot be
+done on the development host: `rerun`, `lerobot` and `torch` are all
+absent, there is no display, and `xvfb-run` is not installed either. Every
+step around the render is covered — the argv, the refusals, the poll
+transitions, artifact discovery, the spawn — and none of that is the same
+as having seen it work. The checklist for whoever runs it first:
+
+1. On the dataset's host, install the pair into one environment and point
+   the runner at it with `--lerobot-viz-cmd` (see
+   [install-host-runner](../how-to/install-host-runner.md)). Confirm
+   `capabilities.tools["lerobot-export"].installed` is true *before*
+   touching the UI — if it is false the `detail` says which half is
+   missing.
+2. Open an episode in Replay, press **Export to Rerun**, and watch the
+   status line move through `probing` → `exporting` → `starting the
+   viewer…`. A stall at `probing` means the capability probe disagrees with
+   the job's own re-check.
+3. Confirm the viewer panel renders the episode — camera streams, states,
+   actions — and not just a blank guest.
+4. While it runs, press **Cancel export** once and confirm the host's
+   exporter process actually dies (the row reports `cancelled`).
+5. `ss -ltnp | grep <the web-viewer port>` must show it bound to
+   `127.0.0.1`, never `0.0.0.0`. The test above pins the flag; this
+   confirms rerun honoured it.
 
 ## 8. W5 — Runs ↔ episodes: eval rollouts become watchable
 

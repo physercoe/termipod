@@ -47,11 +47,12 @@ import (
 //   - LeRobot pins `rerun-sdk>=0.24.0,<0.34.0`, so the pair really is a pair:
 //     the viewer W4a launches must match the SDK that wrote the file.
 
-const (
-	// ToolLeRobotExport is the capabilities key for the pinned
-	// (lerobot, rerun-sdk) pair this job needs.
-	ToolLeRobotExport = "lerobot-export"
+// ToolLeRobotExport is the capabilities key for the pinned (lerobot, rerun-sdk)
+// pair this job needs. Aliased from hostjobs, which owns the spelling because
+// the hub reads the same key to refuse a submission early.
+const ToolLeRobotExport = hostjobs.ToolLeRobotExport
 
+const (
 	// lerobotVizBin is the console script pip installs. Preferred when present:
 	// its shebang already names the interpreter of the environment LeRobot was
 	// installed into, so we never have to guess which python that is — which

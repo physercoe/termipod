@@ -475,6 +475,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		})
 		r.Get("/a2a/cards", s.handleListTeamA2ACards)
 		r.Patch("/commands/{cmd}", s.handlePatchHostCommand)
+		// Host-job status + cancellation (ADR-058 §3). Team scope is joined
+		// through the command's host, not taken from the path.
+		r.Get("/commands/{cmd}", s.handleGetHostCommand)
+		r.Post("/commands/{cmd}/cancel", s.handleCancelHostCommand)
 		// Idempotent ensure-spawn for the team's general steward
 		// (W4 / ADR-001 D-amend-2). Returns the existing running
 		// instance if any; otherwise spawns one. Mobile's home-tab
@@ -715,6 +719,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/refresh", s.handleRefreshDatasetDigest)
 				r.Get("/episodes", s.handleGetDatasetEpisodes)
 				r.Get("/episodes/{episode}/series", s.handleGetDatasetEpisodeSeries)
+				// Rerun `.rrd` export (ADR-058). Submit only — it returns a
+				// command id the caller polls at /commands/{cmd}, because
+				// decoding every frame of an episode does not fit in a request.
+				r.Post("/export", s.handleExportDatasetEpisode)
 			})
 		})
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project

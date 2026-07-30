@@ -306,6 +306,55 @@ paths:
         "501": { description: "Remote roots are not readable yet (SSH-forward wedge)" }
         "504": { description: "The host did not answer in time" }
 
+  /v1/teams/{team}/datasets/{dataset}/export:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: dataset, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Datasets]
+      operationId: exportDatasetEpisode
+      summary: Submit a Rerun `.rrd` export of one episode as a host job (ADR-058)
+      description: >-
+        Returns a command id to poll at `/commands/{cmd}`, not a file: the export
+        decodes every frame of the episode, so it runs detached on the host and
+        no request is held open for it. A repeat submission of an export already
+        in flight joins it and comes back with `reused: true` rather than
+        queueing a second pass over the same frames. Artifacts stay host-local.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [episode_index]
+              properties:
+                episode_index: { type: integer, minimum: 0 }
+                repo_id:
+                  type: string
+                  description: >-
+                    LeRobot's `owner/name` identity. Optional — the host derives
+                    it from the root's last two segments and reports back what
+                    it used.
+      responses:
+        "202":
+          description: Submitted (or joined an identical in-flight export)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  command_id: { type: string }
+                  kind: { type: string }
+                  reused: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >-
+            The dataset has no host, or the host reports the pinned
+            (lerobot, rerun-sdk) pair unavailable — the body carries the host's
+            own detail.
+        "501": { description: "Only local dataset roots can be exported today" }
+
   /v1/teams/{team}/env-profiles:
     parameters:
       - $ref: "#/components/parameters/Team"
@@ -746,6 +795,21 @@ paths:
         name: cmd
         required: true
         schema: { type: string }
+    get:
+      tags: [Hosts]
+      operationId: getHostCommand
+      summary: Read one host command (host-job status poll)
+      description: >-
+        Team scope is joined through the command's host, which is what a host-job
+        poller reads: status, progress, result, error. For a host job
+        `delivered` means running.
+      responses:
+        "200":
+          description: The command row
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HostCommand" }
+        "404": { description: No such command in this team }
     patch:
       tags: [Hosts]
       operationId: patchHostCommand
@@ -779,6 +843,28 @@ paths:
         "404": { description: No such command }
         "409": { description: Progress reported for a command that is not running }
         "413": { description: Progress payload too large }
+
+  /v1/teams/{team}/commands/{cmd}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: cmd
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Hosts]
+      operationId: cancelHostCommand
+      summary: Ask the owning host to stop a running host job
+      description: >-
+        Enqueues the inline `job_cancel` kind rather than mutating the target
+        row: the hub cannot stop a subprocess, and a row flipped to failed while
+        the work continued would leave the host busy on nothing. The target's
+        own outcome is reported by the host. Already-finished is a no-op.
+      responses:
+        "202": { description: Cancel enqueued }
+        "204": { description: Already finished — nothing to cancel }
+        "400": { description: Not a detached host job }
+        "404": { description: No such command in this team }
 
   # ======================================================================
   # Agents

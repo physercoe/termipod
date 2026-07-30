@@ -19,6 +19,7 @@ import { listConnections } from '../state/connections';
 import { useTerminals } from '../terminal/store';
 import { pickPoseFeature } from '../state/robotManifest';
 import { ReplayPose3D } from './ReplayPose3D';
+import { RerunExportButton, RerunViewerPanel } from './RerunExport';
 import { isShell } from '../platform';
 
 /// The episode player's **plots** half (J8 W2c): one episode's channels against
@@ -61,6 +62,10 @@ export function EpisodePlayer({
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState<number | null>(null);
   const [showPose, setShowPose] = useState(true);
+  /// The loopback URL of a Rerun viewer this player started, or null. Owned here
+  /// rather than inside the button so the panel can sit in the layout above the
+  /// video grid instead of inside the header row.
+  const [rerunUrl, setRerunUrl] = useState<string | null>(null);
 
   const seriesQ = useQuery({
     queryKey: ['dataset-series', datasetId, episode.index],
@@ -132,6 +137,7 @@ export function EpisodePlayer({
           )}
         </div>
         <span className="spacer" />
+        <RerunExportButton datasetId={datasetId} episode={episode.index} onViewer={setRerunUrl} />
         {poseFeature !== null && (
           <button
             type="button"
@@ -148,6 +154,8 @@ export function EpisodePlayer({
       </div>
 
       {episode.tasks.length > 0 && <div className="replay-player-task small">{episode.tasks.join(' · ')}</div>}
+
+      {rerunUrl !== null && <RerunViewerPanel url={rerunUrl} onClose={() => setRerunUrl(null)} />}
 
       <VideoGrid datasetId={datasetId} rootPath={rootPath} episode={episode} summary={summary} cursor={cursorTime} />
 

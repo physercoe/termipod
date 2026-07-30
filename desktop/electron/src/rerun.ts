@@ -23,14 +23,19 @@
 /// the viewer URL off `crates/top/re_sdk/src/web_viewer.rs`. What has NOT
 /// happened is a live run: no rerun process has been started against this code.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { buildSpawnEnv, pickFreePort, sanitizeTail } from './kimiweb';
+// Explicit `.ts` specifiers so `node --test` can load this module directly
+// (rerun_spawn.test.ts exercises the real spawn). Same reason browserbridge.ts
+// spells its import that way; esbuild and `allowImportingTsExtensions` both
+// accept it, and the alternative is a manager nothing can test against a
+// process.
+import { buildSpawnEnv, pickFreePort, sanitizeTail } from './kimiweb.ts';
 import {
   RERUN_START_TIMEOUT_MS,
   isRecordingPath,
   extractViewerUrl,
   rerunArgs,
   resolveRerunBinary,
-} from './rerun_policy';
+} from './rerun_policy.ts';
 import type { Handler } from './ipc/dispatch';
 
 // ── lifecycle (single server, serialized) ────────────────────────────────────

@@ -247,6 +247,34 @@ export class HubClient {
     }) as Promise<Entity>;
   }
 
+  /**
+   * Submit a Rerun `.rrd` export of one episode as a host job (ADR-058).
+   *
+   * Returns a `command_id` to poll, not a file: the export decodes every frame
+   * of the episode, which is minutes, and no request may be held open that long.
+   * A repeat submission of an export already in flight joins it and comes back
+   * with `reused: true` rather than queueing a second pass over the same frames.
+   */
+  exportEpisodeToRerun(id: string, episode: number, repoId?: string): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/datasets/${id}/export`), {
+      episode_index: episode,
+      ...(repoId !== undefined && repoId !== '' ? { repo_id: repoId } : {}),
+    }) as Promise<Entity>;
+  }
+  /**
+   * One host-command row: `status`, `progress`, `result`, `error`.
+   *
+   * For a host job, `delivered` means *running* — the lifecycle gained no new
+   * state, so anything already reading these statuses keeps working.
+   */
+  getHostCommand(cmdId: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/commands/${cmdId}`)) as Promise<Entity>;
+  }
+  /** Ask the owning host to stop a running job. Already-finished is a no-op. */
+  cancelHostCommand(cmdId: string): Promise<Json> {
+    return this.transport.post(this.transport.team(`/commands/${cmdId}/cancel`), {});
+  }
+
   async listEnvProfiles(): Promise<Entity[]> {
     const out = await this.transport.get(this.transport.team('/env-profiles'));
     return asArray(out);

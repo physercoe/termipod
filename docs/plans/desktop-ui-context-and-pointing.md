@@ -152,6 +152,31 @@ privacy review):
 - Follow-ups in the same wedge if cheap: `ui_get_selection` (the user's
   current text selection in Inspect/transcript, bounded chars).
 
+**Surface coverage — every main job is covered, by matrix not by
+exception.** The workbench has nine jobs (`workbench.ts:37-60`): fleet,
+projects, read, author, debug, compare, replay, record, terminal (+
+settings + the kimi-web session panel). Each maps to an allowlist entry;
+the first-cut field set (D1 review finalizes it, open question 2):
+
+| Surface (job) | Emitted on focus | Never emitted |
+|---|---|---|
+| `fleet` | focused agent `{id, handle}`, its session id | message bodies |
+| `projects` | `{project_id, task_id?}` | task descriptions |
+| `read` | tab list `{kind, title, url|path}`, active tab | page contents (the bridge already reads webtabs) |
+| `author` | active document `{id, title}` | document body |
+| `debug` (Inspect) | tabs `{kind, path}`, active `{path, selection}` | file contents |
+| `compare` | the two refs/paths being compared | diff bodies |
+| `replay` (J8) | `{dataset_id, episode_id?, cursor?}` | episode frames |
+| `record` (J6) | `{dataset_id?}` (recording target) | captured streams |
+| `terminal` | focused `{pane_id}` (+ owning agent id when known) | scrollback (the hostrunner `capture` command already covers it) |
+| `settings` | `{surface: "settings"}` only | every value |
+| kimi-web panel | `{surface: "kimiweb"}` + guest URL (loopback, fragment-stripped — the W2 redaction rule) | chat contents (the bridge reads the guest, read-only) |
+| vault / unknown | `{surface: "…"}` only | everything |
+
+The overlay (D2) covers the same set visually — a rect over ANY of these
+surfaces captures, except the sensitive rows which refuse (§3.3's rule) —
+and D4's element resolution adds structure only over webtab guests.
+
 ### 3.3 Capability B — `ui_screenshot` (agent → user screen, gated)
 
 `webContents.capturePage` of the shell window (or a named guest),
@@ -169,23 +194,44 @@ can emit** (a frame of everything the user sees), so:
 
 ### 3.4 Capability C — pointing (user → agent): the annotation overlay
 
-The high-trust direction needs no approval — the user initiates:
+The high-trust direction needs no approval — the user initiates. **The
+full user-operation sequence** (what the user actually does, D2):
 
-1. Trigger: an "Ask agent" button in the AgentCompanion compose box (D3;
-   a global hotkey is an open question, §7).
-2. A translucent overlay covers the window; the user drags a rect.
-   `<webview>` guests are separate webContents painted in the shell
+1. **Setup (once)**: Settings → Assistant → enable "UI context sharing".
+   Nothing else — no config, no restart.
+2. **Trigger**: the user is looking at anything — a paper in Read, a
+   failing pane in Terminal, a diff in Compare — and clicks **"Ask
+   agent"** in the AgentCompanion compose box (a global hotkey is open
+   question 3). The companion does NOT need to be bound to a session yet
+   for the kimi-web path.
+3. **Select**: a translucent overlay covers the window; the user drags a
+   rect. `<webview>` guests are separate webContents painted in the shell
    layout, so a rect over a guest captures from THAT guest's
-   `capturePage` region; over the shell, from the shell's.
-3. The crop lands in the compose box as an image attachment with an
-   optional note; send → `postAgentInput` with `InputAttachments`
-   (existing path, no hub changes).
-4. **D4, element-resolved pointing**: when the rect is over a webtab
+   `capturePage` region; over the shell, from the shell's. Esc cancels
+   (nothing attached, no event). A rect fully inside a sensitive surface
+   is refused with a hint; the user re-selects.
+4. **Target**: a small row shows the reachable targets — **"Attach to
+   kimi web" first when the panel is open**, else the companion's bound
+   session — plus an optional one-line note field. One click chooses.
+   - kimi-web path: the crop is injected into kimi's composer (§3.5,
+     main-side `DOM.setFileInputFiles`); the user adds text in kimi's own
+     composer if they like and **hits send there** — the send is always
+     the user's.
+   - companion path: the crop appears as a thumbnail chip in the compose
+     box; the user types the note and hits send → `postAgentInput` with
+     `InputAttachments` (existing path, no hub changes).
+5. **D4, element-resolved pointing**: when the rect is over a webtab
    guest, the bridge's AX snapshot maps the region center to an `@eN`
    ref — the message then carries both the image AND a structured
    pointer (`{ tab_id, ref: "@e42", role: "button", name: "Deploy" }`),
    so "fix this button" is unambiguous to the agent AND actionable via
    the existing `browser_click { ref }`.
+
+The other direction (agent reads context, D1) needs **no user operation
+at all** beyond the toggle: the agent calls `ui_get_focus` when it wants
+grounding, and the snapshot simply arrives. The design intent is that
+D1's zero-effort ambient context handles most turns, and the overlay is
+the one-gesture escalation when the user wants to be specific.
 
 ### 3.5 Transfer mechanics — how an annotation reaches the context window
 

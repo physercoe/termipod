@@ -93,7 +93,15 @@ export const useAnnotation = create<AnnotationState>((set, get) => ({
   refused: null,
   handoff: null,
   companions: [],
-  arm: (origin) => set({ phase: 'selecting', origin, capture: null, refused: null }),
+  /// Re-arming over a staged crop (a bound chord / the palette entry fires
+  /// through the window keydown handler even in the target phase) must reap
+  /// the temp file like discard — dropping the reference alone leaks it until
+  /// the LRU / quit sweep.
+  arm: (origin) => {
+    const c = get().capture;
+    if (c !== null && isShell()) void invoke('annotation_discard', { file: c.file }).catch(() => undefined);
+    set({ phase: 'selecting', origin, capture: null, refused: null });
+  },
   cancel: () => set({ phase: 'idle', origin: null, capture: null, refused: null }),
   setRefused: (surface) => set({ refused: surface }),
   captured: (c) => set({ phase: 'target', capture: c, refused: null }),

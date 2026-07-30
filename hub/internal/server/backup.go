@@ -90,8 +90,15 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 		}
 		// `team` is the singular templates dir (policy/agent_families overlay);
 		// `blobs` is the content-addressed attachment store. Both are
-		// raw-copyable (immutable / rarely written). (`teams`, the shard dir, is
-		// handled above via per-store snapshots.)
+		// raw-copyable: a blob file is written once under its content address
+		// and never rewritten in place. `blobs` is no longer *immutable*,
+		// though — ADR-061's sweeper unlinks expired `derived` blobs — so
+		// addDir tolerates an entry vanishing mid-walk. (`teams`, the shard
+		// dir, is handled above via per-store snapshots.)
+		//
+		// TODO(ADR-061 D-8): once `blobs.class` exists, skip `class='derived'`
+		// here. They are reproducible by definition, and archiving them puts
+		// cache bytes somewhere no sweeper can ever reach them.
 		for _, sub := range []string{"team", "blobs"} {
 			abs := filepath.Join(dataRoot, sub)
 			if _, err := os.Stat(abs); errors.Is(err, fs.ErrNotExist) {
@@ -266,6 +273,12 @@ var ErrDataRootNotEmpty = errors.New("data root is not empty (pass --force to ov
 
 func addFile(tw *tar.Writer, src, name string) error {
 	f, err := os.Open(src)
+	// A file that vanished between the directory read and this open is skipped,
+	// not fatal — see the concurrent-removal note on addDir. Every other open
+	// error (permissions, I/O) still fails the backup.
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
 	}
@@ -286,8 +299,33 @@ func addFile(tw *tar.Writer, src, name string) error {
 	return err
 }
 
+// addDir tars a directory tree, tolerating entries that disappear underneath
+// the walk.
+//
+// The trees passed here used to be safely raw-copyable because nothing ever
+// removed from them. That premise ends with ADR-061: the blob store gains a
+// sweeper that unlinks expired `class='derived'` blobs, so `blobs/` is now a
+// tree that mutates while a live backup walks it. `filepath.WalkDir` reads a
+// directory and *then* stats each entry, so a concurrent unlink surfaces as an
+// ENOENT — either in this callback or in addFile's open — and, returned as-is,
+// it would fail an entire backup because one cache blob expired at the wrong
+// moment.
+//
+// Only `fs.ErrNotExist` is skipped. A permission or I/O error still fails the
+// backup: "some bytes were unreadable" must never be silently downgraded to a
+// successful archive.
+//
+// Truncation mid-copy is deliberately NOT handled, because it cannot happen to
+// the trees we pass: blob files are content-addressed and only ever created or
+// unlinked, never rewritten in place (`storeBlob`, handlers_blobs.go:32-54).
 func addDir(tw *tar.Writer, root, prefix string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			// Includes the root itself: every caller already treats a missing
+			// directory as "nothing to archive" via its own pre-walk stat, so
+			// losing the race with that stat lands in the same place.
+			return nil
+		}
 		if err != nil {
 			return err
 		}

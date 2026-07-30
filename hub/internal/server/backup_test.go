@@ -1,9 +1,13 @@
 package server
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -273,5 +277,102 @@ func TestRestore_RefusesNonEmpty(t *testing.T) {
 	// --force overrides the guard.
 	if err := Restore(context.Background(), archive, dst, true); err != nil {
 		t.Fatalf("restore --force: %v", err)
+	}
+}
+
+// A blob unlinked underneath a live backup must not fail the backup.
+//
+// ADR-061 gives the blob store a sweeper that deletes expired `derived`
+// blobs, which ends the "blobs/ never loses a file" premise addDir was
+// written under. These two tests pin the tolerance and, just as
+// importantly, its limit: ENOENT is skipped, nothing else is.
+func TestAddFile_VanishedFileIsSkippedNotFatal(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	gone := filepath.Join(t.TempDir(), "deadbeef")
+	if err := addFile(tw, gone, "blobs/de/ad/deadbeef"); err != nil {
+		t.Fatalf("addFile on a missing file = %v, want nil (skip)", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	// Nothing may be emitted for it: a header without a body would make the
+	// archive itself unreadable, which is worse than the failure being fixed.
+	names := tarNames(t, buf.Bytes())
+	if len(names) != 0 {
+		t.Errorf("tar entries = %v, want none", names)
+	}
+}
+
+func TestAddDir_SkipsVanishedEntryButNotUnreadableOne(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "keep"), []byte("kept"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := addDir(tw, root, "blobs"); err != nil {
+		t.Fatalf("addDir = %v, want nil", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if names := tarNames(t, buf.Bytes()); len(names) != 1 || names[0] != "blobs/keep" {
+		t.Errorf("tar entries = %v, want [blobs/keep]", names)
+	}
+
+	// A vanished ROOT is skipped too — every caller pre-stats the directory and
+	// skips a missing one, so losing that race lands in the same place.
+	var buf2 bytes.Buffer
+	tw2 := tar.NewWriter(&buf2)
+	if err := addDir(tw2, filepath.Join(root, "nope"), "blobs"); err != nil {
+		t.Errorf("addDir on a missing root = %v, want nil", err)
+	}
+	_ = tw2.Close()
+
+	// The limit: an entry we cannot READ is a real failure. Silently shipping a
+	// backup that is missing bytes is the failure mode this whole function
+	// exists to avoid, so the ENOENT skip must not have widened into "ignore
+	// anything that goes wrong".
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission errors are not reproducible")
+	}
+	locked := t.TempDir()
+	sub := filepath.Join(locked, "sealed")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "f"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sub, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sub, 0o700) })
+	var buf3 bytes.Buffer
+	tw3 := tar.NewWriter(&buf3)
+	err := addDir(tw3, locked, "blobs")
+	_ = tw3.Close()
+	if err == nil {
+		t.Error("addDir over an unreadable directory = nil, want an error")
+	} else if errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("addDir error = %v, want a permission error not ENOENT", err)
+	}
+}
+
+// tarNames lists the entry names in an uncompressed tar buffer.
+func tarNames(t *testing.T, raw []byte) []string {
+	t.Helper()
+	var out []string
+	tr := tar.NewReader(bytes.NewReader(raw))
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		if err != nil {
+			t.Fatalf("read tar: %v", err)
+		}
+		out = append(out, h.Name)
 	}
 }

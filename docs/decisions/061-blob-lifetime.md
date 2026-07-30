@@ -1,17 +1,23 @@
 # 061. Blob lifetime — a declared class per blob, expiry-only deletion
 
 > **Type:** decision
-> **Status:** Accepted (2026-07-30, director) — forced by
+> **Status:** Accepted (2026-07-30, director) · Amended 2026-07-30 (adds D-8,
+> the backup path; re-anchors the standing justification on D-4 — see below) —
+> occasioned by
 > [`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md) §7
 > (W4b-2), which would be the first browsing-frequency writer of large bytes
-> into the blob store. Amends [ADR-057](057-session-teleport.md) D-3, which
-> accepted that teleport handoff parts "linger" and deferred a blob GC path to
-> T3. Companion to [ADR-058](058-host-job-surface.md): the job surface keeps
-> artifacts host-local by default and deferred its remote-fetch transport to
-> "teleport's chunk pattern, decided later" (058 §4) — this ADR is the
-> lifetime half of that deferred decision.
+> into the blob store. **The load-bearing justification is D-4, not W4b-2**:
+> ADR-058 §4 keeps job artifacts host-local and the SFTP flavour (`be796b3e`)
+> already serves remote bytes without the hub, so W4b-2 may never write a blob
+> at all — whereas teleport's handoff parts are unreferenced permanent garbage
+> *today*, which is a shipped problem this ADR fixes. Amends
+> [ADR-057](057-session-teleport.md) D-3, which accepted that those parts
+> "linger" and deferred a blob GC path to T3. Companion to
+> [ADR-058](058-host-job-surface.md): this ADR is the lifetime half of 058 §4's
+> deferred remote-fetch decision.
 > **Audience:** contributors · maintainers
-> **Last verified vs code:** origin/main `cb54991a` (nothing here is built)
+> **Last verified vs code:** origin/main `b4e901f0` (nothing here is built
+> except D-8's `addDir`/`addFile` ENOENT tolerance)
 
 **TL;DR.** The hub's blob store has no DELETE, no TTL, no owner column and no
 team column: everything ever written to it is permanent, and at least four
@@ -264,6 +270,48 @@ for the genuinely-remote case, where the alternative is not "fewer bytes" but
 
 Stated plainly because the data-ownership law is only load-bearing if a
 sanctioned exception stays an exception.
+
+### D-8 — The backup path must learn that `blobs/` mutates (amendment, 2026-07-30)
+
+Found after acceptance, and it is the one place where introducing deletion
+breaks working code rather than merely leaving something undone.
+
+`Backup` raw-copies the `blobs/` tree, justified in its own comment as
+*"Both are raw-copyable (immutable / rarely written)"* (`backup.go:91-94`).
+This ADR's sweeper ends that premise. Two consequences, of different
+severity:
+
+1. **A live backup can fail outright.** `addDir` walks with
+   `filepath.WalkDir`, which reads a directory and *then* stats each entry,
+   and its callback returned any error unconditionally — so a blob unlinked
+   mid-walk (ENOENT at the stat, or at `addFile`'s open) failed the whole
+   archive. One expired cache blob at the wrong moment would take down an
+   operator's backup, with a message pointing at a file that no longer
+   exists. **Fixed ahead of the sweeper**: `addDir` and `addFile` now skip
+   `fs.ErrNotExist` and only that — a permission or I/O error still fails
+   the backup, because "some bytes were unreadable" must never be downgraded
+   to a successful archive. Truncation mid-copy needs no handling: a blob
+   file is written once under its content address and never rewritten in
+   place (`storeBlob`, `handlers_blobs.go:32-54`).
+2. **`derived` blobs get archived, where no sweeper can reach them.** An
+   archive is a place expiry does not run, so cache bytes captured inside
+   one are permanent again — the exact property this ADR exists to remove,
+   reintroduced through the back door. The sweep window is where it bites:
+   a teleport of a large engine-state is `derived` for 24 hours (D-4), and
+   every backup taken in that window carries its parts. **Obligation on the
+   implementation**, not yet dischargeable: once `class` exists, the backup
+   walk must skip `class='derived'`. They are reproducible by definition, so
+   excluding them costs nothing and shrinks archives. Marked with a
+   `TODO(ADR-061 D-8)` at the call site so it is found by the migration that
+   makes it possible.
+
+The general lesson, worth more than the fix: **a store that acquires
+deletion invalidates every consumer that assumed append-only.** `blobs/` had
+two such consumers — `backup.go`'s raw copy, and `payload_externalize.go`'s
+promise that externalized transcript leaves are "durable and in backup.go"
+(`payload_externalize.go:23`). The second is the reason D-1 makes `owned`
+the default rather than something a writer opts into: a transcript payload
+must not become disposable by omission.
 
 ## Consequences
 

@@ -50,11 +50,14 @@ resumed there (ADR-057). The run report gained an Issues sheet, and the
 transcript's streaming path stopped re-parsing the whole message on every
 chunk.
 
-**Lane note:** this cut tags the **mobile** lane only. The hub and host lanes
-share this version number and can be cut at the same `<ver>`
-(`hub-v2026.730.1231-alpha` / `host-v2026.730.1231-alpha`) when the hub is
-next redeployed; hub-side work landed since 2026.727.206 does not take effect
-until then.
+**All three lanes are cut at this version** — `mobile-v2026.730.1231-alpha`,
+`hub-v2026.730.1231-alpha`, `host-v2026.730.1231-alpha`. Hub and host were last
+tagged at **2026.724.335**, so they ship everything since: 51 commits,
+including the `host.update` fixes the 2026.727.206 section described as waiting
+on a redeploy. **Operators must redeploy the hub and host-runner binaries** for
+any server-side entry below to take effect. The desktop workbench cuts
+separately at `2026.730.1242`
+([`changelog-desktop.md`](changelog-desktop.md)).
 
 ### Added
 - **Env profiles on mobile.** The spawn sheet gains an env-profile picker, and
@@ -74,6 +77,42 @@ until then.
   through the handoff bundle (ADR-057, T2c). (#428)
 - **Issues sheet on the run report.** The report surfaces the run's recorded
   issues in a sheet rather than leaving them to the raw transcript. (#439)
+- **Env profiles, hub + host side (ADR-056).** The `env_profiles` entity with
+  REST CRUD (#396), env vars materialized into a spawn's spec (#397), a
+  `setup_script` run in the workdir before the agent (#398), and project-level
+  inherit plus the MCP schema for attaching one (#399). Secrets travel as
+  envelopes: an X25519 sealed-box crypto core with AAD binding (#404), an
+  X25519 host identity published through host capabilities (#405), an
+  `env_secret_envelope` column with presence-enforcement 422s (#406), and
+  host-side unseal + injection into the child's **real process environment**
+  for M4/exec (#407) and for M1/M2 persistent stdio (#408) — never the command
+  string, the spawn spec, a temp file, or a log (ADR-056 D-5).
+- **Session teleport, hub + host side (ADR-057).** A chunked-manifest bundle
+  transport (#416), git-worktree handoff (#417), engine-state snapshot/restore
+  for claude-code (#418) and kimi-code-ts (T2b), `session_handoff_pack/unpack`
+  command kinds (#419), heterogeneous-host path portability (#420), the
+  teleport endpoint with pause-first orchestration (#421), secrets re-sealed to
+  the target host (#424), and a non-worktree path over a capped directory tar
+  (#426, #427).
+- **Datasets as a hub entity (J8 Replay, ADR-060).** A `datasetmeta` reader for
+  both LeRobot generations (#446), the `datasets` entity + REST CRUD + host
+  read verbs (#447), a per-episode feature-series reader (#457) and its
+  endpoint (#458), per-episode video paths resolved uniformly across
+  generations (#461), and a run→dataset provenance link (#467). Episodes are
+  never materialized hub-side — the table is proxied from the host, windowed
+  and capped.
+- **Detached host jobs (ADR-058).** A host-job executor (J8 W4b A1) and its
+  first kind, `dataset_export_rrd` (A2) — a long computation runs on the host
+  and is polled, so no request is held open for it.
+- **Blob lifetime (ADR-061).** A blob declares its class and is deleted only by
+  expiry, never by a sweep guessing at reachability.
+- **Environment handles on runs (environments plan E0).** `runs.env_ref`
+  carries the opaque `family:env_id@version` provenance handle (migration
+  0072), settable at create and patchable, alongside the same field on
+  datasets. Deliberately unvalidated and never inferred from the linked
+  dataset. (#478)
+- **Structural session-integrity issues fold into the digest** (transcript P5
+  A1), which is what the mobile and desktop Issues surfaces read. (#437)
 
 ### Changed
 - **Streaming transcript costs the current block, not the whole message.**
@@ -101,6 +140,30 @@ until then.
   vault entry no longer drops the pinned host keys attached to it, which would
   have silently un-sealed a profile's secrets on the next spawn (ADR-056
   E3b-2b). (#413)
+- **Plain env vars no longer shadow a same-key env secret** on the host — the
+  hub-visible value would have won over the sealed one, silently handing an
+  agent the wrong credential (E3 review).
+- **Teleport refuses a secret-bearing session** until it can re-seal it, and a
+  same-host resume replays the existing envelope rather than minting a new one.
+- **A queued host job heartbeats**, so the stale-job sweep can no longer fail a
+  healthy backlog that simply had not started yet.
+- **A backup survives a blob vanishing mid-walk** (ADR-061 D-8) — the sweeper
+  can delete an expired blob while the walk is in flight, and that is not a
+  backup failure.
+- **The session read-repair write runs on the writer pool** (#453), not the
+  reader pool, which is the only pool allowed to write.
+- **The `team` URL parameter is guarded against path traversal** in the template
+  and journal paths (#422).
+- **Kimi's session-index dedupe matches its own lines again** — it never did, so
+  the index could grow duplicates.
+- **ACP `session/new` carries the real workdir**, and an M1 cosmetic pane no
+  longer leaks (#377).
+- **Claude `task_progress` floods and kimi subagent `turn.result` leakage** are
+  filtered out of the transcript (#375).
+- **`host.update` acks after resolve and downloads in the background** (#380),
+  with the progress watchdog measuring silence rather than total elapsed (#382).
+  Both shipped to mobile at 2026.727.206; the server halves take effect with
+  this redeploy.
 
 ## 2026.727.206-alpha — 2026-07-27
 

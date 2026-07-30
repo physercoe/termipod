@@ -161,7 +161,7 @@ func probeLeRobotExport(ctx context.Context, override []string) ToolCap {
 	}
 	if viaModule && module != "" {
 		// resolveLeRobotInvoke could only guess the newest candidate; the probe
-		// is what actually knows. Without this, a host carrying only the legacy
+		// is what actually knows. Without this, a host carrying only the older
 		// `visualize_dataset` module would be reported available and then fail
 		// with "No module named …" the moment a caller submitted an export.
 		cap.Invoke = []string{py, "-m", module}

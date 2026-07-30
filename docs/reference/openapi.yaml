@@ -839,7 +839,7 @@ paths:
                     is authoritative.
       responses:
         "204": { description: Updated }
-        "400": { description: Malformed body, or neither a status nor progress }
+        "400": { description: "Malformed body, or neither a status nor progress" }
         "404": { description: No such command }
         "409": { description: Progress reported for a command that is not running }
         "413": { description: Progress payload too large }
@@ -2277,7 +2277,7 @@ paths:
                   size: { type: integer }
                   mime: { type: string }
                   class: { type: string, enum: [owned, derived] }
-        "400": { description: Bad class, or a derived upload with no valid ttl_seconds }
+        "400": { description: "Bad class, or a derived upload with no valid ttl_seconds" }
         "413": { description: Over the 25 MiB cap }
 
   /v1/blobs/{sha}:
@@ -2301,7 +2301,7 @@ paths:
           description: Bytes
           content:
             application/octet-stream: {}
-        "404": { description: No such blob, or it has been swept }
+        "404": { description: "No such blob, or it has been swept" }
 
   # ======================================================================
   # Plans + steps + schedules

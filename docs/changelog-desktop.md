@@ -1,9 +1,9 @@
 # Desktop Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-27)
+> **Status:** Current (2026-07-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.727.938 / electron-v2026.727.938-alpha
+> **Last verified vs code:** desktop 2026.730.1242 / electron-v2026.730.1242-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -38,6 +38,74 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## 2026.730.1242 — 2026-07-30
+
+**J8 Replay lands end to end, architecture diagrams go hybrid-aware, agents can
+drive a browser, and the shell splits in two.** `electron-v2026.730.1242-alpha`
+(unsigned alpha channel). The largest desktop cut so far — 52 commits since
+2026.727.938 — because five plans reached their shipping wedges at once.
+
+### Added
+- **J8 Replay — the whole job.** A dataset library rail with a folded digest
+  card and a paged episodes table (#448); **Open in Replay** from an Inspect
+  `meta/info.json` row (#454); the **episode player** — channel plots against a
+  shared cursor (#459) and a multi-camera video grid over a range-serving media
+  scheme (#462); a **URDF reader with forward kinematics** plus a robot manifest
+  (#465) driving a **3D pose panel** off the episode cursor (#466); the **Rerun
+  companion** with a launch policy and manager (#469), an **Export to Rerun**
+  action (J8 W4b-1), and a remote export fetched over the director's own SSH
+  session (J8 W4b-2); and a run's episodes one step from the player (#468).
+  Remote roots read video over SFTP through the SSH-forward wedge.
+- **Architecture graph, hybrid-aware.** The arch card classifies hybrid
+  linear-attention models (#430) and sizes their KV cache honestly with a
+  KV-cache-per-token class (#431); the schematic lays out heterogeneous stacks
+  (#432) and renders them as a pattern strip with nested groups (#434); panels
+  zoom, carry an annotation layer, and export to SVG/PNG (#435); and an
+  architecture can be **compared against another model's config** over a pure
+  `diffArchCards` (#433, #436).
+- **Agent browser bridge (W1–W3).** MCP-driven webtabs an agent can read
+  (#471), then act in — action tools behind a per-spawn opt-in with an audit
+  trail (#472) — and finally drive remotely, hub-relayed, with approval cards
+  (#474).
+- **Split pane (S1–S3).** One pinned secondary surface beside the primary,
+  opened by Alt-clicking the activity rail or `Mod+\`, swapped with
+  `Mod+Shift+\`, resized by a draggable divider. The focus snapshot describes
+  both panes, so an agent asked about "this" resolves against the pane the user
+  is actually in.
+- **UI context + pointing (D1–D2).** A `ui_get_focus` MCP tool — off by
+  default — lets an agent on this host ask what the director is looking at
+  (#476), and an annotation overlay lets the director point at it in return
+  (#477).
+- **Env profiles + sealed secrets on the desktop.** A picker in the spawn sheet
+  (#400) and a management UI in Settings (#401); env-profile secrets are sealed
+  to the target host at spawn behind a host-key trust dialog (#412), with a
+  re-trust flow when a host's key changes.
+- **Session teleport.** Move a paused session to another host from the desktop
+  (#423), with secret-bearing sessions re-sealed to the target rather than
+  refused (#425).
+- **SSH parity with mobile.** Jump hosts (`ProxyJump`) and SOCKS5 proxies for
+  connections, parsed from and written back to `ssh_config` on import/export.
+- **App-level assistant dock** with a status-bar chip, rebindable shortcuts, a
+  full ⌘K palette, an author filter, and "compare from roots/repos" (#411,
+  #464); Insight boards for projects and hosts.
+- **Issues drawer on the run report** (#438), and an environment chip on the
+  episode player header plus an `env_ref` row on the run detail (#478).
+
+### Fixed
+- **The vault detail pane carried the previous item's secret across a
+  selection change** — a real disclosure risk: switching entries could show one
+  item's secret under another's name.
+- **Terminal right-click owns its context menu**, with honest paste behaviour
+  and OSC 52 support, instead of the shell's menu winning.
+- **kimi-code config rows that don't exist are dropped** and the plugins path is
+  corrected; the Inspect schema pane falls back rather than blanking, and the
+  archgraph menu moved onto the shared primitive (#390 review).
+- **`ui_get_focus`'s description names the split fields** — it still called
+  `surface` "the active surface" after S3 made it the primary pane, which would
+  have sent an agent's "this/here" to the wrong half.
+- **The Tauri keychain migration read is skipped under `TERMIPOD_E2E`** (#473),
+  so the e2e suite stops touching a real keychain.
 
 ## 2026.727.938 — 2026-07-27
 

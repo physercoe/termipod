@@ -177,7 +177,61 @@ The high-trust direction needs no approval — the user initiates:
    so "fix this button" is unambiguous to the agent AND actionable via
    the existing `browser_click { ref }`.
 
-### 3.5 Delivery + hub tool surface
+### 3.5 Transfer mechanics — how an annotation reaches the context window
+
+The end-to-end path for a **hub-attached agent** exists today and was
+verified against `598e46ce`:
+
+```
+overlay crop → compose attachment → POST /agents/{id}/input
+  { kind: "text", body, images: [{ mime_type, data(b64) }] }
+  → hub stores payload_json["images"] VERBATIM on the input event
+    (handlers_agent_input.go; test pins the shape)
+  → hostrunner input_router consumes the producer=user event
+  → driver: extractImageInputs (image_inputs.go:25)
+    → ACP drivers (M1 kimi-ts, claude-code, …): lowered to ACP
+      { type: "image", mimeType, data } blocks that LEAD the prompt
+      array (driver_acp.go:1704-1713), gated by the agent's declared
+      promptCapabilities.image (ADR-021 W4.4, tri-state — only an
+      explicit false strips the blocks; the agent sees the image as
+      native multimodal input, before the note text)
+```
+
+No hub change is needed — the envelope already carries images. Two
+driver-family caveats become D3 scope:
+
+- **Pane/stdio (M2/tmux) drivers can't receive images** — the pane is a
+  terminal; there is no remote image channel (the kimi TUI's clipboard
+  paste is a local feature, not tmux-drivable). D3 materializes the crop
+  into the agent's workdir instead (`.termipod/annotations/<ts>.png`,
+  via the blob the input event already externalizes) and appends the
+  path to the note text — "see attached image at <path>" — so a pane
+  agent reads it with its normal file tools. If the workdir write fails,
+  the driver notes the drop rather than failing silently.
+- **Capability honesty**: when the ACP agent declares
+  `promptCapabilities.image == false`, the same workdir materialization
+  is the fallback (today those blocks are just stripped).
+
+**The kimiweb path is different — and deliberately out of scope.** The
+session web panel embeds kimi web as a PARALLEL UI (`webPanels.ts` — hub
+events/attention do not see what happens inside the guest), and the
+`kimiweb` partition is `bridge: 'read'` (cross-agent prompt-injection
+posture): the bridge **cannot** inject the crop into kimi's composer.
+The user's own hands work today (kimi web's composer accepts image
+paste — verified §1.3), so the D3 overlay flow targets hub-attached
+agents only. A future narrow carve-out — a `browser_paste_image` tool
+class that injects ONE image into the composer without enabling
+arbitrary typing — is logged as open question 5, not a wedge.
+
+**UX of the transfer** (D3 detail): the crop appears in the compose box
+as a thumbnail chip (delete-able, like the existing context chips); the
+companion's already-bound session is the default target — no picker for
+v1 (the user points the companion at a session first, then annotates);
+in the transcript the sent message renders as an image card with the
+note beneath, and for D4 the structured pointer (`@e42 · button ·
+"Deploy"`) renders as a small caption chip on the card.
+
+### 3.6 Delivery + hub tool surface
 
 - Local spawns: `ui_get_focus` / `ui_screenshot` join the bridge server's
   tool list (read/action classification as above); no hostrunner change —
@@ -194,7 +248,7 @@ The high-trust direction needs no approval — the user initiates:
   agent revoked there is refused at the desktop dispatch regardless of
   kind).
 
-### 3.6 Settings + consent surface
+### 3.7 Settings + consent surface
 
 Settings → Assistant gains a "UI context sharing" sub-toggle next to the
 bridge toggle (default **off**): no toggle, no publisher, no tools, no
@@ -202,7 +256,7 @@ tunnel registrations. The blurb states plainly what is shared (surface,
 tab, focused agent, file path + selection) and what is never shared
 (message bodies, vault, settings values).
 
-### 3.7 Failure / edge behavior
+### 3.8 Failure / edge behavior
 
 - Overlay canceled (Esc) → nothing attached, no event.
 - Rect entirely over a sensitive surface → capture refused with a hint,
@@ -226,8 +280,12 @@ per-call card (no session grant), vault/sensitive refusal, size caps,
 audit; AttentionDock card branch.
 
 **D3 — annotation overlay.** Rect-select overlay (shell + guest regions),
-compose-box image attachment, `postAgentInput` integration, Esc/cancel
-path. The only real UI work in the plan.
+compose-box image attachment (thumbnail chip, companion-bound session as
+the default target, transcript image card), `postAgentInput` integration,
+Esc/cancel path. Includes the §3.5 transfer work: ACP image blocks ride
+the existing path, while pane/stdio drivers and `image:false` agents get
+the workdir materialization fallback (`.termipod/annotations/<ts>.png` +
+path in the note text). The only real UI work in the plan.
 
 **D4 — element-resolved pointing.** Rect-over-webtab → `@eN` ref via the
 bridge snapshot; structured pointer rides the attachment payload.
@@ -273,3 +331,9 @@ bridge snapshot; structured pointer rides the attachment payload.
 4. Does `ui_get_selection` (bounded text selection) belong in D1 or D2?
    (Proposal: D1 if the transcript/Inspect selection APIs are clean, else
    D2 — it's the single most useful field for "explain this".)
+5. Should the bridge ever gain a narrow `browser_paste_image` tool class
+   for the kimiweb partition — injecting ONE image into kimi web's
+   composer without enabling arbitrary typing — so the overlay can target
+   kimi-web sessions too? (Proposal: not now; the read-only posture holds
+   until the hub-attached path proves the UX. The kimi web composer
+   already takes the user's own paste.)

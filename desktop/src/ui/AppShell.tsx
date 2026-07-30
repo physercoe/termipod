@@ -32,6 +32,7 @@ import { AssistantDock } from './AssistantDock';
 import { useAssistant } from '../state/assistant';
 import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
+import { AnnotationOverlay } from './AnnotationOverlay';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -379,6 +380,9 @@ export function AppShell(): JSX.Element {
         />
       )}
       <ToastHost />
+      {/* D2 annotation overlay — armed by an AgentCompanion's "Ask agent";
+          renders only while the UI-context-sharing toggle is on. */}
+      <AnnotationOverlay />
     </div>
   );
 }

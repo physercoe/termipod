@@ -1153,6 +1153,31 @@
   font-size: var(--font-size-body);
   line-height: 1;
 }
+/* The D2 annotation chip's thumbnail (Composer injectImage). */
+.att-chip .att-thumb {
+  width: 28px;
+  height: 20px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  flex: none;
+}
+/* Image attachments on a user input row (EventCard InputTextBody — the D2
+   image card; the note text renders beneath, per plan §3.5). */
+.ev-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s6);
+  margin: 2px 0 var(--spacing-s6);
+}
+.ev-image {
+  max-width: 320px;
+  max-height: 220px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
 .digest pre {
   white-space: pre-wrap;
   word-break: break-word;

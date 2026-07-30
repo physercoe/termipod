@@ -33,6 +33,21 @@ import path from 'node:path';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import type { Handler } from './dispatch';
 
+// e2e-only Linux plaintext opt-in (Playwright under xvfb, desktop.yml): a
+// headless CI host has no secret-service backend (no dbus/kwallet/libsecret),
+// so OSCrypt has nothing to encrypt with and safeStorage.encryptString throws
+// "Encryption is not available" — Electron 43's EncryptString gates on
+// IsEncryptionAvailable(), which on Linux is
+// `OSCrypt::IsEncryptionAvailable() || (use_password_v10 && backend ==
+// "basic_text")` (electron_api_safe_storage.cc): the backend flag alone
+// (the spec's --password-store=basic) does NOT lift the gate without this
+// opt-in. The e2e secrets file lives in a throwaway user-data dir, and a
+// production build never sets TERMIPOD_E2E; the call is a no-op off Linux.
+// Module scope = before app ready (dispatch.ts imports this at startup).
+if (process.platform === 'linux' && process.env.TERMIPOD_E2E !== undefined) {
+  safeStorage.setUsePlainTextEncryption(true);
+}
+
 const SERVICE = 'app.termipod.desktop'; // must match keychain.rs SERVICE
 const CONSOLIDATED_KEY = 'secretstore.v1'; // must match persist.ts STORE_KEY
 const DOC_TAG = ' doc:'; // persist.ts chunk manifest sentinel

@@ -4,11 +4,13 @@ import { num, str, type Entity } from '../hub/types';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
+import { useAnnotation } from '../state/annotation';
 import { useSession } from '../state/session';
+import { useUiContext } from '../state/uiContext';
 import { useAgents } from '../hub/queries';
 import { useWorkspace } from '../state/workspace';
 import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '../state/workspaceFiles';
-import { Composer } from './Composer';
+import { Composer, type InjectImage } from './Composer';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
 import { LocalAgentLauncher } from './LocalAgentLauncher';
@@ -67,6 +69,26 @@ export function AgentCompanion({
   const folder = useWorkspace((s) => s.folder);
   const [wsFiles, setWsFiles] = useState<WorkspaceFile[]>([]);
   const [mentioned, setMentioned] = useState<WorkspaceFile[]>([]);
+  // D2 annotation overlay: the "Ask agent" trigger shows only while the
+  // UI-context-sharing toggle is on (the same toggle as D1). The companion
+  // ARMS the overlay with itself as origin so the crop can come back here as
+  // a chip; the kimi-web target needs no bound session (plan §3.4 step 2).
+  const sharing = useUiContext((s) => s.enabled);
+  const arm = useAnnotation((s) => s.arm);
+  const handoff = useAnnotation((s) => s.handoff);
+  const clearHandoff = useAnnotation((s) => s.clearHandoff);
+  const [injectImage, setInjectImage] = useState<InjectImage | null>(null);
+  useEffect(() => {
+    if (handoff === null || handoff.storageKey !== storageKey) return;
+    clearHandoff();
+    setInjectImage({
+      image: handoff.image,
+      name: handoff.name,
+      preview: handoff.preview,
+      note: handoff.note,
+      id: handoff.id,
+    });
+  }, [handoff, storageKey, clearHandoff]);
   useEffect(() => {
     if (folder === null || !isShell()) {
       setWsFiles([]);
@@ -334,6 +356,18 @@ export function AgentCompanion({
         mention={
           folder !== null && wsFiles.length > 0
             ? { items: wsFiles.map((f) => ({ label: f.rel, value: f.rel })), onPick: (it) => addMention(it.value) }
+            : undefined
+        }
+        injectImage={injectImage}
+        annotate={
+          sharing && isShell()
+            ? {
+                title: t('annotate.ask'),
+                onClick: () => {
+                  const a = agents.find((x) => str(x, 'id') === agentId);
+                  arm({ storageKey, agentId, agentLabel: a !== undefined ? agentLabel(a) : agentId });
+                },
+              }
             : undefined
         }
       />

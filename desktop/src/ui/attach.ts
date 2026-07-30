@@ -89,6 +89,7 @@ export interface Pending {
   size: number;
   data?: string; // base64 for binary kinds
   text?: string; // inlined content for text kind
+  preview?: string; // data-URL thumbnail (D2 annotation crops)
 }
 
 let seq = 0;

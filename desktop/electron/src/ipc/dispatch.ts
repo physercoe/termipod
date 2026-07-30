@@ -43,6 +43,7 @@ import { rerunHandlers } from '../rerun';
 import { rerunFetchHandlers } from './rerunfetch';
 import { browserBridgeHandlers } from '../browserbridge_host';
 import { desktopuiHandlers } from '../desktopui';
+import { annotationHostHandlers } from '../annotation_host';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -83,6 +84,7 @@ const handlers: Record<string, Handler> = {
   ...rerunFetchHandlers,
   ...browserBridgeHandlers,
   ...desktopuiHandlers,
+  ...annotationHostHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

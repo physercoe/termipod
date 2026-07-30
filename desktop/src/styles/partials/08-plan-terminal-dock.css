@@ -1219,3 +1219,73 @@
   gap: var(--spacing-s4);
   max-width: 45%;
 }
+
+/* ── D2 annotation overlay (ui/AnnotationOverlay.tsx) ────────────────────────
+   The user→agent pointing gesture: a fixed shell-DOM layer above every
+   surface AND the <webview> guests (OOPIF-composited inside the shell's frame
+   tree — the layer wins the hit-test, so drags over guests report here).
+   Sits on the menu tier of the stacking scale; toasts stay above it. */
+.annot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  background: color-mix(in srgb, var(--bg) 42%, transparent);
+  cursor: crosshair;
+}
+.annot-hint {
+  position: absolute;
+  top: var(--spacing-s16);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-size-label);
+  box-shadow: var(--sh-2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.annot-hint.refused {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.annot-selection {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  background: var(--accent-tint);
+  border-radius: 2px;
+  pointer-events: none;
+}
+/* Target row: the post-capture bar — thumbnail, note, targets, cancel. */
+.annot-target-wrap {
+  cursor: default;
+}
+.annot-target {
+  position: absolute;
+  left: 50%;
+  bottom: var(--spacing-s16);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  max-width: min(720px, calc(100vw - 48px));
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--sh-3);
+}
+.annot-thumb {
+  width: 56px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+.annot-note {
+  flex: 1;
+  min-width: 160px;
+}

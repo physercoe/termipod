@@ -1,0 +1,334 @@
+/// Desktop UI context — the per-surface policy table + focus projection
+/// (docs/plans/desktop-ui-context-and-pointing.md §3.0/§3.2, ADR-062 D-2/D-3).
+///
+/// PRIVACY RULE (the table IS the privacy review): every field the focus
+/// snapshot may carry is an id, a path, a fragment-stripped URL, a title, or
+/// coordinates/line numbers — NEVER content (no message bodies, no file
+/// contents, no document bodies, no vault material, no settings values).
+/// Secrets are absent BY CONSTRUCTION: the projection below picks only the
+/// allowlisted sub-fields, so a raw focus state that grew a content field
+/// would still never emit it. Adding a surface or a field is a one-line diff
+/// in THIS file; the unit test fails on an undeclared surface.
+///
+/// One row per surface, three independent columns (the sensitivities differ):
+///   - `snapshot`:  the exact emitted-field allowlist for the semantic
+///     projection, as dot paths into RawFocus (empty = existence only —
+///     the snapshot degrades to `{surface, captured_at}`);
+///   - `capture`:   may pixels of this surface ever be captured (D3);
+///   - `highlight`: may an agent draw a pointing annotation over it (D6).
+/// Only `snapshot` has a consumer in D1; the other two are the frame the
+/// later wedges fill. Vault refuses everything, always; settings declares
+/// its existence but refuses pixel capture (a capture shows its values).
+///
+/// This module is deliberately dependency-free (like webtab_policy.ts): the
+/// renderer publisher and the node --test suites import it without dragging
+/// stores or electron along.
+
+// ── The UIRef blocks (ADR-062 D-2) ───────────────────────────────────────────
+// Every block is optional in a raw focus state; every field inside a block is
+// optional too (a surface may not currently have the value — e.g. no active
+// tab). The sub-field names here are the allowlist vocabulary: `snapshot`
+// entries name top-level block + sub-field (`block.field`).
+
+export interface UiRefAgent {
+  id?: string;
+  handle?: string;
+  session_id?: string;
+}
+
+export interface UiRefProject {
+  project_id?: string;
+  task_id?: string;
+}
+
+export interface UiRefTab {
+  kind?: string;
+  title?: string;
+  /// Fragment-stripped (the W2 redaction rule — a guest URL's hash can carry
+  /// a bearer, see browserbridge.ts stripFragment).
+  url?: string;
+  path?: string;
+}
+
+export interface UiRefDocument {
+  id?: string;
+  title?: string;
+}
+
+export interface UiRefInspectTab {
+  kind?: string;
+  path?: string;
+}
+
+export interface UiRefInspect {
+  path?: string;
+  /// [fromLine, toLine] — line numbers only.
+  selection?: [number, number];
+}
+
+export interface UiRefCompare {
+  /// The two refs/paths being compared (labels, never diff bodies).
+  left?: string;
+  right?: string;
+}
+
+export interface UiRefReplay {
+  dataset_id?: string;
+  episode_id?: string;
+  cursor?: number;
+}
+
+export interface UiRefRecord {
+  dataset_id?: string;
+}
+
+export interface UiRefTerminal {
+  pane_id?: string;
+  agent_id?: string;
+}
+
+export interface UiRefKimiweb {
+  /// The kimi-web guest URL (loopback, fragment-stripped).
+  url?: string;
+}
+
+/// The pre-projection focus state assembled renderer-side from the stores.
+/// `surface` is the active workbench job id (workbench.ts) — or a
+/// pseudo-surface id (`kimiweb`, `vault`) once a surface exposes one.
+export interface RawFocus {
+  surface: string;
+  captured_at: string;
+  agent?: UiRefAgent;
+  project?: UiRefProject;
+  tabs?: UiRefTab[];
+  tab?: UiRefTab;
+  document?: UiRefDocument;
+  inspect_tabs?: UiRefInspectTab[];
+  inspect?: UiRefInspect;
+  compare?: UiRefCompare;
+  replay?: UiRefReplay;
+  record?: UiRefRecord;
+  terminal?: UiRefTerminal;
+  kimiweb?: UiRefKimiweb;
+}
+
+/// The agent-facing answer — the UIRef wrapped with its capture time (plan
+/// §3.2 example). Same shape as RawFocus, post-projection: only allowlisted
+/// fields survive. `captured_at` tells the agent how stale the answer is; the
+/// tool never blocks waiting for a fresh one.
+export type UiFocusSnapshot = RawFocus;
+
+// ── The policy table (ADR-062 D-3) ───────────────────────────────────────────
+
+export type UiPolicyBit = 'allow' | 'refuse';
+
+export interface UiPolicyRow {
+  readonly snapshot: readonly string[];
+  readonly capture: UiPolicyBit;
+  readonly highlight: UiPolicyBit;
+}
+
+/// The rows mirror the §3.2 "Surface coverage" matrix exactly. `settings`
+/// (and the `vault` pseudo-surface) carry an empty allowlist: their snapshots
+/// are existence-only by row, and — because the ACTIVE surface's row gates
+/// the whole projection — nothing else leaks while one of them is focused.
+export const UI_POLICY: Readonly<Record<string, UiPolicyRow>> = {
+  fleet: { snapshot: ['agent.id', 'agent.handle', 'agent.session_id'], capture: 'allow', highlight: 'allow' },
+  projects: { snapshot: ['project.project_id', 'project.task_id'], capture: 'allow', highlight: 'allow' },
+  read: {
+    snapshot: ['tabs.kind', 'tabs.title', 'tabs.url', 'tabs.path', 'tab.kind', 'tab.title', 'tab.url', 'tab.path'],
+    capture: 'allow',
+    highlight: 'allow',
+  },
+  author: { snapshot: ['document.id', 'document.title'], capture: 'allow', highlight: 'allow' },
+  debug: {
+    snapshot: ['inspect_tabs.kind', 'inspect_tabs.path', 'inspect.path', 'inspect.selection'],
+    capture: 'allow',
+    highlight: 'allow',
+  },
+  compare: { snapshot: ['compare.left', 'compare.right'], capture: 'allow', highlight: 'allow' },
+  replay: { snapshot: ['replay.dataset_id', 'replay.episode_id', 'replay.cursor'], capture: 'allow', highlight: 'allow' },
+  record: { snapshot: ['record.dataset_id'], capture: 'allow', highlight: 'allow' },
+  terminal: { snapshot: ['terminal.pane_id', 'terminal.agent_id'], capture: 'allow', highlight: 'allow' },
+  settings: { snapshot: [], capture: 'refuse', highlight: 'allow' },
+  kimiweb: { snapshot: ['kimiweb.url'], capture: 'allow', highlight: 'allow' },
+  vault: { snapshot: [], capture: 'refuse', highlight: 'refuse' },
+};
+
+export function uiPolicyFor(surface: string): UiPolicyRow | null {
+  return UI_POLICY[surface] ?? null;
+}
+
+// ── The projection ───────────────────────────────────────────────────────────
+
+/// Project a raw focus state through the table. Two rules:
+///   1. the ACTIVE surface's row gates the answer — unknown surface, or a row
+///      with an empty allowlist (settings, vault), degrades to existence only
+///      (`{surface, captured_at}`), suppressing every cross-surface block too;
+///   2. otherwise each surface row contributes its own block(s) from the raw
+///      state (the §3.2 example: surface=read still carries the focused
+///      agent, the Inspect path + selection, the terminal pane), filtered to
+///      exactly the row's allowlisted sub-fields.
+export function projectFocus(raw: RawFocus): UiFocusSnapshot {
+  const out = { surface: raw.surface, captured_at: raw.captured_at } as UiFocusSnapshot;
+  const active = UI_POLICY[raw.surface];
+  if (active === undefined || active.snapshot.length === 0) return out;
+  for (const row of Object.values(UI_POLICY)) applyAllowlist(out as unknown as Record<string, unknown>, raw, row.snapshot);
+  return out;
+}
+
+/// Pick the allowlisted sub-fields of one block. Paths are `block.field`;
+/// array blocks apply the sub-field set to every item. Empty results (block
+/// absent, or no allowlisted field present) emit nothing.
+function applyAllowlist(out: Record<string, unknown>, raw: RawFocus, paths: readonly string[]): void {
+  const byBlock = new Map<string, string[]>();
+  for (const p of paths) {
+    const dot = p.indexOf('.');
+    if (dot < 0) continue; // whole-block entries are not used; every row is block.field
+    const subs = byBlock.get(p.slice(0, dot)) ?? [];
+    subs.push(p.slice(dot + 1));
+    byBlock.set(p.slice(0, dot), subs);
+  }
+  for (const [block, subs] of byBlock) {
+    const val = (raw as unknown as Record<string, unknown>)[block];
+    if (val === undefined || val === null) continue;
+    if (Array.isArray(val)) {
+      const items = val
+        .map((item) => pickSubFields(item as Record<string, unknown>, subs))
+        .filter((item) => Object.keys(item).length > 0);
+      if (items.length > 0) out[block] = items;
+    } else if (typeof val === 'object') {
+      const picked = pickSubFields(val as Record<string, unknown>, subs);
+      if (Object.keys(picked).length > 0) out[block] = picked;
+    }
+  }
+}
+
+function pickSubFields(val: Record<string, unknown>, subs: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const s of subs) {
+    const v = val[s];
+    if (v !== undefined && v !== null) out[s] = v;
+  }
+  return out;
+}
+
+// ── Assembly (store slices → raw focus state) ────────────────────────────────
+// The publisher's pure half: plain inputs in, a RawFocus out — no store or
+// platform imports, so the shape is unit-testable without the renderer. The
+// zustand glue lives in uiContext.ts.
+
+export interface FocusSources {
+  /// The active workbench job (useWorkbench.job).
+  job: string;
+  /// useFocus.fleet.selection — contributes `agent` when it names an agent.
+  fleetSelection: { type: string; id: string; name?: string } | null;
+  /// useFocus.projects.selection — contributes `project` when it names one.
+  projectSelection: { type: string; id: string; name?: string } | null;
+  /// The Author surface's active document, if any.
+  activeDocument: { id: string; title: string } | null;
+  /// Inspect (debug) tabs, already narrowed to {kind, path?}.
+  inspectTabs: ReadonlyArray<{ kind: string; path?: string }>;
+  /// The active Inspect tab's {path?}, if a tab is active.
+  inspectActive: { path?: string } | null;
+  /// The Replay surface's selected dataset id, if any.
+  replayDatasetId: string | null;
+  /// The focused terminal pane id — null when no pane is visible.
+  terminalPaneId: string | null;
+  capturedAt: string;
+}
+
+export function assembleRawFocus(s: FocusSources): RawFocus {
+  const raw: RawFocus = { surface: s.job, captured_at: s.capturedAt };
+  if (s.fleetSelection !== null && s.fleetSelection.type === 'agent') {
+    raw.agent = s.fleetSelection.name !== undefined ? { id: s.fleetSelection.id, handle: s.fleetSelection.name } : { id: s.fleetSelection.id };
+  }
+  if (s.projectSelection !== null && s.projectSelection.type === 'project') {
+    raw.project = { project_id: s.projectSelection.id };
+  }
+  if (s.activeDocument !== null) {
+    raw.document = { id: s.activeDocument.id, title: s.activeDocument.title };
+  }
+  if (s.inspectTabs.length > 0) {
+    raw.inspect_tabs = s.inspectTabs.map((t) => (t.path !== undefined ? { kind: t.kind, path: t.path } : { kind: t.kind }));
+  }
+  if (s.inspectActive !== null && s.inspectActive.path !== undefined) {
+    raw.inspect = { path: s.inspectActive.path };
+  }
+  if (s.replayDatasetId !== null) {
+    raw.replay = { dataset_id: s.replayDatasetId };
+  }
+  if (s.terminalPaneId !== null) {
+    raw.terminal = { pane_id: s.terminalPaneId };
+  }
+  return raw;
+}
+
+// ── Throttle + coalescing sender (plan §3.2: ≥500 ms, coalesced) ─────────────
+// The first change after a quiet window sends immediately; changes inside the
+// window collapse into ONE trailing send carrying the latest snapshot. A
+// snapshot identical to the last one sent (most store ticks change nothing
+// the projection reads) is dropped before any timer is armed.
+
+export interface FocusSender {
+  push: (snapshot: UiFocusSnapshot) => void;
+  /// Drop any pending trailing send (toggle-off) — nothing more is emitted.
+  cancel: () => void;
+}
+
+/// Timer/clock injection keeps the tests deterministic; production uses the
+/// platform defaults.
+export function createFocusSender(
+  intervalMs: number,
+  send: (snapshot: UiFocusSnapshot) => void,
+  timing: {
+    now?: () => number;
+    setTimeout?: (fn: () => void, ms: number) => unknown;
+    clearTimeout?: (handle: unknown) => void;
+  } = {},
+): FocusSender {
+  const now = timing.now ?? (() => Date.now());
+  const st = timing.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
+  const ct = timing.clearTimeout ?? ((h) => clearTimeout(h as Parameters<typeof clearTimeout>[0]));
+  let lastSentAt = Number.NEGATIVE_INFINITY;
+  let lastKey = '';
+  let pending: UiFocusSnapshot | null = null;
+  let timer: unknown = null;
+
+  const deliver = (snap: UiFocusSnapshot): void => {
+    lastSentAt = now();
+    lastKey = JSON.stringify(snap);
+    send(snap);
+  };
+
+  return {
+    push(snapshot) {
+      const key = JSON.stringify(snapshot);
+      if (pending === null && key === lastKey) return; // identical to what's already out
+      const elapsed = now() - lastSentAt;
+      if (elapsed >= intervalMs) {
+        if (timer !== null) {
+          ct(timer);
+          timer = null;
+        }
+        pending = null;
+        deliver(snapshot);
+        return;
+      }
+      pending = snapshot; // latest wins — earlier in-window changes coalesce away
+      if (timer === null) {
+        timer = st(() => {
+          timer = null;
+          const p = pending;
+          pending = null;
+          if (p !== null) deliver(p);
+        }, intervalMs - elapsed);
+      }
+    },
+    cancel() {
+      if (timer !== null) ct(timer);
+      timer = null;
+      pending = null;
+    },
+  };
+}

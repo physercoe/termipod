@@ -245,6 +245,25 @@ async function postBridgeAudit(entry: BridgeAuditEntry): Promise<void> {
   }
 }
 
+// ── D1 desktop UI focus provider ─────────────────────────────────────────────
+// desktopui.ts (the focus cache + sharing gate) plugs itself in here so this
+// module never imports it back — the import edge stays one-directional
+// (desktopui → browserbridge_host for stdioBridgePath).
+
+export interface UiFocusProvider {
+  /// The renderer's UI context sharing toggle — gates the tool's catalog
+  /// presence on the bridge server.
+  available: () => boolean;
+  /// The last pushed (policy-projected) focus snapshot, or null.
+  snapshot: () => Record<string, unknown> | null;
+}
+
+let uiFocusProvider: UiFocusProvider | null = null;
+
+export function setUiFocusProvider(p: UiFocusProvider): void {
+  uiFocusProvider = p;
+}
+
 // ── Enable/disable lifecycle ─────────────────────────────────────────────────
 
 let server: BridgeServer | null = null;
@@ -266,6 +285,10 @@ async function enable(): Promise<void> {
     backend,
     serverInfo: { name: 'termipod-browser', version },
     onAction: recordAction,
+    // D1: read live at call time — a toggle flip mid-run shows/hides
+    // ui_get_focus on the next tools/list without a server restart.
+    uiFocusAvailable: () => uiFocusProvider?.available() ?? false,
+    getUiFocus: () => uiFocusProvider?.snapshot() ?? null,
   };
   server = await startBridgeServer({ ...mcpDeps, token, actionToken });
   writeBridgeDiscovery(os.homedir(), {

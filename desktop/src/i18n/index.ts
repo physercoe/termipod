@@ -493,6 +493,9 @@ const en: Dict = {
     'Off by default. When on, agents spawned on this host get browser tools through a loopback MCP server with a per-run token: read tools (list tabs, snapshot, screenshot, read text) for every spawn, action tools (navigate, click, type, …) only when the spawn opts in via browser_bridge: true. Every action call is audited below and mirrored to the hub. The app shell is never exposed; only embedded browser tabs are reachable.',
   'assistant.bridgeRunning': 'bridge running — agents spawned on this host will be injected',
   'assistant.bridgeStopped': 'bridge not running',
+  'assistant.uiContextToggle': 'Share UI context with agents',
+  'assistant.uiContextBlurb':
+    'Off by default. When on, agents on this host (the embedded kimi web panel and local kimi-code sessions) can ask what you are looking at — a ui_get_focus tool appears in their MCP catalog and answers with a compact snapshot: the active surface, its open tab, the focused agent, the Inspect file path + selection. Never shared: message bodies, vault contents, settings values.',
   'assistant.bridgeAudit': 'Recent bridge actions',
   'assistant.bridgeAuditBlurb': 'Last 50 action calls (this app run). Typed text is redacted; each call is mirrored to the hub as an agent event when signed in.',
   'assistant.bridgeAuditEmpty': 'no action calls yet',
@@ -2519,6 +2522,9 @@ const zh: Dict = {
     '默认关闭。开启后，本机启动的智能体将通过带单次运行令牌的回环 MCP 服务器获得浏览器工具：所有实例注入只读工具（列出标签页、快照、截图、读取文本），仅当实例通过 browser_bridge: true 显式启用时才注入操作工具（导航、点击、输入等）。每次操作调用都会在下方审计，并镜像到枢纽作为智能体事件。应用外壳永不暴露，仅内嵌浏览器标签页可达。',
   'assistant.bridgeRunning': '桥接运行中 — 本机启动的智能体将被注入',
   'assistant.bridgeStopped': '桥接未运行',
+  'assistant.uiContextToggle': '与智能体共享界面上下文',
+  'assistant.uiContextBlurb':
+    '默认关闭。开启后，本机上的智能体（内嵌 kimi web 面板与本地 kimi-code 会话）可以询问你正在看什么 — 其 MCP 目录中会出现 ui_get_focus 工具，返回一份紧凑快照：当前工作面、打开的标签页、聚焦的智能体、检视中的文件路径与选区。永不共享：消息正文、保险库内容、设置项的值。',
   'assistant.bridgeAudit': '最近桥接操作',
   'assistant.bridgeAuditBlurb': '最近 50 次操作调用（本次应用运行期间）。输入的文本已脱敏；登录后每次调用都会作为智能体事件镜像到枢纽。',
   'assistant.bridgeAuditEmpty': '暂无操作调用',

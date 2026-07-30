@@ -59,6 +59,12 @@ async function boot(): Promise<void> {
   const { syncBrowserBridgeToMain, pushBridgeHubContext } = await import('./state/browserBridge');
   syncBrowserBridgeToMain();
   pushBridgeHubContext();
+  // Push the persisted UI-context sharing toggle (D1) — main reconciles the
+  // user-level ~/.kimi-code/mcp.json entry (this doubles as the per-start
+  // refresh of the stable relay copy) and opens the focus-cache push. No-op
+  // when off — the default.
+  const { syncUiContextToMain } = await import('./state/uiContext');
+  syncUiContextToMain();
 }
 
 void boot();

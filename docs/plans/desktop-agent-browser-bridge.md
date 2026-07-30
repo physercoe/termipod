@@ -10,9 +10,11 @@
 > partition-policy enforcement, and the audit trail (last-50 ring +
 > best-effort hub `agent_events` mirror, typed text redacted). W3: the
 > hub-relayed bridge — remote agents call the hub-native `browser_invoke`
-> through the A2A reverse tunnel; ACTION tools are approval-gated per
+> through the A2A reverse tunnel; the relay is its own default-off consent
+> toggle (Settings → Remote driving); ACTION tools are approval-gated per
 > (desktop, agent) by a `browser_action` card (approve once / session
-> grant), revocable from Settings → Remote driving.
+> grant); hub-leg reads are ring-audited; revoke (reads AND actions) from
+> Settings → Remote driving.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** origin/main `589a01b0`; kimi-code 0.28.1 verified
 > on-host (macOS arm64)
@@ -318,7 +320,16 @@ rides back as the tunnel response. Action calls route through a hub
 spawn-time flag — approve once, or approve the session
 (`option_id: "session"` → in-memory hub grant); revoke per-session from
 Settings → Remote driving (desktop per-run revoked set + best-effort hub
-grant clear). Channel decision (open question 3, resolved): the **A2A
+grant clear). Review amendments (consent posture, ADR-059 D-7): remote
+driving is its **own opt-in** — a separate default-off toggle under
+Settings → Remote driving, renderer-persisted like the main one — because
+the W1 toggle's consent sentence is "agents spawned on this machine",
+and read tools route to *every team agent* with no approval card, so the
+team-wide exposure must not ride the local toggle silently; hub-leg
+**reads are ring-audited** (`via:'hub'`, never hub-mirrored — the hub
+routed the call) so Remote driving shows read-only sessions; and the
+**revoked set refuses reads too** — a revoked agent that could still
+screenshot the tabs would make the revoked pill a lie. Channel decision (open question 3, resolved): the **A2A
 reverse tunnel**, not `host_commands` and not SSE — it is the only existing
 synchronous request/response hub→machine channel (`enqueueAndWait` blocks
 the relaying MCP call until the desktop posts the response); `host_commands`

@@ -524,6 +524,16 @@ export const ACTION_TOOLS: readonly McpToolDef[] = [
 ];
 
 const ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(ACTION_TOOLS.map((t) => t.name));
+const READ_TOOL_NAMES: ReadonlySet<string> = new Set(READ_TOOLS.map((t) => t.name));
+
+/// Whether an audit entry should be mirrored to the hub as an agent event.
+/// Actions always mirror (W2 contract). Hub-leg READS stay ring-only: the
+/// hub routed the call, so a mirror row adds no information — the ring
+/// entry exists purely so Settings → Remote driving can show (and revoke)
+/// read-only remote sessions.
+export function shouldMirrorAudit(entry: BridgeAuditEntry): boolean {
+  return !(entry.via === 'hub' && READ_TOOL_NAMES.has(entry.tool));
+}
 
 const EVAL_RESULT_MAX = 8000;
 
@@ -995,9 +1005,13 @@ async function runTool(deps: McpServerDeps, name: string, args: Record<string, u
 }
 
 /// Dispatch one tool call. Action calls are wrapped in the W2 audit hook:
-/// exactly one entry per call, success or failure, args redacted.
+/// exactly one entry per call, success or failure, args redacted. W3: calls
+/// arriving over the hub leg are audited even when the tool is a read —
+/// remote access to the user's tabs must be visible in Settings → Remote
+/// driving (local reads stay unaudited: same-machine spawns, high frequency,
+/// and the ring would churn).
 async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!ACTION_TOOL_NAMES.has(name)) return runTool(deps, name, args);
+  if (!ACTION_TOOL_NAMES.has(name) && ctx.via !== 'hub') return runTool(deps, name, args);
   const tabId = typeof args.tabId === 'number' && Number.isInteger(args.tabId) ? args.tabId : null;
   const target = tabId === null ? undefined : deps.backend.listTargets().find((t) => t.tabId === tabId);
   const entry: BridgeAuditEntry = {
@@ -1036,9 +1050,10 @@ async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: st
 // base64s the result back. Hub-side, ACTION tools are approval-gated per
 // (desktop, agent) before routing, so an arriving action call is
 // pre-authorized — the desktop still enforces its own per-run revoked set
-// (Settings → Remote driving) plus the usual class gating (callTool →
-// requireActionTarget), and audits hub calls exactly like local ones
-// (via:'hub').
+// (Settings → Remote driving; it refuses READS too — revoked means gone)
+// plus the usual class gating (callTool → requireActionTarget), and audits
+// EVERY hub-leg call — reads included — via:'hub' (hub reads are ring-only,
+// see shouldMirrorAudit).
 
 /// One browser.invoke tunnel payload (hub → desktop).
 export interface HubInvokePayload {
@@ -1071,8 +1086,10 @@ export async function dispatchHubInvoke(
   if (!isRead && !isAction) return { ok: false, error: 'unknown_tool' };
   // The desktop's own kill switch, checked BEFORE the tool machinery runs —
   // a refusal is a gate event, not an audited action (the same posture as
-  // W2's scope refusal).
-  if (isAction && revoked.has(payload.agent_id)) {
+  // W2's scope refusal). It covers READS too: "Revoke" must mean this agent
+  // no longer touches this browser at all — a revoked agent that could
+  // still screenshot the user's tabs would make the revoked pill a lie.
+  if (revoked.has(payload.agent_id)) {
     return { ok: false, error: 'revoked by user on desktop' };
   }
   const ctx: BridgeRequestContext = {

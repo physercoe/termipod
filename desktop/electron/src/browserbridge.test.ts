@@ -18,6 +18,7 @@ import {
   compactAxTree,
   dispatchHubInvoke,
   foldRemoteSessions,
+  shouldMirrorAudit,
   handleMcpMessage,
   mintToken,
   pruneSnapshotRefs,
@@ -749,7 +750,7 @@ test('W2 HTTP: action bearer grants full scope; x-tp-agent-id flows into the aud
 // parse skipped, action calls pre-authorized hub-side but re-gated here by
 // the per-run revoked set, audited once with via:'hub'.
 
-test('W3 dispatch: read tool runs for any agent, unaudited — even a revoked one', async () => {
+test('W3 dispatch: hub-leg read runs, ring-audited via:hub — but never hub-mirrored', async () => {
   const { deps, entries } = auditDeps(actionBackend());
   const out = await dispatchHubInvoke(
     deps,
@@ -758,11 +759,36 @@ test('W3 dispatch: read tool runs for any agent, unaudited — even a revoked on
   );
   assert.equal(out.ok, true);
   if (out.ok) assert.match((out.result as ToolResult).content[0]?.text ?? '', /"tabId": 7/);
-  assert.equal(entries.length, 0, 'read tools are not audited');
+  // Remote access to the user's tabs must be visible in Settings → Remote
+  // driving, so hub-leg READS are audited (unlike local reads)…
+  assert.equal(entries.length, 1, 'hub-leg reads are ring-audited');
+  assert.equal(entries[0]?.via, 'hub');
+  assert.equal(entries[0]?.tool, 'browser_list_tabs');
+  // …but stay ring-only: the hub routed the call, a mirror row adds nothing.
+  assert.equal(shouldMirrorAudit(entries[0] as BridgeAuditEntry), false, 'hub reads never mirror to the hub');
+});
 
+test('W3 dispatch: local reads stay unaudited; actions and hub entries mirror', async () => {
+  const { deps, entries } = auditDeps(actionBackend());
+  await callTool2(deps, 'browser_list_tabs', {});
+  assert.equal(entries.length, 0, 'local reads keep the W2 posture: unaudited');
+
+  const action: BridgeAuditEntry = {
+    ts: '2026-07-30T00:00:00Z', tool: 'browser_click', agent_id: 'a', via: 'hub',
+    tab_id: 7, url: null, partition: null, args: {}, ok: true, error: null,
+  };
+  assert.equal(shouldMirrorAudit(action), true, 'hub actions mirror (W2 contract)');
+  assert.equal(shouldMirrorAudit({ ...action, via: 'local' }), true, 'local actions mirror');
+  assert.equal(shouldMirrorAudit({ ...action, via: 'local', tool: 'browser_list_tabs' }), true, 'local reads never reach recordAction, so the gate is moot but safe');
+});
+
+test('W3 dispatch: a revoked agent is refused for READS too — revoked means gone', async () => {
+  const backend = actionBackend();
+  const { deps, entries } = auditDeps(backend);
   const revoked = await dispatchHubInvoke(deps, { tool: 'browser_list_tabs', args: {}, agent_id: 'agent-remote' }, new Set(['agent-remote']));
-  assert.equal(revoked.ok, true, 'the revoked set gates action tools only');
-  assert.equal(entries.length, 0);
+  assert.deepEqual(revoked, { ok: false, error: 'revoked by user on desktop' });
+  assert.equal(backend.calls.length, 0, 'refused before any CDP call');
+  assert.equal(entries.length, 0, 'a revoked refusal is a gate event, not an audited call');
 });
 
 test('W3 dispatch: unknown tool refused without touching the backend', async () => {

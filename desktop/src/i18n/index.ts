@@ -495,7 +495,8 @@ const en: Dict = {
   'assistant.bridgeAuditRefresh': 'Refresh',
   'assistant.bridgeRemote': 'Remote driving',
   'assistant.bridgeRemoteBlurb':
-    'Agents on other hosts can ask to drive this desktop’s browser through the hub (browser_invoke): read tools route straight through, action tools need your approval — approval cards appear in the Attention dock — and an approved session keeps driving until you revoke it here or the hub restarts.',
+    'Off by default. When on, agents on other hosts in your team can reach this desktop’s browser through the hub (browser_invoke): read tools (tabs, snapshots, screenshots, page text) route straight through, action tools need your approval — cards appear in the Attention dock — and an approved session keeps driving until you revoke it below or the hub restarts. Revoking an agent blocks its reads too.',
+  'assistant.bridgeRemoteSessions': 'Remote sessions (reads and actions, this app run)',
   'assistant.bridgeRemoteEmpty': 'no remote sessions yet',
   'assistant.bridgeRemoteRevoke': 'Revoke',
   'assistant.bridgeRemoteRevoked': 'revoked',
@@ -2500,7 +2501,8 @@ const zh: Dict = {
   'assistant.bridgeAuditRefresh': '刷新',
   'assistant.bridgeRemote': '远程驱动',
   'assistant.bridgeRemoteBlurb':
-    '其他主机上的智能体可通过枢纽请求驱动本桌面的浏览器（browser_invoke）：只读工具直接放行，操作工具需要你的批准 — 批准卡片会出现在“关注”停靠栏 — 已批准的会话会持续驱动，直到你在此撤销或枢纽重启。',
+    '默认关闭。开启后，团队中其他主机上的智能体可通过枢纽访问本桌面的浏览器（browser_invoke）：只读工具（标签页、快照、截图、页面文本）直接放行，操作工具需要你的批准 — 批准卡片会出现在“关注”停靠栏 — 已批准的会话会持续驱动，直到你在下方撤销或枢纽重启。撤销某个智能体后，其读取也会被拒绝。',
+  'assistant.bridgeRemoteSessions': '远程会话（读取与操作，本次应用运行期间）',
   'assistant.bridgeRemoteEmpty': '暂无远程会话',
   'assistant.bridgeRemoteRevoke': '撤销',
   'assistant.bridgeRemoteRevoked': '已撤销',

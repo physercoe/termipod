@@ -260,12 +260,27 @@ export function AssistantSettings(): JSX.Element {
             <span className="assistant-cfg-label">{t('assistant.bridgeRemote')}</span>
             <span className="small muted">{t('assistant.bridgeRemoteBlurb')}</span>
           </div>
+          {/* W3 consent gate: remote driving is its own opt-in (default off) —
+              team-wide read exposure must never ride the local toggle. */}
+          <input
+            type="checkbox"
+            checked={bridge.remoteEnabled}
+            onChange={(e) => bridge.setRemoteEnabled(e.target.checked)}
+          />
+        </div>
+      )}
+      {bridge.enabled && bridge.remoteEnabled && (
+        <div className="assistant-cfg-row">
+          <div className="assistant-cfg-main">
+            <span className="small muted">{t('assistant.bridgeRemoteSessions')}</span>
+          </div>
           <button className="import-btn" onClick={() => void bridge.refreshRemoteSessions()}>
             <Icon name="refresh" size={13} /> {t('assistant.bridgeAuditRefresh')}
           </button>
         </div>
       )}
       {bridge.enabled &&
+        bridge.remoteEnabled &&
         (bridge.remoteSessions.length === 0 ? (
           <div className="assistant-cfg-row">
             <div className="assistant-cfg-main">

@@ -25,13 +25,16 @@
 ///   - the "borrowed tab": the renderer reports the visible browser guest's
 ///     webContents id (`browserbridge_set_active_guest`) so W2's
 ///     `browser_find_tab {active:true}` resolves the tab the user is watching.
-///   - W3 REMOTE DRIVING: while the bridge is enabled AND a hub context is
-///     set, the desktop registers as a hub `hosts` row (capabilities
-///     .browser_bridge), heartbeats every 10s, and long-polls the hub's A2A
-///     reverse tunnel — incoming browser.invoke envelopes dispatch into the
-///     electron-free core in-process and their results POST back. Settings →
-///     Remote driving lists the remote sessions (folded from the audit ring)
-///     and can revoke one (per-run set + best-effort hub grant clear).
+///   - W3 REMOTE DRIVING: while the bridge is enabled AND the separate
+///     Remote-driving consent is on AND a hub context is set, the desktop
+///     registers as a hub `hosts` row (capabilities.browser_bridge),
+///     heartbeats every 10s, and long-polls the hub's A2A reverse tunnel —
+///     incoming browser.invoke envelopes dispatch into the electron-free
+///     core in-process and their results POST back. Settings → Remote
+///     driving holds the consent toggle (default off), lists the remote
+///     sessions (folded from the audit ring — hub-leg READS included) and
+///     can revoke one (per-run set covering reads AND actions + best-effort
+///     hub grant clear).
 ///
 /// Off by default: no toggle, no server, no discovery file, no injection.
 import { app, webContents, type WebContents } from 'electron';
@@ -47,6 +50,7 @@ import {
   pruneSnapshotRefs,
   READ_TOOLS,
   removeBridgeDiscovery,
+  shouldMirrorAudit,
   startBridgeServer,
   stripFragment,
   writeBridgeDiscovery,
@@ -182,7 +186,9 @@ let hubContext: BridgeHubContext | null = null;
 
 function recordAction(entry: BridgeAuditEntry): void {
   auditRing.push(entry);
-  void postBridgeAudit(entry);
+  // Hub-leg reads are ring-only (Settings visibility, no hub mirror — the
+  // hub routed the call and already knows); everything else mirrors as W2.
+  if (shouldMirrorAudit(entry)) void postBridgeAudit(entry);
 }
 
 /// Best-effort mirror of one action call onto the CALLING agent's hub event
@@ -285,7 +291,8 @@ async function disable(): Promise<void> {
 }
 
 // ── W3 hub relay (remote driving through the reverse tunnel) ─────────────────
-// While the bridge is enabled AND a hub context is set, the desktop is a hub
+// While the bridge is enabled AND the Remote-driving consent is on AND a hub
+// context is set, the desktop is a hub
 // `hosts` row advertising capabilities.browser_bridge: it registers (upsert
 // on (team,name) — safe to re-post on every enable), heartbeats every 10s
 // (the hub sweep flips silent hosts offline; 10s matches the hostrunner
@@ -316,12 +323,22 @@ function hubRelayKey(ctx: BridgeHubContext): string {
   return `${ctx.baseUrl}|${ctx.teamId}|${ctx.profileId}`;
 }
 
-/// (Re)concile the relay with the current enabled + hub-context state: start
-/// when both are present, restart when the profile changed, stop otherwise.
-/// Fire-and-forget — a registration failure retries on the next sync, and
-/// the poll loop backs off on its own.
+/// W3 consent gate: remote driving is its OWN opt-in (Settings → Remote
+/// driving, default off, renderer-persisted like the main toggle). The W1
+/// toggle's consent sentence is "agents spawned on this machine may drive
+/// my tabs"; exposing the same tabs to every agent in the team is a
+/// different sentence and gets its own switch — reads route with no
+/// approval card, so the exposure must never ride the local toggle
+/// silently.
+let remoteEnabled = false;
+
+/// (Re)concile the relay with the current enabled + remote-consent +
+/// hub-context state: start when all three are present, restart when the
+/// profile changed, stop otherwise. Fire-and-forget — a registration
+/// failure retries on the next sync, and the poll loop backs off on its
+/// own.
 function syncHubRelay(): void {
-  const want = enabled && hubContext !== null ? hubContext : null;
+  const want = enabled && remoteEnabled && hubContext !== null ? hubContext : null;
   if (want !== null && hubRelay !== null && hubRelayKey(hubRelay.ctx) === hubRelayKey(want)) return;
   stopHubRelay();
   if (want !== null) void startHubRelay(want);
@@ -507,6 +524,14 @@ export const browserBridgeHandlers: Record<string, Handler> = {
   browserbridge_set_enabled: async (args): Promise<{ enabled: boolean; running: boolean }> => {
     await setBrowserBridgeEnabled(args.enabled === true);
     return { enabled, running: server !== null };
+  },
+  /// W3 consent gate: remote driving (hub relay) is its own opt-in, pushed
+  /// by the renderer like the main toggle (persisted there, default off).
+  /// Off tears the relay down; the hosts row goes offline at the hub sweep.
+  browserbridge_set_remote: async (args): Promise<{ remote: boolean }> => {
+    remoteEnabled = args.enabled === true;
+    syncHubRelay();
+    return { remote: remoteEnabled };
   },
   /// Toggle state for the Settings page. NEVER returns the token or the
   /// discovery contents — those cross only via the 0o600 file.

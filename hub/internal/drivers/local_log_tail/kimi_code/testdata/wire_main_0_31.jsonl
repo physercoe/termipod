@@ -1,0 +1,21 @@
+{"type":"metadata","protocol_version":"1.5","created_at":1784272902692}
+{"type":"mcp.tools_discovered","serverName":"termipod-desktop","enabledNames":["browser_list_tabs","browser_snapshot"],"hash":"eb61a4cc762b90ac7aa2c61f8f8f6b3fc35efdb08bab8d9d47a414887b2dccff","tools":[{"name":"browser_list_tabs","description":"<tool description redacted>","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}],"time":1784272903000}
+{"type":"turn.prompt","input":[{"type":"text","text":"<user prompt redacted>"}],"origin":{"kind":"user"},"time":1784272903100}
+{"type":"context.append_loop_event","event":{"type":"step.begin","uuid":"095ef45f-95e6-4a47-9699-0e74fa5979b3","turnId":"20","step":1},"time":1784272903101}
+{"type":"tools.update_store","key":"todo","value":[{"title":"first task","status":"in_progress"}],"time":1784272903200}
+{"type":"turn.steer","input":[{"type":"text","text":"<task notification redacted>"}],"origin":{"kind":"background_task","taskId":"bash-0576ywug","status":"completed","notificationId":"task:bash-0576ywug:completed"},"time":1784272904000}
+{"type":"turn.steer","input":[{"type":"text","text":"<user steer redacted>"}],"origin":{"kind":"user"},"time":1784272905000}
+{"type":"plan_mode.enter","id":"lockjaw-iron-fist-adam-warlock","time":1784272906000}
+{"type":"plan_mode.cancel","time":1784272906231}
+{"type":"permission.set_mode","mode":"yolo","time":1784272911012}
+{"type":"swarm_mode.enter","trigger":"tool","time":1784272912000}
+{"type":"swarm_mode.exit","time":1784272913000}
+{"type":"full_compaction.begin","source":"manual","time":1784272914000}
+{"type":"context.apply_compaction","summary":"<compaction summary redacted>","contextSummary":"<context summary redacted>","compactedCount":135,"tokensBefore":150972,"tokensAfter":1585,"keptUserMessageCount":7,"time":1784272914484}
+{"type":"full_compaction.complete","time":1784272914506}
+{"type":"turn.prompt","input":[{"type":"text","text":"<goal task prompt redacted>"}],"origin":{"kind":"task","taskId":"bash-kl8rz8bn","status":"completed","notificationId":"task:bash-kl8rz8bn:completed"},"time":1784272920000}
+{"type":"tools.update_store","key":"todo","value":[{"title":"second task","status":"pending"}],"time":1784272921000}
+{"type":"context.append_loop_event","event":{"type":"content.part","uuid":"85e2fdfb-b758-40e6-966a-0b6581ef04b4","turnId":"21","step":1,"part":{"type":"text","text":"<assistant reply redacted>"}},"time":1784272922000}
+{"type":"context.append_loop_event","event":{"type":"step.end","uuid":"06574e1c-856d-4bf2-af05-21b1d2697fab","turnId":"21","step":1,"usage":{"inputOther":791,"output":583,"inputCacheRead":43008,"inputCacheCreation":0},"finishReason":"tool_use"},"time":1784272923000}
+{"type":"turn.cancel","time":1784272923235}
+{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":791,"output":583,"inputCacheRead":43008,"inputCacheCreation":0},"usageScope":"turn","time":1784272924000}

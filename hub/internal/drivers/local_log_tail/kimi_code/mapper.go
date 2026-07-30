@@ -12,9 +12,10 @@
 // triples the claude-code / antigravity adapters emit so the existing
 // clients render them unchanged.
 //
-// Shapes in this package are pinned against kimi-code 0.28.1 captures
-// (see testdata/ and the plan's Appendix B). Field names were read off
-// real wire.jsonl files, not guessed.
+// Shapes in this package are pinned against kimi-code 0.28.1 and
+// 0.31.0 captures (see testdata/ — wire_main.jsonl is the 0.28.1 pin,
+// wire_main_0_31.jsonl the 0.31.0 pin — and the plan's Appendix B).
+// Field names were read off real wire.jsonl files, not guessed.
 package kimi_code
 
 import (
@@ -55,9 +56,11 @@ func (e *ProtocolError) Unwrap() error { return ErrUnsupportedProtocol }
 // protocol_version is one this mapper was verified against. The
 // captured corpus (kimi-code 0.28.1, 2026-07) contains "1.4" (the
 // version the plan's Appendix B pins) and "1.5" (newer writes on the
-// same build) with byte-identical event shapes for every type we map,
-// so the gate is on the MAJOR version: any 1.x is accepted, anything
-// else (missing, "2.0", "9") is rejected → PaneDriver fallback.
+// same build) with byte-identical event shapes for every type we map;
+// kimi-code 0.31.0 still writes "1.5" — its growth is purely new event
+// TYPES (handled in MapLine below), not shape changes — so the gate is
+// on the MAJOR version: any 1.x is accepted, anything else (missing,
+// "2.0", "9") is rejected → PaneDriver fallback.
 func SupportedProtocolVersion(v string) bool {
 	major, _, _ := strings.Cut(v, ".")
 	return major == "1"
@@ -96,12 +99,18 @@ func NewMapper(agentID, parentAgentID, engine string) *Mapper {
 // protocol version; known shapes with unexpected content degrade
 // gracefully (drop the block, surface schema drift as a system event).
 //
-// Mapping table (verified against kimi-code 0.28.1 wire captures):
+// Mapping table (verified against kimi-code 0.28.1 + 0.31.0 wire
+// captures; the 0.31 rows are marked):
 //
 //	metadata                        → drop; gate protocol_version (ErrUnsupportedProtocol)
 //	config.update                   → drop (session metadata; model arrives via usage.record)
 //	tools.set_active_tools          → drop (tool catalog, no user signal)
-//	turn.prompt                     → drop (hub already posted input.text; arm the per-turn plan chain)
+//	turn.prompt (any origin)        → drop (hub already posted input.text; arm the per-turn plan chain).
+//	                                  0.31 origin.kind=task (goal/cron engine tasks) drops the same way
+//	                                  and STILL arms — a task prompt opens a real engine turn
+//	turn.cancel                     → turn.result {status:cancelled, stop_reason:cancelled} (0.31; main only)
+//	turn.steer (any origin)         → drop (0.31: background_task = engine-internal task notice;
+//	                                  user = input.text duplication, same rationale as turn.prompt)
 //	context.append_message          → drop (same input.text duplication rationale as claude's mapUserString)
 //	context.append_loop_event:
 //	  step.begin                    → drop (internal marker)
@@ -111,6 +120,13 @@ func NewMapper(agentID, parentAgentID, engine string) *Mapper {
 //	  tool.result                   → tool_result {tool_use_id, content, is_error, truncated?}
 //	  step.end finishReason=end_turn → turn.result {reason:end_of_turn, status:success}
 //	  step.end (other reasons)      → drop (per-step bookkeeping; usage.record carries the numbers)
+//	context.apply_compaction        → system {subtype:compaction, summary(≤500 chars), tokens_before,
+//	                                  tokens_after, compacted_count, text} (0.31)
+//	full_compaction.begin/complete  → drop (0.31: the apply event between them carries the signal)
+//	plan_mode.enter/cancel/exit     → system {subtype:plan_mode, phase, id?, text} (0.31)
+//	permission.set_mode             → system {subtype:permission_mode, mode, text} (0.31)
+//	swarm_mode.enter/exit           → system {subtype:swarm_mode, phase, trigger?, text} (0.31)
+//	mcp.tools_discovered            → drop (0.31: tool catalog, same class as tools.set_active_tools)
 //	llm.tools_snapshot / llm.request → drop (request telemetry; model rides the usage event)
 //	tools.update_store key=todo     → plan {entries, message_id, partial:true} (full snapshot per update)
 //	tools.update_store (other keys) → drop (engine-internal stores)
@@ -133,7 +149,13 @@ func (m *Mapper) MapLine(raw []byte) ([]MappedEvent, error) {
 	case "metadata":
 		return nil, m.mapMetadata(raw)
 	case "config.update", "tools.set_active_tools", "context.append_message",
-		"llm.tools_snapshot", "llm.request":
+		"llm.tools_snapshot", "llm.request",
+		// 0.31 drops: the compaction begin/complete pair brackets the
+		// apply event that carries the actual signal (one card per
+		// compaction, not three); mcp.tools_discovered is the same tool
+		// catalog noise class as tools.set_active_tools.
+		"full_compaction.begin", "full_compaction.complete",
+		"mcp.tools_discovered":
 		return nil, nil
 	case "turn.prompt":
 		// New user turn: arm a fresh per-turn plan chain so the todo
@@ -143,11 +165,44 @@ func (m *Mapper) MapLine(raw []byte) ([]MappedEvent, error) {
 		// submits it, and kimi's echo carries the full envelope, so
 		// re-emitting would duplicate the user bubble (the exact
 		// rationale behind claude's mapUserString drop, v1.0.663).
+		//
+		// 0.31: origin.kind="task" prompts (goal-mode / cron engine
+		// tasks, plus background-task completion notices) get the same
+		// treatment — they open a REAL engine turn, so the plan chain
+		// still re-arms, and the body is an engine-generated
+		// notification envelope, not user prose worth surfacing.
 		m.turnSeq++
 		m.planMsgID = ""
 		return nil, nil
+	case "turn.steer":
+		// 0.31: mid-turn input injection. Dropped for EVERY origin,
+		// explicitly (the value over falling into default: is no
+		// unknown_type noise + this stated decision):
+		//   background_task (129 of 133 steers in the 0.31 capture) is
+		//     the engine's own task-notification envelope — CLI-internal
+		//     noise with no rendering obligation.
+		//   user — same duplication rationale as turn.prompt:
+		//     hub-originated steers arrive via tmux send-keys and were
+		//     already posted as input.text by the hub, so mapping would
+		//     double the bubble. Pane-typed steers are the accepted
+		//     loss, same as pane-typed prompts.
+		//   unknown future origins — drop quietly rather than guess.
+		// No plan-chain side effects: a steer redirects the in-flight
+		// turn, it doesn't open a new one (verified: steers land
+		// mid-turn between loop events, turnId unchanged).
+		return nil, nil
+	case "turn.cancel":
+		return m.mapTurnCancel()
 	case "context.append_loop_event":
 		return m.mapLoopEvent(raw)
+	case "context.apply_compaction":
+		return m.mapApplyCompaction(raw)
+	case "plan_mode.enter", "plan_mode.cancel", "plan_mode.exit":
+		return m.mapPlanMode(raw, strings.TrimPrefix(top.Type, "plan_mode."))
+	case "permission.set_mode":
+		return m.mapPermissionMode(raw)
+	case "swarm_mode.enter", "swarm_mode.exit":
+		return m.mapSwarmMode(raw, strings.TrimPrefix(top.Type, "swarm_mode."))
 	case "tools.update_store":
 		return m.mapUpdateStore(raw)
 	case "usage.record":
@@ -375,6 +430,146 @@ func (m *Mapper) mapStepEnd(raw json.RawMessage) ([]MappedEvent, error) {
 		"reason": "end_of_turn",
 		"status": "success",
 	})}, nil
+}
+
+// mapTurnCancel emits the turn terminal for a cancelled turn (0.31).
+// kimi writes turn.cancel the moment the abort lands and NO step.end
+// end_turn follows for the interrupted turn (verified on the 0.31
+// capture: cancel → next line is the next turn's turn.prompt), so
+// without this mapping the session stayed busy forever — mobile's
+// busy-walker scans tail-first for turn.result/completion and never
+// found one (the cancel-button-stuck bug class, cf. claude v1.0.667).
+//
+// The payload is EXACTLY the ACP driver's eager-cancel vocabulary
+// (driver_acp.go Input("cancel"): {status:"cancelled",
+// stop_reason:"cancelled"}): the walker terminates on the kind alone,
+// the hub digest reads stop_reason ("cancelled" ∈ normalTurnStopReasons
+// — an intentional end, not an integrity finding), and the status
+// matches what every ACP engine already posts on a user cancel, so
+// digest + mobile failure accounting treat both engines identically.
+//
+// Main-agent only, same guard as mapStepEnd (#374): a subagent's
+// cancel describes its inner loop, not the session's turn.
+func (m *Mapper) mapTurnCancel() ([]MappedEvent, error) {
+	if m.isSubagent() {
+		return nil, nil
+	}
+	return []MappedEvent{m.event("turn.result", "agent", map[string]any{
+		"status":      "cancelled",
+		"stop_reason": "cancelled",
+	})}, nil
+}
+
+// --- 0.31 session-mode + compaction events ---
+
+// compactionSummaryBound caps the summary carried on the compaction
+// system event. kimi's summaries are full working briefs (kilobytes);
+// the card needs the gist, and the bound keeps one event from
+// dominating the transcript + the event store.
+const compactionSummaryBound = 500
+
+// mapApplyCompaction surfaces kimi's context compaction as ONE system
+// event. The wire brackets it with full_compaction.begin/complete
+// (dropped in MapLine — the apply carries the signal: what was
+// compacted and the token delta). Clients render it as a system card
+// today (the text line lands on the default renderer); the payload
+// fields keep enough structure for a future fold marker. Mirrors the
+// claude mapper's compact_boundary arm, which is likewise a single
+// producer=system notice kept off the busy-inference path.
+func (m *Mapper) mapApplyCompaction(raw []byte) ([]MappedEvent, error) {
+	var c struct {
+		Summary        string `json:"summary"`
+		CompactedCount int    `json:"compactedCount"`
+		TokensBefore   int    `json:"tokensBefore"`
+		TokensAfter    int    `json:"tokensAfter"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return nil, mapErr("apply_compaction parse", err)
+	}
+	payload := map[string]any{
+		"subtype":         "compaction",
+		"compacted_count": c.CompactedCount,
+		"tokens_before":   c.TokensBefore,
+		"tokens_after":    c.TokensAfter,
+	}
+	if c.Summary != "" {
+		summary := c.Summary
+		if r := []rune(summary); len(r) > compactionSummaryBound {
+			summary = string(r[:compactionSummaryBound]) + "…"
+		}
+		payload["summary"] = summary
+	}
+	payload["text"] = fmt.Sprintf("Context compacted: %d messages, %d → %d tokens",
+		c.CompactedCount, c.TokensBefore, c.TokensAfter)
+	return []MappedEvent{m.event("system", "system", payload)}, nil
+}
+
+// mapPlanMode surfaces plan-mode transitions (0.31) as a system card
+// carrying the phase (+ the plan id on enter). No dedicated mode event
+// kind exists hub-side — the ACP driver forwards current_mode_update as
+// a verbatim producer=system frame (driver_acp.go) — so a system
+// subtype is the reuse-consistent shape, and producer=system keeps the
+// card off mobile's busy-inference path either way.
+func (m *Mapper) mapPlanMode(raw []byte, phase string) ([]MappedEvent, error) {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, mapErr("plan_mode parse", err)
+	}
+	payload := map[string]any{
+		"subtype": "plan_mode",
+		"phase":   phase,
+	}
+	text := "Plan mode: " + phase
+	if p.ID != "" {
+		payload["id"] = p.ID
+		text += " · " + p.ID
+	}
+	payload["text"] = text
+	return []MappedEvent{m.event("system", "system", payload)}, nil
+}
+
+// mapPermissionMode surfaces approval-mode switches (0.31: yolo /
+// auto / manual observed in the capture). session.init already carries
+// the LAUNCH-time mode (adapter buildLaunchTimeSessionInit); this is
+// the mid-session change, same system-card treatment as plan_mode.
+func (m *Mapper) mapPermissionMode(raw []byte) ([]MappedEvent, error) {
+	var p struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, mapErr("permission.set_mode parse", err)
+	}
+	payload := map[string]any{
+		"subtype": "permission_mode",
+		"mode":    p.Mode,
+		"text":    "Permission mode: " + p.Mode,
+	}
+	return []MappedEvent{m.event("system", "system", payload)}, nil
+}
+
+// mapSwarmMode surfaces swarm-mode transitions (0.31), carrying the
+// trigger on enter ("tool" in the capture — kimi escalates when a
+// swarm-capable tool call lands).
+func (m *Mapper) mapSwarmMode(raw []byte, phase string) ([]MappedEvent, error) {
+	var s struct {
+		Trigger string `json:"trigger"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, mapErr("swarm_mode parse", err)
+	}
+	payload := map[string]any{
+		"subtype": "swarm_mode",
+		"phase":   phase,
+	}
+	text := "Swarm mode: " + phase
+	if s.Trigger != "" {
+		payload["trigger"] = s.Trigger
+		text += " (trigger: " + s.Trigger + ")"
+	}
+	payload["text"] = text
+	return []MappedEvent{m.event("system", "system", payload)}, nil
 }
 
 // --- tools.update_store ---

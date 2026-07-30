@@ -39,8 +39,8 @@ import {
   type ScrapeSeed,
 } from '../discovery';
 import { hostOf, isShell, revealPath } from '../platform';
+import { useCompanionContext } from '../state/companionContext';
 import { BrowserView } from './BrowserView';
-import { AgentCompanion } from '../ui/AgentCompanion';
 import { Markdown } from '../ui/Markdown';
 import { MarkdownReader } from '../ui/MarkdownReader';
 import { NoteTab } from '../ui/NoteTab';
@@ -87,7 +87,7 @@ function saveWidth(key: string, v: number): void {
 /// Undermind patterns) are specced in `reference-library-and-reading.md`.
 
 type Mode = 'library' | 'discover';
-type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta' | 'assistant';
+type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta';
 const ALL = '__all__';
 
 // An open tab in the reader region: a PDF reader (a library item) or an in-app
@@ -964,23 +964,7 @@ function Inspector({
     { id: 'notes', label: t('read.tabNotes') },
     { id: 'cite', label: t('read.tabCite') },
     { id: 'meta', label: t('read.tabMeta') },
-    // The assistant sits alongside the other tabs in the reader so it can be used
-    // while reading the PDF; it's reader-only (embedded) to keep the list side lean.
-    ...(embedded === true ? [{ id: 'assistant' as Tab, label: t('read.tabAssistant') }] : []),
   ];
-
-  // Context handed to the reader's assistant — the paper's identity + any notes.
-  const assistantContext = {
-    label: ref.title !== '' ? ref.title : t('read.untitled'),
-    build: (): string => {
-      const parts = [`Paper: "${ref.title}"`];
-      if (ref.authors.length > 0) parts.push(`Authors: ${ref.authors.join(', ')}`);
-      if (ref.year !== undefined) parts.push(`Year: ${ref.year}`);
-      if (ref.abstract !== undefined && ref.abstract !== '') parts.push(`Abstract: ${ref.abstract}`);
-      if (ref.notes !== undefined && ref.notes.trim() !== '') parts.push(`My notes so far:\n${ref.notes}`);
-      return parts.join('\n');
-    },
-  };
 
   return (
     <div className="ref-inspector">
@@ -1058,18 +1042,6 @@ function Inspector({
         )}
       </div>
 
-      {tab === 'assistant' ? (
-        <div className="ref-assistant-body">
-          <AgentCompanion
-            storageKey="termipod.read.reader.agent"
-            context={assistantContext}
-            onInsert={(text) => {
-              const prev = ref.notes ?? '';
-              update(ref.id, { notes: prev.trim() === '' ? text : `${prev}\n\n${text}` });
-            }}
-          />
-        </div>
-      ) : (
       <div className="ref-tab-body scroll">
         {tab === 'info' && (
           <div className="ref-form">
@@ -1385,7 +1357,6 @@ function Inspector({
 
         {tab === 'meta' && <RefMeta reference={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
       </div>
-      )}
     </div>
   );
 }
@@ -1844,9 +1815,7 @@ export function ReadSurface(): JSX.Element {
   const [inspW, setInspW] = useState(() => loadWidth('termipod.read.inspW', 380));
   const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('termipod.read.railFold') === '1');
   const [inspCollapsed, setInspCollapsed] = useState(() => localStorage.getItem('termipod.read.inspFold') === '1');
-  const [showAgent, setShowAgent] = useState(false);
   const [showWebdav, setShowWebdav] = useState(false);
-  const [agentW, setAgentW] = useState(() => loadWidth('termipod.read.agentW', 360));
   const client = useSession((s) => s.client);
   const [syncing, setSyncing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -2119,6 +2088,46 @@ export function ReadSurface(): JSX.Element {
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
   const selectedRef = selected !== null ? references.find((r) => r.id === selected) : undefined;
 
+  // The dock companion's context provider (the unified assistant dock, D2.2 —
+  // state/companionContext.ts): the selected paper. Read/Author have no focus
+  // event of their own, so the approximation is register on mount + selection
+  // change, unregister on unmount / no selection; registration itself marks
+  // the surface most-recently focused. `build`/`insert` read the library
+  // store LIVE at call time, so the effect only re-runs when the label-affecting
+  // fields change, not on every library update.
+  const registerCtx = useCompanionContext((s) => s.register);
+  const unregisterCtx = useCompanionContext((s) => s.unregister);
+  const selectedTitle = selectedRef?.title;
+  useEffect(() => {
+    if (selected === null) {
+      unregisterCtx('read');
+      return;
+    }
+    const id = selected;
+    registerCtx('read', {
+      label: selectedTitle !== undefined && selectedTitle !== '' ? selectedTitle : tStatic('read.untitled'),
+      build: () => {
+        const r = useLibrary.getState().references.find((x) => x.id === id);
+        if (r === undefined) return '';
+        const parts = [`Paper: "${r.title}"`];
+        if (r.authors.length > 0) parts.push(`Authors: ${r.authors.join(', ')}`);
+        if (r.year !== undefined) parts.push(`Year: ${r.year}`);
+        if (r.abstract !== undefined && r.abstract !== '') parts.push(`Abstract: ${r.abstract}`);
+        return parts.join('\n');
+      },
+      insert: (text) => {
+        const lib = useLibrary.getState();
+        const r = lib.references.find((x) => x.id === id);
+        if (r === undefined) return;
+        const prev = r.notes ?? '';
+        lib.updateReference(id, { notes: prev.trim() === '' ? text : `${prev}\n\n${text}` });
+      },
+    });
+  }, [selected, selectedTitle, registerCtx, unregisterCtx]);
+  // Unmount removal lives in its own effect — riding the registration effect's
+  // cleanup would turn every re-register into remove+append churn.
+  useEffect(() => () => unregisterCtx('read'), [unregisterCtx]);
+
   // A stable mirror of the current selection so the download listener (mounted
   // once) reads the LIVE value, not the selection captured at mount.
   const selRef = useRef<string | null>(selected);
@@ -2276,13 +2285,6 @@ export function ReadSurface(): JSX.Element {
               {syncing ? t('read.syncing') : t('read.syncHub')}
             </button>
           )}
-          <button
-            className={showAgent ? 'import-btn attn' : 'import-btn'}
-            title={t('author.assistantHint')}
-            onClick={() => setShowAgent((v) => !v)}
-          >
-            {t('author.assistant')}
-          </button>
         </>
       }
     >
@@ -2663,39 +2665,6 @@ export function ReadSurface(): JSX.Element {
             </div>
           )}
         </aside>
-          </>
-        )}
-        {showAgent && (
-          <>
-            <ResizeHandle
-              onResize={(dx) =>
-                setAgentW((w) => {
-                  const n = clamp(w - dx, 280, 720);
-                  saveWidth('termipod.read.agentW', n);
-                  return n;
-                })
-              }
-            />
-            <aside className="read-agent" style={{ width: agentW }}>
-              <AgentCompanion
-                storageKey="termipod.read.agent"
-                context={
-                  selectedRef !== undefined
-                    ? {
-                        label: selectedRef.title !== '' ? selectedRef.title : t('read.untitled'),
-                        build: () => {
-                          const parts = [`Paper: "${selectedRef.title}"`];
-                          if (selectedRef.authors.length > 0) parts.push(`Authors: ${selectedRef.authors.join(', ')}`);
-                          if (selectedRef.year !== undefined) parts.push(`Year: ${selectedRef.year}`);
-                          if (selectedRef.abstract !== undefined && selectedRef.abstract !== '')
-                            parts.push(`Abstract: ${selectedRef.abstract}`);
-                          return parts.join('\n');
-                        },
-                      }
-                    : undefined
-                }
-              />
-            </aside>
           </>
         )}
           </div>

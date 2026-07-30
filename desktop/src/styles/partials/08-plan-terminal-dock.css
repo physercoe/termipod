@@ -1119,6 +1119,15 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* Annotating = the annotation overlay is armed (any origin): the dock steps
+   aside WITHOUT its `open` state flipping — the overlay covers it at z-200,
+   but the dock must also stay out of the captured pixels and give the drag an
+   unobstructed surface. Same hide mechanics as .hidden (the webview hazard
+   applies identically); cancel / target pick restores the dock as it was. */
+.assistant-dock.annotating {
+  visibility: hidden;
+  pointer-events: none;
+}
 .assistant-dock.right {
   top: 0;
   bottom: 0;
@@ -1157,9 +1166,9 @@
   padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
 }
-.assistant-dock-title {
-  font-size: var(--font-size-body-small);
-  font-weight: 600;
+/* The tab strip (kimi web | Companion) leads the header. */
+.assistant-dock-tabs {
+  flex: 0 0 auto;
 }
 .assistant-dock-close:hover {
   color: var(--danger);
@@ -1168,6 +1177,23 @@
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
+}
+/* Both tabs render once the dock has started; the inactive one is hidden by
+   `view` — absolutely stacked so the hidden pane takes no layout space, and
+   visibility-hidden (never display:none) for the webview hazard above. */
+.assistant-dock-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.assistant-dock-pane.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+.assistant-dock-pane .companion {
+  flex: 1;
+  min-width: 0;
 }
 .assistant-dock-body .web-panel {
   flex: 1;

@@ -1,12 +1,23 @@
 import { create } from 'zustand';
 import { invoke } from '../bridge';
 import { isShell } from '../platform';
+import { useAssistant } from './assistant';
 import {
+  handoffKey,
+  handoffRevealsDock,
   removeCompanion,
   upsertCompanion,
   type AnnotationOrigin,
+  type AnnotationPhase,
   type CompanionTarget,
 } from './annotationTargets';
+
+// The origin / companion-target types + the target-row resolution + the pure
+// decisions (dock-hide flag, handoff routing/reveal) live in
+// annotationTargets.ts (bridge-free, so node --test covers the contract);
+// re-exported here so existing importers keep one entry point.
+export { GLOBAL_ORIGIN, dockHiddenForPhase, resolveTargets } from './annotationTargets';
+export type { AnnotationOrigin, CompanionTarget } from './annotationTargets';
 
 /// Annotation overlay state (D2 — docs/plans/desktop-ui-context-and-pointing.md
 /// §3.4): the user→agent pointing gesture. The trigger ARMS the overlay (only
@@ -23,6 +34,13 @@ import {
 /// Esc / cancel attaches nothing and records nothing (plan §3.8); a refused
 /// selection (rect fully inside a capture:refuse region) keeps the overlay
 /// armed with a hint so the user re-selects.
+///
+/// Dock interplay (the unified assistant dock, D2.2): while the overlay is
+/// armed (`phase !== 'idle'`) the dock hides WITHOUT flipping its `open`
+/// state (ui/AssistantDock.tsx reads the phase into a CSS hide class) so it
+/// stays out of the captured pixels; cancel/discard/target-pick restore it.
+/// A handoff to the dock companion REVEALS the dock on the companion tab so
+/// the user sees the crop chip arrive (`handOffToCompanion` below).
 
 export interface AnnotationCapture {
   /// Main-side 0o600 temp path (the kimi injection + discard).
@@ -35,12 +53,6 @@ export interface AnnotationCapture {
   height: number;
   target: 'shell' | 'guest';
 }
-
-// The origin / companion-target types + the target-row resolution live in
-// annotationTargets.ts (import-free, so node --test covers the contract);
-// re-exported here so existing importers keep one entry point.
-export { GLOBAL_ORIGIN, resolveTargets } from './annotationTargets';
-export type { AnnotationOrigin, CompanionTarget } from './annotationTargets';
 
 /// The companion-path handoff: the crop becomes a delete-able chip in the
 /// arming companion's compose box and the note lands in its draft — the user
@@ -56,7 +68,7 @@ export interface AnnotationHandoff {
 }
 
 interface AnnotationState {
-  phase: 'idle' | 'selecting' | 'target';
+  phase: AnnotationPhase;
   origin: AnnotationOrigin | null;
   capture: AnnotationCapture | null;
   /// The surface id whose refuse region swallowed the last selection (a hint
@@ -112,8 +124,8 @@ export const useAnnotation = create<AnnotationState>((set, get) => ({
   },
   handOffToCompanion: (note, storageKey) => {
     const { origin, capture } = get();
-    const key = storageKey ?? origin?.storageKey;
-    if (key === undefined || capture === null) return;
+    const key = handoffKey(origin, storageKey);
+    if (key === null || capture === null) return;
     handoffSeq += 1;
     set({
       phase: 'idle',
@@ -131,6 +143,10 @@ export const useAnnotation = create<AnnotationState>((set, get) => ({
     // ever for the kimi injection — drop it.
     if (isShell()) void invoke('annotation_discard', { file: capture.file }).catch(() => undefined);
     set({ origin: null, capture: null });
+    // D2.2: a handoff to the dock companion (the only registered one now —
+    // the per-surface mounts are retired) reveals the dock on the companion
+    // tab so the user watches the crop chip land in its compose box.
+    if (handoffRevealsDock(key)) useAssistant.getState().reveal('companion');
   },
   clearHandoff: () => set({ handoff: null }),
   registerCompanion: (c) => set((s) => ({ companions: upsertCompanion(s.companions, c) })),

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { useAnnotation, resolveTargets, type AnnotationCapture } from '../state/annotation';
-import { useAssistant } from '../state/assistant';
+import { kimiAttachable, useAssistant } from '../state/assistant';
 import { toast } from '../state/toast';
 import { useUiContext } from '../state/uiContext';
 import { uiPolicyFor } from '../state/ui_policy';
@@ -22,15 +22,19 @@ import { Icon } from './Icon';
 /// per-guest iframe is needed — and none would be allowed (webtab.ts strips
 /// preloads).
 ///
-/// Flow (plan §3.4 steps 2-4): armed by an AgentCompanion's "Ask agent"
+/// Flow (plan §3.4 steps 2-4): armed by the dock AgentCompanion's "Ask agent"
 /// button, or GLOBALLY by the status-bar chip / palette entry (D2.1 — no
 /// companion origin) → drag a rect (Esc cancels: nothing attached, no event,
 /// no audit) → `annotation_capture` (a rect fully inside a capture:refuse
 /// region — the Settings pane, which also holds the vault — is refused with a
 /// hint and the user re-selects) → the target row: "Attach to kimi web" first
-/// when the kimi-web panel is open, then "Send to <agent>" (the arming
-/// companion when bound; for a global arm the first registered bound
-/// companion), an optional one-line note, Cancel (deletes the temp crop).
+/// when the kimi guest is mounted + embedded (started && !detached — the dock
+/// may be hidden), then "Send to <agent>" (the arming companion when bound;
+/// for a global arm the first registered bound companion), an optional
+/// one-line note, Cancel (deletes the temp crop). While armed, the assistant
+/// dock steps aside (the `annotating` CSS hide) without flipping its `open`
+/// state; a kimi attach reveals the dock on the kimi tab, a companion handoff
+/// on the Companion tab (D2.2).
 
 interface Rect {
   x: number;
@@ -107,11 +111,14 @@ function collectSurfaceRegions(): Array<{ surface: string; rect: Rect }> {
   return out;
 }
 
-/// The kimi-web dock's guest, when the panel is open and embedded (not
-/// detached to its own window, not hidden). The target row offers "Attach to
-/// kimi web" first — plan §3.4 step 4.
+/// The kimi-web dock's guest, when the panel is mounted and embedded (not
+/// detached to its own window). The dock need not be OPEN — its kimi tab
+/// hides (visibility) but never unmounts, so the guest keeps its webContents
+/// id and main can inject into it; a successful attach then reveals the dock
+/// on the kimi tab. The target row offers "Attach to kimi web" first —
+/// plan §3.4 step 4.
 function kimiGuestId(): number | null {
-  const el = document.querySelector('.assistant-dock:not(.hidden) webview');
+  const el = document.querySelector('.assistant-dock webview');
   if (el === null) return null;
   const id = (el as WebviewLike).getWebContentsId?.();
   return typeof id === 'number' ? id : null;
@@ -130,7 +137,11 @@ export function AnnotationOverlay(): JSX.Element | null {
   const captured = useAnnotation((s) => s.captured);
   const handOffToCompanion = useAnnotation((s) => s.handOffToCompanion);
   const companions = useAnnotation((s) => s.companions);
-  const assistantOpen = useAssistant((s) => s.open && !s.detached);
+  // Kimi attach availability (D2.2 amendment): guest mounted (started) and
+  // embedded — the dock may be hidden or showing the Companion tab; a
+  // successful attach reveals it on the kimi tab.
+  const kimiReady = useAssistant(kimiAttachable);
+  const revealAssistant = useAssistant((s) => s.reveal);
 
   const [drag, setDrag] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -267,7 +278,7 @@ export function AnnotationOverlay(): JSX.Element | null {
   }
 
   // phase === 'target': the crop is captured; pick where it goes.
-  const kimiId = assistantOpen ? kimiGuestId() : null;
+  const kimiId = kimiReady ? kimiGuestId() : null;
   const targets = resolveTargets({ kimiOpen: kimiId !== null, origin, companions });
 
   async function attachKimi(): Promise<void> {
@@ -278,11 +289,14 @@ export function AnnotationOverlay(): JSX.Element | null {
       if (r.ok === true && r.injected === true) {
         toast.success(t('annotate.attached'));
         cancel(); // the temp file stays (the SPA may read lazily; the LRU reaps)
+        // Land the user in kimi's composer to review and send (D2.2).
+        revealAssistant('kimi');
       } else if (r.ok === true && r.fallback === 'clipboard') {
         // The paste key by platform — ⌘V is a lie on Linux/Windows.
         const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
         toast.info(t('annotate.clipboard').replace('{key}', mac ? '⌘V' : 'Ctrl+V'));
         cancel();
+        revealAssistant('kimi'); // the clipboard hold counts as attached — reveal too
       } else {
         // Includes fallback === 'clipboard-failed': nothing was attached AND
         // nothing was copied — an info toast here would claim a clipboard

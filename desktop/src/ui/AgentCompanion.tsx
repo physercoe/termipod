@@ -5,6 +5,7 @@ import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { useAnnotation } from '../state/annotation';
+import { loadCompanionBinding } from '../state/companionBinding';
 import { useSession } from '../state/session';
 import { useUiContext } from '../state/uiContext';
 import { useAgents } from '../hub/queries';
@@ -18,11 +19,13 @@ import { LocalAgentLauncher } from './LocalAgentLauncher';
 // Cap per-mention file text so a large file can't blow the message context.
 const MENTION_MAX = 100_000;
 
-/// The **AgentCompanion** — a hub-attached assistant panel that mounts alongside a
-/// surface (Read J1, Author J2). It reuses the hub SDK's agent stream + the shared
-/// Composer + EventCard, so it's a focused, surface-scoped view of one agent's
-/// conversation with a composer that injects the surface's context (the current
-/// paper / the current document) into each message.
+/// The **AgentCompanion** — a hub-attached assistant panel. It lives in the
+/// unified assistant dock (ui/AssistantDock.tsx, the Companion tab; the
+/// per-surface Read/Author mounts are retired) and reuses the hub SDK's agent
+/// stream + the shared Composer + EventCard, so it's a focused view of one
+/// agent's conversation with a composer that injects the ACTIVE surface's
+/// context (the current paper / the current document — the provider registry
+/// in state/companionContext.ts) into each message.
 ///
 /// Hub-attached is the default; when no hub is bound it degrades to an explanatory
 /// empty state (the offline *local* runner — a desktop-local agent over ConPTY —
@@ -54,7 +57,11 @@ export function AgentCompanion({
   const client = useSession((s) => s.client);
   const agentsQ = useAgents();
   const agents = agentsQ.data ?? [];
-  const [agentId, setAgentId] = useState<string>(() => localStorage.getItem(storageKey) ?? '');
+  const [agentId, setAgentId] = useState<string>(() =>
+    // The dock companion's key falls back to the retired per-surface mounts'
+    // keys (state/companionBinding.ts) so an existing binding survives.
+    loadCompanionBinding((k) => localStorage.getItem(k), storageKey),
+  );
   // Hub-attached (an agent on some host) vs a local agent running on THIS machine.
   // Local is desktop-only; the choice is persisted per mount point.
   const [source, setSource] = useState<'hub' | 'local'>(() =>

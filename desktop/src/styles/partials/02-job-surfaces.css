@@ -454,16 +454,8 @@ button > .ui-icon:not(:only-child):first-child,
 .author-nav-show {
   border-left: none;
 }
-.author-agent,
-.read-agent {
-  flex: 0 0 auto;
-  min-width: 0;
-  border-left: 1px solid var(--border);
-  background: var(--surface);
-  display: flex;
-}
-
-/* AgentCompanion — hub-attached assistant panel (Read + Author). */
+/* AgentCompanion — hub-attached assistant panel (the unified assistant dock's
+   Companion tab; the per-surface Read/Author mounts are retired). */
 .companion {
   flex: 1;
   min-width: 0;

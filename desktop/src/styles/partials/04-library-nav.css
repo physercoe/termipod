@@ -255,17 +255,6 @@
   display: flex;
   flex-direction: column;
 }
-/* The reader's assistant tab fills the side panel (the companion owns its own
-   scroll); no .scroll wrapper so the feed + composer lay out full-height. */
-.ref-assistant-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-.ref-assistant-body .companion {
-  flex: 1;
-  min-width: 0;
-}
 .ref-form {
   padding: var(--spacing-s16);
   display: flex;

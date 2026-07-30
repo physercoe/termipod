@@ -17,8 +17,11 @@ import {
   type CompanionTarget,
 } from './annotationTargets.ts';
 
-const COMPANION_A: CompanionTarget = { storageKey: 'termipod.read.agent', agentId: 'ag_1', agentLabel: 'kimi-1' };
-const COMPANION_B: CompanionTarget = { storageKey: 'termipod.author.agent', agentId: 'ag_2', agentLabel: 'kimi-2' };
+// The dock companion's key is the only registered one in the app now (the
+// per-surface mounts are retired); a second fixture keeps the multi-entry
+// registry semantics covered.
+const COMPANION_A: CompanionTarget = { storageKey: 'termipod.dock.agent', agentId: 'ag_1', agentLabel: 'kimi-1' };
+const COMPANION_B: CompanionTarget = { storageKey: 'termipod.dock.agent.b', agentId: 'ag_2', agentLabel: 'kimi-2' };
 
 // ── Global arm (D2.1 — status-bar chip / palette) ───────────────────────────
 
@@ -49,7 +52,7 @@ test('global arm offers the first registered BOUND companion', () => {
 });
 
 test('global arm skips unbound registrations', () => {
-  const unbound: CompanionTarget = { storageKey: 'termipod.read.agent', agentId: '', agentLabel: '' };
+  const unbound: CompanionTarget = { storageKey: 'termipod.dock.agent', agentId: '', agentLabel: '' };
   const t = resolveTargets({ kimiOpen: false, origin: GLOBAL_ORIGIN, companions: [unbound, COMPANION_B] });
   assert.deepEqual(t.companion, COMPANION_B);
 });
@@ -64,7 +67,7 @@ test('a null origin resolves exactly like a global arm', () => {
 test('companion arm, bound: only the arming mount is offered', () => {
   const t = resolveTargets({
     kimiOpen: true,
-    origin: { storageKey: 'termipod.author.agent', agentId: 'ag_2', agentLabel: 'kimi-2' },
+    origin: { storageKey: 'termipod.dock.agent.b', agentId: 'ag_2', agentLabel: 'kimi-2' },
     companions: [COMPANION_A, COMPANION_B],
   });
   assert.equal(t.kimi, true);
@@ -74,7 +77,7 @@ test('companion arm, bound: only the arming mount is offered', () => {
 test('companion arm, UNBOUND: no companion row even when another mount is bound (D2 isolation)', () => {
   const t = resolveTargets({
     kimiOpen: false,
-    origin: { storageKey: 'termipod.read.reader.agent', agentId: '', agentLabel: '' },
+    origin: { storageKey: 'termipod.dock.agent', agentId: '', agentLabel: '' },
     companions: [COMPANION_A],
   });
   assert.equal(t.kimi, false);

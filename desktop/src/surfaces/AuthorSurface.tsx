@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../bridge';
-import { useT } from '../i18n';
+import { useT, tStatic } from '../i18n';
 import { isShell, revealPath } from '../platform';
+import { useCompanionContext } from '../state/companionContext';
 import { toast } from '../state/toast';
 import {
   bodyToFile,
@@ -17,7 +18,6 @@ import {
 import { figureBySpec, FIGURES, type FigureSpec } from '../state/figures';
 import { useWorkspace } from '../state/workspace';
 import { NEW_BASE, uniqueWorkspacePath, writeDocToWorkspace } from '../state/workspaceFiles';
-import { AgentCompanion } from '../ui/AgentCompanion';
 import { useContextMenu, type MenuItem } from '../ui/ContextMenu';
 import { docKindIcon, Icon, type IconName } from '../ui/Icon';
 import { useTextPrompt } from '../ui/PromptModal';
@@ -74,8 +74,10 @@ function useDebounced<T>(value: T, ms: number): T {
 /// the active document lives. The landscape doc's posture is EMBED BlockNote +
 /// Quarto/Typst export for the reproducible-report path; a draw.io `diagram`
 /// document kind lands once drawio is bundled offline (see the
-/// author-agent-assist-and-diagrams discussion). Agent-assisted writing (the
-/// side panel) is deferred pending the host-OS discussion.
+/// author-agent-assist-and-diagrams discussion). Agent-assisted writing lives
+/// in the unified assistant dock's Companion tab — this surface feeds it the
+/// active document's context through the provider registry
+/// (state/companionContext.ts).
 
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/);
@@ -303,9 +305,6 @@ export function AuthorSurface(): JSX.Element {
   // Left file/workspace tree. On by default; width persisted.
   const [showNav, setShowNav] = useState(() => localStorage.getItem('termipod.author.showNav') !== '0');
   const [navW, setNavW] = useState(() => loadW('termipod.author.navW', 240));
-  // Agent-assist side panel (hub-attached). Off by default; width persisted.
-  const [showAgent, setShowAgent] = useState(false);
-  const [agentW, setAgentW] = useState(() => loadW('termipod.author.agentW', 380));
   // Two-step close arm — `window.confirm` is unreliable in the Tauri webview, so
   // the first × click arms (turns into a confirm ×), the second closes.
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
@@ -315,6 +314,61 @@ export function AuthorSurface(): JSX.Element {
 
   const active = docs.find((d) => d.id === activeId);
   const tauri = isShell();
+
+  // The dock companion's context provider (the unified assistant dock, D2.2 —
+  // state/companionContext.ts): the active document. Register on mount +
+  // active-document change, unregister on unmount / no active document (the
+  // sanctioned no-focus-event approximation). `build`/`insert` read the
+  // documents store LIVE at call time, so the effect re-runs only when the
+  // label/kind changes, not on every keystroke. Insert semantics: prose
+  // APPENDS to a markdown body and REPLACES a figure body (a figure is a
+  // single spec source — an append would corrupt it; the agent answers with
+  // the whole diagram, `unfence`d). A diagram/canvas/table body is structured
+  // (XML/JSON) with no safe text insert, so no `insert` is registered for it.
+  const registerCtx = useCompanionContext((s) => s.register);
+  const unregisterCtx = useCompanionContext((s) => s.unregister);
+  const activeTitle = active?.title;
+  const activeKind = active?.kind;
+  useEffect(() => {
+    if (activeId === null) {
+      unregisterCtx('author');
+      return;
+    }
+    const id = activeId;
+    const live = (): Doc | undefined => useDocuments.getState().docs.find((d) => d.id === id);
+    registerCtx('author', {
+      label: activeTitle !== undefined && activeTitle !== '' ? activeTitle : tStatic('author.untitled'),
+      build: () => {
+        const d = live();
+        if (d === undefined) return '';
+        return d.kind === 'markdown'
+          ? `I'm writing a document titled "${d.title}". Current draft:\n\n${d.body}`
+          : d.kind === 'figure'
+            ? `I'm authoring a ${d.spec ?? 'figure'} diagram titled "${d.title}", rendered from the \`\`\`${d.spec ?? ''}\`\`\` fenced syntax. Reply with ONLY the ${d.spec ?? 'figure'} source (optionally in a fenced block). Current source:\n\n${d.body}`
+            : `I'm editing a ${d.kind} document titled "${d.title}"${
+                d.filePath !== undefined ? ` (file: ${d.filePath})` : ''
+              }.`;
+      },
+      ...(activeKind === 'markdown' || activeKind === 'figure'
+        ? {
+            insert: (text: string) => {
+              const d = live();
+              if (d === undefined) return;
+              if (d.kind === 'markdown') {
+                useDocuments.getState().update(id, {
+                  body: d.body.trimEnd() === '' ? text : `${d.body.trimEnd()}\n\n${text}`,
+                });
+              } else if (d.kind === 'figure') {
+                useDocuments.getState().update(id, { body: unfence(text) });
+              }
+            },
+          }
+        : {}),
+    });
+  }, [activeId, activeTitle, activeKind, registerCtx, unregisterCtx]);
+  // Unmount removal lives in its own effect — riding the registration effect's
+  // cleanup would turn every re-register into remove+append churn.
+  useEffect(() => () => unregisterCtx('author'), [unregisterCtx]);
 
   // Fold state for the workspace pane (persisted); the header chevron folds it,
   // a slim edge button re-opens it.
@@ -534,13 +588,6 @@ export function AuthorSurface(): JSX.Element {
               </button>
             </>
           )}
-          <button
-            className={showAgent ? 'import-btn attn' : 'import-btn'}
-            title={t('author.assistantHint')}
-            onClick={() => setShowAgent((v) => !v)}
-          >
-            {t('author.assistant')}
-          </button>
         </>
       }
     >
@@ -645,55 +692,6 @@ export function AuthorSurface(): JSX.Element {
             </Suspense>
           ) : (
             <Editor key={active.id} doc={active} />
-          )}
-          {/* The agent panel is available for every document kind. Its
-              "insert reply" affordance appends prose to a markdown body and
-              REPLACES a figure body (a figure is a single spec source, so an
-              append would corrupt it — the agent answers with the whole diagram).
-              A diagram/canvas/table body is structured (XML/JSON) and has no safe
-              text insert, so for those the panel is read/assist-only. */}
-          {showAgent && (
-            <>
-              <ResizeHandle
-                onResize={(dx) =>
-                  setAgentW((w) => {
-                    const n = clamp(w - dx, 280, 720);
-                    try {
-                      localStorage.setItem('termipod.author.agentW', String(n));
-                    } catch {
-                      /* ignore */
-                    }
-                    return n;
-                  })
-                }
-              />
-              <div className="author-agent" style={{ width: agentW }}>
-                <AgentCompanion
-                  storageKey="termipod.author.agent"
-                  context={{
-                    label: active.title !== '' ? active.title : t('author.untitled'),
-                    build: () =>
-                      active.kind === 'markdown'
-                        ? `I'm writing a document titled "${active.title}". Current draft:\n\n${active.body}`
-                        : active.kind === 'figure'
-                          ? `I'm authoring a ${active.spec ?? 'figure'} diagram titled "${active.title}", rendered from the \`\`\`${active.spec ?? ''}\`\`\` fenced syntax. Reply with ONLY the ${active.spec ?? 'figure'} source (optionally in a fenced block). Current source:\n\n${active.body}`
-                          : `I'm editing a ${active.kind} document titled "${active.title}"${
-                              active.filePath !== undefined ? ` (file: ${active.filePath})` : ''
-                            }.`,
-                  }}
-                  onInsert={
-                    active.kind === 'markdown'
-                      ? (text) =>
-                          update(active.id, {
-                            body: active.body.trimEnd() === '' ? text : `${active.body.trimEnd()}\n\n${text}`,
-                          })
-                      : active.kind === 'figure'
-                        ? (text) => update(active.id, { body: unfence(text) })
-                        : undefined
-                  }
-                />
-              </div>
-            </>
           )}
         </div>
       ) : (

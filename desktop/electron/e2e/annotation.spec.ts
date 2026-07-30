@@ -10,16 +10,18 @@ import type { AddressInfo } from 'node:net';
 /// chip — and that sending posts the image to the (mock) hub. The second test
 /// covers the D2.1 GLOBAL trigger: the status-bar crosshair chip arms the
 /// overlay with no companion origin, and the target row still offers the
-/// bound Author companion ("Send to <agent>").
+/// bound dock companion ("Send to <agent>").
 ///
 /// The flow drives the REAL path: a mock hub serves the connect probe + the
 /// agents list (+ events backfill + a parked SSE stream); the UI-context
-/// sharing toggle is seeded on; the companion's "Ask agent" button arms the
-/// overlay; the drag is trusted Chromium input (page.mouse); main captures
-/// the real window; the target row's "Send to <agent>" hands the crop back as
-/// a chip. The kimi-web target is not exercised — it needs the real kimi
-/// binary. The two tests run serially in one app instance; test 2 builds on
-/// test 1's connected session + bound companion.
+/// sharing toggle is seeded on; the unified assistant dock is opened and its
+/// Companion tab's "Ask agent" button arms the overlay (the dock steps aside
+/// while armed, D2.2); the drag is trusted Chromium input (page.mouse); main
+/// captures the real window; the target row's "Send to <agent>" hands the
+/// crop back as a chip and reveals the dock on the Companion tab. The
+/// kimi-web target is not exercised — it needs the real kimi binary. The two
+/// tests run serially in one app instance; test 2 builds on test 1's
+/// connected session + bound companion.
 ///
 /// Hermeticity (an e2e instance must never touch the user's state):
 ///   - a THROWAWAY --user-data-dir: the default dir holds the real profile,
@@ -157,19 +159,26 @@ test('D2: drag → target row → companion chip → postAgentInput carries the 
   await connect.getByRole('button', { name: /^connect$/i }).click();
   await expect(connect).toHaveCount(0, { timeout: 20_000 });
 
-  // Author surface: a fresh markdown doc (into the tmp workspace), then open
-  // the assistant pane — the companion auto-selects the mock agent.
+  // Author surface: a fresh markdown doc (into the tmp workspace). The unified
+  // assistant dock opens from the status-bar chip; its Companion tab hosts the
+  // one AgentCompanion (the per-surface mounts are retired) — it auto-selects
+  // the mock agent.
   await page.locator('[data-job="author"]').click();
   await page.getByRole('button', { name: 'New', exact: true }).click();
-  await page.getByRole('button', { name: '✦ Assistant' }).click();
+  await page.locator('.statusbar .statusbar-term').first().click();
+  const dock = page.locator('.assistant-dock');
+  await expect(dock).toBeVisible({ timeout: 20_000 });
+  await dock.getByRole('tab', { name: 'Companion' }).click();
   const composer = page.locator('.companion .composer textarea');
   await expect(composer).toBeVisible({ timeout: 20_000 });
 
-  // "Ask agent" shows only because the toggle is on; clicking arms the overlay.
+  // "Ask agent" shows only because the toggle is on; clicking arms the overlay
+  // — and the dock steps aside while armed (D2.2), without flipping `open`.
   const ask = page.locator('.companion button[aria-label*="Ask agent"]');
   await expect(ask).toBeVisible();
   await ask.click();
   await expect(page.locator('.annot-overlay')).toBeVisible();
+  await expect(dock).toBeHidden();
 
   // Drag a rect with trusted mouse input; main captures the real window.
   await page.mouse.move(220, 220);
@@ -185,7 +194,10 @@ test('D2: drag → target row → companion chip → postAgentInput carries the 
   await bar.locator('.annot-note').fill('what is this?');
   await bar.getByRole('button', { name: /Send to kimi-1/ }).click();
 
-  // The crop is a delete-able chip in the compose box; the note is the draft.
+  // The handoff reveals the dock on the Companion tab; the crop is a
+  // delete-able chip in the compose box; the note is the draft.
+  await expect(dock).toBeVisible();
+  await expect(dock.getByRole('tab', { name: 'Companion' })).toHaveClass(/active/);
   const chip = page.locator('.companion .att-chip');
   await expect(chip).toBeVisible();
   await expect(chip.locator('.att-thumb')).toBeVisible();
@@ -207,15 +219,18 @@ test('D2.1: status-bar chip arms GLOBALLY — the bound companion is still offer
   test.setTimeout(90_000);
 
   // Builds on the first test's state (serial file, one app instance): the hub
-  // is connected and the Author companion is mounted + bound to ag_e2e1, so
-  // it sits in the annotation store's companion registry. kimi web isn't
+  // is connected and the dock companion is mounted + bound to ag_e2e1, so it
+  // sits in the annotation store's companion registry. kimi web isn't
   // running in e2e, so the companion row is the only target offered.
+  const dock = page.locator('.assistant-dock');
   const chip = page.locator('.statusbar-annotate');
   await expect(chip).toBeVisible();
   await chip.click();
   await expect(page.locator('.annot-overlay')).toBeVisible();
-  // The chip reads active while the overlay is armed (the dock-chip idiom).
+  // The chip reads active while the overlay is armed (the dock-chip idiom) —
+  // and the dock steps aside again.
   await expect(chip).toHaveClass(/active/);
+  await expect(dock).toBeHidden();
 
   // Same trusted drag; main captures the real window.
   await page.mouse.move(240, 240);
@@ -223,7 +238,7 @@ test('D2.1: status-bar chip arms GLOBALLY — the bound companion is still offer
   await page.mouse.move(560, 460, { steps: 6 });
   await page.mouse.up();
 
-  // No companion armed the overlay, yet the bound Author companion's session
+  // No companion armed the overlay, yet the bound dock companion's session
   // is offered — the D2.1 registry resolution, not an origin.
   const bar = page.locator('.annot-target');
   await expect(bar).toBeVisible({ timeout: 20_000 });
@@ -231,7 +246,9 @@ test('D2.1: status-bar chip arms GLOBALLY — the bound companion is still offer
   await bar.locator('.annot-note').fill('from the chip');
   await bar.getByRole('button', { name: /Send to kimi-1/ }).click();
 
-  // The crop lands as a chip in that companion's compose box, note as draft.
+  // The reveal lands the dock on the Companion tab; the crop is a chip in its
+  // compose box, note as draft.
+  await expect(dock).toBeVisible();
   const att = page.locator('.companion .att-chip');
   await expect(att).toBeVisible();
   await expect(att.locator('.att-thumb')).toBeVisible();

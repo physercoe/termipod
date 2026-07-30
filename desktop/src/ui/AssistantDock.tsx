@@ -3,20 +3,33 @@ import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { invoke } from '../bridge';
 import { isShell } from '../platform';
+import { dockHiddenForPhase, useAnnotation } from '../state/annotation';
 import { useAssistant } from '../state/assistant';
+import { DOCK_COMPANION_KEY } from '../state/companionBinding';
+import { activeProvider, useCompanionContext } from '../state/companionContext';
 import { useWorkbench } from '../state/workbench';
+import { AgentCompanion } from './AgentCompanion';
 import { useConfirm } from './ConfirmModal';
 import { webPanelById } from './webPanels';
 import { WebPanel } from '../surfaces/WebPanel';
 
-/// The app-level assistant (kimi-web) dock — the terminal dock's shape
-/// (terminal/TerminalPanel.tsx dock mode) applied to the embedded assistant:
-/// always mounted in the app shell, overlaying the active surface at the
-/// bottom or right edge, CSS-hidden (never unmounted) on toggle so the SPA and
-/// its backing `kimi web` server keep running like a daemon. Close is an
+/// The unified assistant dock — the terminal dock's shape
+/// (terminal/TerminalPanel.tsx dock mode) applied to the assistant: always
+/// mounted in the app shell, overlaying the active surface at the bottom or
+/// right edge, CSS-hidden (never unmounted) on toggle so the SPA and its
+/// backing `kimi web` server keep running like a daemon. Close is an
 /// explicit, confirmed action (it stops this dock's hold on the server);
 /// detach pops the SPA into its own native window (kimiwebwin.ts) and the dock
 /// shows a re-attach placeholder meanwhile.
+///
+/// TABBED (D2.2): the header's segmented strip switches between the embedded
+/// kimi web SPA and the Companion (the dock's one AgentCompanion, fed by the
+/// surface context registry — state/companionContext.ts). Both render once
+/// `started` and are CSS-hidden by `view`, never unmounted; the kimi
+/// lifecycle (detach/attach, confirmed close) applies only to the kimi tab,
+/// and the Companion tab stays usable while kimi is detached. While the
+/// annotation overlay is armed the dock steps aside via the `annotating`
+/// hide class — `open` is untouched, so cancel/target-pick restores it.
 
 const H_KEY = 'termipod.assistant.dockH';
 const W_KEY = 'termipod.assistant.dockW';
@@ -40,7 +53,16 @@ function saveSize(key: string, v: number): void {
 export function AssistantDock(): JSX.Element | null {
   const t = useT();
   const shell = isShell();
-  const { open, started, detached, dockSide, setOpen, setDetached, setDockSide, close } = useAssistant();
+  const { open, started, detached, dockSide, view, setOpen, setDetached, setDockSide, setView, close } =
+    useAssistant();
+  // The dock steps aside while the annotation overlay runs (any origin): out
+  // of the captured pixels, and an unobstructed selection surface. Derived
+  // from the annotation phase — `open` is NOT flipped, so the dock returns
+  // exactly as it was on cancel / target pick.
+  const annotating = useAnnotation((s) => dockHiddenForPhase(s.phase));
+  // The Companion tab's context chip + insert target come from the active
+  // surface-registered provider (state/companionContext.ts).
+  const provider = useCompanionContext((s) => activeProvider(s));
   const setJob = useWorkbench((s) => s.setJob);
   const confirm = useConfirm();
   const panel = webPanelById('kimi');
@@ -132,7 +154,11 @@ export function AssistantDock(): JSX.Element | null {
 
   const style = dockSide === 'right' ? { width: sizeRef.current.w } : { height: sizeRef.current.h };
   return (
-    <div ref={wrapRef} className={`assistant-dock ${dockSide}${open ? '' : ' hidden'}`} style={style}>
+    <div
+      ref={wrapRef}
+      className={`assistant-dock ${dockSide}${open ? '' : ' hidden'}${annotating ? ' annotating' : ''}`}
+      style={style}
+    >
       <div
         className="assistant-dock-resize"
         onMouseDown={(e) =>
@@ -143,8 +169,24 @@ export function AssistantDock(): JSX.Element | null {
         }
       />
       <div className="assistant-dock-head">
-        <Icon name="globe" size={14} />
-        <span className="assistant-dock-title">{t('assistant.title')}</span>
+        <div className="seg assistant-dock-tabs" role="tablist" aria-label={t('assistant.title')}>
+          <button
+            role="tab"
+            aria-selected={view === 'kimi'}
+            className={view === 'kimi' ? 'seg-btn active' : 'seg-btn'}
+            onClick={() => setView('kimi')}
+          >
+            {t('assistant.tabKimi')}
+          </button>
+          <button
+            role="tab"
+            aria-selected={view === 'companion'}
+            className={view === 'companion' ? 'seg-btn active' : 'seg-btn'}
+            onClick={() => setView('companion')}
+          >
+            {t('assistant.tabCompanion')}
+          </button>
+        </div>
         <span className="spacer" />
         <button
           className="icon-btn sm"
@@ -184,16 +226,29 @@ export function AssistantDock(): JSX.Element | null {
         </button>
       </div>
       <div className="assistant-dock-body">
-        {detached ? (
-          <div className="assistant-dock-detached muted">
-            <span>{t('assistant.detachedNote')}</span>
-            <button className="import-btn" onClick={() => void onAttach()}>
-              <Icon name="fit-page" size={13} /> {t('assistant.attach')}
-            </button>
-          </div>
-        ) : (
-          <WebPanel panel={panel} />
-        )}
+        {/* Both tabs stay mounted once `started` (CSS-hidden by `view`) — the
+            kimi SPA keeps its server hold, the companion keeps its SSE stream
+            and its staged compose-box state. The kimi tab's detach placeholder
+            is the kimi lifecycle only; the Companion tab works detached. */}
+        <div className={`assistant-dock-pane${view === 'kimi' ? '' : ' hidden'}`}>
+          {detached ? (
+            <div className="assistant-dock-detached muted">
+              <span>{t('assistant.detachedNote')}</span>
+              <button className="import-btn" onClick={() => void onAttach()}>
+                <Icon name="fit-page" size={13} /> {t('assistant.attach')}
+              </button>
+            </div>
+          ) : (
+            <WebPanel panel={panel} />
+          )}
+        </div>
+        <div className={`assistant-dock-pane${view === 'companion' ? '' : ' hidden'}`}>
+          <AgentCompanion
+            storageKey={DOCK_COMPANION_KEY}
+            context={provider ?? undefined}
+            onInsert={provider?.insert}
+          />
+        </div>
       </div>
       {confirm.node}
     </div>

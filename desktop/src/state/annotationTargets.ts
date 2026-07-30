@@ -1,9 +1,24 @@
 /// Target resolution for the annotation overlay (D2.1 —
-/// docs/plans/desktop-ui-context-and-pointing.md §3.4 step 2): pure, import-
-/// free logic shared by the zustand store (annotation.ts) and the target row
-/// (AnnotationOverlay.tsx), kept import-free so `node --test` can run the
-/// contract directly (the store itself imports the shell bridge, which node
-/// ESM cannot resolve).
+/// docs/plans/desktop-ui-context-and-pointing.md §3.4 step 2): pure logic
+/// shared by the zustand store (annotation.ts) and the target row
+/// (AnnotationOverlay.tsx), kept free of the shell bridge so `node --test`
+/// can run the contract directly (the store itself imports the bridge, which
+/// node ESM cannot resolve).
+
+import { DOCK_COMPANION_KEY } from './companionBinding.ts';
+
+/// The overlay's lifecycle. The store (annotation.ts) holds the state; the
+/// reducers + decisions below keep it honest.
+export type AnnotationPhase = 'idle' | 'selecting' | 'target';
+
+/// The annotating-hide flag the assistant dock reads (D2.2): while the overlay
+/// is active (selecting OR target) the dock steps aside via a CSS hide class —
+/// WITHOUT its `open` state flipping — so it stays out of the captured pixels
+/// and the drag gets an unobstructed surface. Idle (cancel / discard / target
+/// pick) restores the dock exactly as it was.
+export function dockHiddenForPhase(phase: AnnotationPhase): boolean {
+  return phase !== 'idle';
+}
 
 /// Who armed the overlay. A COMPANION arm carries that mount's `storageKey`
 /// so the handoff routes back to it, plus its bound agent — `agentId` ''
@@ -87,4 +102,19 @@ export function upsertCompanion(list: readonly CompanionTarget[], c: CompanionTa
 
 export function removeCompanion(list: readonly CompanionTarget[], storageKey: string): CompanionTarget[] {
   return list.filter((x) => x.storageKey !== storageKey);
+}
+
+/// Where a "Send to <agent>" handoff routes: the explicitly passed key (a
+/// global arm's resolved companion) else the arming origin's mount. null = no
+/// route — the store no-ops.
+export function handoffKey(origin: AnnotationOrigin | null, storageKey?: string): string | null {
+  return storageKey ?? origin?.storageKey ?? null;
+}
+
+/// Whether a handoff to `key` should reveal the assistant dock on its
+/// Companion tab (D2.2): true only for the dock companion — the one companion
+/// mount now that the per-surface mounts are retired. The reveal makes the
+/// user watch the crop chip land in the compose box.
+export function handoffRevealsDock(key: string): boolean {
+  return key === DOCK_COMPANION_KEY;
 }

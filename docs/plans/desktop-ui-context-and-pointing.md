@@ -1,10 +1,14 @@
 # Desktop UI context + pointing — shared user↔agent awareness
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-29) — wedges D1–D5 below; D1+D2 (the LOCAL
+> **Status:** Proposed (2026-07-30) — wedges D1–D5 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
 > is second. Builds on the agent browser bridge (W1–W3 shipped,
-> `docs/plans/desktop-agent-browser-bridge.md`).
+> `docs/plans/desktop-agent-browser-bridge.md`). Review amendments
+> 2026-07-30: relay fallback is read-token-only; stable relay copy (the
+> resourcesPath pin breaks on AppImage); D5 sits behind the Remote-driving
+> opt-in with the shipped W3 audit posture; session grants never cross
+> tool kinds.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** origin/main `598e46ce`; kimi-code 0.28.1
 > verified on-host (macOS arm64)
@@ -87,7 +91,8 @@ hub-relayed second):
   untouched; a hub-attached agent session is the second target.
 - Agents can request a screenshot of the desktop window — per-call
   approval, sensitive surfaces refused.
-- Everything auditable the way bridge actions are (ring + hub mirror).
+- Everything auditable the way the bridge is (ring always; hub mirror
+  per the shipped W3 posture — actions mirrored, hub-leg reads ring-only).
 
 **Non-goals**
 
@@ -213,8 +218,12 @@ can emit** (a frame of everything the user sees), so:
   (reuse the W3 parking/grant machinery, but NO `option_id: "session"`
   escape: screenshots never get a standing grant). The card shows which
   region/surface is requested.
-- **Refused outright** while the vault detail pane is open or the active
-  surface lacks an allowlist entry (`SURFACE_SENSITIVE`).
+- **Refused outright** on sensitive surfaces (`SURFACE_SENSITIVE`) — an
+  explicit per-surface `capture: allow | refuse` bit beside the §3.2
+  allowlist, NOT "has an allowlist entry": the two encode different
+  sensitivities (settings has a snapshot entry that emits the surface id
+  only, yet a *pixel* capture of settings shows its values — snapshot
+  allowed, capture refused). Vault refuses both, always.
 - Audited like every bridge action (ring + hub mirror, `via` stamped).
 
 ### 3.4 Capability C — pointing (user → agent): the annotation overlay
@@ -276,11 +285,35 @@ relay gains a fallback so a STATIC entry survives token rotation: when
 `TP_BROWSER_URL` is unset it reads the discovery file itself
 (`~/.termipod/browser-bridge.json`, 0o600, per-run bearer) — and exits
 cleanly when the file is absent (bridge off), which kimi-code marks as a
-down server, never a failure. Every local kimi-code client then gets
-`ui_get_focus` — kimi web sessions AND the user's own CLI (a bonus: the
-CLI user gets "what am I looking at in TermiPod" too; same loopback +
-bearer posture as the bridge). Hub-spawned agents already receive the
-tool set via the W2 per-spawn injection.
+down server, never a failure. Two constraints the fallback must pin
+(review amendments):
+
+- **Read token only.** The discovery file carries both `token` and
+  `action_token`; the fallback resolves `token` and hardcodes
+  `TP_BROWSER_SCOPE=read` — action scope exists ONLY on the env-injected
+  path, where the hub spawn's `browser_bridge: true` opt-in decided it
+  (ADR-059 D-3: scope from the bearer, opt-in per spawn). A static entry
+  that could reach the action token would hand every local kimi-code
+  session typing rights on webtabs with no opt-in anywhere. Pinned by a
+  D1 unit test (fallback never reads `action_token`).
+- **Stable relay path.** The per-spawn entry points at
+  `process.resourcesPath/browser_bridge_stdio.mjs`
+  (`browserbridge_host.ts:75`) — fine there because the discovery file is
+  rewritten every app run, but a STATIC `mcp.json` entry pinning that
+  path breaks on Linux AppImage, where `resourcesPath` is a fresh
+  `/tmp/.mount_*` per launch (and quietly goes stale across updates
+  elsewhere). On toggle-on (and refreshed at each app start) the desktop
+  copies the relay to a stable home — `~/.termipod/bridge/` — and the
+  `mcp.json` entry references that copy.
+
+Every local kimi-code client then gets `ui_get_focus` — kimi web
+sessions AND the user's own CLI (a bonus: the CLI user gets "what am I
+looking at in TermiPod" too). Note the static entry exposes the bridge
+server's full READ tool list, not just `ui_get_focus` — no widening: the
+discovery file is user-readable by design, so any local process of the
+user already holds that capability; the entry just makes it a catalog.
+Hub-spawned agents already receive the tool set via the W2 per-spawn
+injection.
 
 *The user transfers context to kimi web (D2).* The `kimiweb` partition
 is `bridge: 'read'` to stop AGENTS typing into an agent's chat — but the
@@ -357,9 +390,25 @@ caption chip on the card.
   `browser_bridge`), the gate/grant/revoke helper in
   `mcp_browser_bridge.go` generalizes to both kinds (one helper, two kind
   constants).
+- **Remote delivery sits behind the Remote-driving opt-in** (review
+  amendment). W3's consent posture (the #474 amendments) applies
+  unchanged: the tunnel loop only runs when the separate default-off
+  Remote-driving toggle is on, so `desktop_ui` is only ever registered —
+  and remote `ui_get_focus` only ever reachable — behind bridge toggle +
+  UI-sharing toggle + Remote-driving toggle, all three. Audit matches the
+  shipped W3 read posture, not a new one: hub-leg reads are ring-audited
+  (`via: 'hub'`, ring-only — `shouldMirrorAudit` keeps them off the hub
+  mirror); actions ring + hub mirror.
+- **Session grants never cross tool kinds** (review amendment). The W3
+  grant store is keyed `team|hostID|agentID` with no kind dimension
+  (`mcp_browser_bridge.go:109`) — a naive "one helper, two kind
+  constants" would let a browser-driving session grant silence
+  `desktop_action` screenshot cards. The generalized helper keys grants
+  by kind (and §3.3's rule stands above that: `desktop_action` never
+  consults session grants at all — screenshots are per-call, always).
 - Revoke: the same Settings → Remote driving rows cover both kinds (an
   agent revoked there is refused at the desktop dispatch regardless of
-  kind).
+  kind — reads included, per the shipped W3 revoke rule).
 
 ### 3.7 Settings + consent surface
 
@@ -392,7 +441,9 @@ hub-spawned local agents get it via the existing W2 injection. Settings
 toggle + blurb; unit tests (publisher allowlist — a non-allowlisted
 surface never emits fields; snapshot shape; mcp.json merge/remove is
 additive-only and preserves foreign keys; relay fallback matrix:
-env-set / discovery-present / discovery-absent).
+env-set / discovery-present / discovery-absent, and the fallback never
+resolves `action_token`; the mcp.json entry references the stable
+`~/.termipod/bridge/` relay copy, never `resourcesPath`).
 
 **D2 — annotation overlay, kimi-web first (first priority).** Rect-select
 overlay (shell + guest regions); target row — **the kimi-web panel first
@@ -411,7 +462,8 @@ bridge snapshot; structured pointer rides the attachment payload.
 
 **D5 — remote / hub-relayed delivery (second priority).** `desktop.invoke`
 tunnel kind + hub `desktop_ui_invoke` (read class first); generalized
-gate/grant/revoke; the §3.5 driver work — ACP image blocks ride the
+gate/grant/revoke (per-kind grants; reachable only behind the
+Remote-driving opt-in, §3.6); the §3.5 driver work — ACP image blocks ride the
 existing path, pane/stdio drivers and `image:false` agents get the
 workdir materialization fallback (`.termipod/annotations/<ts>.png` +
 path in the note text); hub tool tests mirroring

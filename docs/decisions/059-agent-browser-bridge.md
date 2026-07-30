@@ -1,7 +1,7 @@
 # 059. Agent browser bridge — CDP over guest partitions, bearer-scoped
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-29) — records the security architecture that
+> **Status:** Accepted (2026-07-30, director) — records the security architecture that
 > shipped as W1 (#471) + W2 (#472) of
 > [`plans/desktop-agent-browser-bridge.md`](../plans/desktop-agent-browser-bridge.md),
 > extracted to decision tier **before W3** (hub relay + per-call approval

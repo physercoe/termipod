@@ -1,7 +1,7 @@
 # 061. Blob lifetime — a declared class per blob, expiry-only deletion
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-29) — drafted for review; forced by
+> **Status:** Accepted (2026-07-30, director) — forced by
 > [`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md) §7
 > (W4b-2), which would be the first browsing-frequency writer of large bytes
 > into the blob store. Amends [ADR-057](057-session-teleport.md) D-3, which

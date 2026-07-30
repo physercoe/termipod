@@ -1,7 +1,7 @@
 # 060. Datasets as a hub entity; episode bytes stay on the host
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-29) — records the entity model and the
+> **Status:** Accepted (2026-07-30, director) — records the entity model and the
 > byte-residency/media posture that shipped as J8 W1–W5
 > ([`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md),
 > #446–#470 + the SFTP media follow-up `be796b3e`), extracted to decision

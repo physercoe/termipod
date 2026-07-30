@@ -1,7 +1,7 @@
 # 058. Host job surface — long-running host-side computations
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-29) — resolves task #160, the W4b blocker in
+> **Status:** Accepted (2026-07-30, director) — resolves task #160, the W4b blocker in
 > [`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md)
 > (.rrd export needs a computation the request/response dataset verbs cannot
 > carry). Written before any job code exists so the mechanism lands in the

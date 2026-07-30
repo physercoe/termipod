@@ -84,9 +84,10 @@ test('comboFromEvent: code never changes the existing letter/digit chords', () =
   assert.equal(comboFromEvent(ev('`', { meta: true, code: 'Backquote' })), 'mod+`');
 });
 
-test('every default binding is bindable and matches its own key event', () => {
+test('every non-empty default binding is bindable and matches its own key event', () => {
   // A hand-written default is the one combo no capture UI ever validated, so
-  // check each is legal AND actually reachable from the keyboard.
+  // check each is legal AND actually reachable from the keyboard. `annotate`
+  // (D2.1) ships UNBOUND — its '' default is exempt and pinned separately.
   const events: Record<string, ReturnType<typeof ev>> = {
     palette: ev('k', { meta: true, code: 'KeyK' }),
     assistant: ev('.', { meta: true, code: 'Period' }),
@@ -95,9 +96,19 @@ test('every default binding is bindable and matches its own key event', () => {
     splitSwap: ev('|', { meta: true, shift: true, code: 'Backslash' }),
   };
   for (const [action, combo] of Object.entries(DEFAULT_BINDINGS)) {
+    if (combo === '') continue;
     assert.equal(isBindable(combo), true, `${action} (${combo}) must be bindable`);
     assert.equal(matchCombo(events[action], combo), true, `${action} (${combo}) must be reachable`);
   }
+});
+
+test('annotate ships unbound (D2.1): the empty combo never matches an event', () => {
+  assert.equal(DEFAULT_BINDINGS.annotate, '');
+  // comboFromEvent yields null (bare modifier) or ≥1 char — never '' — so the
+  // unset binding is inert until the user captures a chord.
+  assert.equal(matchCombo(ev('a', { meta: true }), ''), false);
+  assert.equal(matchCombo(ev('a'), ''), false);
+  assert.equal(formatCombo('', true), '');
 });
 
 test('formatCombo: the split chords read as backslash', () => {

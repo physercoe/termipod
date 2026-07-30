@@ -7,7 +7,10 @@ import type { AddressInfo } from 'node:net';
 
 /// D2 annotation overlay (docs/plans/desktop-ui-context-and-pointing.md §3.4,
 /// plan §5): synthesize a drag and assert the crop lands as a compose-box
-/// chip — and that sending posts the image to the (mock) hub.
+/// chip — and that sending posts the image to the (mock) hub. The second test
+/// covers the D2.1 GLOBAL trigger: the status-bar crosshair chip arms the
+/// overlay with no companion origin, and the target row still offers the
+/// bound Author companion ("Send to <agent>").
 ///
 /// The flow drives the REAL path: a mock hub serves the connect probe + the
 /// agents list (+ events backfill + a parked SSE stream); the UI-context
@@ -15,7 +18,8 @@ import type { AddressInfo } from 'node:net';
 /// overlay; the drag is trusted Chromium input (page.mouse); main captures
 /// the real window; the target row's "Send to <agent>" hands the crop back as
 /// a chip. The kimi-web target is not exercised — it needs the real kimi
-/// binary.
+/// binary. The two tests run serially in one app instance; test 2 builds on
+/// test 1's connected session + bound companion.
 ///
 /// Hermeticity (an e2e instance must never touch the user's state):
 ///   - a THROWAWAY --user-data-dir: the default dir holds the real profile,
@@ -197,4 +201,48 @@ test('D2: drag → target row → companion chip → postAgentInput carries the 
   expect(post?.images?.[0]?.mime_type).toBe('image/png');
   expect((post?.images?.[0]?.data ?? '').length).toBeGreaterThan(100);
   expect(post?.images?.[0]?.data?.startsWith('data:')).toBe(false);
+});
+
+test('D2.1: status-bar chip arms GLOBALLY — the bound companion is still offered', async () => {
+  test.setTimeout(90_000);
+
+  // Builds on the first test's state (serial file, one app instance): the hub
+  // is connected and the Author companion is mounted + bound to ag_e2e1, so
+  // it sits in the annotation store's companion registry. kimi web isn't
+  // running in e2e, so the companion row is the only target offered.
+  const chip = page.locator('.statusbar-annotate');
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(page.locator('.annot-overlay')).toBeVisible();
+  // The chip reads active while the overlay is armed (the dock-chip idiom).
+  await expect(chip).toHaveClass(/active/);
+
+  // Same trusted drag; main captures the real window.
+  await page.mouse.move(240, 240);
+  await page.mouse.down();
+  await page.mouse.move(560, 460, { steps: 6 });
+  await page.mouse.up();
+
+  // No companion armed the overlay, yet the bound Author companion's session
+  // is offered — the D2.1 registry resolution, not an origin.
+  const bar = page.locator('.annot-target');
+  await expect(bar).toBeVisible({ timeout: 20_000 });
+  await expect(bar.locator('.annot-thumb')).toBeVisible();
+  await bar.locator('.annot-note').fill('from the chip');
+  await bar.getByRole('button', { name: /Send to kimi-1/ }).click();
+
+  // The crop lands as a chip in that companion's compose box, note as draft.
+  const att = page.locator('.companion .att-chip');
+  await expect(att).toBeVisible();
+  await expect(att.locator('.att-thumb')).toBeVisible();
+  const composer = page.locator('.companion .composer textarea');
+  await expect(composer).toHaveValue('from the chip');
+
+  // Send → the hub receives a second input post, again carrying the image.
+  await composer.press('Enter');
+  await expect.poll(() => inputPosts.length, { timeout: 20_000 }).toBe(2);
+  expect(inputPosts[1]?.kind).toBe('text');
+  expect(inputPosts[1]?.body ?? '').toContain('from the chip');
+  expect(inputPosts[1]?.images?.length).toBe(1);
+  expect(inputPosts[1]?.images?.[0]?.mime_type).toBe('image/png');
 });

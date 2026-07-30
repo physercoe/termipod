@@ -77,6 +77,8 @@ export function AgentCompanion({
   const arm = useAnnotation((s) => s.arm);
   const handoff = useAnnotation((s) => s.handoff);
   const clearHandoff = useAnnotation((s) => s.clearHandoff);
+  const registerCompanion = useAnnotation((s) => s.registerCompanion);
+  const unregisterCompanion = useAnnotation((s) => s.unregisterCompanion);
   const [injectImage, setInjectImage] = useState<InjectImage | null>(null);
   useEffect(() => {
     if (handoff === null || handoff.storageKey !== storageKey) return;
@@ -89,6 +91,24 @@ export function AgentCompanion({
       id: handoff.id,
     });
   }, [handoff, storageKey, clearHandoff]);
+  // D2.1: report this mount's bound agent so a GLOBALLY armed annotation (the
+  // status-bar chip / palette, which has no companion origin) can offer "Send
+  // to <agent>" here. Hub source only — the local launcher has no compose box
+  // to stage the chip in. Re-registers on binding/agents changes (the upsert
+  // keeps the label fresh); unregisters on unmount or unbind. Removal must
+  // NOT ride this effect's cleanup: React reruns cleanup on every dep change,
+  // which would turn a re-report into remove+append and defeat the upsert's
+  // in-place replacement — mount order is what the global arm's first-bound
+  // pick reads. Unmount removal lives in its own effect below.
+  useEffect(() => {
+    if (source !== 'hub' || agentId === '') {
+      unregisterCompanion(storageKey);
+      return;
+    }
+    const a = agents.find((x) => str(x, 'id') === agentId);
+    registerCompanion({ storageKey, agentId, agentLabel: a !== undefined ? agentLabel(a) : agentId });
+  }, [source, agentId, agents, storageKey, registerCompanion, unregisterCompanion]);
+  useEffect(() => () => unregisterCompanion(storageKey), [storageKey, unregisterCompanion]);
   useEffect(() => {
     if (folder === null || !isShell()) {
       setWsFiles([]);

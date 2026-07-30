@@ -320,10 +320,19 @@ full user-operation sequence** (what the user actually does, D2):
 1. **Setup (once)**: Settings → Assistant → enable "UI context sharing".
    Nothing else — no config, no restart.
 2. **Trigger**: the user is looking at anything — a paper in Read, a
-   failing pane in Terminal, a diff in Compare — and clicks **"Ask
-   agent"** in the AgentCompanion compose box (a global hotkey is open
-   question 3). The companion does NOT need to be bound to a session yet
-   for the kimi-web path.
+   failing pane in Terminal, a diff in Compare — and starts the gesture
+   from wherever they are (D2.1): the **status-bar crosshair chip** (next
+   to the assistant-dock chip), the **command-palette entry** ("Ask agent
+   — annotate a region"), or the **"Ask agent" button** in an
+   AgentCompanion compose box. The chip/palette arm GLOBALLY (no
+   companion origin) so the trigger exists inside the embedded kimi-web
+   loop too — the kimi SPA takes no injected buttons, its read-only
+   posture stands. A companion arm routes "Send to <agent>" back to that
+   mount; a global arm offers the first registered bound companion. The
+   palette action is also registered in the rebindable-shortcut store
+   (Settings → Keyboard) with NO default chord — a shipped global hotkey
+   stays open question 3. The companion does NOT need to be bound to a
+   session yet for the kimi-web path.
 3. **Select**: a translucent overlay covers the window; the user drags a
    rect. `<webview>` guests are separate webContents painted in the shell
    layout, so a rect over a guest captures from THAT guest's
@@ -565,7 +574,13 @@ when open**: main-side `DOM.setFileInputFiles` injection into the SPA
 composer's file input (never a bridge tool; fallback clipboard + focus +
 one Cmd+V), the user reviews and sends in kimi's own UI; companion-bound
 hub session second (thumbnail chip, `postAgentInput`, transcript image
-card); Esc/cancel path. The only real UI work in the plan.
+card); Esc/cancel path. The only real UI work in the plan. **D2.1
+amendment**: the trigger moves into the shell chrome — a status-bar
+crosshair chip + a palette entry arm GLOBALLY (no companion origin; the
+compose-box button stays) so the gesture is reachable from the embedded
+kimi-web loop; the target row of a global arm offers the first registered
+bound companion, and the palette action is shortcut-bindable with no
+default chord (OQ3's shipped hotkey stays open).
 
 **D3 — gated screenshot.** `ui_screenshot` with the `desktop_action`
 per-call card (no session grant), vault/sensitive refusal, size caps,
@@ -642,7 +657,10 @@ rides D5's generalized dispatch unchanged.
 2. Focus-snapshot field allowlist — exact per-surface field set gets its
    review at D1 implementation; the test matrix (§5) is the enforcement.
 3. Global hotkey for the annotation overlay (D2) or compose-button only?
-   (Proposal: compose-button for D2, hotkey once it's loved.)
+   **Partially resolved (D2.1)**: the trigger is no longer compose-button
+   only — the status-bar chip and the command-palette entry arm globally,
+   and the action is user-bindable in Settings → Keyboard. A SHIPPED
+   default hotkey stays open (original proposal: hotkey once it's loved).
 4. Does `ui_get_selection` (bounded text selection) belong in D1 or D2?
    (Proposal: D1 if the transcript/Inspect selection APIs are clean, else
    D2 — it's the single most useful field for "explain this".)

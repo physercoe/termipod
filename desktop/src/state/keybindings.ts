@@ -7,15 +7,20 @@ import { create } from 'zustand';
 /// against the *current* binding instead of a literal. The ⌘/Ctrl+<n> job
 /// switching stays fixed — it is position-based (rail order), like VS Code.
 ///
+/// `annotate` (D2.1) is registered with NO default chord — the user may bind
+/// one in Settings → Keyboard, but no shipped hotkey arms the overlay (plan
+/// §7 OQ3 keeps that product decision open). An empty-string combo never
+/// matches an event (`comboFromEvent` returns null or ≥1 char).
+///
 /// A combo is a canonical lowercase string: modifiers first (`mod` = ⌘ on macOS
 /// / Ctrl elsewhere, then `alt`, then `shift`), then `e.key.toLowerCase()` —
 /// e.g. `mod+k`, `mod+shift+p`, `alt+f4`. Exact-match semantics: `mod+k` does
 /// NOT fire for ⌘⇧K (shift is part of the combo), unlike the old hardcoded
 /// handler which ignored extra modifiers.
 
-export type BindingAction = 'palette' | 'assistant' | 'terminal' | 'splitToggle' | 'splitSwap';
+export type BindingAction = 'palette' | 'assistant' | 'terminal' | 'splitToggle' | 'splitSwap' | 'annotate';
 
-export const BINDING_ACTIONS: BindingAction[] = ['palette', 'assistant', 'terminal', 'splitToggle', 'splitSwap'];
+export const BINDING_ACTIONS: BindingAction[] = ['palette', 'assistant', 'terminal', 'splitToggle', 'splitSwap', 'annotate'];
 
 export const DEFAULT_BINDINGS: Record<BindingAction, string> = {
   palette: 'mod+k',
@@ -24,6 +29,8 @@ export const DEFAULT_BINDINGS: Record<BindingAction, string> = {
   // VS Code's split-editor chord (`plans/desktop-shell-split-pane.md` §3.3).
   splitToggle: 'mod+\\',
   splitSwap: 'mod+shift+\\',
+  // Unbound by default — see the header comment.
+  annotate: '',
 };
 
 /// Layout-independent base characters for the punctuation keys, by `e.code`.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
-import { useAnnotation, type AnnotationCapture } from '../state/annotation';
+import { useAnnotation, resolveTargets, type AnnotationCapture } from '../state/annotation';
 import { useAssistant } from '../state/assistant';
 import { toast } from '../state/toast';
 import { useUiContext } from '../state/uiContext';
@@ -23,12 +23,14 @@ import { Icon } from './Icon';
 /// preloads).
 ///
 /// Flow (plan §3.4 steps 2-4): armed by an AgentCompanion's "Ask agent"
-/// button → drag a rect (Esc cancels: nothing attached, no event, no audit)
-/// → `annotation_capture` (a rect fully inside a capture:refuse region — the
-/// Settings pane, which also holds the vault — is refused with a hint and the
-/// user re-selects) → the target row: "Attach to kimi web" first when the
-/// kimi-web panel is open, the arming companion's session when bound, an
-/// optional one-line note, Cancel (deletes the temp crop).
+/// button, or GLOBALLY by the status-bar chip / palette entry (D2.1 — no
+/// companion origin) → drag a rect (Esc cancels: nothing attached, no event,
+/// no audit) → `annotation_capture` (a rect fully inside a capture:refuse
+/// region — the Settings pane, which also holds the vault — is refused with a
+/// hint and the user re-selects) → the target row: "Attach to kimi web" first
+/// when the kimi-web panel is open, then "Send to <agent>" (the arming
+/// companion when bound; for a global arm the first registered bound
+/// companion), an optional one-line note, Cancel (deletes the temp crop).
 
 interface Rect {
   x: number;
@@ -127,6 +129,7 @@ export function AnnotationOverlay(): JSX.Element | null {
   const setRefused = useAnnotation((s) => s.setRefused);
   const captured = useAnnotation((s) => s.captured);
   const handOffToCompanion = useAnnotation((s) => s.handOffToCompanion);
+  const companions = useAnnotation((s) => s.companions);
   const assistantOpen = useAssistant((s) => s.open && !s.detached);
 
   const [drag, setDrag] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -265,7 +268,7 @@ export function AnnotationOverlay(): JSX.Element | null {
 
   // phase === 'target': the crop is captured; pick where it goes.
   const kimiId = assistantOpen ? kimiGuestId() : null;
-  const companionBound = origin !== null && origin.agentId !== '';
+  const targets = resolveTargets({ kimiOpen: kimiId !== null, origin, companions });
 
   async function attachKimi(): Promise<void> {
     if (capture === null || kimiId === null || busy) return;
@@ -309,17 +312,17 @@ export function AnnotationOverlay(): JSX.Element | null {
           onChange={(e) => setNote(e.target.value)}
           autoFocus
         />
-        {kimiId !== null && (
+        {targets.kimi && (
           <button className="primary" disabled={busy} onClick={() => void attachKimi()}>
             <Icon name="globe" size={13} /> {t('annotate.attachKimi')}
           </button>
         )}
-        {companionBound && (
-          <button disabled={busy} onClick={() => handOffToCompanion(note.trim())}>
-            <Icon name="send" size={13} /> {t('annotate.sendTo').replace('{agent}', origin.agentLabel)}
+        {targets.companion !== null && (
+          <button disabled={busy} onClick={() => handOffToCompanion(note.trim(), targets.companion?.storageKey)}>
+            <Icon name="send" size={13} /> {t('annotate.sendTo').replace('{agent}', targets.companion.agentLabel)}
           </button>
         )}
-        {kimiId === null && !companionBound && <span className="muted small">{t('annotate.noTarget')}</span>}
+        {!targets.kimi && targets.companion === null && <span className="muted small">{t('annotate.noTarget')}</span>}
         <button className="link-btn" disabled={busy} onClick={discard}>
           {t('common.cancel')}
         </button>

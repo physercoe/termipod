@@ -9,6 +9,8 @@ import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { formatCombo, matchCombo, useKeybindings } from '../state/keybindings';
+import { GLOBAL_ORIGIN, useAnnotation } from '../state/annotation';
+import { useUiContext } from '../state/uiContext';
 import {
   activeJob,
   clampSplitRatio,
@@ -140,6 +142,12 @@ export function AppShell(): JSX.Element {
         // terminal: toggling only shows/hides it, the SPA keeps running.
         e.preventDefault();
         useAssistant.getState().toggle();
+      } else if (kb.annotate !== '' && matchCombo(e, kb.annotate)) {
+        // D2.1: the user-bound annotate chord (no default — Settings →
+        // Keyboard). Gated on the sharing toggle + native shell like every
+        // annotate trigger; arms GLOBALLY (no companion origin).
+        e.preventDefault();
+        if (isShell() && useUiContext.getState().enabled) useAnnotation.getState().arm(GLOBAL_ORIGIN);
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
         // VS Code's Cmd/Ctrl+<n> tab jump — switch the active job by rail index.
         const target = ordered[Number(e.key) - 1];
@@ -159,6 +167,9 @@ export function AppShell(): JSX.Element {
   const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const modKey = mac ? '⌘' : 'Ctrl+';
   const bindings = useKeybindings((s) => s.bindings);
+  // D2.1: the annotate palette entry + status-bar chip share the compose
+  // button's gate — sharing toggle on + native shell.
+  const sharing = useUiContext((s) => s.enabled);
 
   // A Go-to command per job — the palette is the keyboard-first entry to every
   // surface, not just a few overlays (#460). The ⌘<n> hint is COMPUTED from the
@@ -238,6 +249,19 @@ export function AppShell(): JSX.Element {
     { id: 'spawn', label: t('spawn.title'), run: () => setSpawnOpen(true) },
     { id: 'search', label: t('cmd.search'), run: () => setSearchOpen(true) },
     { id: 'assistant', label: t('cmd.assistant'), hint: formatCombo(bindings.assistant, mac), run: () => useAssistant.getState().toggle() },
+    // D2.1: the global annotate trigger. Hidden when the gate is off — the
+    // same idiom as the split commands above ("a palette entry that silently
+    // no-ops is worse than an absent one").
+    ...(sharing && isShell()
+      ? [
+          {
+            id: 'annotate',
+            label: t('cmd.annotate'),
+            hint: bindings.annotate !== '' ? formatCombo(bindings.annotate, mac) : undefined,
+            run: () => useAnnotation.getState().arm(GLOBAL_ORIGIN),
+          },
+        ]
+      : []),
     client === null
       ? { id: 'connect', label: t('shell.connect'), run: () => openConnect() }
       : { id: 'disconnect', label: t('cmd.disconnect'), run: disconnect },
@@ -380,8 +404,9 @@ export function AppShell(): JSX.Element {
         />
       )}
       <ToastHost />
-      {/* D2 annotation overlay — armed by an AgentCompanion's "Ask agent";
-          renders only while the UI-context-sharing toggle is on. */}
+      {/* D2 annotation overlay — armed by an AgentCompanion's "Ask agent", or
+          GLOBALLY by the status-bar chip / palette entry (D2.1); renders only
+          while the UI-context-sharing toggle is on. */}
       <AnnotationOverlay />
     </div>
   );

@@ -332,6 +332,17 @@ export class HubClient {
     // todo→in_progress via the existing derivation, not a client PATCH.
     task_id?: string;
     task?: { title: string; body_md?: string };
+    // Template-driven spawn (the steward sheet): the full rendered template
+    // YAML. `kind` stays the ENGINE (the template's backend.kind) — the
+    // steward persona and its `default_role: team.*` escalation ride the
+    // spec, exactly like mobile's spawn_steward_sheet.
+    spawn_spec_yaml?: string;
+    // "skip" = auto-allow tool calls (the bootstrap default everywhere);
+    // "prompt" routes every tool call through the attention gate.
+    permission_mode?: string;
+    // Atomic spawn-with-session so a steward never exists agent-without-
+    // session — the session is the spawn's.
+    auto_open_session?: boolean;
   }): Promise<Entity> {
     return this.transport.post(this.transport.team('/agents/spawn'), body) as Promise<Entity>;
   }

@@ -3,6 +3,7 @@ import { useAgents, useHosts } from '../hub/queries';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
+import { StewardSpawn } from '../ui/StewardSpawn';
 import { activateOnKey } from '../ui/a11y';
 import { useFocus } from '../state/focus';
 
@@ -74,6 +75,10 @@ export function Navigator(): JSX.Element {
   const selectAgent = useFocus((s) => s.selectAgent);
   const selectHost = useFocus((s) => s.selectHost);
   const [open, setOpen] = useState({ stewards: true, agents: true, hosts: true });
+  // The steward-spawn sheet (desktop parity with mobile's steward sheet) —
+  // the worker sheet can only mint role=worker, so without this the rail's
+  // Stewards section was a dead end on a fresh desktop-first team.
+  const [spawnSteward, setSpawnSteward] = useState(false);
   const toggle = (k: keyof typeof open): void => setOpen((o) => ({ ...o, [k]: !o[k] }));
   // Agents and Hosts are separate subtabs so the roster isn't one long mixed
   // tree (director request). The Agents subtab groups stewards + workers; Hosts
@@ -161,15 +166,31 @@ export function Navigator(): JSX.Element {
             count={stewards.length}
             open={open.stewards}
             onToggle={() => toggle('stewards')}
+            onAdd={() => setSpawnSteward(true)}
+            addTitle={t('nav.spawnSteward')}
           >
             {agentsQ.isError && (
               <div className="region-pad error">{(agentsQ.error as Error).message}</div>
             )}
             {!agentsQ.isError &&
               (stewards.length === 0
-                ? loadingOrEmpty(agentsQ.isLoading, t('nav.noStewards'))
+                ? // The empty state is a CTA, not a dead end: a team without a
+                  // steward has no coordinator, and (unlike mobile's bootstrap
+                  // auto-trigger) the desktop rail is the only surface that
+                  // would ever say so.
+                  agentsQ.isLoading ? (
+                    loadingOrEmpty(true, '')
+                  ) : (
+                    <div className="region-pad muted">
+                      {t('nav.noStewards')}{' '}
+                      <button className="link-btn" onClick={() => setSpawnSteward(true)}>
+                        {t('nav.spawnSteward')}
+                      </button>
+                    </div>
+                  )
                 : stewards.map((a) => agentRow(a, { showHost: true })))}
           </KindSection>
+          {spawnSteward && <StewardSpawn onClose={() => setSpawnSteward(false)} />}
 
           {/* Agents — the worker executors (non-steward). */}
           <KindSection

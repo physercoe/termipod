@@ -183,6 +183,22 @@ func TestEnvironmentRegisterRefusesADifferentContentHashForOneHandle(t *testing.
 	if status != http.StatusConflict {
 		t.Errorf("changing a recorded content_hash = %d, want 409", status)
 	}
+	// Clearing is a change too: were "" accepted, clear-then-set would
+	// redefine the handle in two PATCHes and the drift 409 would guard
+	// nothing.
+	status, _ = doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/environments/"+unhashed.ID,
+		map[string]any{"content_hash": ""})
+	if status != http.StatusConflict {
+		t.Errorf("clearing a recorded content_hash = %d, want 409", status)
+	}
+	// Re-sending the recorded value is a no-op, not a conflict.
+	status, _ = doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/environments/"+unhashed.ID,
+		map[string]any{"content_hash": "sha256:ccc"})
+	if status != http.StatusOK {
+		t.Errorf("re-sending the recorded content_hash = %d, want 200", status)
+	}
 }
 
 // The handle is the identity, and rows elsewhere already point at it as an

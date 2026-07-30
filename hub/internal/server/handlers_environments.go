@@ -164,12 +164,14 @@ func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) 
 		q += " AND e.family = ?"
 		args = append(args, family)
 	}
-	// Sim families first, sites last, then newest — the rail's order (plan §2),
-	// decided here so two clients cannot disagree about it. The family name is
-	// bound rather than interpolated: it is a constant today, and a query built
-	// by concatenation stays wrong even when its inputs are safe.
+	// Sim families first, sites last, then by handle — the rail's order (plan
+	// §2), decided here so two clients cannot disagree about it. The handle
+	// triple is unique per team, so no further tiebreak can ever fire. The
+	// family name is bound rather than interpolated: it is a constant today,
+	// and a query built by concatenation stays wrong even when its inputs are
+	// safe.
 	q += ` ORDER BY CASE WHEN e.family = ? THEN 1 ELSE 0 END,
-		e.family, e.env_id, e.version, e.created_at DESC`
+		e.family, e.env_id, e.version`
 	args = append(args, familyRealSite)
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
@@ -340,10 +342,12 @@ func (s *Server) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request)
 		add("project_id", nullIfEmpty(*in.ProjectID))
 	}
 	if in.ContentHash != nil {
-		// Filling in a hash nobody knew at registration is an edit; changing a
-		// known one means the content moved under a handle that promised not
-		// to, which is the drift 409 again rather than a silent overwrite.
-		if current.ContentHash != "" && *in.ContentHash != "" && *in.ContentHash != current.ContentHash {
+		// Filling in a hash nobody knew at registration is an edit; changing —
+		// or CLEARING — a known one means the content moved under a handle
+		// that promised not to. Clearing must be refused like any change, or
+		// "" followed by a new hash would redefine the handle in two PATCHes,
+		// which is exactly what the drift 409 exists to prevent.
+		if current.ContentHash != "" && *in.ContentHash != current.ContentHash {
 			writeErr(w, http.StatusConflict,
 				"content_hash already recorded for "+current.EnvRef+
 					"; register a new version rather than redefining this one")

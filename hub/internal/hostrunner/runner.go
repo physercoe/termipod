@@ -153,6 +153,20 @@ type Runner struct {
 	// undecryptable and their sessions need a client re-seal (ADR-056 D-7).
 	Rekey bool
 
+	// JobCacheRoot overrides where detached jobs write their artifacts
+	// (ADR-058 §4). Empty resolves to ~/.termipod/hostrunner/jobcache.
+	JobCacheRoot string
+	// JobCacheCap overrides the cache's total-bytes ceiling. Zero uses
+	// jobCacheDefaultCap (20 GiB).
+	JobCacheCap int64
+
+	// jobs is the detached job executor (ADR-058 §2) — one running job per
+	// host, off the main-loop goroutine. jobKinds is its handler registry and
+	// jobcache the artifact store they share. See jobs.go / jobcache.go.
+	jobs     *jobExecutor
+	jobKinds map[string]jobHandler
+	jobcache *jobCache
+
 	// hostPubKey / hostSeed are this host's X25519 identity, resolved once at
 	// startup from StateDir (ADR-056 D-1). hostPubKey rides every capabilities
 	// push; hostSeed is held in memory for the launch-time unseal (D-5, E3c).
@@ -232,6 +246,26 @@ func (a *Runner) defaults() {
 	// tap if the A2A server is enabled.
 	if a.agentPoster == nil {
 		a.agentPoster = a.Client
+	}
+	if a.jobKinds == nil {
+		a.jobKinds = defaultJobHandlers()
+	}
+	if a.jobcache == nil {
+		root := a.JobCacheRoot
+		if root == "" {
+			r, err := defaultJobCacheRoot()
+			if err != nil {
+				// No cache root means no detached job can write anywhere, so
+				// job kinds fail with that reason. Everything else about the
+				// runner keeps working — this is not a startup failure.
+				a.Log.Warn("job cache unavailable; detached job kinds will fail", "err", err)
+			}
+			root = r
+		}
+		a.jobcache = &jobCache{Root: root, Cap: a.JobCacheCap, Log: a.Log}
+	}
+	if a.jobs == nil {
+		a.jobs = newJobExecutor(a)
 	}
 }
 
@@ -352,6 +386,11 @@ func (a *Runner) Start(ctx context.Context) error {
 	// can't stall heartbeats. Push on change only; the hub stores the last
 	// payload verbatim and we want to avoid write amplification.
 	go a.probeLoop(ctx)
+
+	// Fail job rows a previous process left mid-flight (ADR-058 §3). Strictly
+	// before the first tickCommands: this cannot tell a row we just accepted
+	// from one the dead process abandoned.
+	a.reconcileJobsAtStartup(ctx)
 
 	// Kick off an immediate poll so bootstrap isn't delayed by the first tick.
 	a.tickPoll(ctx)

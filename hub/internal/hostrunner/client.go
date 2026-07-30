@@ -284,17 +284,30 @@ type HostCommand struct {
 	Status  string          `json:"status"`
 }
 
-func (c *Client) ListPendingCommands(ctx context.Context, hostID string) ([]HostCommand, error) {
-	path := fmt.Sprintf("/v1/teams/%s/hosts/%s/commands?status=pending", c.Team, hostID)
+// ListCommands lists this host's commands in one status. Note the hub flips
+// pending → delivered *on read*, so listing "pending" claims the rows; listing
+// any other status is a plain read.
+func (c *Client) ListCommands(ctx context.Context, hostID, status string) ([]HostCommand, error) {
+	path := fmt.Sprintf("/v1/teams/%s/hosts/%s/commands?status=%s", c.Team, hostID, status)
 	var out []HostCommand
 	err := c.get(ctx, path, &out)
 	return out, err
 }
 
+func (c *Client) ListPendingCommands(ctx context.Context, hostID string) ([]HostCommand, error) {
+	return c.ListCommands(ctx, hostID, "pending")
+}
+
 type CommandPatch struct {
-	Status string          `json:"status"` // 'done'|'failed'
+	// Status is 'done'|'failed'. It is omitted on a progress-only heartbeat
+	// from a detached job (ADR-058 §3), which the hub reads as "still running,
+	// here is where I am" and which must not touch the lifecycle.
+	Status string          `json:"status,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	// Progress is a job's coarse {phase, done, total}. Sending it also refreshes
+	// the hub-side liveness timestamp the stale-job sweep reads.
+	Progress json.RawMessage `json:"progress,omitempty"`
 }
 
 func (c *Client) PatchCommand(ctx context.Context, cmdID string, patch CommandPatch) error {

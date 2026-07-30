@@ -8,13 +8,34 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/termipod/hub/internal/hostjobs"
 )
 
 // runCommand executes a host-directed command and reports the outcome back
 // to the hub. Supported kinds: pause, resume, capture, terminate. Each maps
 // to a tmux/POSIX primitive; unknown kinds fail fast with a clear error so
 // the operator sees why.
+//
+// Everything below the detached-kind check runs INLINE, on the single
+// main-loop goroutine shared with the spawn / reconcile / idle ticks. That is
+// why long work is not allowed here — see jobs.go.
 func (a *Runner) runCommand(ctx context.Context, cmd HostCommand) {
+	if hostjobs.Is(cmd.Kind) {
+		if a.jobs == nil {
+			// defaults() wires this at startup, so a nil here means a Runner
+			// assembled by hand. Repair it rather than nil-panic: this
+			// function runs on the main-loop goroutine, and a panic here
+			// takes down every agent's supervision with it.
+			a.jobs = newJobExecutor(a)
+		}
+		// Detached (ADR-058 §2): submit returns at once and the job's own
+		// goroutine patches the outcome, so this function must not fall
+		// through to the terminal patch below.
+		a.jobs.submit(ctx, cmd)
+		return
+	}
+
 	var (
 		result map[string]any
 		err    error
@@ -32,6 +53,8 @@ func (a *Runner) runCommand(ctx context.Context, cmd HostCommand) {
 		result, err = a.handoffPack(ctx, cmd)
 	case CmdSessionHandoffUnpack:
 		result, err = a.handoffUnpack(ctx, cmd)
+	case hostjobs.KindCancel:
+		err = a.cancelJob(ctx, cmd)
 	default:
 		err = fmt.Errorf("unknown command kind: %s", cmd.Kind)
 	}

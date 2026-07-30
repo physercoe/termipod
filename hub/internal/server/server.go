@@ -302,6 +302,10 @@ func (s *Server) Serve(ctx context.Context) error {
 	// Loop-closure reconcile sweep: detect stalled loop-entities and
 	// escalate / time them out (ADR-034). Same ctx lifetime.
 	go s.runLoopSweep(ctx)
+	// Detached host jobs whose heartbeat stopped (ADR-058 §3): the host-runner
+	// fails its own rows when it restarts, but a host that never comes back
+	// would strand them `delivered` forever.
+	go s.runJobSweep(ctx)
 	// Deferred digest fold (ADR-038 amendment, hub-scaling lever 7): the
 	// ingest path marks agents dirty; this worker folds them off the hot
 	// path. Read-repair (ensureAgentDigest) is the backstop, so a missed

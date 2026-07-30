@@ -378,11 +378,13 @@ function AccountSettings({ onConnect }: { onConnect?: (edit?: HubProfile) => voi
 }
 
 /// About — app identity, version, and where to send feedback / read the source.
-/// Keyboard shortcuts (#460): rebind the three app-level chords (command
-/// palette, assistant dock, terminal dock). Click a binding, then press the new
-/// keys — a bare modifier keeps listening, Esc cancels, and an invalid combo
-/// (no modifier / a ⌘<digit> job-switch chord — see `isBindable`) or one already
-/// taken by another action is rejected inline. Job switching itself stays fixed
+/// Keyboard shortcuts (#460): rebind the app-level chords (command palette,
+/// assistant dock, terminal dock, split panes, and — D2.1 — the annotate
+/// trigger, which ships UNBOUND: its button shows "not set" until the user
+/// captures a chord). Click a binding, then press the new keys — a bare
+/// modifier keeps listening, Esc cancels, and an invalid combo (no modifier /
+/// a ⌘<digit> job-switch chord — see `isBindable`) or one already taken by
+/// another action is rejected inline. Job switching itself stays fixed
 /// (position-based, like VS Code), so it is documented here but not rebindable.
 function ShortcutSettings(): JSX.Element {
   const t = useT();
@@ -399,6 +401,7 @@ function ShortcutSettings(): JSX.Element {
     { action: 'terminal', label: t('settings.scTerminal') },
     { action: 'splitToggle', label: t('settings.scSplitToggle') },
     { action: 'splitSwap', label: t('settings.scSplitSwap') },
+    { action: 'annotate', label: t('settings.scAnnotate') },
   ];
 
   function onCapture(action: BindingAction, e: ReactKeyboardEvent): void {
@@ -445,7 +448,11 @@ function ShortcutSettings(): JSX.Element {
               if (capturing === r.action) onCapture(r.action, e);
             }}
           >
-            {capturing === r.action ? t('settings.scRecording') : formatCombo(bindings[r.action], mac)}
+            {capturing === r.action
+              ? t('settings.scRecording')
+              : bindings[r.action] !== ''
+                ? formatCombo(bindings[r.action], mac)
+                : t('settings.scUnset')}
           </button>
         </div>
       ))}

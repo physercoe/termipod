@@ -3,8 +3,10 @@ import { useAgents, useAttention, useHosts } from '../hub/queries';
 import { str } from '../hub/types';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
+import { GLOBAL_ORIGIN, useAnnotation } from '../state/annotation';
 import { useAssistant } from '../state/assistant';
 import { useSyncJob } from '../state/syncJob';
+import { useUiContext } from '../state/uiContext';
 import { useTerminals } from '../terminal/store';
 import { useWorkbench } from '../state/workbench';
 import { useZoteroSyncJob } from '../state/zoteroSyncJob';
@@ -49,6 +51,15 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
   // open/closed state reads naturally next to the terminal chip.
   const assistantOpen = useAssistant((s) => s.open);
   const toggleAssistant = useAssistant((s) => s.toggle);
+
+  // D2.1: the GLOBAL "Ask agent" annotate trigger (plan §3.4 step 2) — arms
+  // the overlay with no companion origin so the gesture is reachable from
+  // anywhere, including the embedded kimi-web loop (the SPA takes no injected
+  // buttons). Same gate as the companion's compose-box button: sharing
+  // toggle on + native shell. The chip reads active while the overlay is
+  // armed, mirroring the dock chips' open state.
+  const sharing = useUiContext((s) => s.enabled);
+  const annotArmed = useAnnotation((s) => s.phase !== 'idle');
 
   // One chip PER job (Author workspace + Read/Zotero library) so both are
   // distinguishable when they run at once, and each background failure — which
@@ -102,6 +113,17 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
           onClick={() => toggleAssistant()}
         >
           <Icon name="globe" size={13} /> {t('assistant.title')}
+        </button>
+      )}
+      {isShell() && sharing && (
+        <button
+          className={`statusbar-term statusbar-annotate${annotArmed ? ' active' : ''}`}
+          title={t('annotate.ask')}
+          aria-label={t('annotate.ask')}
+          aria-pressed={annotArmed}
+          onClick={() => useAnnotation.getState().arm(GLOBAL_ORIGIN)}
+        >
+          <Icon name="crosshair" size={13} /> {t('annotate.chip')}
         </button>
       )}
       {showTermChip && (

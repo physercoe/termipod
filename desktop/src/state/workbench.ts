@@ -194,6 +194,37 @@ export function applyFocusPane(s: PaneState, pane: Pane): PaneState {
   return s.activePane === pane ? s : { ...s, activePane: pane };
 }
 
+// ── S2: the divider ratio and the toggle's memory ────────────────────────────
+
+/// The primary pane's share of the row. S1 shipped 50/50 fixed; S2 makes the
+/// divider draggable, so the ratio is a single persisted number — no per-pane
+/// geometry, which keeps "not a docking framework" true.
+export const DEFAULT_SPLIT_RATIO = 0.5;
+
+/// Below this a pane stops being usable (§3.2). The clamp is expressed in pixels
+/// because that is what the constraint actually is; `clampSplitRatio` converts.
+export const MIN_PANE_PX = 480;
+
+/// Clamp a ratio to the allowed band. Without a width this is the plain
+/// 0.25–0.75 guard (used on restore, where no element has been measured yet);
+/// with one it also honours `minPx` per pane. On a window too narrow for two
+/// minimum panes the pixel rule is unsatisfiable, so the plain guard stands —
+/// refusing to resize at all would be worse than a cramped pane the user asked
+/// for. NaN/±Infinity from a corrupt persisted value degrade to the default.
+export function clampSplitRatio(r: number, width = 0, minPx = MIN_PANE_PX): number {
+  const base = Math.min(0.75, Math.max(0.25, Number.isFinite(r) ? r : DEFAULT_SPLIT_RATIO));
+  if (width <= 0 || width < minPx * 2) return base;
+  return Math.min(1 - minPx / width, Math.max(minPx / width, base));
+}
+
+/// What `toggleSplit` pins when nothing was ever pinned — the first eligible job
+/// in rail order that isn't already the primary. Deterministic on purpose: the
+/// shortcut must always *do* something visible on a fresh install, and one rail
+/// click changes it. `null` only if no eligible job exists at all.
+export function firstPinCandidate(job: JobId): JobId | null {
+  return JOBS.find((j) => j.id !== job && isSplitEligible(j.id))?.id ?? null;
+}
+
 // The primary pane keeps the original key and its original shape (a bare job
 // id): no migration, and an older build simply ignores the split. The split
 // rides in its own key, absent when there is none.
@@ -211,10 +242,28 @@ function initialJob(): JobId {
   return 'fleet';
 }
 
+/// Everything the split key carries. `secondary`/`activePane` are the live pane
+/// state; `ratio` and `lastSecondary` are S2's, and neither is part of
+/// `PaneState` — no pane reducer needs them, and keeping them out means the
+/// reducers stay a 3-field algebra.
+export interface SplitPersist {
+  secondary: JobId | null;
+  activePane: Pane;
+  ratio: number;
+  lastSecondary: JobId | null;
+}
+
 /// Parse the persisted split blob. Pure over the raw string so the malformed /
-/// legacy cases are testable; cross-field repair is `healPanes`'s job.
-export function parseSplit(raw: string | null): Pick<PaneState, 'secondary' | 'activePane'> {
-  const none: Pick<PaneState, 'secondary' | 'activePane'> = { secondary: null, activePane: 'primary' };
+/// legacy cases are testable; cross-field repair is `healPanes`'s job. Every
+/// field is optional in practice — an S1-era blob has no `ratio`/`lastSecondary`,
+/// and each falls back independently rather than voiding the whole blob.
+export function parseSplit(raw: string | null): SplitPersist {
+  const none: SplitPersist = {
+    secondary: null,
+    activePane: 'primary',
+    ratio: DEFAULT_SPLIT_RATIO,
+    lastSecondary: null,
+  };
   if (raw === null) return none;
   try {
     const obj: unknown = JSON.parse(raw);
@@ -223,6 +272,10 @@ export function parseSplit(raw: string | null): Pick<PaneState, 'secondary' | 'a
     return {
       secondary: isKnownJob(o.secondary) ? o.secondary : null,
       activePane: o.activePane === 'secondary' ? 'secondary' : 'primary',
+      ratio: clampSplitRatio(typeof o.ratio === 'number' ? o.ratio : DEFAULT_SPLIT_RATIO),
+      // Only useful if it is still pinnable; `toggleSplit` re-checks against the
+      // primary of the moment anyway.
+      lastSecondary: isKnownJob(o.lastSecondary) && isSplitEligible(o.lastSecondary) ? o.lastSecondary : null,
     };
   } catch {
     /* malformed JSON — no split */
@@ -230,48 +283,99 @@ export function parseSplit(raw: string | null): Pick<PaneState, 'secondary' | 'a
   }
 }
 
-function initialPanes(): PaneState {
-  let split: Pick<PaneState, 'secondary' | 'activePane'> = { secondary: null, activePane: 'primary' };
+function initialSplit(): SplitPersist {
   try {
-    split = parseSplit(localStorage.getItem(LS_SPLIT_KEY));
+    return parseSplit(localStorage.getItem(LS_SPLIT_KEY));
   } catch {
-    /* ignore */
+    /* no localStorage (node tests) */
+    return { secondary: null, activePane: 'primary', ratio: DEFAULT_SPLIT_RATIO, lastSecondary: null };
   }
-  return healPanes({ job: initialJob(), ...split });
 }
 
-function persist(next: PaneState): PaneState {
+function writeSplit(s: PaneState & { ratio: number; lastSecondary: JobId | null }): void {
   try {
-    localStorage.setItem(LS_KEY, next.job);
-    if (next.secondary === null) localStorage.removeItem(LS_SPLIT_KEY);
-    else
-      localStorage.setItem(LS_SPLIT_KEY, JSON.stringify({ secondary: next.secondary, activePane: next.activePane }));
+    localStorage.setItem(LS_KEY, s.job);
+    // A closed split still records `ratio`/`lastSecondary` — they are what makes
+    // reopening restore the shape the user had, so the key is only cleared when
+    // there is genuinely nothing to remember.
+    if (s.secondary === null && s.lastSecondary === null && s.ratio === DEFAULT_SPLIT_RATIO) {
+      localStorage.removeItem(LS_SPLIT_KEY);
+      return;
+    }
+    localStorage.setItem(
+      LS_SPLIT_KEY,
+      JSON.stringify({
+        secondary: s.secondary,
+        activePane: s.activePane,
+        ratio: s.ratio,
+        lastSecondary: s.lastSecondary,
+      }),
+    );
   } catch {
     /* ignore */
   }
-  return next;
 }
 
 interface WorkbenchState extends PaneState {
+  /** The primary pane's share of the row (S2, `clampSplitRatio`'s band). */
+  ratio: number;
+  /** The last job that was pinned, so `toggleSplit` can reopen it. */
+  lastSecondary: JobId | null;
   setJob: (job: JobId) => void;
   setSecondary: (job: JobId | null) => void;
   focusPane: (pane: Pane) => void;
   swapPanes: () => void;
+  /** Close a live split, or reopen the last one (S2's `Mod+\`). */
+  toggleSplit: () => void;
+  setRatio: (ratio: number) => void;
 }
 
 export const useWorkbench = create<WorkbenchState>((set, get) => {
+  const split = initialSplit();
   // Every reducer above returns its INPUT object verbatim for a no-op, so
   // identity is the "nothing changed" signal. Checking it matters: the shell
   // calls `focusPane` from a capture-phase mousedown on each pane, i.e. on every
   // click in the app — without this, each one would rewrite localStorage.
   const commit = (next: PaneState): void => {
-    if (next !== get()) set(persist(next));
+    if (next === get()) return;
+    // Remember whatever is pinned, so closing and reopening returns to it. A
+    // close leaves the memory alone (`null ?? previous`), which is the whole
+    // point of the toggle.
+    set({ ...next, lastSecondary: next.secondary ?? get().lastSecondary });
+    writeSplit(get());
   };
+  // A drag fires `setRatio` on every pointermove (dozens/s) and a synchronous
+  // localStorage write each time is a main-thread stall (#311) — the same reason
+  // `usePanelWidth` debounces. The ratio itself updates live for a smooth drag;
+  // only the write is deferred until the gesture settles.
+  let ratioTimer: ReturnType<typeof setTimeout> | undefined;
   return {
-    ...initialPanes(),
+    ...healPanes({ job: initialJob(), secondary: split.secondary, activePane: split.activePane }),
+    ratio: split.ratio,
+    lastSecondary: split.lastSecondary,
     setJob: (job) => commit(applySetJob(get(), job)),
     setSecondary: (job) => commit(applySetSecondary(get(), job)),
     focusPane: (pane) => commit(applyFocusPane(get(), pane)),
     swapPanes: () => commit(applySwapPanes(get())),
+    toggleSplit: () => {
+      const s = get();
+      // Nothing pairs with a chrome primary, so the chord is inert there — the
+      // same rule that keeps the split commands out of the palette on Settings.
+      if (!isSplitEligible(s.job)) return;
+      if (s.secondary !== null) {
+        commit(applySetSecondary(s, null));
+        return;
+      }
+      const remembered = s.lastSecondary !== null && s.lastSecondary !== s.job ? s.lastSecondary : null;
+      const pick = remembered ?? firstPinCandidate(s.job);
+      if (pick !== null) commit(applySetSecondary(s, pick));
+    },
+    setRatio: (ratio) => {
+      const next = clampSplitRatio(ratio);
+      if (next === get().ratio) return;
+      set({ ratio: next });
+      if (ratioTimer !== undefined) clearTimeout(ratioTimer);
+      ratioTimer = setTimeout(() => writeSplit(get()), 250);
+    },
   };
 });

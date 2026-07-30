@@ -4,10 +4,11 @@
 /// from `desktop/`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { comboFromEvent, formatCombo, isBindable, matchCombo } from './keybindings.ts';
+import { comboFromEvent, DEFAULT_BINDINGS, formatCombo, isBindable, matchCombo } from './keybindings.ts';
 
-const ev = (key: string, m: Partial<{ meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }> = {}) => ({
+const ev = (key: string, m: Partial<{ meta: boolean; ctrl: boolean; alt: boolean; shift: boolean; code: string }> = {}) => ({
   key,
+  code: m.code,
   metaKey: m.meta === true,
   ctrlKey: m.ctrl === true,
   altKey: m.alt === true,
@@ -57,4 +58,49 @@ test('formatCombo: mac glyphs joined, others joined with +', () => {
   assert.equal(formatCombo('mod+k', false), 'Ctrl+K');
   assert.equal(formatCombo('alt+f4', false), 'Alt+F4');
   assert.equal(formatCombo('mod+ ', true), '⌘Space');
+});
+
+// ── Physical-key normalization (split-pane S2) ────────────────────────────────
+// `e.key` reports the SHIFTED character, so Shift+Backslash arrives as '|' on a
+// US layout and as something else elsewhere. Without `e.code`, the shipped
+// default `mod+shift+\\` could never fire — the bug these tests pin.
+
+test('comboFromEvent: punctuation resolves by code, so a shifted chord is reachable', () => {
+  assert.equal(comboFromEvent(ev('|', { ctrl: true, shift: true, code: 'Backslash' })), 'mod+shift+\\');
+  assert.equal(comboFromEvent(ev('\\', { ctrl: true, code: 'Backslash' })), 'mod+\\');
+  // A layout where Shift+Backslash is not '|' lands on the same combo — that is
+  // the point of resolving by physical key.
+  assert.equal(comboFromEvent(ev('°', { ctrl: true, shift: true, code: 'Backslash' })), 'mod+shift+\\');
+});
+
+test('comboFromEvent: code never changes the existing letter/digit chords', () => {
+  assert.equal(comboFromEvent(ev('k', { meta: true, code: 'KeyK' })), 'mod+k');
+  assert.equal(comboFromEvent(ev('K', { meta: true, shift: true, code: 'KeyK' })), 'mod+shift+k');
+  // Digits are deliberately NOT mapped: `e.key` already gives the unshifted form
+  // and remapping them would invalidate combos users captured before this change.
+  assert.equal(comboFromEvent(ev('!', { meta: true, shift: true, code: 'Digit1' })), 'mod+shift+!');
+  // The pre-existing punctuation chords keep their combos.
+  assert.equal(comboFromEvent(ev('.', { meta: true, code: 'Period' })), 'mod+.');
+  assert.equal(comboFromEvent(ev('`', { meta: true, code: 'Backquote' })), 'mod+`');
+});
+
+test('every default binding is bindable and matches its own key event', () => {
+  // A hand-written default is the one combo no capture UI ever validated, so
+  // check each is legal AND actually reachable from the keyboard.
+  const events: Record<string, ReturnType<typeof ev>> = {
+    palette: ev('k', { meta: true, code: 'KeyK' }),
+    assistant: ev('.', { meta: true, code: 'Period' }),
+    terminal: ev('`', { meta: true, code: 'Backquote' }),
+    splitToggle: ev('\\', { meta: true, code: 'Backslash' }),
+    splitSwap: ev('|', { meta: true, shift: true, code: 'Backslash' }),
+  };
+  for (const [action, combo] of Object.entries(DEFAULT_BINDINGS)) {
+    assert.equal(isBindable(combo), true, `${action} (${combo}) must be bindable`);
+    assert.equal(matchCombo(events[action], combo), true, `${action} (${combo}) must be reachable`);
+  }
+});
+
+test('formatCombo: the split chords read as backslash', () => {
+  assert.equal(formatCombo('mod+\\', true), '⌘\\');
+  assert.equal(formatCombo('mod+shift+\\', false), 'Ctrl+Shift+\\');
 });

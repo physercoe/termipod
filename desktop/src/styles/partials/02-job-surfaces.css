@@ -37,6 +37,20 @@
   color: var(--accent-text);
   border-color: var(--accent-line);
 }
+/* The job pinned as the split's secondary pane (S2). `position: relative` is on
+   the modifier, not `.activity-tab`, so an unsplit rail keeps its old stacking. */
+.activity-tab.beside {
+  position: relative;
+}
+.activity-tab-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 .activity-icon {
   display: flex;
   align-items: center;

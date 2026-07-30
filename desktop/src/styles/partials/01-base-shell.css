@@ -275,7 +275,9 @@ pre {
 }
 /* `flex: 1 1 0` + min-width:0 gives the equal halves AND lets a surface with a
    wide intrinsic child (tables, xterm rows) shrink instead of pushing its
-   neighbour off-screen. S2 adds the drag ratio and the min-width clamp. */
+   neighbour off-screen. S2 overrides the PRIMARY pane's basis inline from the
+   persisted ratio (the secondary keeps taking the rest), and the divider is a
+   shared ResizeHandle — one number describes the row. */
 .shell-pane {
   flex: 1 1 0;
   min-width: 0;
@@ -292,11 +294,6 @@ pre {
 }
 .shell-panes.split > .shell-pane.active {
   border-top-color: var(--accent);
-}
-.shell-pane-divider {
-  flex: 0 0 auto;
-  width: 1px;
-  background: var(--border);
 }
 
 /* Fleet-scoped action bar — the control-plane surfaces (sessions, channels,

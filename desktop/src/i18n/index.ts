@@ -78,6 +78,7 @@ const en: Dict = {
   'cmd.palette': 'Command palette',
   'cmd.splitOpen': 'Split: open {job} beside',
   'cmd.splitClose': 'Split: close the pinned pane',
+  'cmd.splitSwap': 'Split: swap the two panes',
   'cmd.disconnect': 'Disconnect from hub',
 
   'palette.placeholder': 'Type a command…',
@@ -463,6 +464,8 @@ const en: Dict = {
   'settings.scPalette': 'Command palette',
   'settings.scAssistant': 'Toggle assistant dock',
   'settings.scTerminal': 'Toggle terminal dock',
+  'settings.scSplitToggle': 'Toggle split pane',
+  'settings.scSplitSwap': 'Swap split panes',
   'settings.scRecording': 'Press new keys… (Esc cancels)',
   'settings.scInvalid': 'Use ⌘/Ctrl or Alt, or a function key (⌘1–9 are reserved for job switching).',
   'settings.scConflict': 'Already used by {name}.',
@@ -1140,6 +1143,8 @@ const en: Dict = {
 
   // --- workbench rail + job surfaces (J1–J6) ---
   'job.rail': 'Workbench jobs',
+  'job.openBeside': 'Open beside',
+  'job.openBesideHint': 'Alt-click to open beside',
   'job.fleet': 'Fleet',
   'job.fleet.hint': 'Mission-control — hosts, agents, attention',
   'job.projects': 'Projects',
@@ -2112,6 +2117,7 @@ const zh: Dict = {
   'cmd.palette': '命令面板',
   'cmd.splitOpen': '分屏：在旁边打开 {job}',
   'cmd.splitClose': '分屏：关闭固定面板',
+  'cmd.splitSwap': '分屏：交换两个面板',
   'cmd.disconnect': '断开 Hub 连接',
 
   'palette.placeholder': '输入命令…',
@@ -2492,6 +2498,8 @@ const zh: Dict = {
   'settings.scPalette': '命令面板',
   'settings.scAssistant': '切换助手面板',
   'settings.scTerminal': '切换终端面板',
+  'settings.scSplitToggle': '切换分屏面板',
+  'settings.scSplitSwap': '交换分屏面板',
   'settings.scRecording': '请按新的按键…（Esc 取消）',
   'settings.scInvalid': '请使用 ⌘/Ctrl 或 Alt，或功能键（⌘1–9 已保留给任务切换）。',
   'settings.scConflict': '已被「{name}」使用。',
@@ -3159,6 +3167,8 @@ const zh: Dict = {
 
   // --- 工作台侧栏 + 作业界面 (J1–J6) ---
   'job.rail': '工作台作业',
+  'job.openBeside': '在旁边打开',
+  'job.openBesideHint': 'Alt + 点击可在旁边打开',
   'job.fleet': '舰队',
   'job.fleet.hint': '任务控制台 — 主机、代理、待办',
   'job.projects': '项目',

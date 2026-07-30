@@ -2,7 +2,9 @@
 
 > **Type:** plan
 > **Status:** In flight (2026-07-30) — **S1 shipped** (store + render + toggle,
-> §4.1 below); **S2** (ergonomics) and **S3** (focus projection) open.
+> §4.1) and **S2 shipped** (ergonomics, §4.2); **S3** (focus projection) open,
+> and now the smaller half of it — ui-context D1 landed first and already reads
+> the active pane.
 > Deliberately **not** a docking framework: exactly one pinned secondary surface,
 > per `desktop-design-review.md` §4.2's minimal cut.
 > **Audience:** principal · contributors
@@ -112,7 +114,7 @@ Factor the existing ternary chain into `SurfaceView({ job }: { job: JobId })`
   </section>
   {secondary && (
     <>
-      <div className="shell-pane-divider" /* drag = S2 */ />
+      <ResizeHandle onResize={onSplitResize} /> {/* S2; a hairline div in S1 */}
       <section className={pane('secondary')} onFocusCapture={() => focusPane('secondary')}>
         <ErrorBoundary><SurfaceView job={secondary} /></ErrorBoundary>
       </section>
@@ -151,6 +153,15 @@ Factor the existing ternary chain into `SurfaceView({ job }: { job: JobId })`
   contributed from `JOBS`), `Split: close`, `Split: swap panes`.
 - **Shortcuts** via the rebindable-shortcut registry (PR #464): default
   `Mod+\` = toggle split (reopens the last secondary), `Mod+Shift+\` = swap.
+
+  > **S2 found this default unreachable.** `comboFromEvent` derived the combo from
+  > `KeyboardEvent.key`, which carries the *shifted* character — Shift+Backslash
+  > is `'|'` on a US layout and something else elsewhere — so `mod+shift+\` could
+  > never match, and hardcoding `mod+shift+|` would have been layout-specific.
+  > Punctuation now resolves by `e.code` (the physical key); letters and digits
+  > deliberately still resolve by `key`, since remapping them would invalidate
+  > combos users had already captured. Any future hand-written default with
+  > punctuation in it depends on this.
 - **Divider drag** with a stored ratio (single number, clamped 0.25–0.75).
 
 ### 3.4 Focus projection (S3, with ui-context D1)
@@ -177,8 +188,12 @@ no IPC change, one more field in the throttled push.
   **Shipped 2026-07-30** — see §4.1.
 - **S2 — ergonomics**: rail modifier-click + dot, swap command + shortcut
   registry entries, divider drag + ratio persistence, min-width clamps, i18n.
+  **Shipped 2026-07-30** — see §4.2.
 - **S3 — focus projection**: snapshot fields + tests, coordinated with
   ui-context D1 (whichever lands second carries the integration test).
+  **D1 shipped first** (`d55ee136`) and reads `activeJob()`, so the snapshot
+  already follows the focused pane; what remains is the §3.4 shape — the
+  `secondary` object and `active_pane` — plus that integration test.
 
 ### 4.1 S1 as shipped (2026-07-30)
 
@@ -220,6 +235,48 @@ drag); no rail Alt-click, no `Split: swap` command, no `Mod+\` binding.
 Not verified locally: the Electron E2E spec (`split S1`) — this host has no
 Electron binary and no X display, so CI is its only gate, as the Playwright
 config already states. The state tests and both typechecks were run locally.
+(CI then ran it green, including the swap-without-duplication assertion.)
+
+### 4.2 S2 as shipped (2026-07-30)
+
+`workbench.ts`, `keybindings.ts` (+ both test files), `ui/ActivityBar.tsx`,
+`ui/AppShell.tsx`, `surfaces/Settings.tsx`, `partials/01-base-shell.css`,
+`partials/02-job-surfaces.css`, `i18n/index.ts`, `electron/e2e/app.spec.ts`.
+
+Four entry points now write the pane state — rail Alt-click, the rail's
+right-click menu, two chords, and the palette. That is precisely the shape the S1
+review found a bug in (a rule enforced at the dedicated setter but not the other
+writers), so each one is gated by the *same* `isSplitEligible` predicate rather
+than its own check, and the e2e spec drives all of them.
+
+- **Ratio.** One number, `clampSplitRatio`'s 0.25–0.75 band, applied as the
+  primary pane's inline `flex-basis` (the secondary takes the rest). Inline
+  rather than a CSS custom property: a runtime-injected `var()` reads as a
+  *phantom token* to the design-token ratchet. The pixel min-pane clamp lives in
+  the same pure function but needs a measured width, so the shell passes one; on
+  a window too narrow for two minimum panes the pixel rule is unsatisfiable and
+  the plain band stands, rather than freezing the divider mid-row.
+- **Divider.** The shared `ResizeHandle` — already keyboard-operable
+  (`role="separator"`, arrow nudges) and already using window listeners instead
+  of `setPointerCapture`, for a documented WebView2 reason. Writing a second
+  divider would have re-earned that bug. `.shell-pane-divider` is gone with it.
+- **Persistence.** The split key gains `ratio` and `lastSecondary`. Neither is
+  part of `PaneState`: no pane reducer needs them, and keeping them out leaves
+  the reducers a 3-field algebra. `parseSplit` degrades each field
+  independently, so an S1-era blob still restores.
+- **Toggle memory.** `Mod+\` closes a live split and reopens the last pinned
+  job; with no memory it pins the first eligible job in rail order, so the chord
+  always does something visible on a fresh install. Inert under a chrome
+  primary, matching the palette.
+- **Naming.** The rail's split marker is `.activity-tab.beside`, NOT `.pinned` —
+  `.activity-tab-pinned` already means "pinned to the bottom of the rail" (the
+  Settings gear). Two senses of *pinned* in one stylesheet would be a trap.
+
+Deliberately not in S2: no per-pane navigation history (§7 Q2 — still creep), and
+the ratio is not per-job (one row shape, not a remembered layout per pairing).
+
+Not verified locally, again: the e2e spec (`split S2`), including the divider
+drag. CI is the gate.
 
 ## 5. Testing
 

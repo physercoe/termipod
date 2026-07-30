@@ -7,6 +7,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   activeJob,
+  clampSplitRatio,
+  DEFAULT_SPLIT_RATIO,
+  firstPinCandidate,
   applyFocusPane,
   applySetJob,
   applySetSecondary,
@@ -15,6 +18,7 @@ import {
   isSplitEligible,
   isSplitVisible,
   parseSplit,
+  useWorkbench,
   type PaneState,
 } from './workbench.ts';
 
@@ -184,7 +188,7 @@ test('healPanes: restore repairs states the persisted fields can disagree on', (
 });
 
 test('parseSplit: missing, malformed and hostile blobs degrade to no split', () => {
-  const none = { secondary: null, activePane: 'primary' };
+  const none = { secondary: null, activePane: 'primary', ratio: DEFAULT_SPLIT_RATIO, lastSecondary: null };
   assert.deepEqual(parseSplit(null), none); // never split before
   assert.deepEqual(parseSplit('{'), none); // truncated write
   assert.deepEqual(parseSplit('"compare"'), none); // legacy bare string
@@ -193,14 +197,117 @@ test('parseSplit: missing, malformed and hostile blobs degrade to no split', () 
   // parsed independently, so the pair can still disagree here. `healPanes` — which
   // every restore path runs — is what closes it, and the store never sees the gap.
   const orphan = parseSplit('{"secondary":"nope","activePane":"secondary"}');
-  assert.deepEqual(orphan, { secondary: null, activePane: 'secondary' });
-  assert.deepEqual(healPanes({ job: 'read', ...orphan }), solo);
+  assert.deepEqual(orphan, { ...none, activePane: 'secondary' });
+  assert.deepEqual(healPanes({ job: 'read', secondary: orphan.secondary, activePane: orphan.activePane }), solo);
   assert.deepEqual(parseSplit('{"secondary":"compare","activePane":"nonsense"}'), {
+    ...none,
     secondary: 'compare',
-    activePane: 'primary',
   });
   assert.deepEqual(parseSplit('{"secondary":"compare","activePane":"secondary"}'), {
+    ...none,
     secondary: 'compare',
     activePane: 'secondary',
   });
+});
+
+// ── S2: divider ratio, the toggle's memory, and the rail entry points ─────────
+
+test('clampSplitRatio: the 0.25–0.75 band, and NaN degrades to the default', () => {
+  assert.equal(clampSplitRatio(0.5), 0.5);
+  assert.equal(clampSplitRatio(0.1), 0.25);
+  assert.equal(clampSplitRatio(0.9), 0.75);
+  assert.equal(clampSplitRatio(Number.NaN), DEFAULT_SPLIT_RATIO); // corrupt persisted value
+  assert.equal(clampSplitRatio(Number.POSITIVE_INFINITY), DEFAULT_SPLIT_RATIO);
+});
+
+test('clampSplitRatio: a width also honours the per-pane pixel minimum', () => {
+  // 2000px wide, 480px minimum → the band narrows to 0.25–0.75 either side of it.
+  assert.equal(clampSplitRatio(0.25, 2000), 0.25); // 500px, still above the minimum
+  assert.equal(clampSplitRatio(0.75, 2000), 0.75);
+  // 1200px: 480/1200 = 0.4, so a 0.25 drag is refused down to 0.4 (=480px).
+  assert.equal(clampSplitRatio(0.25, 1200), 0.4);
+  assert.equal(clampSplitRatio(0.75, 1200), 0.6);
+  // Too narrow for two minimum panes: the pixel rule is unsatisfiable, so the
+  // plain band stands rather than freezing the divider at 0.5.
+  assert.equal(clampSplitRatio(0.3, 800), 0.3);
+  assert.equal(clampSplitRatio(0.1, 800), 0.25);
+  // Exactly 2× the minimum pins it to the centre — lo === hi, not an empty band.
+  assert.equal(clampSplitRatio(0.7, 960), 0.5);
+});
+
+test('firstPinCandidate: first eligible job in rail order, never the primary', () => {
+  assert.equal(firstPinCandidate('read'), 'fleet'); // JOBS[0]
+  assert.equal(firstPinCandidate('fleet'), 'projects'); // skips the primary
+  assert.equal(firstPinCandidate('settings'), 'fleet'); // a chrome primary still answers
+});
+
+test('parseSplit: an S1-era blob has no ratio/lastSecondary and each falls back', () => {
+  const s1 = parseSplit('{"secondary":"compare","activePane":"secondary"}');
+  assert.deepEqual(s1, {
+    secondary: 'compare',
+    activePane: 'secondary',
+    ratio: DEFAULT_SPLIT_RATIO,
+    lastSecondary: null,
+  });
+  // A ratio outside the band is clamped, not discarded; a chrome `lastSecondary`
+  // is dropped (it could never be pinned).
+  const s2 = parseSplit('{"secondary":null,"activePane":"primary","ratio":9,"lastSecondary":"terminal"}');
+  assert.deepEqual(s2, { secondary: null, activePane: 'primary', ratio: 0.75, lastSecondary: null });
+  const s3 = parseSplit('{"secondary":null,"activePane":"primary","ratio":0.62,"lastSecondary":"replay"}');
+  assert.deepEqual(s3, { secondary: null, activePane: 'primary', ratio: 0.62, lastSecondary: 'replay' });
+});
+
+// The store, not the reducers: `toggleSplit` composes two rules with a memory, so
+// there is no pure function to point at. Seed via setState, then drive the action.
+function seed(p: Partial<ReturnType<typeof useWorkbench.getState>>): void {
+  useWorkbench.setState({
+    job: 'read',
+    secondary: null,
+    activePane: 'primary',
+    ratio: DEFAULT_SPLIT_RATIO,
+    lastSecondary: null,
+    ...p,
+  });
+}
+
+test('toggleSplit: closes a live split and reopens the SAME job', () => {
+  seed({ secondary: 'compare', activePane: 'secondary', lastSecondary: 'compare' });
+  useWorkbench.getState().toggleSplit();
+  assert.equal(useWorkbench.getState().secondary, null);
+  assert.equal(useWorkbench.getState().activePane, 'primary');
+  // The memory is what makes the toggle a toggle rather than a one-way close.
+  assert.equal(useWorkbench.getState().lastSecondary, 'compare');
+  useWorkbench.getState().toggleSplit();
+  assert.equal(useWorkbench.getState().secondary, 'compare');
+});
+
+test('toggleSplit: with no memory it pins the first candidate; never the primary', () => {
+  seed({ job: 'fleet' });
+  useWorkbench.getState().toggleSplit();
+  assert.equal(useWorkbench.getState().secondary, 'projects'); // not 'fleet'
+  // A remembered job that has since become the primary is skipped too.
+  seed({ job: 'compare', lastSecondary: 'compare' });
+  useWorkbench.getState().toggleSplit();
+  assert.equal(useWorkbench.getState().secondary, 'fleet');
+});
+
+test('toggleSplit: inert under a chrome primary — nothing pairs with Settings', () => {
+  seed({ job: 'settings', lastSecondary: 'compare' });
+  useWorkbench.getState().toggleSplit();
+  assert.equal(useWorkbench.getState().secondary, null);
+  // …and it cannot close a parked pin it can't show either.
+  seed({ job: 'settings', secondary: 'compare', lastSecondary: 'compare' });
+  useWorkbench.getState().toggleSplit();
+  assert.equal(useWorkbench.getState().secondary, 'compare');
+});
+
+test('setRatio: clamps, and a no-op does not touch the store', () => {
+  seed({ secondary: 'compare' });
+  useWorkbench.getState().setRatio(0.62);
+  assert.equal(useWorkbench.getState().ratio, 0.62);
+  useWorkbench.getState().setRatio(2);
+  assert.equal(useWorkbench.getState().ratio, 0.75);
+  const before = useWorkbench.getState();
+  useWorkbench.getState().setRatio(0.75);
+  assert.equal(useWorkbench.getState(), before); // identical state object
 });

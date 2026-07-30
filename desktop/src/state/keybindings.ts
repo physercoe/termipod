@@ -13,14 +13,40 @@ import { create } from 'zustand';
 /// NOT fire for ⌘⇧K (shift is part of the combo), unlike the old hardcoded
 /// handler which ignored extra modifiers.
 
-export type BindingAction = 'palette' | 'assistant' | 'terminal';
+export type BindingAction = 'palette' | 'assistant' | 'terminal' | 'splitToggle' | 'splitSwap';
 
-export const BINDING_ACTIONS: BindingAction[] = ['palette', 'assistant', 'terminal'];
+export const BINDING_ACTIONS: BindingAction[] = ['palette', 'assistant', 'terminal', 'splitToggle', 'splitSwap'];
 
 export const DEFAULT_BINDINGS: Record<BindingAction, string> = {
   palette: 'mod+k',
   assistant: 'mod+.',
   terminal: 'mod+`',
+  // VS Code's split-editor chord (`plans/desktop-shell-split-pane.md` §3.3).
+  splitToggle: 'mod+\\',
+  splitSwap: 'mod+shift+\\',
+};
+
+/// Layout-independent base characters for the punctuation keys, by `e.code`.
+///
+/// `e.key` reports the *shifted* character — Shift+Backslash is `'|'` on a US
+/// layout and something else elsewhere — so a hand-written default like
+/// `mod+shift+\` could never match, and a captured one would not survive a
+/// layout change. `e.code` names the physical key, which is what a chord like
+/// "Mod+Shift+Backslash" actually means. Letters and digits are deliberately
+/// absent: `e.key` already gives their unshifted form (`'K'` → `'k'`), and
+/// mapping them would invalidate bindings users captured under the old scheme.
+const CODE_BASE_KEY: Record<string, string> = {
+  Backslash: '\\',
+  Backquote: '`',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Comma: ',',
+  Equal: '=',
+  Minus: '-',
+  Period: '.',
+  Quote: "'",
+  Semicolon: ';',
+  Slash: '/',
 };
 
 const LS_KEY = 'termipod.keybindings.v1';
@@ -29,6 +55,9 @@ const LS_KEY = 'termipod.keybindings.v1';
 /// DOM `KeyboardEvent` both fit).
 export interface KeyEventLike {
   key: string;
+  /** `KeyboardEvent.code` — the physical key. Optional: absent in tests and for
+   *  synthetic callers, where `key` is the only signal. See `CODE_BASE_KEY`. */
+  code?: string;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
@@ -38,7 +67,8 @@ export interface KeyEventLike {
 /// Canonical combo for a key event, or `null` for a bare modifier press (the
 /// user is still composing — a capture UI keeps listening).
 export function comboFromEvent(e: KeyEventLike): string | null {
-  const key = e.key.toLowerCase();
+  const base = e.code !== undefined ? CODE_BASE_KEY[e.code] : undefined;
+  const key = (base ?? e.key).toLowerCase();
   if (key === 'meta' || key === 'control' || key === 'alt' || key === 'shift') return null;
   const parts: string[] = [];
   if (e.metaKey || e.ctrlKey) parts.push('mod');

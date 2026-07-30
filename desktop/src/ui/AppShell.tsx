@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
@@ -11,6 +11,7 @@ import { useSession } from '../state/session';
 import { formatCombo, matchCombo, useKeybindings } from '../state/keybindings';
 import {
   activeJob,
+  clampSplitRatio,
   isSplitEligible,
   isSplitVisible,
   JOBS,
@@ -35,6 +36,7 @@ import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ProfileSwitcher } from './ProfileSwitcher';
+import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
 import { SurfaceView } from './SurfaceView';
 import { ToastHost } from './ToastHost';
@@ -53,6 +55,10 @@ export function AppShell(): JSX.Element {
   const activePane = useWorkbench((s) => s.activePane);
   const setSecondary = useWorkbench((s) => s.setSecondary);
   const focusPane = useWorkbench((s) => s.focusPane);
+  const ratio = useWorkbench((s) => s.ratio);
+  const setRatio = useWorkbench((s) => s.setRatio);
+  // The pane row, measured to turn the divider's pixel deltas into a ratio.
+  const panesRef = useRef<HTMLDivElement>(null);
   const online = useOnline();
   const qc = useQueryClient();
   const t = useT();
@@ -108,13 +114,21 @@ export function AppShell(): JSX.Element {
     // then the pinned Settings tab, matching the activity bar top-to-bottom.
     const ordered: JobId[] = [...JOBS.map((j) => j.id), SETTINGS_JOB.id];
     function onKey(e: KeyboardEvent): void {
-      // The three app-level chords come from the rebindable keybindings store
-      // (#460) — read live via getState so a rebind takes effect without a
-      // remount. Exact-match semantics: extra modifiers break a match.
+      // The app-level chords come from the rebindable keybindings store (#460) —
+      // read live via getState so a rebind takes effect without a remount.
+      // Exact-match semantics: extra modifiers break a match.
       const kb = useKeybindings.getState().bindings;
       if (matchCombo(e, kb.palette)) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if (matchCombo(e, kb.splitToggle)) {
+        // Close a live split, or reopen the last pinned job (S2). Inert while the
+        // primary is a chrome job — the store owns that rule.
+        e.preventDefault();
+        useWorkbench.getState().toggleSplit();
+      } else if (matchCombo(e, kb.splitSwap)) {
+        e.preventDefault();
+        useWorkbench.getState().swapPanes();
       } else if (matchCombo(e, kb.terminal)) {
         // VS Code's integrated-terminal toggle. The dock is persistent, so this
         // only shows/hides it — sessions keep running underneath.
@@ -171,7 +185,22 @@ export function AppShell(): JSX.Element {
           label: t('cmd.splitOpen').replace('{job}', t(j.labelKey)),
           run: () => setSecondary(j.id),
         })),
-        ...(secondary !== null ? [{ id: 'split-close', label: t('cmd.splitClose'), run: () => setSecondary(null) }] : []),
+        ...(secondary !== null
+          ? [
+              {
+                id: 'split-close',
+                label: t('cmd.splitClose'),
+                hint: formatCombo(bindings.splitToggle, mac),
+                run: () => setSecondary(null),
+              },
+              {
+                id: 'split-swap',
+                label: t('cmd.splitSwap'),
+                hint: formatCombo(bindings.splitSwap, mac),
+                run: () => useWorkbench.getState().swapPanes(),
+              },
+            ]
+          : []),
       ]
     : [];
 
@@ -237,6 +266,20 @@ export function AppShell(): JSX.Element {
     </>
   );
 
+  // Divider drag → ratio. The handle reports pixel deltas (it is the same
+  // window-listener gesture the nav/dock dividers use), so the row's own width
+  // converts them; the pixel min-pane clamp needs that width too, which is why it
+  // is applied here rather than in the store's plain guard.
+  function onSplitResize(dx: number): void {
+    const width = panesRef.current?.clientWidth ?? 0;
+    if (width <= 0) return;
+    // Read the ratio LIVE rather than from this render's closure: pointermove
+    // fires faster than React re-renders, and a one-frame-stale base would drop
+    // deltas and make the divider lag the cursor. (`usePanelWidth` avoids the
+    // same trap with a functional setState.)
+    setRatio(clampSplitRatio(useWorkbench.getState().ratio + dx / width, width));
+  }
+
   // One pane. The ErrorBoundary is INSIDE each pane (keyed by job, so switching
   // surfaces resets a caught error) — a crash in the pinned pane leaves the other
   // one working, which the single shell-wide boundary could not do. Focus
@@ -247,6 +290,11 @@ export function AppShell(): JSX.Element {
     return (
       <section
         className={`shell-pane${split && activePane === pane ? ' active' : ''}`}
+        // The ratio is the PRIMARY pane's share; the secondary takes the rest, so
+        // one number describes the row (S2). Inline rather than a CSS custom
+        // property: a runtime-injected `var()` reads as a phantom token to the
+        // design-token ratchet.
+        style={split && pane === 'primary' ? { flex: `0 0 ${(ratio * 100).toFixed(3)}%` } : undefined}
         aria-label={t(pane === 'primary' ? 'shell.panePrimary' : 'shell.paneSecondary')}
         data-pane={pane}
         onFocusCapture={() => focusPane(pane)}
@@ -296,11 +344,11 @@ export function AppShell(): JSX.Element {
               unmounted); every other job renders in this stack, which the panel
               overlays in dock mode and replaces in surface mode. */}
           <div className={`surface-stack${job === 'terminal' ? ' hidden' : ''}`}>
-            <div className={`shell-panes${split ? ' split' : ''}`}>
+            <div ref={panesRef} className={`shell-panes${split ? ' split' : ''}`}>
               {renderPane('primary', job)}
               {split && secondary !== null && (
                 <>
-                  <div className="shell-pane-divider" />
+                  <ResizeHandle onResize={onSplitResize} />
                   {renderPane('secondary', secondary)}
                 </>
               )}

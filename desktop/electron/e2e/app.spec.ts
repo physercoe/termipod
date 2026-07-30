@@ -1042,3 +1042,61 @@ test('shell: a job pins beside the primary, swaps from the rail, and closes (spl
   await expect(panes).toHaveCount(1);
   await expect(primary.locator('.compare-layout')).toBeVisible();
 });
+
+// ── Shell split pane S2: rail, shortcuts, divider ────────────────────────────
+// S1 shipped the store + render + palette; S2 adds the ergonomics. Drive all four
+// entry points through the real shell, because each one is a *writer* of the same
+// pane state and the S1 review found a bug in exactly that class (a rule enforced
+// at one writer but not another). The `Mod+Shift+\` chord is the interesting one:
+// `KeyboardEvent.key` reports the shifted character ('|'), so it only matches
+// because the combo resolves punctuation by physical `code`.
+test('shell: rail Alt-click pins, Mod+\\ toggles, Mod+Shift+\\ swaps, the divider drags (split S2)', async () => {
+  await dismissConnectModal();
+  const panes = page.locator('.shell-pane');
+  const primary = page.locator('.shell-pane[data-pane="primary"]');
+  const secondary = page.locator('.shell-pane[data-pane="secondary"]');
+  const compareTab = page.locator('[data-job="compare"]');
+
+  await page.getByRole('button', { name: 'Fleet', exact: true }).click();
+  await expect(panes).toHaveCount(1);
+
+  // Alt-click the rail: pins beside instead of switching — Fleet stays primary.
+  await compareTab.click({ modifiers: ['Alt'] });
+  await expect(panes).toHaveCount(2);
+  await expect(primary.locator('.fleet-toolbar')).toBeVisible();
+  await expect(secondary.locator('.compare-layout')).toBeVisible();
+  // The pinned job's rail icon carries the corner dot.
+  await expect(compareTab).toHaveAttribute('data-beside', '1');
+  await expect(compareTab.locator('.activity-tab-dot')).toBeVisible();
+
+  // Mod+\ closes the split; pressing it again reopens the SAME job (the toggle
+  // remembers what was pinned — otherwise it is a one-way close).
+  await page.keyboard.press('ControlOrMeta+Backslash');
+  await expect(panes).toHaveCount(1);
+  await expect(compareTab).not.toHaveAttribute('data-beside', '1');
+  await page.keyboard.press('ControlOrMeta+Backslash');
+  await expect(panes).toHaveCount(2);
+  await expect(secondary.locator('.compare-layout')).toBeVisible();
+
+  // Mod+Shift+\ swaps the two panes' contents.
+  await page.keyboard.press('ControlOrMeta+Shift+Backslash');
+  await expect(primary.locator('.compare-layout')).toBeVisible();
+  await expect(secondary.locator('.fleet-toolbar')).toBeVisible();
+
+  // Drag the divider right: the primary pane's basis grows past the 50% default.
+  const before = await primary.evaluate((el) => (el as HTMLElement).style.flexBasis);
+  expect(before).toBe('50%');
+  const handle = page.locator('.shell-panes .resize-handle');
+  const box = await handle.boundingBox();
+  if (box === null) throw new Error('the split divider has no box');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const after = await primary.evaluate((el) => (el as HTMLElement).style.flexBasis);
+  expect(Number.parseFloat(after)).toBeGreaterThan(52);
+
+  // Leave one pane and the default ratio for whatever runs next.
+  await page.keyboard.press('ControlOrMeta+Backslash');
+  await expect(panes).toHaveCount(1);
+});

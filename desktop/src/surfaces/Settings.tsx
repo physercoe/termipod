@@ -397,6 +397,8 @@ function ShortcutSettings(): JSX.Element {
     { action: 'palette', label: t('settings.scPalette') },
     { action: 'assistant', label: t('settings.scAssistant') },
     { action: 'terminal', label: t('settings.scTerminal') },
+    { action: 'splitToggle', label: t('settings.scSplitToggle') },
+    { action: 'splitSwap', label: t('settings.scSplitSwap') },
   ];
 
   function onCapture(action: BindingAction, e: ReactKeyboardEvent): void {

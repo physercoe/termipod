@@ -1,9 +1,12 @@
 # Product Landscape Report: Features Worth Borrowing for TermiPod Desktop
 
 > **Type:** discussion
-> **Status:** Open — for director review
+> **Status:** Open — snapshot (2026-07 web research) with a status update
+> appended §0.1 (2026-07-30) mapping the top-16 moves to what has since
+> shipped or been planned
 > **Audience:** contributors deciding what to build / embed / integrate next
-> **Last verified vs code:** v0.3.43
+> **Last verified vs code:** v0.3.43 (snapshot body); §0.1 update verified vs
+> 2026.727.206-alpha (`de201ca9`)
 > **Freshness:** snapshot
 
 **TL;DR.** An agent-authored survey of ~60 research/agent products,
@@ -42,6 +45,44 @@ Ranked by (value to the "one app for research" goal) × (feasibility given the e
 | 16 | **PI-grade approval grammar**: confidence-adaptive plan gates + comment-on-plan, machine critics before human review, logically-grouped narrated diffs with risk coding and plan-step↔hunk linkage, "waiting on you?" fleet inbox with per-run cost | Devin / Jules / Ultraplan / CodeRabbit / Claude Science | BORROW + BUILD | J7/J3 |
 
 The meta-finding across all clusters: **2025–26 converged on agentic tiers + MCP as the integration standard + "trust artifacts" (provenance, citations-that-jump-to-source, audit logs) as the differentiator.** TermiPod's architecture (local-first, hub-coordinated agents, governed actions) is well-positioned; the wins come from adopting the formats and interaction grammars below rather than inventing parallel ones. For the inverted lens — *why* each product category exists, which innovation won it, and what pain remains unsolved — see the synthesis in §14.
+
+### 0.1 Status update — 2026-07-30, verified vs `de201ca9` (2026.727.206-alpha)
+
+The body below is preserved as the July-2026 snapshot; prices/versions/
+licenses in it have not been re-verified. Where the top-16 moves stand:
+
+- **Landed (fully or in substance):** **#4** — the hub host-runner ingests
+  tfevents natively (`hub/internal/hostrunner/tbreader/`) and ships trackio
+  config/system-metrics/alerts digests; the wandb-shim client remains open.
+  **#5** — the Rerun web viewer is embedded (dedicated `rerunweb` partition,
+  episode player, Export-to-Rerun host job per ADR-058/J8); the video
+  compare-grid and STEP-style CIs moved into the compare-wall plan below.
+- **Decided and in motion:** **#10** — TermiPod-as-agent-addressable surface
+  went through the decision tier instead of ad hoc tools: the agent browser
+  bridge W1–W3 ([ADR-059](../decisions/059-agent-browser-bridge.md)), the UI
+  entity + focus/pointing model
+  ([ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md) +
+  [desktop-ui-context-and-pointing.md](../plans/desktop-ui-context-and-pointing.md)),
+  and an agent-facing MCP surface over reference annotations. This also
+  answers §7.1's "SurfaceContext protocol from the outside in."
+- **Planned (2026-07-30):** **#3** and the §5.2 feature bar →
+  [desktop-compare-wall-and-decisions.md](../plans/desktop-compare-wall-and-decisions.md)
+  Lane A (baseline deltas, diff-only comparer, "what changed" triad, seed
+  bands, fork lineage, Wilson CIs beside episodes). **#7** (decision capture)
+  → the same plan's Lane B: hub-backed records with typed run/episode/
+  reference evidence links and an agent `record_propose` verb; schema-on-tag
+  grafting stays deferred. **#2** (W3C anchoring), the review's citation
+  bridge, and cross-source discovery fan-out →
+  [desktop-citation-bridge.md](../plans/desktop-citation-bridge.md) (which
+  also carries §9.2's CSL-JSON→BibLaTeX amendment). The shell split enabling
+  the paired postures →
+  [desktop-shell-split-pane.md](../plans/desktop-shell-split-pane.md).
+- **Still open, no owner:** #1 (highlight→card), #6 (JSON Canvas), #8 (block
+  IDs/transclusion), #9/#13 (literature stack, chat-with-library), #11
+  (scite/retractions), #12 (agent paste format), #14 (OTel GenAI emit), #15
+  (native Typst compile — the citation plan deliberately only prepares its
+  bibliography input), and most of #16 beyond the shipped attention-dock /
+  browser-action approval cards.
 
 ---
 

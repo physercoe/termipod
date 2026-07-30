@@ -1,9 +1,12 @@
 # Design Review: TermiPod Desktop (`desktop/`)
 
 > **Type:** discussion
-> **Status:** Open — for director review
+> **Status:** Open — snapshot (2026-07, Tauri era) with a status update
+> appended §0 (2026-07-30): the security group is closed, §4.4 became
+> ADR-062, and the remaining findings are now tracked in three plans
 > **Audience:** contributors weighing the desktop workbench's next moves
-> **Last verified vs code:** v0.3.43
+> **Last verified vs code:** v0.3.43 (snapshot body); §0 update verified vs
+> 2026.727.206-alpha (`de201ca9`)
 > **Freshness:** snapshot
 
 **TL;DR.** An agent-authored design review of the desktop workbench —
@@ -16,6 +19,52 @@ in for review, not yet acted on. Companion to
 *Review date: July 2026. Scope: the design documents (ADR-050/051/053, the desktop-control-plane plan, the desktop-research-surface and research-material-data-model discussions) plus a full three-track code sweep — research surfaces, shell/state layer, and the Tauri Rust core (~23,300 LoC TypeScript, 58 Tauri commands). Companion: [research-app-product-landscape.md](research-app-product-landscape.md) (features of leading products worth borrowing/integrating).*
 
 ---
+
+## 0. Status update — 2026-07-30, verified vs `de201ca9` (2026.727.206-alpha)
+
+The body below is preserved as the July-2026 Tauri-era snapshot. Where each
+issue group stands one migration and several plan cycles later:
+
+1. **Security (§1) — closed as written.** The Tauri Rust core (the open hub
+   proxy, `csp: null`, unconfined file commands, `check_server_key → Ok(true)`)
+   was retired with the Electron migration; the Electron main process is
+   allowlist-shaped throughout (`media_policy.ts`, `webtab_policy.ts`, the
+   single IPC handler map in `main.ts`), and SSH now does TOFU host-key
+   pinning (`desktop/electron/src/ipc/ssh.ts`). Agent-facing exposure went
+   through its own decision tier
+   ([ADR-059](../decisions/059-agent-browser-bridge.md),
+   [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)).
+   Remaining security work is hub-side and tracked separately in
+   [security-audit.md](security-audit.md) (F-02/F-05/F-06 open).
+2. **The research loop (§2) — still broken at the same two links; now
+   planned.** No citation code, single-source discovery, and geometry-only
+   anchors all persist unchanged; ReadSurface grew 2,250→2,896 LoC. The
+   citation bridge, W3C quote anchoring, and discovery fan-out are now one
+   plan: [desktop-citation-bridge.md](../plans/desktop-citation-bridge.md).
+   The sync 3-way merge (§2.3) remains open beyond it.
+3. **Structural debt (§3) — half paid.** The platform seam was re-cut by the
+   migration (`platform.ts`/`bridge.ts` instead of scattered `isTauri()`),
+   and the "zero frontend tests" finding is dead (state/ssh + electron
+   suites, run manually — CI still doesn't execute them). The god components
+   remain (§3.2), and the single-ErrorBoundary finding (§3.4) is paid down
+   per-pane by the split plan below.
+4. **Strategic prioritization (§4) — the inversion held for a year and is
+   now the priority.** §4.1's moat surfaces are byte-comparable to this
+   review (CompareSurface 196 LoC, RecordSurface 108) while their data
+   substrate has since shipped (tfevents ingestion, run config/seed/parent
+   lineage, J8 episodes + Rerun) — closing the gap is
+   [desktop-compare-wall-and-decisions.md](../plans/desktop-compare-wall-and-decisions.md).
+   §4.2's simultaneity gap is
+   [desktop-shell-split-pane.md](../plans/desktop-shell-split-pane.md)
+   (lands first; the other plans' pairings assume it). §4.4's SurfaceContext
+   protocol became **ADR-062** and the merged
+   [desktop-ui-context-and-pointing.md](../plans/desktop-ui-context-and-pointing.md)
+   plan. §4.3 (the build·embed·integrate·interop discipline) stays a standing
+   rule, not a work item.
+
+The suggested sequence at the bottom is superseded: step 1 is done, and steps
+2–4 are the three plans above, ordered split-pane → compare-wall/decisions →
+citation-bridge.
 
 ## Overall verdict
 

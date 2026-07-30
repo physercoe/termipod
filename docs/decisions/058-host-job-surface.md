@@ -135,7 +135,10 @@ root; report `{path, bytes, sha256}` in `result_json`.
 - `host_commands` gains a nullable `progress_json` column (additive
   migration). The running job PATCHes it at least every 30 s — coarse
   `{phase, done, total}` — and that patch doubles as the liveness
-  heartbeat. Statuses are unchanged (`delivered` = running for job kinds;
+  heartbeat. A **queued** job heartbeats too (`{phase:"queued"}`, same
+  cadence, from acceptance until it starts): its row is `delivered` like a
+  running one's, so without a signal of its own the hub's stale sweep would
+  fail a healthy job that merely waited out the threshold behind a long one. Statuses are unchanged (`delivered` = running for job kinds;
   `done`/`failed` terminal), so every existing consumer of the lifecycle
   keeps working; the lifecycle-flip sweep problem (task-board W2 lesson)
   is avoided by not flipping anything.

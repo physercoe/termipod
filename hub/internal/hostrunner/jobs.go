@@ -158,6 +158,11 @@ type jobSlot struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// started is closed when the slot leaves the queue and its goroutine
+	// launches. Only set on slots that were actually queued — it is what stops
+	// the queued-heartbeat pump below.
+	started chan struct{}
+
 	startedAt time.Time // zero while queued
 
 	// cancelled records that an operator asked for this, which is reported
@@ -220,16 +225,63 @@ func (e *jobExecutor) submit(ctx context.Context, cmd HostCommand) {
 		e.mu.Unlock()
 		return
 	}
+	slot.started = make(chan struct{})
 	e.queue = append(e.queue, cmd.ID)
 	depth := len(e.queue)
+	e.wg.Add(1)
+	go e.pumpQueuedHeartbeat(slot)
 	e.mu.Unlock()
 	e.a.Log.Info("host job queued behind a running job",
 		"id", cmd.ID, "kind", cmd.Kind, "queue_depth", depth)
 }
 
+// pumpQueuedHeartbeat keeps a QUEUED job's row alive on the hub.
+//
+// The hub's stale-job sweep fails any `delivered` job row with no heartbeat
+// inside JobStaleThreshold (job_sweep.go), and a queued job produces none of
+// its own — its progress pump only starts with the job. A healthy export
+// queued behind one running longer than that threshold would therefore be
+// swept as "host stopped reporting" while it waited, the desktop would show a
+// failure, and a resubmit could not even join the swept row — a duplicate
+// export for work that was never lost.
+//
+// So a queued slot heartbeats `{phase:"queued"}`: once immediately on
+// acceptance (which also puts an honest word in the progress column the
+// desktop renders), then at the running pump's own liveness cadence, until the
+// job starts or is cancelled. A patch that races the slot's terminal state is
+// refused by the hub's `status = 'delivered'` guard, so late ticks are inert.
+func (e *jobExecutor) pumpQueuedHeartbeat(slot *jobSlot) {
+	defer e.wg.Done()
+	body, err := json.Marshal(jobProgress{Phase: "queued"})
+	if err != nil {
+		return
+	}
+	patch := func() {
+		if err := e.a.Client.PatchCommand(slot.ctx, slot.cmd.ID, CommandPatch{Progress: body}); err != nil {
+			e.a.Log.Debug("queued job heartbeat failed", "id", slot.cmd.ID, "err", err)
+		}
+	}
+	patch()
+	tick := time.NewTicker(jobHeartbeatInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-slot.ctx.Done():
+			return
+		case <-slot.started:
+			return
+		case <-tick.C:
+			patch()
+		}
+	}
+}
+
 // startLocked launches a slot's goroutine. Caller holds e.mu.
 func (e *jobExecutor) startLocked(slot *jobSlot) {
 	slot.startedAt = time.Now()
+	if slot.started != nil {
+		close(slot.started) // hands liveness over from the queued pump to run's
+	}
 	e.wg.Add(1)
 	go e.run(slot)
 }

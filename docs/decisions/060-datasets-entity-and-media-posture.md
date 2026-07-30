@@ -182,7 +182,7 @@ integrates LeRobot's own exporter host-side under a pinned
   proxying) · `hub/internal/hostrunner/datasetmeta/` (host-side reader)
   · `desktop/electron/src/media_policy.ts` + `mediascheme.ts` (flavours,
   allowlist, ranged serving) · `desktop/electron/src/ipc/ssh.ts`
-  (`openSftpMedia`) · `desktop/electron/src/rerun_policy.ts` +
+  (`openSftpFile`, née `openSftpMedia`) · `desktop/electron/src/rerun_policy.ts` +
   `desktop/electron/src/webtab_policy.ts` (D-5)
 - ADRs: [038](038-per-run-event-digest.md) (digest shape) ·
   [050](050-desktop-workbench-delivery-model.md) (desktop-only J-jobs) ·

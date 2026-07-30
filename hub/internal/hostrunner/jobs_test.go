@@ -589,3 +589,70 @@ func TestJobExecutor_HandlerGetsAJobDirUnderTheCacheRoot(t *testing.T) {
 		t.Fatalf("job could not write to its own dir: %v", err)
 	}
 }
+
+// queuedHeartbeatsFor returns the progress-only patches recorded for a command
+// id whose phase is "queued".
+func (f *jobHub) queuedHeartbeatsFor(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, p := range f.patches {
+		if p.ID != id || p.Patch.Status != "" || len(p.Patch.Progress) == 0 {
+			continue
+		}
+		var prog jobProgress
+		if json.Unmarshal(p.Patch.Progress, &prog) == nil && prog.Phase == "queued" {
+			n++
+		}
+	}
+	return n
+}
+
+// A QUEUED job must heartbeat. The hub's stale-job sweep fails any `delivered`
+// job row that has not heartbeat within its threshold, and a queued job's own
+// progress pump does not exist yet — so without this, an export queued behind
+// one running longer than the threshold is falsely failed as "host stopped
+// reporting", and a resubmit cannot join the swept row (duplicate work). The
+// first heartbeat is sent on acceptance, which is also what makes this
+// assertable without waiting out a 30s tick.
+func TestJobExecutor_QueuedJobHeartbeats(t *testing.T) {
+	f := newJobHub(t)
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	var once sync.Once
+	a := newJobRunner(t, f, map[string]jobHandler{
+		hostjobs.KindDatasetExportRRD: func(ctx context.Context, _ *Runner, _ HostCommand, _ *JobRun) (map[string]any, error) {
+			once.Do(func() { close(entered) })
+			<-release
+			return map[string]any{"ok": true}, nil
+		},
+	})
+
+	a.jobs.submit(context.Background(), jobCmd("running"))
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first job never started")
+	}
+	a.jobs.submit(context.Background(), jobCmd("waiting"))
+
+	deadline := time.Now().Add(5 * time.Second)
+	for f.queuedHeartbeatsFor("waiting") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("queued job sent no heartbeat; the hub's stale sweep would fail it while it waited")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The running job must not claim to be queued.
+	if n := f.queuedHeartbeatsFor("running"); n != 0 {
+		t.Fatalf("running job sent %d 'queued' heartbeats, want 0", n)
+	}
+
+	close(release)
+	a.jobs.wait()
+
+	// The queued job still runs to completion and reports exactly one outcome.
+	if p, ok := f.terminalFor("waiting"); !ok || p.Status != "done" {
+		t.Fatalf("queued job terminal = %+v (ok=%v), want done", p, ok)
+	}
+}

@@ -736,6 +736,26 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/export", s.handleExportDatasetEpisode)
 			})
 		})
+		// Environments (environments plan E2) — the registry the opaque
+		// `env_ref` handles on runs, datasets and episodes resolve into.
+		// Team-scoped, because a real lab bench outlives any one project and
+		// two projects sharing it must share its calibration history; a sim
+		// environment may additionally name a project.
+		//
+		// /resolve is declared before /{env} so the literal segment cannot be
+		// read as an id, and it is a GET with repeated ?env_ref= params: a
+		// page's chips resolve in one round trip, and "unresolved" comes back
+		// as a normal 200 answer rather than an error.
+		r.Route("/environments", func(r chi.Router) {
+			r.Get("/", s.handleListEnvironments)
+			r.Post("/", s.handleCreateEnvironment)
+			r.Get("/resolve", s.handleResolveEnvironments)
+			r.Route("/{env}", func(r chi.Router) {
+				r.Get("/", s.handleGetEnvironment)
+				r.Patch("/", s.handleUpdateEnvironment)
+				r.Delete("/", s.handleDeleteEnvironment)
+			})
+		})
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project
 		// via ?project=. Sits at team scope (not nested under /projects) so
 		// that cross-project review queues can be listed with a single query.

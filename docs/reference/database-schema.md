@@ -200,7 +200,7 @@ Migrations live at `hub/migrations/NNNN_<name>.up.sql` and
 `hub/migrations/NNNN_<name>.down.sql`. The hub applies pending up-
 migrations on start; failures abort startup.
 
-**Current head:** `0072_runs_env_ref`.
+**Current head:** `0073_environments`.
 
 Recent migrations (selected):
 
@@ -224,6 +224,7 @@ Recent migrations (selected):
 | 0068 | `datasets` | `datasets` table (name + location + folded digest, never bytes) incl. `env_ref` |
 | 0069 | `runs_dataset` | `runs.dataset_id` — what a run trained on / rolled out against |
 | 0072 | `runs_env_ref` | `runs.env_ref` — the environment a run ran in (opaque, unvalidated) |
+| 0073 | `environments` | `environments` — the scene/task/site registry `env_ref` resolves into |
 
 Each migration is idempotent on rerun via `INSERT OR IGNORE` /
 `CREATE TABLE IF NOT EXISTS` patterns where applicable. To add a new

@@ -3,9 +3,10 @@
 > **Type:** plan
 > **Status:** In flight (2026-07-30) — model settled (director discussion,
 > 2026-07-27); **E0 shipped** (datasets in J8 W1, runs + episodes 2026-07-30),
-> **E1 shipped** as frontend data; E2 is the next wedge.
+> **E1 shipped** as frontend data, **E2a shipped** (the entity + CRUD +
+> resolution); E2b (J8 rail + detail view) is next.
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `9a676cff`
+> **Last verified vs code:** origin/main `0e28ab5e`
 > **Parents:** [replay-datasets-episodes.md](replay-datasets-episodes.md)
 > (J8 — reserves `env_ref` §3 and the URDF manifest §6 for this plan) ·
 > [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
@@ -156,7 +157,10 @@ pose panel, `Environment.embodiment_ref`, and Inspect's policy arch view
 - **E2 — Environment entity + library:** hub CRUD (team/project scoping per
   §1), `env_ref` resolution (string → row match by `family:env_id@version`,
   surfaced as "unresolved" chip when no row), J8 rail section + detail
-  view, sim-family preview paths.
+  view, sim-family preview paths. Landing in three cuts, mirroring how
+  W1 shipped: **E2a** the entity + CRUD + resolution (hub), **E2b** the J8
+  rail section + detail view + unresolved chip (desktop), **E2c** the
+  sim-family preview paths.
 - **E3 — real sites + twins:** "register/refresh site from calibration
   bundle" primitive (the bundle is the registration moment — decision:
   manual-but-assisted, no ambient discovery); recalibration bumps version
@@ -213,6 +217,62 @@ through `runs_update` / `datasets` PATCH, humans through the API.
 row) carries the column when that entity exists; until then an episode's
 environment is its dataset's. Mobile shows no `env_ref` anywhere — it reads
 runs untyped, so the field arrives but is unrendered.
+
+### E2a as shipped (2026-07-30) — the entity, CRUD, and resolution
+
+Migration `0073_environments` plus `handlers_environments.go` and
+`envref.go`. Five REST endpoints under `/v1/teams/{team}/environments`:
+list (`?project=`, `?family=`), register, get, patch, delete, and
+`GET /resolve?env_ref=…&env_ref=…`.
+
+Five decisions the code makes that §1 implied but did not spell out:
+
+1. **The handle is the identity, and it is immutable.** `(team, family,
+   env_id, version)` is UNIQUE, and `PATCH` refuses `family`/`env_id`/
+   `version` with a 400 rather than letting `encoding/json` drop them
+   silently. Rows elsewhere already point at the handle as an opaque
+   string; moving it would unresolve every one of them with nothing in
+   the response to say so.
+2. **Register is idempotent on the handle — except on drift.** A repeat
+   returns 200 with the existing row (E3's recalibration story needs a
+   re-register to be safe). But a body claiming a *different*
+   `content_hash` for a handle that already has one is a **409**: that is
+   exactly the env drift §0 says silently invalidates comparison, and
+   letting the last writer win would redefine what a recorded run was
+   measured in. `content_hash` may be filled in once; changing it means
+   registering a new version.
+3. **Resolution is exact, and "unresolved" is a normal 200.** A
+   versionless ref does not match a versioned row — which version it
+   meant is precisely the question — and a handle with no row comes back
+   `{status: unresolved, reason: no_match}`. `malformed` is a distinct
+   reason because "that is not a handle" and "no row for that handle"
+   send a reader to different fixes. Answers come back one per input ref
+   in input order, so a caller zipping them onto its rows cannot
+   misalign them.
+4. **`?project=P` means "everything P can reference"** — P's own rows
+   plus the team-scoped ones. Filtering to `project_id = P` alone would
+   hide exactly the benches the project runs on. The real-site scope rule
+   is enforced at *both* writers (register and patch), not only at
+   registration.
+5. **Delete leaves handles alone.** `env_ref` strings are not foreign
+   keys; deleting a row makes them unresolved again, which every consumer
+   already renders. A cascade would have edited someone's run history to
+   tidy a registry.
+
+Parsing is confined to `envref.go` and goes exactly three parts deep —
+family at the first `:`, version after the last `@` — with an invariant
+test that every part the write path accepts round-trips through
+`format → parse`, because a row nobody can name is a row nobody can
+resolve, and that failure looks like "the registry is empty".
+
+**Deliberately not in E2a.** No desktop UI (E2b) and no scene previews
+(E2c). **No MCP tools**, matching the datasets entity, which is REST-only
+too — if agents need to register environments, both entities should get
+their tool surface in one pass rather than drifting apart. **No
+conditions**: §1 puts the free-form `conditions` map on the episode
+element, and E0 already found that entity does not exist. **No twin
+traversal** — the column and its validation are here, the "persist across
+versions" semantics and the UI are E3's.
 
 ## 4. Review anchors
 

@@ -1,12 +1,12 @@
 # Desktop shell split pane — minimal simultaneity
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-30) — wedges S1–S3 below; S1 (store + render +
-> toggle) is the working core, S2 is ergonomics, S3 extends the ADR-062 focus
-> projection. Deliberately **not** a docking framework: exactly one pinned
-> secondary surface, per `desktop-design-review.md` §4.2's minimal cut.
+> **Status:** In flight (2026-07-30) — **S1 shipped** (store + render + toggle,
+> §4.1 below); **S2** (ergonomics) and **S3** (focus projection) open.
+> Deliberately **not** a docking framework: exactly one pinned secondary surface,
+> per `desktop-design-review.md` §4.2's minimal cut.
 > **Audience:** principal · contributors
-> **Last verified vs code:** 2026.727.206-alpha (origin/main `de201ca9`)
+> **Last verified vs code:** 2026.727.938 (S1, `desktop/src/state/workbench.ts`)
 
 **TL;DR.** ADR-050 argues the desktop's entire reason to exist is
 *simultaneity*, yet the shell is still a modal one-job-at-a-time switch
@@ -81,6 +81,13 @@ interface WorkbenchState {
 }
 ```
 
+As shipped, each rule is a **pure reducer over `PaneState`** (`applySetJob`,
+`applySetSecondary`, `applyFocusPane`, `applySwapPanes`, `healPanes`) and the
+store actions are one line each: `set(persist(applySetJob(get(), job)))`. Every
+rule below is therefore asserted in `workbench.test.ts` without React, and the
+shell's own derived questions are functions too — `activeJob(s)` and
+`isSplitVisible(s)`.
+
 Rules enforced in the store (single source of truth, testable without React):
 
 - `setSecondary(j)` with `j === job` is a no-op (singleton rule above);
@@ -130,8 +137,16 @@ Factor the existing ternary chain into `SurfaceView({ job }: { job: JobId })`
 
 - **ActivityBar**: modifier-click (Alt) or context-menu "Open beside" pins a
   job as secondary; the pinned job's rail icon gets a corner dot. Plain click
-  keeps today's meaning (switch primary — least surprise), except the
+  keeps today's meaning (it switches a surface, it does not pin one), except the
   swap-on-click rule from 3.1.
+
+  > **Reconciled in S1.** This bullet originally read "switch *primary*", which
+  > contradicts §3.1's `setJob` → *active pane*. Shipped behaviour is §3.1's:
+  > `setJob` targets the active pane, so a rail click changes the surface the
+  > user is looking at (VS Code's "open in the active group"). With no split the
+  > two readings are identical, which is why they could both be written down.
+  > The chrome jobs are the exception — `terminal`/`settings` always take the
+  > primary and pull focus with them, since neither is a pane.
 - **Palette**: `Split: open <job> beside` (one command per eligible job,
   contributed from `JOBS`), `Split: close`, `Split: swap panes`.
 - **Shortcuts** via the rebindable-shortcut registry (PR #464): default
@@ -159,10 +174,48 @@ no IPC change, one more field in the throttled push.
 
 - **S1 — store + render + toggle** (the working core): 3.1 + 3.2, palette
   `Split: open/close`, persistence, per-pane boundaries. Ship with 50/50 fixed.
+  **Shipped 2026-07-30** — see §4.1.
 - **S2 — ergonomics**: rail modifier-click + dot, swap command + shortcut
   registry entries, divider drag + ratio persistence, min-width clamps, i18n.
 - **S3 — focus projection**: snapshot fields + tests, coordinated with
   ui-context D1 (whichever lands second carries the integration test).
+
+### 4.1 S1 as shipped (2026-07-30)
+
+`workbench.ts` (+ `workbench.test.ts`), `ui/SurfaceView.tsx` (new),
+`ui/AppShell.tsx`, `partials/01-base-shell.css`, `i18n/index.ts`,
+`electron/e2e/app.spec.ts`.
+
+Three judgement calls the plan left open, and how they resolved:
+
+1. **`activePane` names a position, not a piece of content.** So `swapPanes`
+   moves the two surfaces and leaves the active *side* alone. That is what makes
+   the §3.1 swap-on-click rule land the clicked job in the pane the user is
+   looking at — "clicking the rail icon of the already-pinned job brings it to
+   the primary pane" is exactly this rule seen from the primary pane.
+2. **A pinned pane survives a trip to a chrome job.** `settings` is a
+   full-surface switch and `terminal` is the bottom panel, so neither can share
+   the row; rather than dropping the pin, `secondary` is *kept* and
+   `isSplitVisible()` reports false while the primary is a chrome job. Come back
+   to a work surface and the split is still there. This is also why the palette
+   offers no split commands while you are on Settings — a command that silently
+   no-ops is worse than an absent one. The paired invariant: **`activePane` may
+   never name a pane that is off screen**, or `activeJob()` would report a
+   surface the user cannot see (the goal-3 focus attribution, and later the
+   ADR-062 snapshot, both read it).
+3. **Persistence is two keys, not a migrated blob.** The primary keeps
+   `termipod.workbench.job` with its original shape (a bare job id) and the split
+   rides in `termipod.workbench.split.v1`, absent when there is none. No
+   migration, and an older build simply ignores the split. `healPanes()` repairs
+   the pair on restore, because two independently-parsed keys can disagree.
+
+Deliberately **not** in S1: the divider is a hairline, not a drag handle (S2 owns
+the ratio and the min-width clamp together — the clamp is meaningless without the
+drag); no rail Alt-click, no `Split: swap` command, no `Mod+\` binding.
+
+Not verified locally: the Electron E2E spec (`split S1`) — this host has no
+Electron binary and no X display, so CI is its only gate, as the Playwright
+config already states. The state tests and both typechecks were run locally.
 
 ## 5. Testing
 

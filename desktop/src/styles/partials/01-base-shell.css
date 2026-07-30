@@ -257,6 +257,48 @@ pre {
   display: none;
 }
 
+/* Split panes (plans/desktop-shell-split-pane.md S1) — ADR-050's simultaneity
+   argument, at its minimum cut: ONE optional pinned secondary surface beside the
+   primary, 50/50, one divider. Deliberately not a docking framework, so there is
+   no grid, no tab groups and no per-pane chrome. Column when closed (the single
+   surface fills it, exactly as .surface-stack did alone), row when open. */
+.shell-panes {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.shell-panes.split {
+  flex-direction: row;
+}
+/* `flex: 1 1 0` + min-width:0 gives the equal halves AND lets a surface with a
+   wide intrinsic child (tables, xterm rows) shrink instead of pushing its
+   neighbour off-screen. S2 adds the drag ratio and the min-width clamp. */
+.shell-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The active-pane marker only exists while split — a lone pane is trivially the
+   active one and a permanent edge would be chrome noise. Both panes carry the
+   transparent border so the highlight never shifts the layout. */
+.shell-panes.split > .shell-pane {
+  border-top: 2px solid transparent;
+}
+.shell-panes.split > .shell-pane.active {
+  border-top-color: var(--accent);
+}
+.shell-pane-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  background: var(--border);
+}
+
 /* Fleet-scoped action bar — the control-plane surfaces (sessions, channels,
    insights, search, me, admin) live with the Fleet tab, not in the global
    titlebar, so they don't follow the researcher onto the workbench tabs. */

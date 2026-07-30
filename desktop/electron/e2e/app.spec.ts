@@ -994,3 +994,51 @@ test('inspect: a GitHub repo root resolves, lists its tree, and opens a blob (T3
     await new Promise<void>((r) => server.close(() => r()));
   }
 });
+
+// ── Shell split pane: one pinned secondary surface (S1) ──────────────────────
+// ADR-050 argues the desktop exists for simultaneity, but the shell was a modal
+// one-job-at-a-time switch (`plans/desktop-shell-split-pane.md`). Pin the three
+// store rules that make the split usable, end-to-end through the real shell:
+// a job pins beside the primary from the palette, clicking the already-pinned
+// job's rail icon SWAPS the panes instead of duplicating the surface (surfaces
+// are singletons over singleton stores), and closing returns to one pane. Each
+// pane carries its own ErrorBoundary, so this also covers the seam that makes a
+// crash in one pane survivable.
+test('shell: a job pins beside the primary, swaps from the rail, and closes (split S1)', async () => {
+  await dismissConnectModal();
+  const panes = page.locator('.shell-pane');
+  const primary = page.locator('.shell-pane[data-pane="primary"]');
+  const secondary = page.locator('.shell-pane[data-pane="secondary"]');
+
+  // One pane to start, whatever the earlier tests left active.
+  await page.getByRole('button', { name: 'Fleet', exact: true }).click();
+  await expect(panes).toHaveCount(1);
+  await expect(primary.locator('.fleet-toolbar')).toBeVisible();
+
+  // Pin Compare beside it from the palette. The command carries a stable id, so
+  // the assertion doesn't depend on the translated label or the list order.
+  await page.keyboard.press('ControlOrMeta+K');
+  await page.locator('#palette-opt-split-open-compare').click();
+  await expect(page.locator('.shell-panes.split')).toHaveCount(1);
+  await expect(panes).toHaveCount(2);
+  await expect(primary.locator('.fleet-toolbar')).toBeVisible();
+  await expect(secondary.locator('.compare-layout')).toBeVisible();
+  // "Open beside" focuses what the user asked to look at.
+  await expect(secondary).toHaveClass(/\bactive\b/);
+
+  // The rail icon of a job already pinned in the OTHER pane swaps the panes —
+  // the same surface must never mount twice.
+  await page.getByRole('button', { name: 'Fleet', exact: true }).click();
+  await expect(primary.locator('.compare-layout')).toBeVisible();
+  await expect(secondary.locator('.fleet-toolbar')).toBeVisible();
+  await expect(panes).toHaveCount(2);
+  await expect(page.locator('.fleet-toolbar')).toHaveCount(1);
+
+  // Closing collapses to the primary — and leaves no pinned state behind for the
+  // next test (the split persists in localStorage).
+  await page.keyboard.press('ControlOrMeta+K');
+  await page.locator('#palette-opt-split-close').click();
+  await expect(page.locator('.shell-panes.split')).toHaveCount(0);
+  await expect(panes).toHaveCount(1);
+  await expect(primary.locator('.compare-layout')).toBeVisible();
+});

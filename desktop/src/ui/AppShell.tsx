@@ -9,23 +9,23 @@ import { vaultStatus, vaultStatusKey } from '../vault/service';
 import type { HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { formatCombo, matchCombo, useKeybindings } from '../state/keybindings';
-import { JOBS, SETTINGS_JOB, useWorkbench, type JobId } from '../state/workbench';
+import {
+  activeJob,
+  isSplitEligible,
+  isSplitVisible,
+  JOBS,
+  SETTINGS_JOB,
+  useWorkbench,
+  type JobId,
+  type Pane,
+} from '../state/workbench';
 import { AdminCockpit } from '../surfaces/AdminCockpit';
 import { AgentSpawn } from '../surfaces/AgentSpawn';
-import { AuthorSurface } from '../surfaces/AuthorSurface';
 import { ChannelsPanel } from '../surfaces/ChannelsPanel';
-import { CompareSurface } from '../surfaces/CompareSurface';
-import { DebugSurface } from '../surfaces/DebugSurface';
 import { DocsPanel } from '../surfaces/DocsPanel';
 import { MePanel } from '../surfaces/MePanel';
-import { Navigator } from '../surfaces/Navigator';
-import { ProjectsSurface } from '../surfaces/ProjectsSurface';
-import { ReadSurface } from '../surfaces/ReadSurface';
-import { RecordSurface } from '../surfaces/RecordSurface';
-import { ReplaySurface } from '../surfaces/ReplaySurface';
 import { SearchPanel } from '../surfaces/SearchPanel';
 import { SessionsPanel } from '../surfaces/SessionsPanel';
-import { SettingsSurface } from '../surfaces/Settings';
 import { TerminalPanel } from '../terminal/TerminalPanel';
 import { AssistantDock } from './AssistantDock';
 import { useAssistant } from '../state/assistant';
@@ -33,10 +33,10 @@ import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
-import { MissionLayout } from './MissionLayout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { StatusBar } from './StatusBar';
+import { SurfaceView } from './SurfaceView';
 import { ToastHost } from './ToastHost';
 
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
@@ -49,6 +49,10 @@ export function AppShell(): JSX.Element {
   const clear = useFocus((s) => s.clear);
   const job = useWorkbench((s) => s.job);
   const setJob = useWorkbench((s) => s.setJob);
+  const secondary = useWorkbench((s) => s.secondary);
+  const activePane = useWorkbench((s) => s.activePane);
+  const setSecondary = useWorkbench((s) => s.setSecondary);
+  const focusPane = useWorkbench((s) => s.focusPane);
   const online = useOnline();
   const qc = useQueryClient();
   const t = useT();
@@ -152,11 +156,40 @@ export function AppShell(): JSX.Element {
     run: () => setJob(j.id),
   }));
 
+  // Split-pane commands (`plans/desktop-shell-split-pane.md` S1): pin an eligible
+  // job beside the current one, or close the split. Offered only when they can
+  // apply — nothing pairs with a chrome job (terminal/settings are full-surface
+  // switches), an already-pinned job can't be pinned twice, and "close" needs a
+  // split. A palette entry that silently no-ops is worse than an absent one.
+  // S2 adds the rail's Alt-click, the swap command and the shortcuts.
+  const panes = { job, secondary, activePane };
+  const split = isSplitVisible(panes);
+  const splitCommands: Command[] = isSplitEligible(job)
+    ? [
+        ...JOBS.filter((j) => isSplitEligible(j.id) && j.id !== job && j.id !== secondary).map((j) => ({
+          id: `split-open-${j.id}`,
+          label: t('cmd.splitOpen').replace('{job}', t(j.labelKey)),
+          run: () => setSecondary(j.id),
+        })),
+        ...(secondary !== null ? [{ id: 'split-close', label: t('cmd.splitClose'), run: () => setSecondary(null) }] : []),
+      ]
+    : [];
+
   const commands: Command[] = [
     ...goToCommands,
+    ...splitCommands,
     // "Audit" drops the current tab's focus back to its activity console. Only the
-    // Fleet and Projects tabs own a FocusRegion scope; elsewhere it's a no-op.
-    { id: 'audit', label: t('cmd.audit'), run: () => (job === 'fleet' || job === 'projects') && clear(job) },
+    // Fleet and Projects tabs own a FocusRegion scope; elsewhere it's a no-op. It
+    // follows the ACTIVE pane: with a split open, "audit" means the surface the
+    // user is working in, not whatever sits on the left.
+    {
+      id: 'audit',
+      label: t('cmd.audit'),
+      run: () => {
+        const target = activeJob(panes);
+        if (target === 'fleet' || target === 'projects') clear(target);
+      },
+    },
     {
       id: 'refresh-fleet',
       label: t('cmd.refreshFleet'),
@@ -183,6 +216,47 @@ export function AppShell(): JSX.Element {
   function openConnect(edit?: HubProfile): void {
     setEditProfile(edit);
     setConnectOpen(true);
+  }
+
+  // The fleet's own action bar. Built here (not in SurfaceView) because every
+  // button opens an AppShell-owned overlay; only one fleet pane can exist, so one
+  // toolbar node serves both panes.
+  const fleetToolbar = (
+    <>
+      <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
+      <span className="fleet-toolbar-sep" />
+      <button className="primary" disabled={client === null} onClick={() => setSpawnOpen(true)}>
+        {t('spawn.title')}
+      </button>
+      <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
+      <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
+      <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
+      <span className="spacer" />
+      <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
+      <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+    </>
+  );
+
+  // One pane. The ErrorBoundary is INSIDE each pane (keyed by job, so switching
+  // surfaces resets a caught error) — a crash in the pinned pane leaves the other
+  // one working, which the single shell-wide boundary could not do. Focus
+  // attribution is capture-phase so it fires before any surface handler; a
+  // <webview> guest's own clicks land main-side and never reach here, so a pane
+  // whose surface is all webview only becomes active via its chrome.
+  function renderPane(pane: Pane, paneJob: JobId): JSX.Element {
+    return (
+      <section
+        className={`shell-pane${split && activePane === pane ? ' active' : ''}`}
+        aria-label={t(pane === 'primary' ? 'shell.panePrimary' : 'shell.paneSecondary')}
+        data-pane={pane}
+        onFocusCapture={() => focusPane(pane)}
+        onMouseDownCapture={() => focusPane(pane)}
+      >
+        <ErrorBoundary key={paneJob} label={paneJob}>
+          <SurfaceView job={paneJob} fleetToolbar={fleetToolbar} onConnect={openConnect} />
+        </ErrorBoundary>
+      </section>
+    );
   }
 
   // Hub identity / connection state — lives at the top of the activity bar (the
@@ -222,45 +296,15 @@ export function AppShell(): JSX.Element {
               unmounted); every other job renders in this stack, which the panel
               overlays in dock mode and replaces in surface mode. */}
           <div className={`surface-stack${job === 'terminal' ? ' hidden' : ''}`}>
-          <ErrorBoundary key={job} label={job}>
-          {job === 'fleet' ? (
-            <MissionLayout
-              storageKey="fleet"
-              nav={<Navigator />}
-              toolbar={
+            <div className={`shell-panes${split ? ' split' : ''}`}>
+              {renderPane('primary', job)}
+              {split && secondary !== null && (
                 <>
-                  <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
-                  <span className="fleet-toolbar-sep" />
-                  <button className="primary" disabled={client === null} onClick={() => setSpawnOpen(true)}>
-                    {t('spawn.title')}
-                  </button>
-                  <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
-                  <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-                  <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
-                  <span className="spacer" />
-                  <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
-                  <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+                  <div className="shell-pane-divider" />
+                  {renderPane('secondary', secondary)}
                 </>
-              }
-            />
-          ) : job === 'projects' ? (
-            <ProjectsSurface />
-          ) : job === 'read' ? (
-            <ReadSurface />
-          ) : job === 'author' ? (
-            <AuthorSurface />
-          ) : job === 'debug' ? (
-            <DebugSurface />
-          ) : job === 'compare' ? (
-            <CompareSurface />
-          ) : job === 'replay' ? (
-            <ReplaySurface />
-          ) : job === 'record' ? (
-            <RecordSurface />
-          ) : job === 'settings' ? (
-            <SettingsSurface onConnect={openConnect} />
-          ) : null /* terminal → the always-mounted TerminalPanel below */}
-          </ErrorBoundary>
+              )}
+            </div>
           </div>
           <TerminalPanel />
           <AssistantDock />

@@ -24,8 +24,16 @@ import type { Handler } from './ipc/dispatch';
 
 /// Whether the user turned UI context sharing on (Settings → Assistant).
 /// Gates the tool's catalog presence AND the mcp.json entry — and, since the
-/// renderer only publishes while on, the freshness of the cache.
+/// renderer only publishes while on, the freshness of the cache. D2's
+/// annotation handlers gate on the same flag (one toggle, no new one).
 let sharingEnabled = false;
+
+/// The D2 annotation orchestration (annotation_host.ts) gates every capture +
+/// injection on the same toggle — off, no "Ask agent" button renderer-side and
+/// no handler cooperation main-side.
+export function isUiSharingEnabled(): boolean {
+  return sharingEnabled;
+}
 
 /// The last pushed snapshot, verbatim. The renderer projects through
 /// ui_policy.ts BEFORE pushing (ADR-062 D-1: the projection is the only view
@@ -39,6 +47,12 @@ const MAX_SNAPSHOT_BYTES = 16384;
 /// Reconcile the mcp.json entry + stable relay copy with the toggle. Never
 /// throws into the toggle path — a filesystem hiccup is reported, not fatal.
 function reconcileSharing(next: boolean): KimiMcpWrite | 'failed' {
+  // e2e hermeticity (the Playwright suites set TERMIPOD_E2E): the reconcile
+  // writes the REAL ~/.kimi-code/mcp.json and ~/.termipod/bridge — an e2e
+  // instance must never touch the user's files (the same gate pattern as the
+  // keychain migration skip). The sharing gate itself still flips, so the
+  // overlay/capture paths run for real.
+  if (process.env.TERMIPOD_E2E !== undefined) return 'noop';
   const home = os.homedir();
   try {
     if (next) {

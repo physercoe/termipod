@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { InputAttachments } from '../hub/client';
+import type { InputAttachments, WireAttachment } from '../hub/client';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { VoiceSession } from '../voice/session';
 import { Icon } from './Icon';
-import { checkAddable, classify, compose, stage, type Pending } from './attach';
+import { checkAddable, classify, compose, nextId, stage, type Pending } from './attach';
 import { activeSlashMatch, type SlashMatch } from './slashCommands';
 
 function mmss(total: number): string {
@@ -18,6 +18,17 @@ function mmss(total: number): string {
 export interface MentionItem {
   label: string;
   value: string;
+}
+
+/// An annotation crop pushed into the composer (D2): staged as a delete-able
+/// image chip (thumbnail when `preview` is set) with the optional note landing
+/// in the draft. The `id` bump re-injects, mirroring `inject`.
+export interface InjectImage {
+  image: WireAttachment;
+  name: string;
+  preview?: string;
+  note?: string;
+  id: number;
 }
 
 function humanSize(bytes: number): string {
@@ -37,6 +48,8 @@ export function Composer({
   generating,
   onStop,
   inject,
+  injectImage,
+  annotate,
 }: {
   onSend: (body: string, att: InputAttachments) => Promise<void>;
   /// When set, typing `@` opens a file picker over `items`; a pick inserts
@@ -61,6 +74,12 @@ export function Composer({
   /// Push text into the draft (e.g. a quoted message). The `id` bump lets the
   /// same text re-inject; each new id appends once.
   inject?: { text: string; id: number } | null;
+  /// Push an annotation crop (D2): staged as an image chip + the note appended
+  /// to the draft. The user reviews and hits send — never auto-sent.
+  injectImage?: InjectImage | null;
+  /// The D2 "Ask agent" trigger (annotation overlay), shown only when the
+  /// UI-context-sharing toggle is on — the AgentCompanion wires it.
+  annotate?: { title: string; onClick: () => void };
 }): JSX.Element {
   const t = useT();
   const [draft, setDraftRaw] = useState('');
@@ -116,6 +135,32 @@ export function Composer({
     requestAnimationFrame(() => textRef.current?.focus());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inject]);
+
+  // Stage an annotation crop (D2) as an image chip + append its note to the
+  // draft — same once-per-id discipline as `inject`. The chip rides the
+  // normal compose path (deletable, capped by the hub on send).
+  const lastImageRef = useRef(injectImage?.id ?? 0);
+  useEffect(() => {
+    if (injectImage === null || injectImage === undefined || injectImage.id === lastImageRef.current) return;
+    lastImageRef.current = injectImage.id;
+    setStaged((prev) => [
+      ...prev,
+      {
+        id: nextId(),
+        kind: 'image',
+        name: injectImage.name,
+        mime: injectImage.image.mime_type,
+        size: Math.floor((injectImage.image.data.length * 3) / 4),
+        data: injectImage.image.data,
+        preview: injectImage.preview,
+      },
+    ]);
+    if (injectImage.note !== undefined && injectImage.note !== '') {
+      const cur = draftRef.current;
+      setDraft(cur.trim() === '' ? injectImage.note : `${cur}\n${injectImage.note}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [injectImage]);
 
   // Auto-grow the textarea to fit its content (capped), so a multi-line message
   // is visible while typing instead of scrolling a one-line field.
@@ -303,6 +348,7 @@ export function Composer({
         <div className="composer-chips">
           {staged.map((p) => (
             <span key={p.id} className={`att-chip k-${p.kind}`}>
+              {p.preview !== undefined && <img className="att-thumb" src={p.preview} alt="" />}
               <span className="att-kind">{p.kind}</span>
               <span className="att-name">{p.name}</span>
               <span className="att-size muted">{humanSize(p.size)}</span>
@@ -330,6 +376,17 @@ export function Composer({
         >
           <Icon name="plus" size={16} />
         </button>
+        {annotate !== undefined && (
+          <button
+            className="attach-btn"
+            title={annotate.title}
+            aria-label={annotate.title}
+            onClick={annotate.onClick}
+            disabled={busy}
+          >
+            <Icon name="crosshair" size={16} />
+          </button>
+        )}
         {isShell() && !recording && (
           <button
             className="mic-btn"

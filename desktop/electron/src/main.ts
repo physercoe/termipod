@@ -27,6 +27,7 @@ import { disposeKimiWeb } from './kimiweb';
 import { disposeKimiWebWin } from './kimiwebwin';
 import { disposeRerun } from './rerun';
 import { disposeBrowserBridge } from './browserbridge_host';
+import { disposeAnnotations } from './annotation_host';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) it resolves to
@@ -162,6 +163,7 @@ if (!app.requestSingleInstanceLock()) {
     // A rerun server holds two loopback ports; quitting must not orphan it.
     disposeRerun();
     disposeBrowserBridge();
+    disposeAnnotations();
   });
 
   app.on('window-all-closed', () => {

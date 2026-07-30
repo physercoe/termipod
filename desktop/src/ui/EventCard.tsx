@@ -369,7 +369,37 @@ function InputTextBody({ p }: { p: Entity }): JSX.Element {
   return (
     <div className="ev-input">
       <span className="ev-from">{label}</span>
+      <InputImages p={p} />
       <Markdown text={text} />
+    </div>
+  );
+}
+
+/// Image attachments on a user input (D2 annotation crops ride
+/// `payload.images` verbatim — handlers_agent_input.go stamps them inline on
+/// the input.text event, so the data is raw base64 here). The image card sits
+/// above the note text (plan §3.5: "an image card with the note beneath").
+function InputImages({ p }: { p: Entity }): JSX.Element | null {
+  const images = arr(p, 'images');
+  if (images.length === 0) return null;
+  return (
+    <div className="ev-images">
+      {images.map((img, i) => {
+        const e = (img !== null && typeof img === 'object' ? img : {}) as Entity;
+        const mime = str(e, 'mime_type') ?? 'image/png';
+        const data = str(e, 'data') ?? '';
+        // A blob:sha256/ ref would mean a future hub externalized the payload;
+        // rendering that needs the blob resolver, so skip rather than break.
+        if (data === '' || data.startsWith('blob:')) return null;
+        return (
+          <img
+            key={`${String(i)}-${data.length}`}
+            className="ev-image"
+            src={`data:${mime};base64,${data}`}
+            alt={str(e, 'filename') ?? 'attachment'}
+          />
+        );
+      })}
     </div>
   );
 }

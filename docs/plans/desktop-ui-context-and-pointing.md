@@ -3,7 +3,8 @@
 > **Type:** plan
 > **Status:** Proposed (2026-07-30) — wedges D1–D5 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
-> is second. **D1 implemented — PR pending.** Builds on the agent browser
+> is second. **D1 shipped (PR #476); D2 implemented — PR pending.**
+> Builds on the agent browser
 > bridge (W1–W3 shipped,
 > `docs/plans/desktop-agent-browser-bridge.md`). **Derives from
 > [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)**

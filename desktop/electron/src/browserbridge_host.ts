@@ -191,6 +191,15 @@ function recordAction(entry: BridgeAuditEntry): void {
   if (shouldMirrorAudit(entry)) void postBridgeAudit(entry);
 }
 
+/// D2 user→agent pointing (annotation_host.ts): a capture or kimi-composer
+/// attach lands in the SAME ring (the Settings "recent bridge actions" view),
+/// stamped `agent_id: 'user'` — the actor is the user's own gesture, so there
+/// is no calling agent's stream to mirror to and the entry is ring-only. The
+/// args carry the rect + target kind, never the image.
+export function recordUserOverlayAudit(entry: Omit<BridgeAuditEntry, 'agent_id' | 'via'>): void {
+  auditRing.push({ ...entry, agent_id: 'user', via: 'local' });
+}
+
 /// Best-effort mirror of one action call onto the CALLING agent's hub event
 /// stream (kind `browser_bridge`, producer 'system' — the desktop bridge is
 /// neither the agent nor the user). Never blocks or fails the tool call: no

@@ -152,6 +152,31 @@ privacy review):
 - Follow-ups in the same wedge if cheap: `ui_get_selection` (the user's
   current text selection in Inspect/transcript, bounded chars).
 
+**Invocation model — the user decides WHETHER, the agent decides WHEN.**
+Three layers, in order of authority:
+
+1. **User: availability (consent).** The sharing toggle is the only
+   user-side control — off means no publisher and no tool in any
+   catalog, so the agent can't reach the snapshot at all.
+2. **Agent: timing (reactive tool selection).** The tool sits in the
+   MCP catalog and the agent calls it when the conversation warrants —
+   steered by the tool description, which is where the deictic-cue
+   instructions live: *call when the user references what's on their
+   screen ("this", "here", "what I'm looking at", "why is this
+   failing") or when grounding would materially change the answer; do
+   NOT call by default on every turn* (token cost + data-minimization —
+   the snapshot should only be pulled when the conversation needs it).
+3. **User: explicit override.** "Look at what I'm seeing" always works,
+   and the companion's compose box grows a focus chip in its existing
+   attach-context row (`AgentCompanion.tsx:66`) so the user can pin the
+   snapshot onto one message deliberately.
+
+Deliberately NOT the ambient model (Claude-Code-IDE / Cursor style
+auto-injection every turn): it costs tokens on turns that don't need
+grounding, it shares more than the conversation asks for, and — the
+decisive constraint for the first-priority target — kimi web exposes no
+system-prompt seam, so an MCP tool is the kimi-code-native channel.
+
 **Surface coverage — every main job is covered, by matrix not by
 exception.** The workbench has nine jobs (`workbench.ts:37-60`): fleet,
 projects, read, author, debug, compare, replay, record, terminal (+

@@ -266,17 +266,22 @@ export const annotationHostHandlers: Record<string, Handler> = {
 
     /// The degrade for every injection failure (no composer input, debugger
     /// busy, CDP error): the crop goes to the clipboard and the panel gets
-    /// focus — the user is one Cmd+V from the same result (plan §3.5).
-    const fallback = (reason: string): { ok: boolean; injected: boolean; fallback: string } => {
+    /// focus — the user is one Cmd+V from the same result (plan §3.5). The
+    /// result names which fallback actually HAPPENED: an unreadable crop or a
+    /// clipboard error must not produce a "Copied — paste" toast for a
+    /// clipboard that holds nothing (the audit records the same truth).
+    const fallback = (reason: string): { ok: true; injected: false; fallback: 'clipboard' | 'clipboard-failed' } => {
       try {
         const img = nativeImage.createFromPath(file);
-        if (!img.isEmpty()) clipboard.writeImage(img);
+        if (img.isEmpty()) throw new Error('empty-image');
+        clipboard.writeImage(img);
         wc.focus();
         audit(true, { via: 'clipboard', reason }, null);
+        return { ok: true, injected: false, fallback: 'clipboard' };
       } catch {
         audit(false, { via: 'clipboard', reason }, 'clipboard-failed');
+        return { ok: true, injected: false, fallback: 'clipboard-failed' };
       }
-      return { ok: true, injected: false, fallback: 'clipboard' };
     };
 
     try {

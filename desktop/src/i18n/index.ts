@@ -1688,7 +1688,7 @@ const en: Dict = {
   'annotate.notePlaceholder': 'Add a note (optional)',
   'annotate.noTarget': 'No target — open the kimi panel or pick an agent first',
   'annotate.attached': 'Attached in kimi — review and send there',
-  'annotate.clipboard': 'Copied — paste (⌘V) into the kimi composer',
+  'annotate.clipboard': 'Copied — paste ({key}) into the kimi composer',
   'annotate.failed': 'The annotation could not be captured.',
 
   'debug.lines_one': '{n} line',
@@ -3712,7 +3712,7 @@ const zh: Dict = {
   'annotate.notePlaceholder': '添加备注（可选）',
   'annotate.noTarget': '没有可用目标——请打开 kimi 面板或先选择智能体',
   'annotate.attached': '已附加到 kimi——请在那里检查并发送',
-  'annotate.clipboard': '已复制——在 kimi 输入框中粘贴（⌘V）',
+  'annotate.clipboard': '已复制——在 kimi 输入框中粘贴（{key}）',
   'annotate.failed': '无法截取标注。',
 
   'debug.lines': '{n} 行',

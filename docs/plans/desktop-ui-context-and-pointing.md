@@ -17,10 +17,11 @@
 > opt-in with the shipped W3 audit posture; session grants never cross
 > tool kinds.
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** HEAD `8a1c065d` (the D2 wedge: frontend +
-> electron typecheck/build green, 256 electron node --test pass,
-> lint-docs OK, the D2 Playwright spec green on Electron 43);
-> kimi-code 0.28.1 verified on-host (macOS arm64)
+> **Last verified vs code:** the D2 wedge rebased onto origin/main
+> `17abbd08` (S2/S3 split pane + ui_get_focus description) + review
+> fixes: frontend + electron typecheck/build green, 256 electron
+> node --test pass, lint-docs OK, the D2 Playwright spec green on
+> Electron 43; kimi-code 0.28.1 verified on-host (macOS arm64)
 
 **TL;DR.** The desktop UI is a **shared entity with two native consumers**
 (ADR-062): agents are half the userbase of an agent workbench, so "what is

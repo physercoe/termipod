@@ -142,6 +142,15 @@ export function AnnotationOverlay(): JSX.Element | null {
     if (phase === 'target') setNote('');
   }, [phase]);
 
+  // Toggle off mid-gesture: disarm rather than leave the store armed behind an
+  // unmounted overlay (main refuses captures anyway — this keeps the renderer
+  // state honest and reaps a target-phase temp crop via discard).
+  useEffect(() => {
+    if (sharing || phase === 'idle') return;
+    if (phase === 'target') discard();
+    else cancel();
+  }, [sharing, phase, discard, cancel]);
+
   const finish = useCallback(
     (rect: Rect): void => {
       setDrag(null);
@@ -267,9 +276,14 @@ export function AnnotationOverlay(): JSX.Element | null {
         toast.success(t('annotate.attached'));
         cancel(); // the temp file stays (the SPA may read lazily; the LRU reaps)
       } else if (r.ok === true && r.fallback === 'clipboard') {
-        toast.info(t('annotate.clipboard'));
+        // The paste key by platform — ⌘V is a lie on Linux/Windows.
+        const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+        toast.info(t('annotate.clipboard').replace('{key}', mac ? '⌘V' : 'Ctrl+V'));
         cancel();
       } else {
+        // Includes fallback === 'clipboard-failed': nothing was attached AND
+        // nothing was copied — an info toast here would claim a clipboard
+        // that holds nothing.
         toast.error(t('annotate.failed'));
         cancel();
       }

@@ -1347,6 +1347,109 @@ the **Replay** job's episodes.
 
 ---
 
+## 11b. Environments & embodiments
+
+### environment
+A hub entity naming **where a run happened**: one scene/task/site
+identity, as `{family, env_id, version}` plus a content hash, an
+embodiment ref, scene/task pointers and one human success line.
+Team-scoped always — a physical bench outlives any one project — and
+optionally project-scoped for a sim environment.
+
+Models **identity, not semantics** (environments plan §1): it answers
+"is this the *same* task/scene, and which version?", never "what is the
+task?". Rewards, goal predicates and success criteria stay code; the
+entity carries a **task_ref (environment)** pointer, not a parsed spec.
+
+- *Distinguish from:* an **env profile** — the spawn-time bundle of
+  setup script + env vars + secret refs + network policy an agent
+  starts in (ADR-056). Same English word, unrelated entities: an env
+  profile configures a *process*, an environment identifies a *place a
+  robot ran*. Say "env profile" in full for the former; bare
+  "environment" means this entity.
+- *Distinguish from:* the OS **process environment** (the `Env` slice a
+  host-runner hands a child). Only env profiles touch that.
+
+### env_ref
+The opaque handle that names an **environment** without depending on one
+existing: `family:env_id@version`, e.g. `maniskill:PickCube-v1@0.6` or
+the versionless `lerobot:so100_follower` the dataset digest derives.
+Carried by runs, datasets and (as an override) episodes.
+
+Written **unvalidated** by design (wedge E0), so provenance accumulates
+before the registry exists and later *resolves* into rows instead of
+being backfilled by guesswork. Resolution is **exact** — a versionless
+ref never matches a versioned row — and a handle with no row is
+**unresolved**, a normal answer, never an error.
+
+### env profile
+A team-scoped, reusable bundle of `{setup script + plain env vars +
+secret refs + network policy}` a **spawn** attaches so an agent starts
+in a prepared shell (ADR-056, table `env_profiles`). Configures a
+*process*; says nothing about where a robot ran.
+
+Entered here because it is the other thing called "environment" —
+always say "env profile" in full. Secret refs resolve client-side from
+the zero-knowledge vault and travel as envelopes sealed to the target
+host's key; the hub stores ciphertext it can never read.
+
+### process environment
+The OS-level variable set a host-runner hands a child process (the `Env`
+slice, `tmux -e`). The third meaning of the word, and the only one that
+ever holds secret *values* — which is why ADR-056 D-5 keeps them there
+and out of command strings, spawn specs, temp files and logs. Neither an
+**environment** nor an **env profile** is this.
+
+### family (environment)
+The backend or kind an environment belongs to: `isaac-lab`,
+`maniskill`, `mujoco`, `real-site`, … An **open set** — a new simulator
+is a new string, not a schema change — with one rule attached:
+`real-site` rows are team-scoped, never project-scoped.
+
+- *Distinguish from:* an **agent family** (the YAML frame profile that
+  describes an engine, `hub/internal/agentfamilies/`). Unrelated
+  registries; qualify as "agent family" or "environment family" wherever
+  both could be meant.
+
+### task_ref (environment)
+A **pointer** to an environment's task specification — a file, module or
+repo path — plus a `task_format` tag saying how to read it
+(`bddl`, `pddl`, `python`, …). Deliberately not a parsed structure:
+schema-tizing goal predicates fails for half the backends, so the hub
+stores the pointer and a future viewer renders it.
+
+- *Distinguish from:* a **task** (§10b) — the first-class unit of
+  steward-dispatched work with a todo/in_progress/blocked/done status.
+  A task is work someone assigned; a `task_ref` is what a robot was
+  asked to do inside a scene. The collision is inherited from the RL
+  literature and is the reason this entry is qualified.
+
+### condition (episode)
+One concrete draw of an environment: placements, seed, randomization
+variant — **per-episode data, never a registry row**. Two layers, with
+no taxonomy registry between them: a small reserved key set (`seed`,
+`variant`, `lighting`, `layout`, `object_set`, `distractors`, `split`)
+and free-form `conditions: map[string]string`.
+
+Every consumer treats keys **and values** as opaque strings. Nothing
+parses meaning out of `"bright-left"`; boards group by string equality.
+
+### embodiment
+Which robot (or handheld rig) is placed in an environment. Registered as
+data first (the URDF/MJCF manifest keyed by LeRobot `robot_type`
+aliases), referenced by an environment as `embodiment_ref`.
+
+- *Distinguish from:* **rig_id** on an episode element, which names the
+  concrete physical setup a recording came from, not the robot model.
+
+### twin (sim2real)
+The edge between a real site and its sim counterpart, stored as
+`environment.twin_of`. One column read from either side, so the pair
+cannot disagree. What makes sim2real *queryable* — and what real-to-sim
+overlay needs before it can exist.
+
+---
+
 ## 12. Index of "easy to confuse with" pairs
 
 A flat list of the high-traffic confusion points, for grep:
@@ -1377,6 +1480,18 @@ A flat list of the high-traffic confusion points, for grep:
 - **channel** (an axis of an **episode series**, §11) vs a project
   channel's messages (§4, deferred) — a robot signal's track vs a place
   to post.
+- **environment** (§11b — where a robot run happened) vs an **env
+  profile** (ADR-056 — the setup script + env vars + secret refs a
+  spawn attaches) vs the OS **process environment** — three unrelated
+  things wearing one word; say "env profile" in full.
+- **task** (§10b — steward-dispatched work) vs **task_ref
+  (environment)** (§11b — a pointer to what a robot was asked to do in
+  a scene) — the collision is inherited from the RL literature, so the
+  environment side is always qualified.
+- **family (environment)** (a simulator or `real-site`) vs an **agent
+  family** (an engine's YAML frame profile) — different registries.
+- **condition** (§11b — one per-episode draw of an environment) vs an
+  **acceptance criterion** (§10b — a deliverable's pass bar).
 - **steward** vs **worker** vs **agent** vs **principal**.
 - **general steward** vs **domain steward** — frozen-persistent vs
   overlay-project-scoped, both *steward* role.

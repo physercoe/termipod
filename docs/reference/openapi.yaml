@@ -73,6 +73,11 @@ tags:
     description: Reusable environment profiles attached to spawns (setup script + env + secret refs + net policy)
   - name: Datasets
     description: Episode corpora a policy trains on or is evaluated against (replay plan W1)
+  - name: Environments
+    description: >-
+      The scene/task/site registry an env_ref resolves into (environments plan
+      E2). Not EnvProfiles — that is a spawn-time bundle of env vars and secret
+      refs; an Environment is where a robot run happened.
   - name: References
     description: The hub-owned research reference library + PDF annotations (ADR-053)
 
@@ -354,6 +359,150 @@ paths:
             (lerobot, rerun-sdk) pair unavailable — the body carries the host's
             own detail.
         "501": { description: "Only local dataset roots can be exported today" }
+
+  /v1/teams/{team}/environments:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Environments]
+      operationId: listEnvironments
+      summary: List the team's registered environments (environments plan E2)
+      description: >-
+        `?project=P` means "everything P can reference": P's own rows plus the
+        team-scoped ones, which is where every real site lives. Ordered sim
+        families first, sites last — the rail's order, decided server-side so
+        two clients cannot disagree about it.
+      parameters:
+        - { name: project, in: query, required: false, schema: { type: string } }
+        - { name: family, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Environments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Environment" }
+    post:
+      tags: [Environments]
+      operationId: createEnvironment
+      summary: >-
+        Register an environment. Idempotent on the handle (family, env_id,
+        version): a repeat returns 200 with the existing row.
+      description: >-
+        The handle is the identity, so a repeat register selects rather than
+        edits — changed content means a new version, not a redefined handle.
+        The one loud case is a body claiming a different `content_hash` for a
+        handle that already has one: that is env drift, and it returns 409
+        rather than letting the last writer redefine what a recorded run was
+        measured in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnvironmentCreateRequest" }
+      responses:
+        "200":
+          description: Already registered; the existing row
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Environment" }
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Environment" }
+        "400":
+          description: >-
+            A handle part is missing or carries a separator that would make it
+            unnameable, a real-site row was given a project_id, or twin_of does
+            not name an environment in this team.
+        "409": { description: "The handle is registered with a different content_hash" }
+
+  /v1/teams/{team}/environments/resolve:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Environments]
+      operationId: resolveEnvironments
+      summary: Resolve opaque env_ref handles to registry rows
+      description: >-
+        E2's half of E0's promise. One answer per input ref, in input order, so
+        a caller zipping results onto its rows cannot misalign them. Matching is
+        exact: a versionless ref does not match a versioned row, because which
+        version it meant is exactly the question. "Unresolved" is a normal
+        answer with a 200 — handles accumulated before this registry existed,
+        and failing the request would make the client's unresolved state
+        unreachable.
+      parameters:
+        - name: env_ref
+          in: query
+          required: true
+          description: "Repeatable, max 200 per call."
+          schema: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: One result per requested handle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/EnvironmentResolution" }
+        "400": { description: "No env_ref supplied, or more than 200" }
+
+  /v1/teams/{team}/environments/{env}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: env, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Environments]
+      operationId: getEnvironment
+      summary: Get one environment
+      responses:
+        "200":
+          description: Environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Environment" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Environments]
+      operationId: updateEnvironment
+      summary: Update the non-identity fields
+      description: >-
+        `family`, `env_id` and `version` are the identity and are refused with a
+        400 rather than silently ignored: rows elsewhere already point at the
+        handle as an opaque string, and moving it would unresolve every one of
+        them. A `content_hash` may be filled in once but not changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnvironmentUpdateRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Environment" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "content_hash already recorded; register a new version" }
+    delete:
+      tags: [Environments]
+      operationId: deleteEnvironment
+      summary: Delete the registry row
+      description: >-
+        The `env_ref` strings on runs, datasets and episodes are not foreign
+        keys: they are left alone and simply resolve as "unresolved" again,
+        which is a state every consumer already renders. Twin edges pointing
+        here are cleared.
+      responses:
+        "204": { description: "Deleted" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/teams/{team}/env-profiles:
     parameters:
@@ -4365,6 +4514,109 @@ components:
         trackio_run_uri: { type: string }
         parent_run_id: { type: string }
         env_ref: { type: string }
+
+    Environment:
+      type: object
+      description: >-
+        One scene/task/site identity (environments plan E2). Models IDENTITY,
+        never semantics: it answers "is this the same task/scene, and which
+        version?" — not "what is the task?". Rewards and goal predicates are
+        code, so task_ref is a pointer plus a format tag a viewer can render.
+      required: [id, team_id, family, env_id, env_ref]
+      properties:
+        id: { type: string }
+        team_id:
+          type: string
+          description: >-
+            Always set. A real lab bench outlives any one project, and two
+            projects sharing it must share its calibration history and twin edge.
+        project_id:
+          type: string
+          nullable: true
+          description: >-
+            Set only for a sim environment that belongs to one line of work.
+            A real-site row is refused a project_id.
+        family:
+          type: string
+          description: "isaac-lab | maniskill | mujoco | real-site | … (open set). No ':' or '@'."
+        env_id:
+          type: string
+          description: "The task/scene name within the family (PickCube-v1, bench-3). No '@'."
+        version:
+          type: string
+          description: "Empty is legitimate — E0's derived handles carry no version."
+        env_ref:
+          type: string
+          description: >-
+            The handle this row answers to, `family:env_id@version`, assembled
+            server-side so every consumer builds it the one way.
+        content_hash:
+          type: string
+          description: >-
+            What the content is. Two registrations of one handle claiming
+            different hashes are a 409: that is the env drift that silently
+            invalidates comparison.
+        embodiment_ref: { type: string, description: "E1 manifest key (a robot_type alias)" }
+        scene_refs: { type: object, description: "Asset links; Objaverse/YCB stay link+cache" }
+        config: { type: object, description: "Physics + randomization spec, opaque to the hub" }
+        task_ref: { type: string, description: "Pointer to the task spec/code — never parsed" }
+        task_format: { type: string, description: "How to read that pointer (bddl|pddl|python|yaml|…)" }
+        success_desc: { type: string, description: "One human line. Never parsed." }
+        twin_of:
+          type: string
+          nullable: true
+          description: >-
+            The sim2real edge: a real site's sim counterpart, or the reverse.
+            One column read from either side so the pair cannot disagree.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    EnvironmentCreateRequest:
+      type: object
+      required: [family, env_id]
+      properties:
+        project_id: { type: string }
+        family: { type: string }
+        env_id: { type: string }
+        version: { type: string }
+        content_hash: { type: string }
+        embodiment_ref: { type: string }
+        scene_refs: { type: object }
+        config: { type: object }
+        task_ref: { type: string }
+        task_format: { type: string }
+        success_desc: { type: string }
+        twin_of: { type: string }
+
+    EnvironmentUpdateRequest:
+      type: object
+      description: >-
+        Non-identity fields only. Supplying family, env_id or version is a 400,
+        not a silent no-op.
+      properties:
+        project_id: { type: string }
+        content_hash: { type: string }
+        embodiment_ref: { type: string }
+        scene_refs: { type: object }
+        config: { type: object }
+        task_ref: { type: string }
+        task_format: { type: string }
+        success_desc: { type: string }
+        twin_of: { type: string }
+
+    EnvironmentResolution:
+      type: object
+      required: [env_ref, status]
+      properties:
+        env_ref: { type: string, description: "Echoed verbatim, including a malformed one." }
+        status: { type: string, enum: [resolved, unresolved] }
+        reason:
+          type: string
+          enum: [malformed, no_match]
+          description: >-
+            Present when unresolved. "Not a handle" and "no row for that handle"
+            send a reader to different fixes.
+        environment: { $ref: "#/components/schemas/Environment" }
 
     RunUpdateRequest:
       type: object

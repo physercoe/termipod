@@ -66,12 +66,13 @@ guest **only** if its partition's `webtab_policy.ts` row declares
 never enters the registry. Every CDP command re-resolves its target
 through the registry (`resolveGuest`), so a guessed or stale id never
 reaches a debugger session. There is no generic CDP passthrough: the
-tool surface is curated (read: `browser_list_tabs`, `browser_find_tab`,
-`browser_snapshot`, `browser_read_text`, `browser_screenshot`; action:
-`browser_navigate`, `browser_click`, `browser_type`,
+tool surface is curated (read: `browser_list_tabs`, `browser_snapshot`,
+`browser_read_text`, `browser_screenshot`; action: `browser_navigate`,
+`browser_find_tab`, `browser_click`, `browser_type`,
 `browser_send_keys`, `browser_scroll`, `browser_eval`,
-`browser_upload_file`), and `Runtime.evaluate` interpolates only
-validated values.
+`browser_upload_file` — `find_tab` is action-class deliberately: it
+selects the target for follow-up actions), and `Runtime.evaluate`
+interpolates only validated values.
 
 ### D-2 — Delivery is an additive MCP entry from a per-run discovery file
 

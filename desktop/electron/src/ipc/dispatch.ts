@@ -42,6 +42,7 @@ import { kimiwebWinHandlers } from '../kimiwebwin';
 import { rerunHandlers } from '../rerun';
 import { rerunFetchHandlers } from './rerunfetch';
 import { browserBridgeHandlers } from '../browserbridge_host';
+import { desktopuiHandlers } from '../desktopui';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -81,6 +82,7 @@ const handlers: Record<string, Handler> = {
   ...rerunHandlers,
   ...rerunFetchHandlers,
   ...browserBridgeHandlers,
+  ...desktopuiHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

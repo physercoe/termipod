@@ -5,6 +5,7 @@ import { invoke } from '../bridge';
 import { isShell } from '../platform';
 import { useAssistant } from '../state/assistant';
 import { useBrowserBridge } from '../state/browserBridge';
+import { useUiContext } from '../state/uiContext';
 import { useWorkbench } from '../state/workbench';
 import { kindForInspectFile, useInspect } from '../state/inspect';
 import { localHome, localList, localRead } from '../state/localfs';
@@ -99,6 +100,7 @@ export function AssistantSettings(): JSX.Element {
   const setJob = useWorkbench((s) => s.setJob);
   const { open: dockOpen, setOpen } = useAssistant();
   const bridge = useBrowserBridge();
+  const uiContext = useUiContext();
   const [status, setStatus] = useState<{ running: boolean } | null>(null);
   const [sections, setSections] = useState<Sections | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +208,16 @@ export function AssistantSettings(): JSX.Element {
           <span className="small muted">{t('assistant.bridgeBlurb')}</span>
         </div>
         <input type="checkbox" checked={bridge.enabled} onChange={(e) => bridge.setEnabled(e.target.checked)} />
+      </div>
+      {/* D1 (plan §3.7): its own toggle, default off — different privacy
+          posture from the browser bridge (a user may share tabs but not the
+          shell's focus state), so it never rides the bridge toggle. */}
+      <div className="assistant-cfg-row">
+        <div className="assistant-cfg-main">
+          <span className="assistant-cfg-label">{t('assistant.uiContextToggle')}</span>
+          <span className="small muted">{t('assistant.uiContextBlurb')}</span>
+        </div>
+        <input type="checkbox" checked={uiContext.enabled} onChange={(e) => uiContext.setEnabled(e.target.checked)} />
       </div>
       {bridge.enabled && (
         <div className="assistant-cfg-row">

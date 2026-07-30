@@ -409,7 +409,27 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  // D1 (desktop-ui-context plan §3.2): the user's side of the screen, as a
+  // structured focus snapshot — the desktop UI as an agent-addressable entity
+  // (ADR-062). Served from the main-process cache of the renderer's
+  // policy-projected pushes; listed/callable only while the desktop's UI
+  // context sharing toggle is on (the catalog gate lives in handleMcpMessage).
+  {
+    name: 'ui_get_focus',
+    description:
+      'What the TermiPod desktop user is currently looking at: the active workbench surface plus its focus state (open tab, focused agent, Inspect file + selection, terminal pane) as a compact JSON snapshot with captured_at. Ids, paths and fragment-stripped URLs only — never message bodies, vault material, or settings values. Call this when the user references what is on their screen ("this", "here", "what I\'m looking at", "why is this failing") or when grounding in the user\'s current view would materially change the answer; do NOT call by default on every turn.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ];
+
+/// D1: the MCP resource uri mirroring ui_get_focus (ADR-062 D-6). list + read
+/// only — subscriptions are deliberately NOT implemented: the relay forwards
+/// frames verbatim so notification delivery would work transport-wise, but
+/// client-side resource-subscription support (kimi-code's included) is
+/// unverified (plan open question 7), and a fake subscribe that never
+/// notifies is worse than an honest method-not-found. The tool is the
+/// portable floor everywhere.
+export const UI_FOCUS_RESOURCE_URI = 'ui://focus';
 
 const READ_TEXT_DEFAULT_MAX = 8000;
 const READ_TEXT_HARD_MAX = 64000;
@@ -546,6 +566,14 @@ export interface McpServerDeps {
   /// redacted entry. The host pushes it into the debug ring and mirrors it to
   /// the hub as an agent_events row, both best-effort.
   onAction?: (entry: BridgeAuditEntry) => void;
+  /// D1: the desktop UI context sharing gate (Settings → Assistant toggle).
+  /// When absent/false the ui_get_focus tool and the ui://focus resource are
+  /// hidden from every catalog and refused on call — "off means no publisher
+  /// and no tool in any catalog" (plan §3.2 layer 1).
+  uiFocusAvailable?: () => boolean;
+  /// D1: the main-side focus cache (the renderer's last projected push), or
+  /// null before the first push — the tool then answers an empty snapshot.
+  getUiFocus?: () => Record<string, unknown> | null;
 }
 
 interface JsonRpcRequest {
@@ -999,9 +1027,30 @@ async function runTool(deps: McpServerDeps, name: string, args: Record<string, u
       if (text.length > EVAL_RESULT_MAX) text = `${text.slice(0, EVAL_RESULT_MAX)}… (truncated at ${String(EVAL_RESULT_MAX)} chars)`;
       return textContent(text);
     }
+    case 'ui_get_focus': {
+      // The consent gate lives AT the tool, not only in the catalog filter:
+      // every leg (local stdio, and the W3 hub tunnel — which classifies this
+      // as a read tool) enforces the desktop's sharing toggle here.
+      if (deps.uiFocusAvailable?.() !== true) {
+        throw new BridgeError(
+          'UI_UNAVAILABLE',
+          'UI context sharing is off on the desktop (Settings → Assistant) — no focus snapshot is published',
+        );
+      }
+      return textContent(uiFocusText(deps));
+    }
     default:
       throw new BridgeError('UNKNOWN_TOOL', `unknown tool '${name}'`);
   }
+}
+
+/// The focus answer as JSON text. Never blocks: before the renderer's first
+/// push the cache is null and the answer is an explicit empty snapshot —
+/// `captured_at: null` tells the agent there is nothing fresh, rather than
+/// the call hanging on a render (plan §3.8).
+function uiFocusText(deps: McpServerDeps): string {
+  const snap = deps.getUiFocus?.() ?? null;
+  return JSON.stringify(snap ?? { surface: null, captured_at: null }, null, 2);
 }
 
 /// Dispatch one tool call. Action calls are wrapped in the W2 audit hook:
@@ -1172,15 +1221,55 @@ export async function handleMcpMessage(
       const protocolVersion = typeof params.protocolVersion === 'string' ? params.protocolVersion : '2025-06-18';
       return rpcResult(id, {
         protocolVersion,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: {
+          tools: { listChanged: false },
+          // D1 (ADR-062 D-6): ui://focus is listable + readable. subscribe is
+          // honestly false — see UI_FOCUS_RESOURCE_URI for why.
+          resources: { subscribe: false, listChanged: false },
+        },
         serverInfo: deps.serverInfo,
       });
     }
     case 'ping':
       return rpcResult(id, {});
-    case 'tools/list':
+    case 'tools/list': {
       // Scope gate #1: a read-scoped session never SEES the action tools.
-      return rpcResult(id, { tools: ctx.scope === 'full' ? [...READ_TOOLS, ...ACTION_TOOLS] : READ_TOOLS });
+      // Consent gate (D1): ui_get_focus is catalog-visible only while the
+      // desktop's UI context sharing toggle is on.
+      const reads =
+        deps.uiFocusAvailable?.() === true ? READ_TOOLS : READ_TOOLS.filter((t) => t.name !== 'ui_get_focus');
+      return rpcResult(id, { tools: ctx.scope === 'full' ? [...reads, ...ACTION_TOOLS] : reads });
+    }
+    case 'resources/list': {
+      const resources =
+        deps.uiFocusAvailable?.() === true
+          ? [
+              {
+                uri: UI_FOCUS_RESOURCE_URI,
+                name: 'Desktop UI focus',
+                description:
+                  'What the TermiPod desktop user is currently looking at (the ui_get_focus snapshot as a resource). Ids/paths/URLs only — never content.',
+                mimeType: 'application/json',
+              },
+            ]
+          : [];
+      return rpcResult(id, { resources });
+    }
+    case 'resources/read': {
+      const params = (msg.params ?? {}) as { uri?: unknown };
+      if (params.uri !== UI_FOCUS_RESOURCE_URI) {
+        return rpcError(id, -32602, `unknown resource '${typeof params.uri === 'string' ? params.uri : ''}'`);
+      }
+      // The consent gate binds this leg exactly like tools/call — the resource
+      // is the same data, so hiding it from resources/list alone would leave a
+      // read path the toggle does not govern.
+      if (deps.uiFocusAvailable?.() !== true) {
+        return rpcError(id, -32002, 'UI context sharing is off on the desktop (Settings → Assistant) — no focus snapshot is published');
+      }
+      return rpcResult(id, {
+        contents: [{ uri: UI_FOCUS_RESOURCE_URI, mimeType: 'application/json', text: uiFocusText(deps) }],
+      });
+    }
     case 'tools/call': {
       const params = (msg.params ?? {}) as { name?: unknown; arguments?: unknown };
       if (typeof params.name !== 'string') {

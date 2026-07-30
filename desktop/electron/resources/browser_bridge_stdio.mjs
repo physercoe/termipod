@@ -18,12 +18,27 @@
 ///   TP_BROWSER_AGENT_ID — the spawn's hub agent id; forwarded as
 ///                       x-tp-agent-id so the desktop's audit trail attributes
 ///                       every action call to the calling agent.
+///   TP_BROWSER_DISCOVERY — discovery-file path override (tests); defaults to
+///                       ~/.termipod/browser-bridge.json.
+///
+/// DISCOVERY-FILE FALLBACK (D1, desktop-ui-context plan §3.5): the user-level
+/// ~/.kimi-code/mcp.json entry is STATIC — it carries no env, so when
+/// TP_BROWSER_URL is unset the relay reads the per-run discovery file itself
+/// and survives token rotation. Two pinned constraints:
+///   - READ TOKEN ONLY: the file also carries action_token, which this path
+///     NEVER resolves — action scope exists only on the env-injected path,
+///     where the spawn opted in via browser_bridge: true (ADR-059 D-3);
+///   - an absent/invalid file (bridge off) exits cleanly (code 0, no noise)
+///     so kimi-code marks the server down, never failed.
 import http from 'node:http';
 import readline from 'node:readline';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const URL_ = process.env.TP_BROWSER_URL;
-const TOKEN = process.env.TP_BROWSER_TOKEN;
-const SCOPE = process.env.TP_BROWSER_SCOPE ?? 'read';
+let URL_ = process.env.TP_BROWSER_URL;
+let TOKEN = process.env.TP_BROWSER_TOKEN;
+let SCOPE = process.env.TP_BROWSER_SCOPE ?? 'read';
 const AGENT_ID = process.env.TP_BROWSER_AGENT_ID ?? '';
 const TIMEOUT_MS = 30_000;
 
@@ -31,6 +46,24 @@ const TIMEOUT_MS = 30_000;
 // stray line there corrupts the stream.
 function log(...args) {
   console.error('browser-bridge', ...args);
+}
+
+if (!URL_) {
+  // Static-entry fallback: resolve the discovery file ourselves. `token` is
+  // read, `action_token` is deliberately NOT — see the header.
+  const discovery = process.env.TP_BROWSER_DISCOVERY ?? path.join(os.homedir(), '.termipod', 'browser-bridge.json');
+  let d = null;
+  try {
+    d = JSON.parse(fs.readFileSync(discovery, 'utf8'));
+  } catch {
+    process.exit(0); // absent/unreadable — bridge off; a quiet down, not a failure
+  }
+  if (d === null || typeof d !== 'object' || typeof d.url !== 'string' || typeof d.token !== 'string' || d.url === '' || d.token === '') {
+    process.exit(0); // malformed — same quiet down
+  }
+  URL_ = d.url;
+  TOKEN = d.token;
+  SCOPE = 'read';
 }
 
 if (!URL_ || !TOKEN) {

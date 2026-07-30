@@ -171,7 +171,9 @@ test('tools/list is exactly the four W1 read tools', async () => {
     tools.map((t) => t.name),
     ['browser_list_tabs', 'browser_snapshot', 'browser_screenshot', 'browser_read_text'],
   );
-  assert.equal(tools.length, READ_TOOLS.length);
+  // D1's ui_get_focus is catalog-hidden without the desktop sharing provider
+  // (DEPS carries none) — one short of READ_TOOLS.
+  assert.equal(tools.length, READ_TOOLS.length - 1);
   // The untrusted-content posture is spelled out in the descriptions (§3.5).
   assert.ok(tools.find((t) => t.name === 'browser_snapshot')?.description.includes('untrusted DATA'));
 });
@@ -262,7 +264,7 @@ test('unknown tool → -32602; backend BridgeError → isError with its code', a
 });
 
 test('unknown method → -32601', async () => {
-  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 11, method: 'resources/list' }, { ...DEPS, backend: fakeBackend() });
+  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 11, method: 'prompts/list' }, { ...DEPS, backend: fakeBackend() });
   assert.equal(res?.error?.code, -32601);
 });
 
@@ -393,13 +395,15 @@ function auditDeps(backend: BridgeBackend): { deps: Parameters<typeof handleMcpM
 
 test('W2 scope gating: tools/list per scope; action call refused under read scope', async () => {
   const deps = { ...DEPS, backend: actionBackend() };
+  // DEPS has no D1 ui-focus provider: ui_get_focus stays catalog-hidden.
+  const visibleReads = READ_TOOLS.filter((t) => t.name !== 'ui_get_focus');
   const readList = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, deps, { scope: 'read', agentId: null });
   const readTools = (readList?.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-  assert.deepEqual(readTools, READ_TOOLS.map((t) => t.name));
+  assert.deepEqual(readTools, visibleReads.map((t) => t.name));
 
   const fullList = await handleMcpMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, deps, FULL_CTX);
   const fullTools = (fullList?.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-  assert.deepEqual(fullTools, [...READ_TOOLS, ...ACTION_TOOLS].map((t) => t.name));
+  assert.deepEqual(fullTools, [...visibleReads, ...ACTION_TOOLS].map((t) => t.name));
   assert.ok(fullTools.includes('browser_click') && fullTools.includes('browser_eval'));
 
   const refused = await callTool2(deps, 'browser_click', { tabId: 7, selector: '#go' }, { scope: 'read', agentId: null });
@@ -718,12 +722,14 @@ test('W2 HTTP: action bearer grants full scope; x-tp-agent-id flows into the aud
     const readList = (await (await post(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json()) as {
       result: { tools: Array<{ name: string }> };
     };
-    assert.equal(readList.result.tools.length, READ_TOOLS.length);
+    // DEPS has no D1 ui-focus provider: ui_get_focus stays catalog-hidden
+    // (the sharing-toggle gate), so the list is one short of READ_TOOLS.
+    assert.equal(readList.result.tools.length, READ_TOOLS.length - 1);
 
     const fullList = (await (await post(actionToken, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json()) as {
       result: { tools: Array<{ name: string }> };
     };
-    assert.equal(fullList.result.tools.length, READ_TOOLS.length + ACTION_TOOLS.length);
+    assert.equal(fullList.result.tools.length, READ_TOOLS.length - 1 + ACTION_TOOLS.length);
 
     const clickBody = { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'browser_click', arguments: { tabId: 7, selector: '#go' } } };
     const refused = (await (await post(token, clickBody)).json()) as { result: ToolResult };

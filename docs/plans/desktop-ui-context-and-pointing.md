@@ -3,7 +3,8 @@
 > **Type:** plan
 > **Status:** Proposed (2026-07-30) — wedges D1–D5 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
-> is second. Builds on the agent browser bridge (W1–W3 shipped,
+> is second. **D1 implemented — PR pending.** Builds on the agent browser
+> bridge (W1–W3 shipped,
 > `docs/plans/desktop-agent-browser-bridge.md`). **Derives from
 > [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)**
 > (desktop UI as agent-addressable entity) — reframed 2026-07-30 from
@@ -15,8 +16,10 @@
 > opt-in with the shipped W3 audit posture; session grants never cross
 > tool kinds.
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** origin/main `598e46ce`; kimi-code 0.28.1
-> verified on-host (macOS arm64)
+> **Last verified vs code:** the D1 wedge rebased onto origin/main
+> `c2d6701c` (S1 split pane) + review fixes (frontend + electron typecheck
+> green, 238 electron / 345 state node --test pass, lint-docs OK);
+> kimi-code 0.28.1 verified on-host (macOS arm64)
 
 **TL;DR.** The desktop UI is a **shared entity with two native consumers**
 (ADR-062): agents are half the userbase of an agent workbench, so "what is

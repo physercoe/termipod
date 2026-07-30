@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,9 +97,11 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 		// addDir tolerates an entry vanishing mid-walk. (`teams`, the shard
 		// dir, is handled above via per-store snapshots.)
 		//
-		// TODO(ADR-061 D-8): once `blobs.class` exists, skip `class='derived'`
-		// here. They are reproducible by definition, and archiving them puts
-		// cache bytes somewhere no sweeper can ever reach them.
+		// `derived` blobs are excluded (ADR-061 D-8): they are reproducible by
+		// definition, and archiving them puts cache bytes somewhere no sweeper
+		// can ever reach them — a backup that grows forever with browsing
+		// traffic.
+		derived := derivedBlobSHAs(ctx, dbPath)
 		for _, sub := range []string{"team", "blobs"} {
 			abs := filepath.Join(dataRoot, sub)
 			if _, err := os.Stat(abs); errors.Is(err, fs.ErrNotExist) {
@@ -106,7 +109,14 @@ func Backup(ctx context.Context, dbPath, dataRoot, outPath string) error {
 			} else if err != nil {
 				return fmt.Errorf("stat %s: %w", sub, err)
 			}
-			if err := addDir(tw, abs, sub); err != nil {
+			var skip func(string) bool
+			if sub == "blobs" && len(derived) > 0 {
+				skip = func(base string) bool {
+					_, ok := derived[base]
+					return ok
+				}
+			}
+			if err := addDirSkipping(tw, abs, sub, skip); err != nil {
 				return err
 			}
 		}
@@ -158,6 +168,53 @@ func snapshotInto(ctx context.Context, tw *tar.Writer, dbPath, snapName string) 
 		return fmt.Errorf("snapshot %s: %w", snapName, err)
 	}
 	return addFile(tw, tmp, snapName)
+}
+
+// derivedBlobSHAs reads the content addresses currently classed `derived`, for
+// the backup exclusion in ADR-061 D-8.
+//
+// Opened standalone, the same way vacuumInto does, so Backup stays a free
+// function that needs no live Server.
+//
+// Every failure yields an empty set rather than an error, and that is a
+// deliberate ranking: a backup you cannot take is worse than a backup carrying
+// some cache bytes. The two failures worth naming are a pre-0071 database (no
+// `class` column, so the query errors — and such a database has no derived blobs
+// anyway) and a read that loses a race with the sweeper. It warns so a silent
+// degrade is at least a visible one.
+//
+// The set is read from the live database rather than the snapshot, so a blob
+// promoted to `owned` in the moments after this read is missed by *this* archive
+// and caught by the next. A derived blob swept in the same window is simply
+// already gone.
+func derivedBlobSHAs(ctx context.Context, dbPath string) map[string]struct{} {
+	out := map[string]struct{}{}
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		slog.Default().Warn("backup: cannot classify blobs; archiving all of them", "err", err)
+		return out
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT sha256 FROM blobs WHERE class = 'derived'`)
+	if err != nil {
+		slog.Default().Warn("backup: cannot classify blobs; archiving all of them", "err", err)
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sha string
+		if err := rows.Scan(&sha); err != nil {
+			slog.Default().Warn("backup: blob classification read failed mid-scan", "err", err)
+			return map[string]struct{}{}
+		}
+		out[sha] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Default().Warn("backup: blob classification read failed", "err", err)
+		return map[string]struct{}{}
+	}
+	return out
 }
 
 // vacuumInto opens dbPath read-only, runs VACUUM INTO 'dst' which writes
@@ -319,6 +376,17 @@ func addFile(tw *tar.Writer, src, name string) error {
 // the trees we pass: blob files are content-addressed and only ever created or
 // unlinked, never rewritten in place (`storeBlob`, handlers_blobs.go:32-54).
 func addDir(tw *tar.Writer, root, prefix string) error {
+	return addDirSkipping(tw, root, prefix, nil)
+}
+
+// addDirSkipping is addDir with an exclusion predicate on the file's base name.
+//
+// The one caller that needs it is `blobs/` (ADR-061 D-8): a `derived` blob is a
+// cache entry, reproducible by definition, and archiving one puts cache bytes
+// somewhere no sweeper can ever reach them — so a backup would grow forever with
+// browsing traffic. Base name is the right key because a blob file *is* its
+// content address.
+func addDirSkipping(tw *tar.Writer, root, prefix string, skip func(base string) bool) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) {
 			// Includes the root itself: every caller already treats a missing
@@ -347,6 +415,9 @@ func addDir(tw *tar.Writer, root, prefix string) error {
 		// Skip anything that isn't a regular file (sockets, FIFOs,
 		// symlinks); we don't want them in a hub backup.
 		if !d.Type().IsRegular() {
+			return nil
+		}
+		if skip != nil && skip(d.Name()) {
 			return nil
 		}
 		return addFile(tw, path, entryName)

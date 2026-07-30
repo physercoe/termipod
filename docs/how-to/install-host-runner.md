@@ -713,6 +713,29 @@ sudo -u termipod-hub /usr/local/bin/hub-server backup \
 The output is a single `.tar.gz` containing `hub.db.snapshot`, `team/`
 and `blobs/`. Move it off-host to wherever you keep cold backups.
 
+**`blobs/` is archived selectively.** Blobs carry a declared class
+(ADR-061): `owned` ones are permanent and are archived, while `derived`
+ones are cache entries — reproducible from inputs the hub still has — and
+are skipped, because archiving them would put cache bytes somewhere no
+sweeper can reach and grow every backup with browsing traffic. A restored
+hub simply re-derives them on demand. The row is archived either way (it
+lives in `hub.db`), so a restored `derived` row whose file is absent is
+expected and resolves itself: the sweeper deletes it at its TTL, and the
+next write of the same content refills it.
+
+Two related notes for anyone watching disk:
+
+- Deleting expired blob rows will **not** shrink `hub.db`. It runs with
+  `auto_vacuum=NONE`, so freed pages go to the freelist and are reused
+  rather than returned to the OS. The reclamation that matters is the
+  *file* unlink; a blob row is tiny next to the bytes it names.
+- The sweeper runs every 5 minutes by default
+  (`HUB_BLOB_SWEEP_INTERVAL`), and `HUB_BLOB_SWEEP_DISABLE=1` turns it
+  off. Disabling it costs unbounded cache growth, not correctness — it is
+  the only path by which anything is ever deleted from the blob store.
+  `HUB_BLOB_MAX_TTL` (7 days by default) caps how long a caller may ask
+  for.
+
 **Restore on a fresh box**:
 
 ```bash

@@ -2228,13 +2228,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Artifact" }
 
-  /v1/teams/{team}/blobs:
-    parameters:
-      - $ref: "#/components/parameters/Team"
+  # The blob store is NOT team-scoped: it is content-addressed and deduped
+  # across the hub, so both routes are mounted at /v1/blobs, outside
+  # /v1/teams/{team}. (An earlier revision of this file documented them under a
+  # team; they never were.) Authentication still applies.
+  /v1/blobs:
     post:
       tags: [Documents]
       operationId: uploadBlob
       summary: Upload small blob (≤ 25 MiB)
+      description: >-
+        Content-addressed and deduped: the same bytes always yield the same
+        sha256 and one row. `class` declares the blob's lifetime (ADR-061) and is
+        never inferred from size, mime or endpoint. On a content-address
+        collision the longest lifetime wins — an owned blob is never demoted by a
+        derived re-upload, a derived one is promoted (and its expiry cleared) by
+        an owned one, and two derived uploads keep the later expiry.
+      parameters:
+        - name: class
+          in: query
+          required: false
+          description: >-
+            `owned` (the default, and the semantics every pre-ADR-061 caller
+            had): permanent, some other row is the referrer. `derived`: a cache
+            entry, reproducible from inputs the hub still has, deleted once its
+            TTL elapses.
+          schema: { type: string, enum: [owned, derived] }
+        - name: ttl_seconds
+          in: query
+          required: false
+          description: >-
+            Required, and must be positive, when `class=derived`; a derived
+            upload with no TTL is a 400 rather than an implicit forever. Bounded
+            by HUB_BLOB_MAX_TTL (7 days by default). Ignored for `owned`.
+          schema: { type: integer, minimum: 1 }
       requestBody:
         content:
           application/octet-stream: {}
@@ -2248,10 +2275,13 @@ paths:
                 properties:
                   sha256: { type: string }
                   size: { type: integer }
+                  mime: { type: string }
+                  class: { type: string, enum: [owned, derived] }
+        "400": { description: Bad class, or a derived upload with no valid ttl_seconds }
+        "413": { description: Over the 25 MiB cap }
 
-  /v1/teams/{team}/blobs/{sha}:
+  /v1/blobs/{sha}:
     parameters:
-      - $ref: "#/components/parameters/Team"
       - in: path
         name: sha
         required: true
@@ -2260,11 +2290,18 @@ paths:
       tags: [Documents]
       operationId: getBlob
       summary: Download blob bytes by sha256
+      description: >-
+        Expiry marks sweep eligibility, not read refusal: an expired-but-not-yet
+        swept `derived` blob still serves, and a caller sees 404 only once the
+        sweeper has run. There is deliberately no DELETE — the store is deduped,
+        so deleting "your" blob could destroy the only copy of bytes another row
+        owns (ADR-061 D-3).
       responses:
         "200":
           description: Bytes
           content:
             application/octet-stream: {}
+        "404": { description: No such blob, or it has been swept }
 
   # ======================================================================
   # Plans + steps + schedules

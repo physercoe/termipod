@@ -72,6 +72,10 @@ type Server struct {
 	// agentTeam caches the immutable (agent id → team) binding used to route an
 	// agent-keyed event/digest access to its shard (store_route.go, ADR-045 P2).
 	agentTeam sync.Map
+	// blobLocks serializes a blob's (file, row) pair per content address, striped
+	// by the sha's own first byte. Held by storeBlob and by the expiry sweeper —
+	// see lockBlob in handlers_blobs.go for the exact race (ADR-061 D-3).
+	blobLocks [blobLockStripes]sync.Mutex
 	router    chi.Router
 	log       *slog.Logger
 	bus       *eventBus
@@ -322,6 +326,13 @@ func (s *Server) Serve(ctx context.Context) error {
 	// lifetime. Opt out with HUB_STORE_MAINTENANCE_DISABLE.
 	if os.Getenv("HUB_STORE_MAINTENANCE_DISABLE") == "" {
 		go s.runStoreMaintenance(ctx)
+	}
+	// Blob expiry (ADR-061 D-3): unlink `derived` blobs past their TTL. The only
+	// path by which anything is ever deleted from the blob store. Opt out with
+	// HUB_BLOB_SWEEP_DISABLE — the cost is unbounded cache growth, not
+	// incorrectness.
+	if os.Getenv("HUB_BLOB_SWEEP_DISABLE") == "" {
+		go s.runBlobSweep(ctx)
 	}
 
 	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and

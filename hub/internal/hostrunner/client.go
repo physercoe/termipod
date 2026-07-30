@@ -351,12 +351,29 @@ type BlobUploadOut struct {
 // UploadBlob POSTs raw bytes to /v1/blobs and returns the content-addressed
 // identifier. Duplicate bytes dedup server-side, so re-uploading the same
 // file is cheap.
+//
+// The blob is `owned` — permanent, because some hub row is its referrer. Bytes
+// that are a cache entry must go through UploadDerivedBlob instead: the class is
+// the writer's declaration and the store will not guess it (ADR-061 D-2).
 func (c *Client) UploadBlob(ctx context.Context, body []byte, mime string) (BlobUploadOut, error) {
+	return c.uploadBlob(ctx, body, mime, "", 0)
+}
+
+// UploadDerivedBlob uploads bytes the hub may delete once ttl elapses — a cache
+// entry, reproducible from inputs the hub still has (ADR-061 D-1).
+func (c *Client) UploadDerivedBlob(ctx context.Context, body []byte, mime string, ttl time.Duration) (BlobUploadOut, error) {
+	return c.uploadBlob(ctx, body, mime, "derived", ttl)
+}
+
+func (c *Client) uploadBlob(ctx context.Context, body []byte, mime, class string, ttl time.Duration) (BlobUploadOut, error) {
 	if mime == "" {
 		mime = "application/octet-stream"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.BaseURL+"/v1/blobs", bytes.NewReader(body))
+	url := c.BaseURL + "/v1/blobs"
+	if class != "" {
+		url += fmt.Sprintf("?class=%s&ttl_seconds=%d", class, int64(ttl.Seconds()))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return BlobUploadOut{}, err
 	}

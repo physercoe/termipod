@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/termipod/hub/internal/handoff"
 )
@@ -75,11 +76,26 @@ type handoffUnpackResult struct {
 	EngineSessionID string `json:"engine_session_id"`
 }
 
+// handoffPartTTL is how long a teleport part or manifest may live in the hub
+// blob store (ADR-061 D-4).
+//
+// The floor is named by the mechanism itself: unpack polls for up to 15 minutes
+// (`handlers_teleport.go`) and resume-on-source can stretch a retry past one
+// poll window, so the TTL must comfortably exceed both. A day costs nothing —
+// the alternative these parts had until now was *forever* — and no legitimate
+// reader exists beyond the teleport that wrote them. After the row flip the
+// target has untarred them; before it, the rollback is resume-on-source. The
+// only referrer is a `host_commands` row, which cascade-deletes.
+const handoffPartTTL = 24 * time.Hour
+
 // hubBlobStore adapts the host-runner Client to handoff.BlobStore.
 type hubBlobStore struct{ c *Client }
 
 func (s hubBlobStore) Put(ctx context.Context, body []byte, mime string) (string, error) {
-	out, err := s.c.UploadBlob(ctx, body, mime)
+	// `derived`, not `owned`: these are transient relocation, never storage.
+	// Calling them permanent was the specific hole ADR-057 D-3 recorded and
+	// deferred, and it made every teleport leak its bundle into the hub forever.
+	out, err := s.c.UploadDerivedBlob(ctx, body, mime, handoffPartTTL)
 	if err != nil {
 		return "", err
 	}

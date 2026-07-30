@@ -77,7 +77,7 @@ func (s *Server) externalizeValue(ctx context.Context, v any, changed *bool) any
 		if len(t) <= payloadExternalizeThreshold || strings.HasPrefix(t, blobRefPrefix) {
 			return t
 		}
-		sha, err := s.storeBlob(ctx, []byte(t), "application/octet-stream")
+		sha, err := s.storeOwnedBlob(ctx, []byte(t), "application/octet-stream")
 		if err != nil {
 			s.log.Warn("payload externalize", "err", err, "bytes", len(t))
 			return t // keep inline rather than lose data

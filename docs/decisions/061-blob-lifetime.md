@@ -16,8 +16,11 @@
 > [ADR-058](058-host-job-surface.md): this ADR is the lifetime half of 058 §4's
 > deferred remote-fetch decision.
 > **Audience:** contributors · maintainers
-> **Last verified vs code:** origin/main `b4e901f0` (nothing here is built
-> except D-8's `addDir`/`addFile` ENOENT tolerance)
+> **Last verified vs code:** origin/main `b4e901f0` (as accepted) · **built
+> 2026-07-30**: migration 0071 (`class`, `expires_at`, the partial index),
+> `storeBlob`'s class/TTL parameters + D-5 collision upsert, the expiry sweeper
+> (`blob_sweep.go`), teleport parts flipped to `derived` with a 24h TTL, and
+> D-8's backup exclusion. D-6's byte cap remains deferred, as written.
 
 **TL;DR.** The hub's blob store has no DELETE, no TTL, no owner column and no
 team column: everything ever written to it is permanent, and at least four

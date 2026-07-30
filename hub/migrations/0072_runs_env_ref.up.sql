@@ -1,0 +1,25 @@
+-- Runs carry the environment they ran in (plan
+-- docs/plans/environments-and-embodiments.md, wedge E0; reserved by
+-- docs/plans/replay-datasets-episodes.md §3).
+--
+-- E0 reserves an opaque provenance handle "family:env_id@version" on runs,
+-- datasets and episodes BEFORE the Environment entity exists, so provenance
+-- accumulates now and later RESOLVES into registry rows instead of being
+-- backfilled by guesswork. Datasets got theirs in 0068; this is the runs half.
+--
+-- Same shape as datasets.env_ref (TEXT NOT NULL DEFAULT '') because it is the
+-- same field: one name, one type, one empty value across every layer. It is
+-- unvalidated by design — format validation arrives with E2 resolution, which
+-- types an unmatched string "unresolved" rather than rejecting old rows.
+--
+-- NOT derived from runs.dataset_id, and that omission is the whole rule for
+-- runs. A dataset's env_ref says where its data was COLLECTED; an eval run
+-- rolls out in an environment that may be a different one — precisely the
+-- distinction env identity exists to draw. Copying the link would put a
+-- plausible wrong answer exactly where the question matters, so the write
+-- stays an explicit act, the posture 0069 already took for dataset_id itself.
+--
+-- No index: nothing groups by env_ref until the E2 boards exist, and an index
+-- on a column whose values are almost all '' would earn nothing.
+
+ALTER TABLE runs ADD COLUMN env_ref TEXT NOT NULL DEFAULT '';

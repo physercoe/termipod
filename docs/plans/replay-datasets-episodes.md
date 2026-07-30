@@ -196,6 +196,14 @@ tab never says "replay" about transcripts and vice versa.
   guesswork. W1 writes it where cheaply derivable (LeRobot `info.json`
   robot/task hints); everything else leaves it null.
 
+  > **As shipped.** Datasets in W1b (migration 0068, derived
+  > `lerobot:<robot_type>`); runs on 2026-07-30 (migration 0072 — a column
+  > with no derivation, because a run's environment is not its dataset's).
+  > The episode leg had no row to land on: there is no `elements` table, so
+  > it became an override field on the host-served episode row plus the
+  > resolution `episode.env_ref || dataset.env_ref`. See the environments
+  > plan's "E0 as shipped".
+
 ## 4. W1 — Dataset entity, library rail, episodes table (BUILD, no player yet)
 
 **Hub**: `datasets` table + REST CRUD (list by project, register, refresh

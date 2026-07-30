@@ -564,6 +564,10 @@ export class HubClient {
       /** The dataset this run trained on / rolled out against (J8 W5).
        * Must be in the run's own project; '' unlinks. */
       dataset_id?: string;
+      /** Opaque `family:env_id@version` handle for the environment this run
+       * ran in (environments plan E0). Unvalidated; '' clears it. Not implied
+       * by `dataset_id` — that names where the DATA came from. */
+      env_ref?: string;
     },
   ): Promise<Entity> {
     return this.transport.patch(this.transport.team(`/runs/${id}`), patch) as Promise<Entity>;

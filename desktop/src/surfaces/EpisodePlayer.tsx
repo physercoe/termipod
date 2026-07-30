@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
-import { formatCount, formatDuration, type DatasetSummary } from '../state/replayDigest';
+import { episodeEnvRef, formatCount, formatDuration, type DatasetSummary } from '../state/replayDigest';
 import {
   formatSample,
   nearestPointIndex,
@@ -87,6 +87,7 @@ export function EpisodePlayer({
     setCursor(null);
   }, [episode.index]);
 
+  const envRef = episodeEnvRef(episode, summary);
   const shown = view.features.filter((f) => !hidden.has(f.key));
   const cursorIndex = cursor === null ? -1 : nearestPointIndex(view.timestamps, cursor);
   const cursorTime = cursorIndex >= 0 ? view.timestamps[cursorIndex] : null;
@@ -127,6 +128,16 @@ export function EpisodePlayer({
           {formatCount(episode.length)} {t('replay.player.frames')}
           {' · '}
           {formatDuration(episode.durationSec)}
+          {/* The environment this episode was recorded in (plan §2's env chip,
+              environments plan E0). Shown verbatim: E0 has no registry to
+              resolve the handle against, and inventing a prettier rendering
+              would be parsing a string the model says is opaque. */}
+          {envRef !== '' && (
+            <>
+              {' · '}
+              {t('replay.player.env')} <span className="mono">{envRef}</span>
+            </>
+          )}
           {view.downsampled && (
             <>
               {' · '}

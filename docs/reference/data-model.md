@@ -214,6 +214,9 @@ Fields:
 - `started_at, finished_at`
 - `trackio_host_id, trackio_run_uri` (reference, not content)
 - `parent_run_id` (for sweeps)
+- `dataset_id` (what it trained on / rolled out against — replay plan W5)
+- `env_ref` (the environment it ran in: opaque `family:env_id@version`,
+  unvalidated, and never inferred from `dataset_id` — environments plan E0)
 
 Metrics never live on the hub. The phone fetches them from the
 host's trackio via a hub-signed URL.

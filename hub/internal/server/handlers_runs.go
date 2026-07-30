@@ -36,6 +36,7 @@ type runIn struct {
 	StartedAt     string          `json:"started_at,omitempty"`
 	TrackioHostID string          `json:"trackio_host_id,omitempty"`
 	TrackioRunURI string          `json:"trackio_run_uri,omitempty"`
+	EnvRef        string          `json:"env_ref,omitempty"`
 }
 
 type runOut struct {
@@ -53,6 +54,12 @@ type runOut struct {
 	// The dataset this run trained on or rolled out against (plan W5).
 	// Empty when the run is not about a dataset, which is most runs.
 	DatasetID string `json:"dataset_id,omitempty"`
+	// EnvRef is the opaque "family:env_id@version" handle for the environment
+	// this run ran in (E0, migration 0072). Unvalidated, written only when a
+	// caller says so — never inferred from DatasetID, whose env_ref answers a
+	// different question (where the DATA was collected, not where this run
+	// rolled out).
+	EnvRef    string `json:"env_ref,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -138,15 +145,15 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO runs (
 			id, project_id, agent_id, config_json, seed, status,
 			started_at, trackio_host_id, trackio_run_uri, parent_run_id,
-			created_at
+			env_ref, created_at
 		) VALUES (
 			?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, 'pending',
 			NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''),
-			?
+			?, ?
 		)`,
 		id, in.ProjectID, in.AgentID, configStr, nullableInt64(in.Seed),
 		in.StartedAt, in.TrackioHostID, in.TrackioRunURI, in.ParentRunID,
-		now,
+		in.EnvRef, now,
 	)
 	if err != nil {
 		s.writeDBErr(w, err)
@@ -168,6 +175,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		TrackioHostID: in.TrackioHostID,
 		TrackioRunURI: in.TrackioRunURI,
 		ParentRunID:   in.ParentRunID,
+		EnvRef:        in.EnvRef,
 		CreatedAt:     now,
 	})
 }
@@ -182,7 +190,8 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(r.config_json, ''), r.seed, r.status,
 		       COALESCE(r.started_at, ''), COALESCE(r.finished_at, ''),
 		       COALESCE(r.trackio_host_id, ''), COALESCE(r.trackio_run_uri, ''),
-		       COALESCE(r.parent_run_id, ''), COALESCE(r.dataset_id, ''), r.created_at
+		       COALESCE(r.parent_run_id, ''), COALESCE(r.dataset_id, ''),
+		       r.env_ref, r.created_at
 		FROM runs r
 		JOIN projects p ON p.id = r.project_id
 		WHERE p.team_id = ?`
@@ -228,7 +237,7 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			&ro.ConfigJSON, &seed, &ro.Status,
 			&ro.StartedAt, &ro.FinishedAt,
 			&ro.TrackioHostID, &ro.TrackioRunURI,
-			&ro.ParentRunID, &ro.DatasetID, &ro.CreatedAt); err != nil {
+			&ro.ParentRunID, &ro.DatasetID, &ro.EnvRef, &ro.CreatedAt); err != nil {
 			s.writeDBErr(w, err)
 			return
 		}
@@ -262,7 +271,8 @@ func (s *Server) writeRunByID(w http.ResponseWriter, r *http.Request, team, runI
 		       COALESCE(r.config_json, ''), r.seed, r.status,
 		       COALESCE(r.started_at, ''), COALESCE(r.finished_at, ''),
 		       COALESCE(r.trackio_host_id, ''), COALESCE(r.trackio_run_uri, ''),
-		       COALESCE(r.parent_run_id, ''), COALESCE(r.dataset_id, ''), r.created_at
+		       COALESCE(r.parent_run_id, ''), COALESCE(r.dataset_id, ''),
+		       r.env_ref, r.created_at
 		FROM runs r
 		JOIN projects p ON p.id = r.project_id
 		WHERE r.id = ? AND p.team_id = ?`, runID, team).Scan(
@@ -270,7 +280,7 @@ func (s *Server) writeRunByID(w http.ResponseWriter, r *http.Request, team, runI
 		&ro.ConfigJSON, &seed, &ro.Status,
 		&ro.StartedAt, &ro.FinishedAt,
 		&ro.TrackioHostID, &ro.TrackioRunURI,
-		&ro.ParentRunID, &ro.DatasetID, &ro.CreatedAt)
+		&ro.ParentRunID, &ro.DatasetID, &ro.EnvRef, &ro.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "run not found")
 		return
@@ -338,6 +348,7 @@ type runUpdateIn struct {
 	TrackioRunURI *string          `json:"trackio_run_uri,omitempty"`
 	ParentRunID   *string          `json:"parent_run_id,omitempty"`
 	DatasetID     *string          `json:"dataset_id,omitempty"`
+	EnvRef        *string          `json:"env_ref,omitempty"`
 }
 
 // handleUpdateRun is PATCH /v1/teams/{team}/runs/{run} — a partial
@@ -437,6 +448,13 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		add("dataset_id", nullIfEmpty(*in.DatasetID))
+	}
+	if in.EnvRef != nil {
+		// Stored verbatim, empty string included: E0's contract is an opaque
+		// handle nobody parses yet, and "" is how a caller retracts a wrong
+		// one. Validation is E2 resolution's job, and it types an unmatched
+		// string "unresolved" rather than refusing the write.
+		add("env_ref", *in.EnvRef)
 	}
 	if len(sets) == 0 {
 		writeErr(w, http.StatusBadRequest, "no updatable fields supplied")

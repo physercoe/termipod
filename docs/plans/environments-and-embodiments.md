@@ -1,11 +1,11 @@
 # Environments & embodiments — the scene/task/site entity and the robot registry
 
 > **Type:** plan
-> **Status:** Draft (2026-07-27) — model settled (director discussion,
-> 2026-07-27); wedges E0/E1 ride J8 Replay round 1, E2+ scheduled after
-> J8 W1–W2 ship.
+> **Status:** In flight (2026-07-30) — model settled (director discussion,
+> 2026-07-27); **E0 shipped** (datasets in J8 W1, runs + episodes 2026-07-30),
+> **E1 shipped** as frontend data; E2 is the next wedge.
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `f3d4a0f8`
+> **Last verified vs code:** origin/main `9a676cff`
 > **Parents:** [replay-datasets-episodes.md](replay-datasets-episodes.md)
 > (J8 — reserves `env_ref` §3 and the URDF manifest §6 for this plan) ·
 > [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
@@ -163,6 +163,56 @@ pose panel, `Environment.embodiment_ref`, and Inspect's policy arch view
   (content hash), twin edges persist across versions; splat/scan attach.
 - **E4 — launch-picker integration:** blocked on the sim-run adapter
   sibling plan; the registry is its env parameter source.
+
+### E0 as shipped (datasets 2026-07-29, runs + episodes 2026-07-30)
+
+Datasets got theirs with the entity itself (migration `0068_datasets`,
+`env_ref TEXT NOT NULL DEFAULT ''`, derived host-side as
+`lerobot:<robot_type>` where `meta/info.json` names one — `datasetmeta`'s
+`Info.envRef`). The other two legs landed together, and neither is quite what
+this section promised.
+
+**Runs — a column, and deliberately nothing that fills it.** Migration
+`0072_runs_env_ref` adds the same-shaped column; it is settable at
+`POST /runs`, patchable at `PATCH /runs/{run}`, returned by list and get, and
+carried by the `runs_create` / `runs_update` MCP schemas. §3 says "J8 W1 writes
+it where cheaply derivable" — for runs, **nothing is**. The one signal within
+reach is the linked dataset's handle, and taking it would be wrong exactly
+where env identity earns its keep: a dataset's `env_ref` says where its DATA
+was collected, while an eval run rolls out somewhere that may differ. So the
+write stays an explicit act, the posture W5 already took for `dataset_id`
+itself, and a test pins it (`TestRunEnvRef_IsNotInferredFromTheLinkedDataset`).
+
+**Episodes — there was nothing to add a column to.** §3 names "the episode
+element", but the element store is a *discussion-level* model
+([`research-material-data-model.md`](../discussions/research-material-data-model.md));
+there is no `elements` table in `hub/migrations`, and per ADR-060 an episode
+becomes a hub row only when something references it. Both halves of that are
+still unbuilt, so E0's episode leg landed as:
+
+- an **override slot** on the host-served episode row
+  (`datasetmeta.Episode.EnvRef`), emitted only when an episode's own metadata
+  names an environment different from its dataset's — which neither LeRobot
+  generation records, so today it is always absent. Stamping the dataset's
+  handle onto every row would ship one string 50k times to repeat what the
+  dataset already answered;
+- the **resolution** that makes the slot meaningful, `episode.env_ref ||
+  dataset.env_ref` (`replayDigest.episodeEnvRef`), because a consumer reading
+  the row directly would report "no environment" for every episode that has
+  one;
+- §2's **env chip** on the episode player header, showing the handle verbatim.
+  E0 has no registry to resolve against, so there is no "unresolved" state to
+  show yet — that arrives with E2 and must never become a hard error.
+
+Where it shows: the run overview in desktop **RunDetail** (a row that renders
+only when set, so nearly every run looks unchanged) and the **episode player
+header**. There is still no UI that *writes* an `env_ref` — agents set it
+through `runs_update` / `datasets` PATCH, humans through the API.
+
+**Still open from E0:** the durable episode reference (element or eval-rollout
+row) carries the column when that entity exists; until then an episode's
+environment is its dataset's. Mobile shows no `env_ref` anywhere — it reads
+runs untyped, so the field arrives but is unrendered.
 
 ## 4. Review anchors
 

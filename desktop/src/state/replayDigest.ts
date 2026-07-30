@@ -51,6 +51,10 @@ export interface DatasetSummary {
   format: string;
   codebaseVersion: string;
   robotType: string;
+  /// The opaque "family:env_id@version" provenance handle (environments plan
+  /// E0). A dataset row column, not a digest field — so it is meaningful even
+  /// on a dataset no host has read yet, unlike everything below.
+  envRef: string;
   fps: number;
   episodes: number;
   frames: number;
@@ -184,6 +188,7 @@ export function readDatasetSummary(dataset: Entity | undefined | null): DatasetS
     format: '',
     codebaseVersion: '',
     robotType: '',
+    envRef: '',
     fps: 0,
     episodes: 0,
     frames: 0,
@@ -202,15 +207,17 @@ export function readDatasetSummary(dataset: Entity | undefined | null): DatasetS
   if (!dataset) return empty;
   const digest = obj(dataset.digest);
   const digestTS = str(dataset.digest_ts);
+  const envRef = str(dataset.env_ref);
   // A digest key can be present but empty on a row that was never refreshed;
   // the timestamp is what actually proves a host read happened.
-  if (!digest || !digestTS) return { ...empty, digestTS };
+  if (!digest || !digestTS) return { ...empty, digestTS, envRef };
 
   return {
     hasDigest: true,
     format: str(digest.format) || str(dataset.format),
     codebaseVersion: str(digest.codebase_version),
     robotType: str(digest.robot_type),
+    envRef,
     fps: num(digest.fps),
     episodes: num(digest.total_episodes),
     frames: num(digest.total_frames),
@@ -257,6 +264,11 @@ export interface EpisodeRow {
   /// Sorted by key so a multi-camera grid keeps a stable pane order across
   /// reads — map iteration order off the wire is not a layout decision.
   videos: EpisodeVideo[];
+  /// This episode's OVERRIDE of its dataset's env_ref, empty when it inherits
+  /// (environments plan E0). Neither LeRobot generation records one, so today
+  /// it is always empty — read it through `episodeEnvRef`, never directly, or
+  /// the answer is "no environment" for every episode that has one.
+  envRef: string;
 }
 
 export interface EpisodePageView {
@@ -282,6 +294,7 @@ export function readEpisodePage(page: Entity | undefined | null): EpisodePageVie
           .map((t) => str(t))
           .filter(Boolean),
         videos: [],
+        envRef: str(e.env_ref),
       };
       // 0 is a legitimate offset, so presence is tested on the key, not on
       // truthiness — `num(e.from_index) || undefined` would erase episode 0's
@@ -317,6 +330,20 @@ function readEpisodeVideos(v: unknown): EpisodeVideo[] {
     out.push({ key, path, fromTS: num(slice.from_ts), toTS: num(slice.to_ts) });
   }
   return out;
+}
+
+/// The environment handle to show for one episode (environments plan E0).
+///
+/// An episode inherits its dataset's `env_ref` and overrides it only when its
+/// own metadata names a different one — so the resolution is override-else-
+/// inherit, and it lives here rather than at each call site because the host
+/// deliberately does NOT repeat the dataset's handle on every episode row.
+///
+/// E0 has no registry to match the string against: this returns the opaque
+/// handle verbatim, and nothing here may parse it. E2 resolution is what turns
+/// it into a row (or a typed "unresolved").
+export function episodeEnvRef(episode: EpisodeRow, summary: DatasetSummary): string {
+  return episode.envRef !== '' ? episode.envRef : summary.envRef;
 }
 
 /// The 1-based inclusive range this page covers, for a "showing 1–200 of 50,000"

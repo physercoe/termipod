@@ -1030,6 +1030,13 @@
 .author-nav-sec.grow {
   flex: 1;
   min-height: 0;
+  /* The section SCROLLS when the tree overflows — without this the flex
+     children (direct-child file rows) crush below their content height
+     (11px rows) instead of scrolling. */
+  overflow-y: auto;
+}
+.author-nav-sec.grow > * {
+  flex-shrink: 0;
 }
 .author-nav-head {
   display: flex;

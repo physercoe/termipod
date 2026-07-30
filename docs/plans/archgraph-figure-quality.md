@@ -1,7 +1,10 @@
 # Archgraph figure quality — publication-grade model schematics in Inspect
 
 > **Type:** plan
-> **Status:** Draft (2026-07-28) — for fleet implementation
+> **Status:** **Shipped** — W1–W5 all landed 2026-07-29 (#430–#436: hybrid
+> classification, KV-cache-per-token class, heterogeneous schematic + pattern
+> strip, zoom/annotation/SVG-PNG export, arch diff) and ship in desktop
+> `2026.730.1242`; reviewed against live HF configs
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `ae3b99c2`
 > **Parent:** [debug-code-logs-diffs-models.md](debug-code-logs-diffs-models.md)

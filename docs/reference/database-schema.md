@@ -1,15 +1,20 @@
 # Database schema
 
 > **Type:** reference
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-07-30) — the per-table sections below were
+> last re-verified column-by-column at v1.0.351 (migration head 0033);
+> §8b, added by the 2026-07-30 docs audit, indexes migrations
+> 0034–0073 by domain so the delta is findable. `hub/migrations/`
+> remains the authoritative source.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** hub `2026.730.1231-alpha` (migration index); v1.0.351 (per-column)
 
 **TL;DR.** Every table on the hub side and every cache table on the
 mobile side, grouped by domain. One ER diagram per side; per-table
 summaries with links to detailed reference docs where one exists; the
 ownership rule that decides what lives where. Migration head is
-`hub/migrations/0033_sessions_engine_session_id.up.sql`.
+`hub/migrations/0073_environments.up.sql` (§8b indexes everything
+after 0033).
 
 This doc is the **single canonical entry** for "where is data X
 stored?" Per-feature reference docs (e.g.,
@@ -344,6 +349,46 @@ small metadata row + an artifact URI pointing at the host.
 - **Mobile cache invariant.** `HubSnapshotCache` rows include the hub
   base URL + team id in `hub_key`; switching hubs / teams scopes
   reads to the correct partition and avoids cross-contamination.
+
+---
+
+## 8b. Migrations 0034–0073 by domain (2026-07-30 audit index)
+
+Added since the v1.0.351 verify; each name is
+`hub/migrations/NNNN_name.{up,down}.sql`. Grouped by domain — read the
+SQL (or the linked ADR) for columns.
+
+- **Project lifecycle (ADR-024/044/046):** `0034_project_lifecycle`,
+  `0037_project_tile_overrides`, `0038_project_overview_widget_overrides`,
+  `0040_agents_project_id`, `0043_project_loop_deadlines`,
+  `0056_tasks_phase`, `0058_backfill_criteria_deliverable_id`
+- **Tasks first-class (ADR-029):** `0041_tasks_spawn_lifecycle`,
+  `0059_tasks_block_reason`
+- **Governed actions (ADR-030):** `0045_attention_items_governed_actions`
+- **Sessions + identity:** `0044_strip_handle_at_prefix`,
+  `0046_sessions_name_hint`, `0047_owner_tokens_to_operator`,
+  `0052_agent_events_session_ordinal` (ADR-042), `0060_sessions_agent_ids`
+- **Insight workbench (ADR-038/039/040/041):** `0049_agent_event_digests`,
+  `0050_agent_turns`, `0051_run_extras`, `0053_agent_turns_start_ordinal`,
+  `0054_agent_turns_session_id`
+- **Documents + annotations:** `0035_document_annotations`,
+  `0036_agent_events_project_id`, `0039_artifacts_kind_check`
+- **Channels / teams (ADR-037):** `0048_channels_team_id`
+- **Templates:** `0055_drop_stamp_project_trigger`, `0057_drop_stub_templates`
+- **Key vault (ADR-052):** `0061_key_vault`, `0065_vault_last_device`
+- **Reference library (ADR-053):** `0062_reference_items`,
+  `0063_reference_enrichment`, `0064_reference_annotations`
+- **Env profiles + sealed secrets (ADR-056):** `0066_env_profiles`,
+  `0067_env_secret_envelope`
+- **Datasets + runs provenance (ADR-060):** `0068_datasets`,
+  `0069_runs_dataset`, `0072_runs_env_ref`
+- **Host jobs (ADR-058):** `0070_host_command_progress`
+- **Blob lifetime (ADR-061):** `0071_blob_lifetime`
+- **Environments entity (E2a):** `0073_environments`
+
+Note also the **physical layout change** shipped outside numbered
+migrations: per-team `events.db` + `digest.db` shards under
+`<dataRoot>/teams/<team>/` (ADR-045 P2, `hub-server db split-teams`).
 
 ---
 

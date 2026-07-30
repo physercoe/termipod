@@ -1,9 +1,11 @@
 # Glossary
 
 > **Type:** reference
-> **Status:** Current (2026-05-13)
+> **Status:** Current (2026-07-30) — receives incremental sections as
+> entities ship (§11b environments & embodiments added with E2a,
+> 2026-07-30); the core terms date to the v1.0.556 full pass
 > **Audience:** contributors (humans + AI)
-> **Last verified vs code:** v1.0.556
+> **Last verified vs code:** hub `2026.730.1231-alpha` (incremental); v1.0.556 (full pass)
 
 **TL;DR.** Canonical definitions for every project-specific term that
 has more than one possible meaning, or whose meaning is non-obvious

@@ -1,7 +1,8 @@
 # Desktop Electron migration — M0–M4
 
 > **Type:** plan
-> **Status:** In progress (M0–M3.4 done; M4 underway, 2026-07-22) — executes
+> **Status:** **Complete** (M0–M4 all done; M4 Chromium paydown shipped in
+> `2026.722.818`, 2026-07-22) — executed
 > [ADR-055](../decisions/055-desktop-electron-shell.md) (Electron shell,
 > superseding ADR-051 D-1). The M3.4 cutover is complete: the Tauri shell,
 > `src-tauri/`, the `desktop-v*` release lane, and the `@tauri-apps` frontend
@@ -11,7 +12,7 @@
 > frontend at ~85 string-literal call sites; 10 event channels; 1 custom URI
 > scheme; 3 plugins.
 > **Audience:** contributors · principal
-> **Last verified vs code:** desktop CalVer `2026.722.252` (Tauri retirement)
+> **Last verified vs code:** desktop CalVer `2026.722.818` (M4 Chromium paydown)
 
 **TL;DR.** A strangler migration in five phases. **M0** (inside the current
 Tauri app) hides the runtime behind a `src/bridge/` adapter and starts

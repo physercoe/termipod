@@ -1,9 +1,10 @@
 # termipod blueprint
 
 > **Type:** axiom
-> **Status:** Current (2026-05-30)
+> **Status:** Current (2026-07-30) — A1 amendment recorded (ADR-050
+> second client); axioms otherwise unchanged
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.351 (axioms are code-independent; the client model was re-verified 2026-07-30)
 
 **TL;DR.** Authoritative reference for termipod's design philosophy,
 component ontology, and the data-ownership law. Future PRs should
@@ -52,6 +53,15 @@ more output than a human can review. Filtering and summarization are
 primitives, not features. UX optimizes for the 100-glances-per-day phone
 interaction pattern, not the 8-hours-at-a-desk pattern.
 
+> **Amended by [ADR-050](../decisions/050-desktop-workbench-delivery-model.md)
+> (2026-07-04, recorded here 2026-07-30).** A1's attention economics stand,
+> but the *interaction pattern* clause is no longer exclusive: the system now
+> has two clients on the same client-agnostic API. The **mobile app** remains
+> the triage surface for the 100-glances pattern; the **desktop workbench**
+> deliberately serves the at-a-desk deep-work pattern (reviewing, authoring,
+> inspecting, replaying) that agent-scale output also demands. Neither client
+> is derivable from the hub's API contract — the hub stays client-agnostic.
+
 **A2. Work is spatially bound to compute and data.** Training touches large
 datasets on specific GPUs; analysis reads large files on specific hosts.
 Work executes *where the matter is*. The system is distributed by physics,
@@ -95,7 +105,8 @@ axiom forces it, it shouldn't be in the system.
 The **authority layer**: a name service, policy engine, event log.
 
 Forced by:
-- A1: one coherent world-model the human can consult from a phone.
+- A1: one coherent world-model the human can consult from a phone or
+  the desktop workbench.
 - A3: policy and audit must be authoritative; scattered storage permits
   inconsistency and tampering.
 
@@ -330,11 +341,13 @@ it so older cross-references still resolve.
 Phased PR plan. Each phase is independently demoable; phase 2 completes
 the research MVP pitch.
 
-**Status as of v1.0.314.** Phases P0–P3 shipped; P4 backend is
-feature-complete. The remaining demo work is reliability hardening
-from device walkthroughs and the actual hardware run of Candidate A.
-Per-bullet status below; current Now/Next/Later view is in
-[`../roadmap.md`](../roadmap.md).
+**Status as of `2026.730.1231-alpha`.** Phases P0–P3 shipped; P4
+backend is feature-complete. The remaining demo work is reliability
+hardening from device walkthroughs and the actual hardware run of
+Candidate A. The desktop-workbench and embodied-research lanes that
+grew beyond these five phases are tracked in
+[`../roadmap.md`](../roadmap.md) (which also carries the current
+Now/Next/Later view); per-bullet status below.
 
 ### Phase 0 — primitives (hub schema) ✅ shipped
 

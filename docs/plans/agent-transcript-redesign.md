@@ -1,7 +1,10 @@
 # Agent transcript redesign — embed kimi-web, tool groups, state dock, slash picker, kimi M4 wire-tail
 
 > **Type:** plan
-> **Status:** Accepted 2026-07-23 — maintainer decisions recorded in §7
+> **Status:** **Complete** — P0–P5 all shipped by 2026-07-29 (P1–P3 desktop
+> transcript rebuild; P0 header/debug parity PR #373; P4 fleet PR #375; P5
+> digest issue classes + streaming-markdown wedges #437–#445). Maintainer
+> decisions recorded in §7. Open: the P0 remote SSH-forward follow-up.
 > **Audience:** contributors, maintainer
 > **Last verified vs code:** main @ `57d96f6d` / kimi-code 0.28.1 on macOS arm64, 2026-07-23
 

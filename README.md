@@ -169,16 +169,33 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 
 ### Desktop workbench (macOS · Windows · Linux)
 
-The same control plane at full size. The desktop client is a **React + TypeScript** frontend wrapped by an **Electron** shell (`desktop/`, ADR-055) — it succeeds the original Tauri shell, retired at the M3.4 cutover. Connect it to your hub, or use the built-in SSH terminal standalone.
+The same control plane at full size — plus a **researcher's workbench** the phone doesn't have. The desktop client is a **React + TypeScript** frontend wrapped by an **Electron** shell (`desktop/`, ADR-055) — it succeeds the original Tauri shell, retired at the M3.4 cutover. Connect it to your hub, or use the built-in SSH terminal standalone.
 
-- **Mission-control shell** — three-region layout with the fleet Navigator (hosts ▸ agents tree, live status dots), a persistent status bar, and a ⌘K command palette
-- **Transcript workbench** — live agent transcripts over SSE (tail backfill + seq cursor) with a composer, a digest tab, and run insights
-- **Approvals dock** — governed actions surface as always-visible attention cards (permission prompts, propose+override, help requests); ratify or reject inline
-- **Projects** — overview with phase track and deliverables, a tasks kanban with inline status/priority edits, runs, and plans
-- **Admin & governance** — team members, editable policy YAML, host/agent/team administration, and DB upkeep behind two-click confirms
-- **Breakglass SSH terminal** — direct SSH + SFTP (password or key, in-app ed25519 key generation, TOFU host-key pinning). Keys stay on the device — never sent to the hub
+**Control plane:**
+
+- **Mission-control shell** — activity rail (Fleet · Projects · Read · Author · Inspect · Compare · Replay · Record · Terminal), fleet Navigator (hosts ▸ agents tree, live status dots), persistent status bar, ⌘K command palette with rebindable shortcuts, and a **split-pane** mode that pins a second surface beside the first
+- **Transcript workbench** — live agent transcripts over SSE with Live / Insight / History modes, a composer, per-session digests, and run insights
+- **Approvals dock** — governed actions surface as always-visible attention cards (permission prompts, propose+override, help requests, remote browser-driving approvals); ratify or reject inline
+- **Projects & tasks** — overview with phase track and deliverables, a master-detail tasks kanban with agent-aware drag-and-drop, runs, plans, and docs
+- **Spawn with environments** — spawn workers and stewards from templates into **env profiles**, with secret refs sealed client-side to the target host's key (the hub only ever stores ciphertext); **teleport** a paused session to another host and resume it there
+- **Assistant dock** — a tabbed dock hosting an embedded agent web UI and a per-surface agent Companion; agents on the same host can (opt-in, audited) read webtabs, act in them, ask **what you're looking at** (`ui_get_focus`), and you can point back with an annotation overlay
+- **Admin & governance** — team members, editable policy YAML, host/agent/team administration, live audit console, and DB upkeep behind two-click confirms
+
+**Research surfaces:**
+
+- **Read** — a Zotero-shaped library with arXiv / Crossref / OpenAlex / PubMed / Semantic Scholar / Unpaywall discovery, an in-app PDF/EPUB reader with annotations, open-access PDF download, and a real browser tab
+- **Author** — Markdown + math writing with an outline nav, WYSIWYG and canvas editors, figures (Mermaid / Graphviz / Vega), draw.io and Excalidraw embeds
+- **Inspect** — code, diffs, logs, and **model checkpoints**: project trees over local / SFTP / hub / GitHub / HuggingFace roots, a config-only model view with VRAM + FLOPS estimators, and an architecture schematic that handles hybrid linear-attention stacks and diffs one model's config against another's
+- **Compare** — multi-run metric overlays side by side
+- **Replay** — embodied-AI datasets and episodes: a dataset library with digests, an episode player syncing channel plots + multi-camera video to one cursor, URDF forward kinematics driving a 3D pose panel, and **Export to Rerun** (local or over your own SSH session)
+- **Record** — ADR-shaped capture of decisions and findings
+
+**And underneath:**
+
+- **Breakglass SSH terminal** — direct SSH + SFTP with jump hosts (ProxyJump) and SOCKS5, `ssh_config` import/export, in-app ed25519 key generation, TOFU host-key pinning. Keys stay on the device — never sent to the hub
 - **Local PTY & agent CLIs** — spawn local terminals and run agent CLIs on the desktop itself
-- **Vault & sync** — WASM vault crypto; folder sync over WebDAV, S3, and Zotero-layout backends
+- **Vault & sync** — WASM vault crypto with cross-device zero-knowledge sync; folder sync over WebDAV, S3, and Zotero-layout backends
+- **Voice input** — streaming dictation into the composer
 - **Yours to theme** — light / dark / system themes and English / 中文 i18n throughout
 - **Self-updating installers** — macOS `.dmg`, Windows `.exe`, Linux `.AppImage`/`.deb` with a built-in updater; a one-time migration imports state and secrets from a previous Tauri install
 
@@ -368,7 +385,9 @@ The MVP target is the **research demo** described in
 writes a directive → steward decomposes → fleet executes runs across
 hosts → briefing agent summarizes overnight → user reviews on phone.
 
-**Mobile + hub lane (`v1.0.x`), phase status as of v1.0.822:**
+**Mobile + hub + host lanes** (CalVer `YYYY.MMDD.HHMM` since 2026-07-22,
+tagged per component as `mobile-v*` / `hub-v*` / `host-v*`), phase status
+as of `2026.730.1231-alpha`:
 
 | Phase | Status |
 |---|---|
@@ -384,14 +403,17 @@ run of Candidate A (nanoGPT-Shakespeare optimizer × size sweep) is
 the MVP milestone — gated on two consecutive walkthrough-clean
 device tests.
 
-**Desktop lane (`electron-v*`, own changelog):** the workbench feature set
-(WS2–WS8: shell, navigator, transcripts, approvals, projects, admin, SSH
-terminal, packaging) now ships on **Electron** (ADR-055) — M1 (scaffold + hub
-bridging), M2 (native ports: PTY, SSH/SFTP + keys, folder sync, vault WASM),
-M3.1–3.3 (electron-builder packaging, electron-updater, first-boot migration
-from a Tauri install), and M3.4 — the Tauri lane and its `desktop-v*` releases
-are retired. Auto-update stays manual-install until the signing certs land and
-the first release is promoted onto the rolling feed. Record:
+**Desktop lane (`electron-v*`, CalVer, own changelog):** the Electron
+migration (ADR-055) is **complete** — M1 scaffold + hub bridging, M2 native
+ports (PTY, SSH/SFTP + keys, folder sync, vault WASM), M3 packaging +
+electron-updater + first-boot migration from a Tauri install, M3.4 Tauri-lane
+retirement, and M4 Chromium paydown (Playwright-driven e2e harness, native
+context menus, `<webview>` embeds). Since the cutover the lane has shipped the
+research surfaces (Read / Author / Inspect / Compare / Replay / Record),
+embodied replay (J8), the agent browser bridge + UI-context arc, env profiles +
+session teleport, and the split-pane shell. Auto-update stays manual-install
+until the signing certs land and a release is promoted onto the
+`electron-latest` feed. Record:
 [docs/changelog-desktop.md](docs/changelog-desktop.md), plan:
 [docs/plans/desktop-electron-migration.md](docs/plans/desktop-electron-migration.md).
 

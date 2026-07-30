@@ -1,7 +1,9 @@
 # Kimi Code (TypeScript) engine — implementation plan
 
 > **Type:** plan
-> **Status:** In review (single PR)
+> **Status:** **Shipped** — the single PR (#377, with the #376 cwd fix and
+> #378 mode_args/picker/Python-kimi retirement follow-ups) merged 2026-07-26;
+> ships in the `hub-v2026.730.1231-alpha` lane. See ADR-054.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.821 / kimi-code 0.27.0 on macOS arm64, 2026-07-19
 

@@ -1,21 +1,21 @@
 # Inspect tab (né Debug) — code, logs, diffs & model inspectors (J3 round 2)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-23) — **W1 (+ sources + tree-sitter outline),
-> W2 (diffs), W3 (logs) and W4 core (checkpoint inspector) SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6,
-> lazy modes, search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace
-> lens** (Python/Rust/Go/JS `file:line` jumps) + **run-scratch** + a right-hand
-> **tree-sitter symbol outline** (12 langs). Sources: paste/local/workspace/SFTP/
-> hub. **W2:** a **patch viewer** (`@git-diff-view/react`) + **two-blob compare**
-> (`@codemirror/merge`), both lazy. **W3:** a **virtualized ANSI log viewer**
-> (react-virtuoso + anser) over a **main-process line index** (`log_*` — fd reads,
-> never whole-file): follow/tail, warn-filter, regex search + hit rail, marker
-> jumps. **W4 core:** a **checkpoint inspector** (`.safetensors`/`.gguf`, header-only
-> `checkpoint_inspect` in main — never tensor bytes) → summary + HF/gguf **architecture
-> card** (dense-GQA/MoE/MLA) + tree + tensor table; **ONNX** too (protobufjs, op-mix).
-> Tab renamed (§0a). Graphs: tracer T1+T2 (torch.export→ME), code2flow, ONNX→graph, Model
-> Explorer, W4b module graph — **W4 + Tier 2 COMPLETE** (WebGL/RF/torch device-test);
-> **§7a fixtures SHIPPED** (stdlib gens; unit tests pin them — e2e wiring pending).
+> **Status:** In progress (2026-07-30; the 2026-07-27 Inspect arc — FLOPS
+> estimation, LeRobot/VLA configs, roots menus — continued in
+> [inspect-project-trees.md](inspect-project-trees.md) and
+> [archgraph-figure-quality.md](archgraph-figure-quality.md)) — **W1–W4
+> SHIPPED.** J3 is a tabbed inspector: shell + **CodeView** (CM6, lazy modes,
+> search/fold/go-to-line/wrap/copy, `revealLine`) + **stack-trace lens** +
+> **run-scratch** + a **tree-sitter symbol outline** (12 langs); sources:
+> paste/local/workspace/SFTP/hub. **W2:** patch viewer + two-blob compare,
+> lazy. **W3:** virtualized ANSI log viewer over a main-process line index
+> (`log_*` — fd reads, never whole-file): follow/tail, warn-filter, regex
+> search + hit rail, marker jumps. **W4:** checkpoint inspector
+> (`.safetensors`/`.gguf`, header-only — never tensor bytes) → summary +
+> HF/gguf **architecture card** (dense-GQA/MoE/MLA) + tree + tensor table;
+> **ONNX** too. Tab renamed (§0a). Graphs: tracer T1+T2, code2flow, ONNX→graph,
+> Model Explorer, W4b module graph — **W4 + Tier 2 + §7a fixtures COMPLETE** (e2e wiring pending).
 > **Audience:** principal · contributors
 > **Last verified vs code:** W1–W3 + W4 core/ONNX + tracer T1/T2 + call-graph + graphs + ME + W4b + §7a fixtures
 

@@ -12,8 +12,8 @@ Deprecated / Removed. Entries link back to the release commit for forensic
 detail.
 
 The desktop app (ADR-050/052/055 — React + TypeScript control plane on an
-Electron shell) has its **own version scheme**, independent of the mobile/hub
-lane recorded in [`changelog.md`](changelog.md) (`v1.0.x`). Release lane:
+Electron shell) has its **own version scheme**, independent of the
+mobile/hub/host lanes recorded in [`changelog.md`](changelog.md). Release lane:
 
 - **Electron desktop** — `electron-v*` prerelease tags (ADR-055). The
   `electron-latest` feed is the go-live switch.

@@ -1,7 +1,9 @@
 # 054. kimi-code-ts: the TypeScript Kimi Code is a separate family, M1-only
 
 > **Type:** decision
-> **Status:** In review
+> **Status:** Accepted (2026-07-26) — the implementing PR (#377, single-PR
+> lane) merged after review; the family ships in `hub-v2026.730.1231-alpha`
+> and is covered by session teleport (ADR-057 T2b)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.821 / kimi-code 0.27.0 on macOS arm64, 2026-07-19
 

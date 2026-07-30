@@ -1,9 +1,11 @@
 # Architecture overview
 
 > **Type:** reference
-> **Status:** Current (2026-05-13)
+> **Status:** Current (2026-07-30) — desktop workbench container added by
+> the 2026-07-30 docs audit; the mobile/hub/runner sections date to the
+> v1.0.547 verify and remain structurally accurate
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.547
+> **Last verified vs code:** mobile/hub/host `2026.730.1231-alpha` · desktop `2026.730.1242` (container level); v1.0.547 (detail)
 
 **TL;DR.** termipod in two pictures: a C4 Level 1 system context
 diagram and a C4 Level 2 container diagram. Read this first if you're
@@ -16,10 +18,10 @@ new — it's the 30-second cold-start view. Deeper architecture lives in
 
 ## 1. System context (C4 L1)
 
-termipod is a mobile-first control plane for AI-agent fleets. The
-**director** (a researcher, lead, or solo principal) operates the
-system from a phone; **agents** running on remote hosts do the
-actual coding, training, analysis, and writing work, supervised by
+termipod is a control plane for AI-agent fleets. The **director** (a
+researcher, lead, or solo principal) operates the system from a phone
+or from the desktop workbench; **agents** running on remote hosts do
+the actual coding, training, analysis, and writing work, supervised by
 the system and bounded by policy.
 
 ```mermaid
@@ -78,6 +80,7 @@ C4Container
 
   Container_Boundary(c1, "termipod") {
     Container(mobile, "Mobile app", "Flutter · Riverpod · sqflite", "Phone-first surface; cache-first<br/>render; AG-UI consumer")
+    Container(desktop, "Desktop workbench", "React + TS · Electron", "Full-size cockpit + research<br/>surfaces; same hub API")
     Container(hub, "Hub", "Go · SQLite · embed.FS", "Authority: identities, policies,<br/>events, references; AG-UI broker")
     Container(runner, "Host-runner", "Go · tmux · ACP · MCP", "Per-host deputy: spawns agents,<br/>relays MCP, owns local resources")
     Container(agent, "Agent", "Engine subprocess in tmux", "Stochastic executor; LLM-driven;<br/>steward or worker role")
@@ -89,7 +92,9 @@ C4Container
   System_Ext(metrics, "Metric stores<br/>(trackio / wandb)")
 
   Rel(director, mobile, "Tap, read, approve")
+  Rel(director, desktop, "Direct, review, author")
   Rel(mobile, hub, "REST + SSE", "HTTPS")
+  Rel(desktop, hub, "REST + SSE", "HTTPS")
   Rel(hub, runner, "Spawns, commands,<br/>SSE events", "HTTPS · long-poll")
   Rel(runner, agent, "Spawn in tmux pane;<br/>structured stdio", "ACP · stream-json · pane")
   Rel(agent, bridge, "Tool calls", "stdio")
@@ -178,8 +183,10 @@ driving modes (M1 ACP / M2 stream-json / M4 pane-only) per
 [`../spine/blueprint.md §5.3.1`](../spine/blueprint.md).
 
 **Tech stack.** Whichever engine vendor's CLI is installed for the
-host's login user — Claude Code (`claude`), Codex (`codex`), or
-Gemini (`gemini`). termipod does not link any LLM.
+host's login user — Claude Code (`claude`), Codex (`codex`), Gemini
+(`gemini`), or Kimi Code (`kimi`, ACP or the TS family per
+[ADR-054](../decisions/054-kimi-code-ts-engine.md)). termipod does not
+link any LLM.
 
 **Owns:** its own conversation context, tool-call decisions, working
 directory.
@@ -210,6 +217,37 @@ The host-runner stamps the agent's identity, enforces local rate
 limits, reuses its single persistent hub token. See ADR-002 for the
 single-MCP-service consolidation.
 
+### 3.6 Desktop workbench (`desktop/`)
+
+**Purpose.** The director's full-size surface — the same control plane
+as mobile (navigator, transcripts, approvals, projects, admin) plus
+the research surfaces the phone doesn't carry: Read / Author / Inspect
+/ Compare / Replay / Record, mounted as activity-bar jobs
+([ADR-050](../decisions/050-desktop-workbench-delivery-model.md)).
+
+**Tech stack.** React + TypeScript frontend (TanStack Query over
+REST + SSE) in an **Electron** shell
+([ADR-055](../decisions/055-desktop-electron-shell.md) — succeeded the
+Tauri shell at the M3.4 cutover); vault crypto is the same Rust core
+compiled to **WASM**, byte-compatible with mobile
+([ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md)); design
+tokens shared with Flutter via the DTCG pipeline (ADR-051 D-5).
+
+**Owns:** device-local SSH keys + vault items (zero-knowledge sync
+through the hub), workspace folders + folder-sync state, local PTYs,
+webview guests (browser tabs, embedded agent web UI), the
+`termipod-media://` render path for dataset bytes, and the desktop-side
+MCP surface agents use to see the UI (`ui_get_focus`, browser-bridge
+tools — [ADR-059](../decisions/059-agent-browser-bridge.md)/[062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)).
+
+**Doesn't own:** authoritative state — like mobile, every mutation goes
+through the hub; bulk dataset/checkpoint bytes stay on hosts and reach
+the renderer only over its own SSH/SFTP sessions or local files.
+
+**Deployment.** Self-updating installers (`.dmg` / `.exe` /
+`.AppImage`+`.deb`), `electron-v*` CalVer release lane — see
+[`../changelog-desktop.md`](../changelog-desktop.md).
+
 ---
 
 ## 4. Communication patterns
@@ -217,7 +255,10 @@ single-MCP-service consolidation.
 | Edge | Type | Protocol | Transport | Spec |
 |---|---|---|---|---|
 | Director ↔ Mobile | UI | tap / gesture | local | — |
+| Director ↔ Desktop | UI | keyboard / pointer | local | — |
 | Mobile ↔ Hub | sync + stream | termipod REST + SSE | HTTPS | [`api-overview.md`](api-overview.md) |
+| Desktop ↔ Hub | sync + stream | termipod REST + SSE (same API) | HTTPS | [`api-overview.md`](api-overview.md) |
+| Agent ↔ Desktop UI | RPC-with-cap | MCP (`ui_get_focus`, `browser_*`) | loopback, per-run tokens | [ADR-059](../decisions/059-agent-browser-bridge.md) / [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md) |
 | Mobile ↔ Hub (live agent feed) | observation | AG-UI events | SSE/HTTPS | [`../spine/blueprint.md §5.5`](../spine/blueprint.md) |
 | Hub ↔ Host-runner | control | termipod REST | HTTPS, host-initiated | [`../reference/hub-agents.md`](hub-agents.md) |
 | Host-runner ↔ Agent (M1) | supervision | ACP | JSON-RPC over stdio | [`../spine/blueprint.md §5.3`](../spine/blueprint.md) |
@@ -242,12 +283,14 @@ by fashion — see [`../spine/blueprint.md §5`](../spine/blueprint.md)
 | Mobile state | `flutter_riverpod` | Family providers + autoDispose match cache-first model |
 | Mobile cache | `sqflite` (SQLite) | Tabular cache mirrors hub schema; same ER |
 | Mobile secrets | `flutter_secure_storage` | OS keychain / Keystore — bearer tokens, SSH keys |
+| Desktop frontend | React + TypeScript, TanStack Query | Embed axis: the workbench's component ecosystem is React-first (ADR-051 D-2) |
+| Desktop shell | Electron (one pinned Chromium) | Replaced the Tauri OS-webview matrix (ADR-055); vault crypto stays Rust via WASM |
 | Hub language | Go 1.23+ | Static binary, low ops cost on a $5 VPS, strong stdlib HTTP/SQLite |
 | Hub store | SQLite + append-only JSONL log | Single-file durability; reconstruct-DB from log on corruption |
 | Hub templates | `embed.FS` | Bundled at build; user edits override on first init |
 | Host-runner | Go 1.23+ | Same toolchain as hub; cross-compile; multicall binary |
 | Tmux | 3.2+ | Required for `-F` format vars used by the launcher |
-| Engines | Claude Code / Codex / Gemini | Operator's choice per host; declared in template |
+| Engines | Claude Code / Codex / Gemini / Kimi Code (ACP + TS, ADR-054) | Operator's choice per host; declared in template |
 | Metric tracking | trackio (primary) / wandb-offline / TensorBoard | Operator's choice; host-runner reads file format and digests |
 
 For full mobile package list see `pubspec.yaml`; for hub deps see

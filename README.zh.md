@@ -101,18 +101,35 @@ AI Agent 的产出速度，是任何人都审阅不过来的——足足十倍�
 
 ### 桌面工作台（macOS · Windows · Linux）
 
-同一套控制面的全尺寸形态。桌面客户端是一套 **React + TypeScript** 前端，由 **Electron** 外壳承载（`desktop/`，ADR-055）——它是最初 Tauri 外壳的继任者，两者包裹的是同一份前端。既可连接你的 Hub，也可独立使用内置 SSH 终端。
+同一套控制面的全尺寸形态——外加手机上没有的**研究者工作台**。桌面客户端是一套 **React + TypeScript** 前端，由 **Electron** 外壳承载（`desktop/`，ADR-055）——它是最初 Tauri 外壳的继任者，两者包裹的是同一份前端。既可连接你的 Hub，也可独立使用内置 SSH 终端。
 
-- **Mission-control 外壳**——三区布局：舰队 Navigator（主机 ▸ Agent 树，带实时状态点）、常驻状态栏、⌘K 命令面板
-- **Transcript 工作台**——基于 SSE 的实时 Agent transcript（tail 回填 + seq 游标），带输入框、摘要页与 Run 洞察
-- **审批停靠栏**——受治理动作以常驻的注意力卡片呈现（权限请求、propose+override、求助请求），就地批准或驳回
-- **Projects**——含阶段轨道与交付物的 Overview、可就地修改状态/优先级的 Tasks 看板、Runs 与 Plans
-- **管理与治理**——团队成员、可编辑的策略 YAML、主机/Agent/团队管理、数据库维护，破坏性操作均需二次确认
-- **应急 SSH 终端**——直连 SSH + SFTP（密码或密钥、应用内生成 ed25519、TOFU 主机密钥固定）。密钥只留在本机——绝不发送给 Hub
+**控制面：**
+
+- **Mission-control 外壳**——活动栏（舰队 · 项目 · 阅读 · 撰写 · 检视 · 对比 · 回放 · 记录 · 终端）、舰队 Navigator（主机 ▸ Agent 树，带实时状态点）、常驻状态栏、可自定义快捷键的 ⌘K 命令面板，以及可将第二个界面钉在主界面旁的**分屏**模式
+- **Transcript 工作台**——基于 SSE 的实时 Agent transcript，Live / Insight / History 三种模式，带输入框、会话摘要与 Run 洞察
+- **审批停靠栏**——受治理动作以常驻的注意力卡片呈现（权限请求、propose+override、求助请求、远程驱动浏览器审批），就地批准或驳回
+- **项目与任务**——含阶段轨道与交付物的 Overview、主从式 Tasks 看板（感知 Agent 的拖拽）、Runs、Plans 与文档
+- **带环境的拉起**——从模板拉起 worker 与 steward，选择**环境配置（env profile）**；密钥引用在客户端封印到目标主机的公钥（Hub 只存密文）；**Teleport** 可把暂停的会话搬到另一台主机继续
+- **助手停靠栏**——选项卡式停靠栏，承载嵌入式 Agent Web UI 与随界面走的 Agent Companion；同主机的 Agent 可（显式开启、全程审计）读取 webtab、在其中操作、询问**你正在看什么**（`ui_get_focus`），你也可以用批注浮层反向指给它看
+- **管理与治理**——团队成员、可编辑的策略 YAML、主机/Agent/团队管理、实时审计台，数据库维护等破坏性操作均需二次确认
+
+**研究界面：**
+
+- **阅读（Read）**——Zotero 形态的文献库，接入 arXiv / Crossref / OpenAlex / PubMed / Semantic Scholar / Unpaywall 发现源；应用内 PDF/EPUB 阅读器带批注；开放获取 PDF 下载；真正的浏览器标签页
+- **撰写（Author）**——Markdown + 数学公式写作，带大纲导航、所见即所得与画布编辑器、图形（Mermaid / Graphviz / Vega）、draw.io 与 Excalidraw 嵌入
+- **检视（Inspect）**——代码、diff、日志与**模型检查点**：本地 / SFTP / Hub / GitHub / HuggingFace 多种根的项目树；仅凭 config 的模型视图带 VRAM 与 FLOPS 估算器；架构示意图支持混合线性注意力堆叠，还能对比两个模型的 config
+- **对比（Compare）**——多个 Run 的指标曲线并排叠加
+- **回放（Replay）**——具身智能数据集与 episode：数据集库带摘要卡；episode 播放器让通道曲线与多相机视频对齐到同一游标；URDF 正向运动学驱动 3D 位姿面板；**导出到 Rerun**（本地或经你自己的 SSH 会话远程导出）
+- **记录（Record）**——以 ADR 形态沉淀决策与发现
+
+**以及底座：**
+
+- **应急 SSH 终端**——直连 SSH + SFTP，支持跳板机（ProxyJump）与 SOCKS5、`ssh_config` 导入/导出、应用内生成 ed25519、TOFU 主机密钥固定。密钥只留在本机——绝不发送给 Hub
 - **本地 PTY 与 Agent CLI**——在桌面本机拉起本地终端、运行各类 Agent CLI
-- **Vault 与同步**——WASM 版 vault 加密；WebDAV、S3 与 Zotero 布局的目录同步后端
+- **Vault 与同步**——WASM 版 vault 加密，跨设备零知识同步；WebDAV、S3 与 Zotero 布局的目录同步后端
+- **语音输入**——流式听写直达输入框
 - **主题与语言随你**——明 / 暗 / 跟随系统主题，全界面 English / 中文双语
-- **自更新安装包**——macOS `.dmg`、Windows `.msi`/`.exe`、Linux `.AppImage`/`.deb`，内置更新器；首次启动可从 Tauri 安装迁移状态与密钥
+- **自更新安装包**——macOS `.dmg`、Windows `.exe`、Linux `.AppImage`/`.deb`，内置更新器；首次启动可从 Tauri 安装迁移状态与密钥
 
 ### 移动应用（Android · iOS · iPadOS）
 
@@ -299,7 +316,9 @@ MVP 目标是 [docs/spine/blueprint.md](docs/spine/blueprint.md) §9
 Phase 4 所述的**研究 Demo**：用户写下指令 → Steward 分解 → 一支 Agent
 舰队跨主机执行 Run → Briefing Agent 在夜间汇总 → 用户在手机上评审。
 
-**移动端 + Hub 线（`v1.0.x`），阶段状态（截至 v1.0.822）：**
+**移动端 + Hub + Host 线**（2026-07-22 起采用 CalVer `YYYY.MMDD.HHMM`，
+按组件分别打 `mobile-v*` / `hub-v*` / `host-v*` 标签），阶段状态（截至
+`2026.730.1231-alpha`）：
 
 | 阶段 | 状态 |
 |---|---|
@@ -314,13 +333,15 @@ Demo 路径已借助免 GPU 的彩排工具（`seed-demo` + `mock-trainer`）
 sweep）的硬件运行是 MVP 里程碑——其触发条件是连续两次设备演练
 均无阻断性缺陷。
 
-**桌面线（`electron-v*`，独立 changelog）：** 工作台功能集
-（WS2–WS8：外壳、Navigator、transcript、审批、Projects、管理、SSH 终端、
-打包）现已运行在 **Electron** 外壳上（ADR-055）——M1（脚手架 + Hub 桥接）、
-M2（原生能力移植：PTY、SSH/SFTP 与密钥、目录同步、vault WASM）、M3.1–3.3
-（electron-builder 打包、electron-updater、自 Tauri 安装的首次启动迁移）以及
-M3.4——Tauri 线及其 `desktop-v*` 发布已退役。自动更新在签名证书就绪并首个
-版本晋级到滚动源之前，仍需手动安装。记录见
+**桌面线（`electron-v*`，CalVer，独立 changelog）：** Electron 迁移
+（ADR-055）已**全部完成**——M1（脚手架 + Hub 桥接）、M2（原生能力移植：
+PTY、SSH/SFTP 与密钥、目录同步、vault WASM）、M3（electron-builder 打包、
+electron-updater、自 Tauri 安装的首次启动迁移）、M3.4（Tauri 线退役）以及
+M4（Chromium 技术偿还：Playwright 驱动的 e2e 测试、原生右键菜单、
+`<webview>` 嵌入）。切换之后，该线又陆续发布了研究界面（阅读 / 撰写 /
+检视 / 对比 / 回放 / 记录）、具身回放（J8）、Agent 浏览器桥 + UI 上下文、
+环境配置 + 会话 Teleport 以及分屏外壳。自动更新在签名证书就绪并有版本
+晋级到 `electron-latest` 滚动源之前，仍需手动安装。记录见
 [docs/changelog-desktop.md](docs/changelog-desktop.md)，计划见
 [docs/plans/desktop-electron-migration.md](docs/plans/desktop-electron-migration.md)。
 

@@ -1,7 +1,11 @@
 # 051. Desktop client stack — Tauri + React + shared design tokens
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-05) — implements [ADR-050](050-desktop-workbench-delivery-model.md)
+> **Status:** Superseded in part (2026-07-22) — **D-1 (the Tauri v2 shell) is
+> superseded by [ADR-055](055-desktop-electron-shell.md)** (Electron); D-2–D-5
+> (React + TypeScript, TanStack Query over REST+cache, SSE proxying, the DTCG
+> token pipeline) stand and are implemented. Originally Proposed 2026-07-05 —
+> implements [ADR-050](050-desktop-workbench-delivery-model.md)
 > A-1/A-2 (cross-platform Tauri shell + unified web-tech client). Fixes the two
 > stack forks ADR-050 left "TBD": the **UI framework** and the **shared-token
 > pipeline** that makes cross-client visual parity load-bearing. Planned in

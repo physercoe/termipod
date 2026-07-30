@@ -1,7 +1,8 @@
 # Desktop workbench jobs — J1–J6 as sidebar tabs
 
 > **Type:** plan
-> **Status:** In flight (2026-07-10) — the workbench half of
+> **Status:** **Shipped** (jobs mounted; deepening continues in child plans,
+> 2026-07-30) — the workbench half of
 > [ADR-050](../decisions/050-desktop-workbench-delivery-model.md). The control
 > plane (J7) shipped as the [desktop control plane](desktop-control-plane.md)
 > shell; this plan mounts the **research-workbench jobs J1–J6** into that shell
@@ -10,7 +11,10 @@
 > §4; the job derivation is [desktop-research-surface.md](../discussions/desktop-research-surface.md)
 > §3. **Round 1 shipped** (commit `28b6e578`); rounds 2+ deepen each surface.
 > **Audience:** principal · contributors
-> **Last verified vs code:** desktop v0.3.15
+> **Last verified vs code:** desktop `2026.730.1242` — J1 Read, J2 Author,
+> J3 Inspect, J5 Compare, J6 Record all mounted and deepened (J4 Canvas folded
+> into Author); a later-added **J8 Replay** shipped via
+> [replay-datasets-episodes.md](replay-datasets-episodes.md)
 
 **TL;DR.** The desktop app was a single control-fleet screen. This plan turns it
 into a **left activity-bar** of seven jobs — **Fleet** (J7, the existing

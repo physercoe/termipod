@@ -1,35 +1,55 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-06-07)
+> **Status:** Current (2026-07-30)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.808
+> **Last verified vs code:** mobile/hub/host `2026.730.1231-alpha` · desktop `2026.730.1242`
 
-**TL;DR.** The MVP target is the research demo from `blueprint.md` §9
-Phase 4: a user writes a directive on phone → steward decomposes →
-fleet executes runs across hosts → briefing agent summarizes overnight
-→ user reviews on phone. Everything else flows from that. Phases P0–P3
-are shipped; P4 backend is feature-complete; current focus is reliability
-and UX polish from device walkthroughs.
+**TL;DR.** The MVP target is unchanged: the research demo from
+`blueprint.md` §9 Phase 4 — a user writes a directive → steward
+decomposes → fleet executes runs across hosts → briefing agent
+summarizes overnight → user reviews. Phases P0–P3 are shipped; P4
+backend is feature-complete; the hardware run is still the milestone.
+
+What changed since June: the project grew a second first-class client.
+The **desktop workbench** (React + TypeScript on an Electron shell,
+ADR-050/055) went from zero to a full director's cockpit in its own
+release lane — transcripts, projects + task board, approvals, admin,
+breakglass SSH + vault, then the research surfaces (Read / Author /
+Inspect), embodied replay (J8), the agent↔UI interplay arc (browser
+bridge, `ui_get_focus`, annotation pointing), env profiles + session
+teleport, and a split-pane shell. Mobile + hub kept moving in parallel:
+design-token enforcement (ADR-047), vocabulary presets + the full i18n
+sweep (ADR-048), inline-spec project lifecycle (ADR-046), sealed env
+secrets (ADR-056), session teleport (ADR-057), and the
+environments/datasets/blob-lifetime model (ADR-058…061). Versioning
+switched to CalVer (`YYYY.MMDD.HHMM`) with four per-component release
+lanes (`mobile-v*` / `hub-v*` / `host-v*` / `electron-v*`).
 
 ---
 
 ## Mission
 
-Termipod is a mobile-first **director's surface** for orchestrating
-backend agents (claude-code, codex, …) across multiple remote hosts.
-The user is principal/director — they don't operate the system, they
-direct agents that operate it.
+Termipod is a **director's surface** — on phone and desktop — for
+orchestrating backend agents (claude-code, codex, gemini-cli,
+kimi-code, …) across multiple remote hosts. The user is
+principal/director — they don't operate the system, they direct agents
+that operate it.
 
 What makes us different from single-engine clients (Happy,
 claudecode-remote, …):
 - **Multi-host** — A2A relay routes agent ↔ agent across NAT'd boxes
 - **Multi-session** — sessions are first-class durable conversations,
-  surviving agent respawn
-- **Multi-engine** — claude-code, codex, etc. are interchangeable per
-  template
+  surviving agent respawn (and, since ADR-057, surviving a move to a
+  different host)
+- **Multi-engine** — claude-code, codex, gemini-cli, kimi-code (ACP
+  and the TS port, ADR-054) are interchangeable per template
 - **Steward-orchestrated** — the steward agent is the entry point;
   user delegates project-shaped goals, not task-shaped commands
+- **Two clients, one hub** — the Flutter mobile app and the Electron
+  desktop workbench speak the same API against the same hub; the
+  desktop adds researcher surfaces (Read / Author / Inspect / Replay)
+  that have no phone equivalent
 
 ### MVP commitment: superset, not replacement (no short-board effect)
 
@@ -68,7 +88,7 @@ run is the actual milestone).
 
 ## Phases (big picture)
 
-The blueprint defines five phases. Status as of v1.0.808:
+The blueprint defines five phases. Status as of `2026.730.1231-alpha`:
 
 | Phase | Title | Status |
 |---|---|---|
@@ -77,6 +97,13 @@ The blueprint defines five phases. Status as of v1.0.808:
 | **P2** | App UI | ✅ Shipped |
 | **P3** | Integrations (trackio, A2A) | ✅ Shipped |
 | **P4** | Research demo | 🟡 Backend feature-complete; UX hardening + hardware run remaining |
+
+Two workstreams grew beyond the original five phases in July:
+
+| Lane | Status |
+|---|---|
+| **Desktop workbench** (ADR-050/055, `electron-v*` lane) | ✅ Core shipped — WS2–WS8 (shell, navigator, transcripts, approvals, projects + task board, admin, SSH terminal + vault, packaging) plus the Electron migration M0–M4 complete; Tauri lane retired at M3.4 (2026-07-22). Auto-update stays manual-install until signing certs land and a release is promoted onto the `electron-latest` feed. Record: [`changelog-desktop.md`](changelog-desktop.md) |
+| **Embodied research workbench** (ADR-058…061) | 🟡 In flight — J8 replay (datasets rail, episode player, URDF/3D pose, Rerun export, host-job surface) and the Environment entity (E0 + E2a) shipped; E2b/E2c resolution surfaces and hardware device-verifies remain. Plans: [`plans/replay-datasets-episodes.md`](plans/replay-datasets-episodes.md), [`plans/environments-and-embodiments.md`](plans/environments-and-embodiments.md) |
 
 ### Phase summaries
 
@@ -116,25 +143,25 @@ working list — what's actually moving this week or next.
 
 | Item | Why | Where |
 |---|---|---|
-| **Multi-team isolation — on-device verification** | Implementation shipped (ADR-037 W1–W6, v1.0.760-765: path-team authorization gate, operator/principal split, team-provisioning endpoint, per-team template overrides, team-scoped workdir; mobile team management v1.0.801). Storage isolation extended physically in v1.0.808 (per-team event/digest shards, ADR-045). ADR-037 stays `Proposed` until an on-device multi-tester pass confirms no cross-team read/write/control or workdir collision. (`decisions/037-multi-team-isolation-and-operator-principal-split.md`) | Pending: device walkthrough with two tester teams |
-| **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
-| **On-device verification of v1.0.624-630** | Seven follow-on releases closing spawn / wake / routing / UX gaps surfaced by 2026-05-18 smoke test. Each wedge unit-tested at its boundary; end-to-end on-device pass pending (especially the `search` MCP SQL error needs exact error string to diagnose). | Pending: device walkthrough with smoke task |
-| **ADR-027 §11 on-device verification** | LocalLogTailDriver shipped v1.0.592 and is the M4 default for claude-code, but plan §11 verification scenarios (21-24 in the lifecycle test doc — idle/streaming pill, hook delivery, AskUserQuestion picker, /compact compaction card) still need a hardware pass with claude 2.1.x. (`decisions/027-local-log-tail-driver.md`, `plans/local-log-tail-driver.md` §11) | Pending: tester device with claude 2.1.x installed |
-| **Kimi steward routing follow-up** | ADR-026 wedges W1-W7c shipped engine integration; the project-steward-routing fixes (Bug A in `projects.steward_agent_id` + Bug B in `openStewardSession`) are documented but not yet wired — workdir fix landed v1.0.595, UI routing held pending design review | Deferred pending design review |
-| **ADR-032 / ADR-034 orchestration contract — on-device verification** | The message envelope + the loop-closure runtime shipped 2026-05-19 as the 10-wedge message-routing rollout (commits `eb12a09`…`2a498df`; hub build + full Go test suite green, mobile CI-verified). Both ADRs stay `Proposed` until an on-device pass — principal directs a mission, steward dispatches a worker, the loop closes, a deliberately stalled worker escalates within one sweep — flips them to `Accepted`. (`decisions/032-message-routing-envelope.md`, `decisions/034-orchestration-loop-closure.md`, `plans/message-routing-rollout.md` §4) | Pending: device walkthrough |
-| **Project-lifecycle: inline-spec + early-bind (ADR-044 amend + ADR-046)** | Code-migration lifecycle testing (issues #21–#41) drove a model change: a project carries its full spec in its own `config_yaml`, create is a governed `project.create` whose approval materializes it (no `template.install`), presets are reference examples, and all phases early-bind with completion-gating (ratify/mark-met only in the active phase). Shipping as a ~5-PR program (WS0 ADRs done; WS1 materialize+gating, WS2 spec schema, WS3 presets, WS4 governed create+Start, WS5 prompt+governance). Four root-cause fixes (#38/#41/#21/#27/#29) already merged (PR #43). (`decisions/044-…`, `decisions/046-projects-from-inline-spec.md`) | In flight: WS-by-WS PRs, CI-gated |
-| **Themed vocabulary overlay + i18n sweep (ADR-048)** | A tester found "steward" unfit for their domain — short-board bug. Role nouns (steward/agent/principal/…) become swappable by **vocabulary preset** (tech/business=company/political=policy/research=academy) × language via a `VocabPack` orthogonal to gen-l10n; this also closes #138 (~90 files of hardcoded English unlocalized in zh mode). Promotes the deferred vocabulary wedge to MVP. WS-A (preset picker + steward/principal/agent axes) ships first to unblock the tester, then the string sweep area by area. (`decisions/048-themed-vocabulary-overlay.md`, `plans/themed-vocabulary-and-i18n-sweep.md`) | In flight: planned, coding starts next session; WS-by-WS PRs, CI-gated |
+| **Embodied research program — environments + replay (ADR-058…061)** | J8 replay shipped end-to-end on the desktop (dataset library rail, episode player with channel plots + multi-camera video, URDF forward kinematics + 3D pose, Rerun companion + export, remote roots over SFTP) and the host-job surface (ADR-058 executor + export kind) landed. The **Environment entity** shipped E0 (`env_ref` on runs + episodes) and E2a (hub CRUD + `/environments/resolve`). All four ADRs 058–061 Accepted 2026-07-30 with a laned build order. | In flight: E2b/E2c resolution surfaces; device-verify of remote video + Rerun export on hardware. `plans/replay-datasets-episodes.md`, `plans/environments-and-embodiments.md`, `plans/desktop-workbench-jobs.md` |
+| **Agent ↔ UI interplay (ADR-059, ADR-062)** | The desktop is becoming agent-addressable: browser bridge W1–W3 shipped (MCP webtabs read → act behind per-spawn opt-in + audit → remote hub-relayed driving behind approval cards, ADR-059); ui-context D1–D2.1 shipped (`ui_get_focus` off-by-default, annotation overlay pointing, global annotate trigger). ADR-062 (UI as an agent-addressable entity) is Proposed. | In flight: ui-context wedges D3–D6. `plans/desktop-agent-browser-bridge.md`, `plans/desktop-ui-context-and-pointing.md` |
+| **Desktop ↔ mobile parity backlog** | The desktop reached feature parity on SSH (jump hosts, SOCKS5, `ssh_config` import), spawn env-sealing, and — with PR #485 (merged 2026-07-30) — steward spawning from the Navigator rail (it previously spawned only workers). | Ongoing. `plans/desktop-mobile-parity.md` |
+| **Device-verification backlog (the hardware gate)** | The standing pre-hardware-run verifications: multi-team isolation (ADR-037), orchestration loop closure (ADR-032/034), M4 log-tail scenarios (ADR-027 §11) — plus newer desktop device-verifies (bastion SSH, remote episode video, macOS terminal right-click, teleport on device). The hardware-demo gate is unchanged: two consecutive walkthroughs without principal-blocking bugs. | Pending: device walkthroughs |
+| **Docs & process** | Doc surfaces drifted behind the July desktop arc (this audit reconciles them); the loop-discipline-and-dreaming plan and the compare-wall + citation-bridge plans await director review. | `plans/loop-discipline-and-dreaming.md`, `plans/desktop-compare-wall-and-decisions.md`, `plans/desktop-citation-bridge.md` |
 
 ### Next (committed, not started)
 
 | Item | Why | Trigger |
 |---|---|---|
-| **ADR-031 agent tool ergonomics — Phases 1+2 (MVP)** | Steward took 6 turns to read back a doc by ULID on 2026-05-18; root cause was no `documents.get` (fixed v1.0.630) + no discovery / depth / hint design. Locks in two-tier descriptions + `tools.get` meta-tool + structured hints + per-persona intent index. (`decisions/031-agent-tool-ergonomics.md`, `plans/agent-tool-ergonomics-rollout.md`) | After ADR-028/029 phase work or whenever the agent-side UX wedge is prioritized |
-| **ADR-028 host control CLI — Phase 1 `shutdown-all`** | Hands-off binary upgrades need a way to drain stewards on host-runners + restart hosts from the principal's seat. (`decisions/028-host-control-via-tunnel-and-cli.md`, `plans/hub-host-control-cli.md`) | Whenever the next host-runner upgrade is queued |
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
-| **Cross-vendor integration smoke (slice 7 × 2)** | `request_help` end-to-end against a live codex binary AND a live gemini binary on a real test host — validates the vendor-neutral attention surface for both ADR-012 and ADR-013. Tests today use fakes for both protocols (JSON-RPC for codex, exec-per-turn JSONL for gemini); slice 7 closes the loop on real upstream binaries | Real codex + gemini binaries available in a test host |
+| **Environments E2b/E2c** | E2a shipped hub CRUD + `/environments/resolve`; the client resolution surfaces (env chips resolving to entities, register-from-run) are the next wedges of `plans/environments-and-embodiments.md` | Lane order per the plan; E2a merged 2026-07-30 |
+| **Browser-bridge / ui-context wedges D3–D6** | Completes the agent↔UI interplay arc under ADR-059/062 (D3+: history, deeper target registry, cross-surface pointing) | Fleet capacity after D2.1 |
+| **Compare wall Lane A + citation bridge C1** | Two Proposed plans extending the Compare and Read/Author surfaces (`plans/desktop-compare-wall-and-decisions.md`, `plans/desktop-citation-bridge.md`); citeproc licensing is an open director call | Director review of the plans |
+| **Signing certs + `electron-latest` promotion** | Desktop auto-update is wired (electron-updater) but stays manual-install until builds are signed and a release is promoted onto the rolling feed | Certs acquired |
+| **ADR-031 agent tool ergonomics — Phases 1+2 (MVP)** | Two-tier descriptions + `tools_get` meta-tool + structured hints + per-persona intent index (`decisions/031-agent-tool-ergonomics.md`, `plans/agent-tool-ergonomics-rollout.md`; `tools_get` itself shipped) | Whenever the agent-side UX wedge is prioritized |
+| **Cross-vendor integration smoke (slice 7 × 2)** | `request_help` end-to-end against a live codex binary AND a live gemini binary on a real test host — validates the vendor-neutral attention surface for both ADR-012 and ADR-013. Tests today use fakes for both protocols; slice 7 closes the loop on real upstream binaries | Real codex + gemini binaries available in a test host |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
-| **Anti-drift Layer 3** | OpenAPI for hub REST + ADR backlinks from spine docs | Triggers when surface drift bites — currently tractable by hand |
+| **Anti-drift Layer 3** | OpenAPI for hub REST + ADR backlinks from spine docs | Triggers when surface drift bites — the 2026-07-30 docs audit shows it is starting to |
 
 ### Later (intent, no commitment)
 
@@ -150,13 +177,18 @@ prioritized after the demo lands.
   `seed-demo` hub; eliminates the screenshot-drift problem
   (`discussions/screenshot-automation.md`). Defer until post-demo
   IA stabilizes.
-- **Pending dependency upgrades** — ~14 Dependabot PRs open as of
-  v1.0.319, 5 majors deferred for individual review (riverpod 3.3,
+- **Pending dependency upgrades** — ~15 Dependabot PRs open as of
+  2026-07-30, majors deferred for individual review (riverpod 3.3,
   google_fonts 8, flutter_foreground_task 9, connectivity_plus 7,
-  modernc.org/sqlite 1.50). Triage when post-demo bandwidth opens.
+  modernc.org/sqlite 1.54). Triage when post-demo bandwidth opens.
 - **Domain packs / marketplace** — content-pack extensibility
   (`discussions/post-mvp-domain-packs.md`)
 - **Multi-steward wedge 3** — deferred per memory
+- **Kimi steward routing follow-up** — the ADR-026 project-steward
+  routing fixes (Bug A `projects.steward_agent_id` + Bug B
+  `openStewardSession`) documented but held pending design review
+- **Remote kimi-web wiring** — the desktop assistant dock's kimi web
+  pane against a remote host (SSH-forward follow-up)
 - **Per-member stewards (F-1)** — deferred until 2nd user
 - **Code-as-artifact** — deferred (`discussions/code-as-artifact.md`)
 - **Agent fleet / squads** — deferred (`discussions/agent-fleet.md`)
@@ -182,8 +214,21 @@ prioritized after the demo lands.
 
 Most recent first. Major work units only — bug-fix releases roll up.
 
+**Mobile + hub + host lane** (sequential `v1.0.x` until 2026-07-22, then
+CalVer with per-component tags):
+
 | Version | What |
 |---|---|
+| 2026.730.1231-alpha | **Env profiles + sealed secrets + session teleport reach the phone.** Spawn-sheet env-profile picker + management screen; secret refs sealed client-side to the target host's key (ADR-056 — the hub stores only ciphertext; Go/Rust/Dart KAT-locked); paused sessions teleport to another host with the handoff bundle re-sealed (ADR-057, claude-code + kimi-code-ts). Hub side also carries the environments E0+E2a entity work (`env_ref` on runs/episodes, migration 0073 CRUD + `/environments/resolve`), the datasets/episodes entity (ADR-060, migrations 0068–0069), blob lifetime (ADR-061, 0071), host-command progress (0070), and the transcript-digest issue classes + streaming-markdown fixes. All three lanes cut together; first triple-lane tag |
+| 2026.727.206-alpha | **Fleet updates from mobile, with live progress.** `host.update` verbs fixed + admin update-progress rendering |
+| 2026.724.335-alpha | **Release lanes split per component** — `mobile-v*` / `hub-v*` / `host-v*` tag namespaces (desktop already separate on `electron-v*`) |
+| 2026.722.236-alpha | **CalVer.** Versions become `YYYY.MMDD.HHMM` (UTC build time), a valid monotonic semver so updaters survive the switch |
+| v1.0.822 | Terminal reconnect UX fixes (stuck error overlay, breakglass terminal) |
+| v1.0.821 | **Cross-device SSH key-vault sync (ADR-052 D-4)** — zero-knowledge sync of connections + keys through the hub |
+| v1.0.820 | Hub robustness sweep (#74–#79) + automated storage maintenance (ADR-045 D4) |
+| v1.0.816-819 | **ADR-048 vocabulary-preset runtime + the full #138 i18n sweep.** Role nouns swappable by preset (tech/business/political/research) orthogonal to locale; last hardcoded strings removed; `lint-hardcoded-strings.sh` ratchet guards the win. ADR-048 complete |
+| v1.0.811-815 | **ADR-047 design-system enforcement** — named tokens (spacing/radius/type/color) become the single source of truth across the Flutter UI; semantic status-container tokens; lint-enforced |
+| v1.0.809 | **ADR-046 projects-from-inline-spec (WS0–WS5)** — a project's full spec lives in its own `config_yaml`; create is a governed `project.create` proposal; presets are reference examples; phases early-bind with completion-gating |
 | v1.0.808 | **ADR-045 P2 — hub storage scaling.** Event + digest stores shard per team (`<dataRoot>/teams/<team>/{events.db,digest.db}`) behind an LRU-bounded connection registry; `hub.db` stays the global control plane. Per-team parallel fold worker (fold lag bounded by core count, not team count); Tier-1 SQLite pragma tuning (`temp_store=MEMORY`, 256 MiB mmap, writer-only cache); `hub-server db split-teams` offline migration. Measured ~+33 % aggregate ingest when sharded to core count (~1100 ev/s flat-out on 2 vCPU); ~1000 concurrent agents on a 2 GB VPS with no SQLITE_BUSY cliff. Follow-on probe-driven fixes (`4407e12`): insights cache-key + bounded per-team writer cache. ADR-045 Accepted (D1+D2 shipped; D3 selectable Postgres backend decided, not built) |
 | v1.0.805-806 | **Channel-free agent comms + Me-page action boundary.** Channels deferred to a future experiment (tools stay in tree, no prompt instructs their use); steward status routes 3 ways — chat reply / `post_notice` FYI (new answerless tool → Me-page Messages) / `request_*` decision → Requests. Me-page classifies Requests-vs-Messages by action (`pending_payload`); dismissable Messages via guarded `/attention/{id}/resolve` |
 | v1.0.804 | **ADR-044 adaptive project lifecycle (P1–P3).** The project lifecycle is a roadmap, not a fixed template contract: agents materialize deliverables, criteria editable via `propose`, AC-driven system-approved phase advance (human gating = `gate` criterion). P1 added `criteria.list`/`phase.status` MCP reads; P2 the propose verbs; P3 AC auto-advance. ADR-044 Accepted |
@@ -234,6 +279,19 @@ Most recent first. Major work units only — bug-fix releases roll up.
 | v1.0.281 | Replace-steward keeps the session (engine swap continues conversation) |
 | v1.0.280 | Soft-delete sessions + agent-identity binding doc |
 | v1.0.182 | All 7 IA-redesign wedges shipped |
+
+**Desktop lane** (`electron-v*`; `0.x` was the Tauri era — full record in
+[`changelog-desktop.md`](changelog-desktop.md)):
+
+| Version | What |
+|---|---|
+| 2026.730.1242 | **The largest desktop cut so far — five plans reached their shipping wedges at once.** J8 Replay end-to-end (dataset rail + episodes table, episode player with channel plots + multi-camera video, URDF forward kinematics + 3D pose, Rerun companion + export incl. remote-over-SSH); architecture graph goes hybrid-aware with honest KV-cache math, zoom/annotate/SVG-PNG export, and config-vs-config diff; **agent browser bridge W1–W3** (read → opt-in actions + audit → hub-relayed remote driving with approval cards, ADR-059); **split pane S1–S3**; **ui-context D1–D2** (`ui_get_focus` off-by-default + annotation-overlay pointing) and D2.1 (global annotate trigger); env profiles + sealed secrets + teleport on desktop; SSH jump-host/SOCKS5 parity with `ssh_config` import; unified assistant dock (kimi web + Companion tabs) |
+| 2026.727.206–938 | **The Inspect arc.** Project trees over local/SFTP/hub/forge roots; config-only model view with VRAM + FLOPS estimators; LeRobot policy/VLA configs; roots context menus; Windows kimi-web fix |
+| 2026.724.305/405 | **Projects task board W1** — master-detail kanban with rich cards (W2 inline edits + W3 agent-aware drag-and-drop and filters followed direct-to-main) |
+| 2026.723.247 | **Author workbench overhaul** — shell + outline + canvas (figures, draw.io, Excalidraw), Discover results that survive tab switches |
+| 2026.722.1327 | **Read: real `<webview>` browser tab + open-access PDF download** with a downloads shelf |
+| 2026.722.211–818 | **CalVer; Tauri lane retired (ADR-055 M3.4); M4 Chromium paydown** — Playwright-driven Electron e2e harness, native context menus, `<webview>` embeds |
+| 0.1.0–0.3.87 (2026-07-05 → 07-22) | **The workbench build-out** (ADR-050/051/052/053): WS2–WS8 — three-region shell + navigator + palette, SSE transcripts with Live/Insight/History, approvals dock, projects + docs + runs, admin cockpit, breakglass SSH terminal + key vault + WASM crypto + folder sync, packaging; transcript visual redesign; reference library; then the Electron migration M0–M3.x that ended the Tauri era |
 
 Earlier history: `git log --oneline` from the v1.0.180 boundary or
 [`spine/blueprint.md`](spine/blueprint.md) §9 for the original

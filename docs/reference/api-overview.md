@@ -1,9 +1,12 @@
 # API overview
 
 > **Type:** reference
-> **Status:** Current (2026-05-09)
-> **Audience:** contributors (mobile, hub, integrators)
-> **Last verified vs code:** v1.0.463
+> **Status:** Current (2026-07-30) — §3.1–3.15 route tables were last
+> re-verified per-verb at v1.0.463; §3.4 (sessions) was corrected and
+> §3.16 (families added since) appended by the 2026-07-30 docs audit
+> against the live router. Treat §3.16 as the delta index.
+> **Audience:** contributors (mobile, hub, desktop, integrators)
+> **Last verified vs code:** hub `2026.730.1231-alpha` (family level); v1.0.463 (per-verb)
 
 **TL;DR.** Single canonical entry for "what HTTP endpoints does the
 hub expose?" Indexes every `/v1/...` route grouped by resource +
@@ -130,16 +133,21 @@ Detail: [`hub-agents.md`](hub-agents.md), [`../spine/agent-lifecycle.md`](../spi
 
 Detail: [`../spine/sessions.md`](../spine/sessions.md), [ADR-009](../decisions/009-agent-state-and-identity.md), [ADR-014](../decisions/014-claude-code-resume-cursor.md).
 
+Sessions are **team-scoped** today (`/v1/teams/{team}/sessions/…`), not
+nested under an agent as this table originally recorded.
+
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/v1/teams/{team}/agents/{agent}/sessions` | Open session |
-| GET | `/v1/teams/{team}/agents/{agent}/sessions` | List sessions |
-| GET | `/v1/teams/{team}/agents/{agent}/sessions/search` | FTS5 over session events |
-| GET / PATCH / DELETE | `/v1/teams/{team}/agents/{agent}/sessions/{session}` | Get / rename / hard-delete |
+| POST / GET | `/v1/teams/{team}/sessions` | Open + list sessions |
+| GET | `/v1/teams/{team}/sessions/search` | FTS5 over session events |
+| GET / PATCH / DELETE | `/v1/teams/{team}/sessions/{session}` | Get / rename / hard-delete |
 | POST | `…/sessions/{session}/archive` | Archive (retain history) |
-| POST | `…/sessions/{session}/close` | Alias for archive |
 | POST | `…/sessions/{session}/fork` | Fork from a cursor |
 | POST | `…/sessions/{session}/resume` | Resume with engine-specific cursor |
+| POST | `…/sessions/{session}/teleport` | Move a paused session to another host (ADR-057) |
+| GET | `…/sessions/{session}/cost` | Session cost rollup (ADR-036) |
+| GET | `…/sessions/{session}/digest` | Per-session event digest (ADR-038) |
+| GET | `…/sessions/{session}/turns` | Turn index (ADR-038) |
 
 ### 3.5 Projects + lifecycle
 
@@ -230,8 +238,8 @@ Detail: [`attention-delivery-surfaces.md`](attention-delivery-surfaces.md), [`at
 |---|---|---|
 | GET | `/v1/teams/{team}/audit` | List `audit_events` (filtered, paginated) |
 | GET / PUT | `/v1/teams/{team}/policy` | Get / update team policy |
-| GET / POST | `/v1/teams/{team}/auth-tokens` | List / issue tokens |
-| POST | `…/auth-tokens/{id}/revoke` | Revoke a token |
+| GET / POST | `/v1/teams/{team}/tokens` | List / issue tokens |
+| POST | `…/tokens/{id}/revoke` | Revoke a token |
 | GET | `/v1/teams/{team}/principals` | List active principals (humans + agents) |
 
 ### 3.13 Observability (ADR-022)
@@ -260,6 +268,29 @@ Detail: [ADR-022](../decisions/022-observability-surfaces.md),
 
 Detail: [ADR-002](../decisions/002-mcp-consolidation.md) (single MCP
 service consolidation).
+
+### 3.16 Families added since the last full verify (v1.0.463 → 2026-07-30)
+
+The 2026-07-30 audit enumerated the live router
+(`hub/internal/server/server.go`, `buildAuthedRoutes`). These families
+exist and are not yet covered by per-route tables above — each row
+names the anchor handler file and the deciding ADR. A full per-verb
+re-verify is queued behind anti-drift Layer 3 (OpenAPI).
+
+| Family | Paths (team-scoped unless noted) | Decided in |
+|---|---|---|
+| **Datasets + episodes** | `/datasets`, `/datasets/{dataset}` + `/refresh`, `/episodes`, `/episodes/{episode}/series`, `/export` | [ADR-060](../decisions/060-datasets-entity-and-media-posture.md) |
+| **Environments** | `/environments`, `/environments/resolve`, `/environments/{env}` | [`plans/environments-and-embodiments.md`](../plans/environments-and-embodiments.md) E2a |
+| **Env profiles** | `/env-profiles`, `/env-profiles/{profile}` (hyphen in URL, `env_profiles` in SQL) | [ADR-056](../decisions/056-env-secret-host-envelopes.md) |
+| **References + annotations** | `/references`, `/references/{ref}`, `/references/{ref}/annotations[/{ann}]` | [ADR-053](../decisions/053-hub-reference-library-entity.md) |
+| **Vault** | `/vault`, `/vault/recovery`, `/vault/devices[/{device}]` | [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md) D-4 |
+| **Document sections + annotations** | team-scoped `/documents` with `/sections/{slug}[/status]`, `/annotations`; `/annotations/{annotation}` + `/resolve`, `/reopen` (DELETE rejected) | document-annotation lane (migration 0035) |
+| **Agent telemetry + control** | `/agents/{agent}/digest`, `/turns`, `/stop`, `/terminate`, `/resume-session`; `/directives/{task}/trace` | [ADR-038](../decisions/038-per-run-event-digest.md), stop/terminate split (v1.0.752-767) |
+| **Host verbs + jobs** | `/hosts/{host}/update-progress`; `/commands/{cmd}` GET/PATCH + `/cancel`; `/hosts/{host}/browserbridge/revoke` | [ADR-058](../decisions/058-host-job-surface.md), [ADR-059](../decisions/059-agent-browser-bridge.md) |
+| **Run extras** | `/runs/{run}/artifacts/{artifact}`, `/config`, `/system_metrics`, `/alerts`, `/dataset_hint` | run-detail arc (v1.0.784-799), [ADR-060](../decisions/060-datasets-entity-and-media-posture.md) |
+| **Project lifecycle verbs** | `…/{project}/start`, `/steward/state`, `/steward/ensure`, `/phase/advance`, deliverable `/ratify`, `/unratify`, `/send-back`, criteria `/mark-met`, `/mark-failed`, `/waive` | [ADR-044](../decisions/044-adaptive-project-lifecycle.md)/[046](../decisions/046-projects-from-inline-spec.md) |
+| **Admin (non-team)** | `/v1/admin/fleet/{shutdown,update,restart}`, `/v1/admin/hosts[/{host}/{ping,shutdown,restart,update,update-progress}]`, `/v1/admin/agents[/{agent}/kill]`, `/v1/admin/tokens/rotate`, `/v1/admin/db/vacuum`, `/v1/admin/audit`, `/v1/admin/teams[/{team}/rotate-token]` | [ADR-028](../decisions/028-host-control-via-tunnel-and-cli.md), ADR-037 |
+| **Misc** | `/v1/hub/config/roles` (GET/PUT/DELETE); `/mobile/intent`; `/tasks/{task}` team-scope by-id; session `/teleport`, `/cost`, `/digest`, `/turns` (see §3.4) | ADR-037, [ADR-023](../decisions/023-agent-driven-mobile-ui.md), [ADR-057](../decisions/057-session-teleport.md) |
 
 ---
 

@@ -1,7 +1,10 @@
 # Environment profiles + host-to-host session teleport — two control-plane primitives
 
 > **Type:** plan
-> **Status:** Accepted 2026-07-23 — maintainer decisions recorded in the final section
+> **Status:** **Shipped** — E-lanes (profiles + sealed secrets, hub/host/
+> mobile/desktop) and T-lanes T1–T2 (teleport for claude-code + kimi-code-ts,
+> D-7 re-seal) all landed by 2026-07-29; ADR-056 + ADR-057 Accepted
+> 2026-07-28. Open: T3. Maintainer decisions recorded in the final section.
 > **Audience:** contributors, maintainer
 > **Last verified vs code:** main @ `c97c522c`, 2026-07-23
 

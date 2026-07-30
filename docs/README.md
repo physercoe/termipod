@@ -1,9 +1,9 @@
 # termipod docs
 
 > **Type:** axiom
-> **Status:** Current (2026-05-18)
+> **Status:** Current (2026-07-30)
 > **Audience:** anyone landing in `docs/` for the first time
-> **Last verified vs code:** v1.0.630
+> **Last verified vs code:** mobile/hub/host `2026.730.1231-alpha` · desktop `2026.730.1242`
 
 **TL;DR.** The index. Tells you where to start based on what you came
 to find. If you're going to add a doc, read [`doc-spec.md`](doc-spec.md)
@@ -54,10 +54,12 @@ first — it defines what every doc must declare and where it lives.
   a decision is still current.
 
 **I'm wondering "what shipped in version X?"**
-- [`changelog.md`](changelog.md) — mobile app + hub release record
-  (`v1.0.x`), Keep-a-Changelog format, one section per tagged release.
+- [`changelog.md`](changelog.md) — mobile app + hub + host release
+  record (CalVer `YYYY.MMDD.HHMM` since 2026-07-22, tagged per component
+  as `mobile-v*` / `hub-v*` / `host-v*`; sequential `v1.0.x` before
+  that), Keep-a-Changelog format, one section per tagged release.
 - [`changelog-desktop.md`](changelog-desktop.md) — the **desktop
-  workbench** release record (its own version scheme; `electron-v*` lane —
+  workbench** release record (its own CalVer lane; `electron-v*` —
   the former `desktop-v*` Tauri lane was retired at the M3.4 cutover).
 
 **I'm exploring an open question.**
@@ -73,8 +75,8 @@ first — it defines what every doc must declare and where it lives.
 docs/
 ├── README.md                       this file
 ├── roadmap.md                      where we're going (vision + Now/Next/Later)
-├── changelog.md                    mobile app + hub release record (v1.0.x)
-├── changelog-desktop.md            desktop workbench release record (desktop-v*/electron-v*)
+├── changelog.md                    mobile + hub + host release record (CalVer; v1.0.x before 2026-07-22)
+├── changelog-desktop.md            desktop workbench release record (electron-v*; desktop-v* retired)
 ├── doc-spec.md                     contract every doc honors
 │
 ├── spine/                          axioms — always-true architecture

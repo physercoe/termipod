@@ -1,9 +1,12 @@
 # Data model — core primitives
 
 > **Type:** reference
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-07-30) — the primitive definitions below
+> date to the v1.0.351 verify and still hold; the "primitives added
+> since" list at the end of the TL;DR names what this doc does not yet
+> model in depth (each links to its deciding ADR).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** hub `2026.730.1231-alpha` (primitive inventory); v1.0.351 (detail)
 
 **TL;DR.** Conceptual data model: Projects, Plans, Schedules, Agents,
 Runs, Artifacts, Documents, Reviews, Channels, Tasks, Attention,
@@ -12,6 +15,22 @@ others. Physical schema (tables, columns, indexes) is in
 [`database-schema.md`](database-schema.md); this doc is the
 definition layer extracted from the original `blueprint.md` §6 (P1.6
 doc-uplift refactor).
+
+**Primitives added since this doc's last full pass** (see
+[`database-schema.md` §8b](database-schema.md) for the migration
+index): **Deliverables / Components / Criteria** (adaptive lifecycle,
+[ADR-044](../decisions/044-adaptive-project-lifecycle.md)/[046](../decisions/046-projects-from-inline-spec.md));
+**Agent turns + event digests** ([ADR-038](../decisions/038-per-run-event-digest.md));
+**Key vault** (zero-knowledge, [ADR-052](../decisions/052-breakglass-ssh-and-key-vault.md));
+**Reference** (library entity, [ADR-053](../decisions/053-hub-reference-library-entity.md));
+**Env profile** + host-sealed secret envelopes ([ADR-056](../decisions/056-env-secret-host-envelopes.md));
+**Dataset** (digest-not-bytes; episodes deliberately not materialized,
+[ADR-060](../decisions/060-datasets-entity-and-media-posture.md));
+**Environment** (family/version/embodiment identity behind `env_ref`,
+[`plans/environments-and-embodiments.md`](../plans/environments-and-embodiments.md));
+**Blob lifetime classes** ([ADR-061](../decisions/061-blob-lifetime.md));
+**Host jobs** (allowlisted detached `host_commands` kinds — not runs,
+[ADR-058](../decisions/058-host-job-surface.md)).
 
 ```mermaid
 erDiagram

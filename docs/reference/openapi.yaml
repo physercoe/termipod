@@ -2560,6 +2560,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Run" }
+    patch:
+      tags: [Runs]
+      operationId: updateRun
+      summary: Update a run's mutable fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunUpdateRequest" }
+      responses:
+        "200":
+          description: The updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "400": { description: "No updatable fields, or a dataset outside the run's project" }
+        "404": { description: Run not found }
 
   /v1/teams/{team}/runs/{run}/complete:
     parameters:
@@ -4328,6 +4345,13 @@ components:
           description: >-
             The dataset this run trained on or rolled out against (replay plan
             W5). Set with PATCH; cleared when that dataset is deleted.
+        env_ref:
+          type: string
+          description: >-
+            Opaque provenance handle for the environment this run ran in,
+            "family:env_id@version" (environments plan E0). Unvalidated and
+            usually empty; never inferred from dataset_id, whose env_ref says
+            where the DATA was collected rather than where this run rolled out.
         final_metrics_json: { type: object }
 
     RunCreateRequest:
@@ -4340,6 +4364,28 @@ components:
         trackio_host_id: { type: string }
         trackio_run_uri: { type: string }
         parent_run_id: { type: string }
+        env_ref: { type: string }
+
+    RunUpdateRequest:
+      type: object
+      description: >-
+        Partial update of a run's mutable columns. Only the supplied fields
+        change; an empty string clears a nullable one.
+      properties:
+        status: { type: string, enum: [pending, running, completed, failed, cancelled] }
+        config_json: { type: object }
+        seed: { type: integer }
+        agent_id: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        trackio_host_id: { type: string }
+        trackio_run_uri: { type: string }
+        parent_run_id: { type: string }
+        dataset_id:
+          type: string
+          description: >-
+            Must name a dataset in the run's own project; 400 otherwise.
+        env_ref: { type: string }
 
     RunMetricsBatch:
       type: object

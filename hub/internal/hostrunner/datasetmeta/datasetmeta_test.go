@@ -220,6 +220,49 @@ func TestEnvRefDerivation(t *testing.T) {
 	}
 }
 
+// Episode.EnvRef is an OVERRIDE, not a copy (environments plan E0). Neither
+// LeRobot generation records a per-episode environment, so every episode
+// inherits the dataset's handle and the rows must say so by staying empty —
+// stamping the digest's value onto each one would ship a string per episode to
+// repeat what the dataset already answered, and a consumer resolving
+// `episode.env_ref || dataset.env_ref` would get the same result either way.
+//
+// The root has to be one whose digest DOES derive an env_ref, or the assertion
+// could not fail: the pinned fixtures are split the wrong way for that — the
+// one with a real robot_type (svla) ships only meta/info.json, and the ones
+// with episodes carry robot_type "unknown", which derives nothing. So the tree
+// is minimal but the robot_type is the real value from the svla fixture, which
+// is what the derivation under test actually reads.
+func TestEpisodesInheritTheDatasetEnvRefRatherThanRepeatingIt(t *testing.T) {
+	s := writeRoot(t, map[string]string{
+		"meta/info.json": `{"codebase_version":"v2.1","fps":10,"total_episodes":2,
+			"total_frames":20,"robot_type":"so100_follower",
+			"features":{"action":{"dtype":"float32","shape":[2]}}}`,
+		"meta/episodes.jsonl": `{"episode_index":0,"tasks":["pick"],"length":10}
+{"episode_index":1,"tasks":["place"],"length":10}`,
+	})
+	d, err := ReadDigest(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.EnvRef == "" {
+		t.Fatalf("the root's digest has no env_ref, so this test could not fail")
+	}
+	p, err := ReadEpisodes(s, EpisodeRequest{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Episodes) == 0 {
+		t.Fatalf("fixture returned no episodes")
+	}
+	for _, ep := range p.Episodes {
+		if ep.EnvRef != "" {
+			t.Errorf("episode %d carries env_ref = %q; it must inherit the "+
+				"dataset's (%q), not repeat it", ep.Index, ep.EnvRef, d.EnvRef)
+		}
+	}
+}
+
 // The episode index is the dataset's spine: without it there is no episodes
 // table and no length histogram, so a digest built anyway would be a summary
 // of a dataset nobody can open. Both generations refuse, and they must refuse

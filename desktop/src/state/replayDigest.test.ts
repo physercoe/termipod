@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   readDatasetSummary,
   readEpisodePage,
+  episodeEnvRef,
   scaleHistogram,
   formatDuration,
   formatCount,
@@ -214,12 +215,18 @@ test('a per-episode-file layout simply has no row range', () => {
 
 test('page range label is 1-based and inclusive, and absent when empty', () => {
   assert.deepEqual(
-    pageRangeLabel({ rows: [{ index: 0, length: 1, durationSec: 0, tasks: [], videos: [] }], offset: 0, limit: 1, total: 14, truncated: false }),
+    pageRangeLabel({
+      rows: [{ index: 0, length: 1, durationSec: 0, tasks: [], videos: [], envRef: '' }],
+      offset: 0,
+      limit: 1,
+      total: 14,
+      truncated: false,
+    }),
     { from: 1, to: 1, total: 14 },
   );
   assert.deepEqual(
     pageRangeLabel({
-      rows: Array.from({ length: 5 }, (_, i) => ({ index: i, length: 1, durationSec: 0, tasks: [], videos: [] })),
+      rows: Array.from({ length: 5 }, (_, i) => ({ index: i, length: 1, durationSec: 0, tasks: [], videos: [], envRef: '' })),
       offset: 200,
       limit: 5,
       total: 50_000,
@@ -431,4 +438,46 @@ test('an episode with no videos reads as an empty list, never undefined', () => 
   assert.deepEqual(view.rows[0].videos, []);
   const bad = readEpisodePage({ episodes: [{ index: 0, videos: 'nonsense' }] });
   assert.deepEqual(bad.rows[0].videos, []);
+});
+
+// ── env_ref (environments plan E0) ───────────────────────────────────────────
+
+test('a dataset env_ref is read from the row, not the digest', () => {
+  // env_ref is a dataset COLUMN — a human can set it on a root no host has
+  // ever read. Reading it out of the digest would make it invisible exactly
+  // when it is the only thing known about the dataset.
+  const s = readDatasetSummary(nyuDataset({ env_ref: 'lerobot:so100_follower' }));
+  assert.equal(s.envRef, 'lerobot:so100_follower');
+
+  const unread = readDatasetSummary({
+    id: 'ds-2',
+    root_path: '/data/new',
+    env_ref: 'lab:bench-3@2026-07',
+  });
+  assert.equal(unread.hasDigest, false);
+  assert.equal(unread.envRef, 'lab:bench-3@2026-07');
+});
+
+test('an episode inherits its dataset env_ref and overrides it when it has one', () => {
+  const summary = readDatasetSummary(nyuDataset({ env_ref: 'lerobot:so100_follower' }));
+  const view = readEpisodePage({
+    episodes: [
+      { index: 0, length: 10 },
+      { index: 1, length: 10, env_ref: 'lab:bench-3@2026-07' },
+    ],
+  });
+  // Inherit: the host does not repeat the dataset's handle on every row, so
+  // reading `row.envRef` directly would report "no environment" for the whole
+  // dataset — the resolution is the point.
+  assert.equal(view.rows[0].envRef, '');
+  assert.equal(episodeEnvRef(view.rows[0], summary), 'lerobot:so100_follower');
+  // Override: an episode recorded somewhere else wins over its dataset.
+  assert.equal(episodeEnvRef(view.rows[1], summary), 'lab:bench-3@2026-07');
+});
+
+test('an episode of a dataset with no env_ref resolves to nothing, not to a guess', () => {
+  const summary = readDatasetSummary(nyuDataset());
+  const view = readEpisodePage({ episodes: [{ index: 0, length: 10 }] });
+  assert.equal(summary.envRef, '');
+  assert.equal(episodeEnvRef(view.rows[0], summary), '');
 });

@@ -271,6 +271,18 @@ type Episode struct {
 	// Videos maps a video feature key to this episode's slice of the shared
 	// mp4. W2 turns these into playable ranges.
 	Videos map[string]VideoSlice `json:"videos,omitempty"`
+
+	// EnvRef is this episode's OVERRIDE of the dataset's env_ref (environments
+	// plan E0) — set only when the episode's own metadata names a different
+	// environment from the one Digest.EnvRef records for the dataset.
+	//
+	// Empty is the normal answer, and for LeRobot it is the only one: neither
+	// generation's episode metadata (v2.1 meta/episodes.jsonl, v3.0
+	// meta/episodes/*.parquet) carries an environment field, so every episode
+	// inherits. Stamping the dataset's handle onto each row instead would ship
+	// one string 50k times to say nothing new — consumers resolve
+	// `episode.env_ref || dataset.env_ref` and get the same answer for free.
+	EnvRef string `json:"env_ref,omitempty"`
 }
 
 // VideoSlice locates one episode inside one video file.

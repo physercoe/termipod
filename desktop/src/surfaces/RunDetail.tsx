@@ -368,6 +368,12 @@ export function RunDetail({ runId, onClose }: { runId: string; onClose: () => vo
               <DetailRow label={t('run.started')} value={str(run, 'started_at')} />
               <DetailRow label={t('run.finished')} value={str(run, 'finished_at')} />
               <DetailRow label={t('run.trackio')} value={str(run, 'trackio_run_uri')} />
+              {/* The environment this run ran in (environments plan E0): an
+                  opaque handle an agent or a human records, never derived —
+                  not even from the linked dataset, whose own env_ref says
+                  where its DATA came from. Absent on nearly every run, and
+                  DetailRow renders nothing for an empty value. */}
+              <DetailRow label={t('run.env')} value={str(run, 'env_ref')} />
               {str(run, 'config_json') !== undefined && (
                 <>
                   <h3>{t('run.config')}</h3>

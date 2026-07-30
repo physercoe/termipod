@@ -137,7 +137,7 @@ head; ships in W1 of [`../plans/project-lifecycle-mvp.md`](../plans/project-life
 
 | Table | Purpose | Detail |
 |---|---|---|
-| `runs` | One ML training/eval execution; frozen `config_json` + `seed`; `trackio_host_id` + `trackio_run_uri` (reference, not content); `parent_run_id` for sweeps; `status`, `final_metrics_json` | [`../spine/blueprint.md §6.5`](../spine/blueprint.md) |
+| `runs` | One ML training/eval execution; frozen `config_json` + `seed`; `trackio_host_id` + `trackio_run_uri` (reference, not content); `parent_run_id` for sweeps; `dataset_id` (what it trained on / rolled out against); `env_ref` (opaque environment handle, unvalidated); `status`, `final_metrics_json` | [`../spine/blueprint.md §6.5`](../spine/blueprint.md) |
 | `run_metrics` | Downsampled scalar time-series (≤100 points) per metric per run; produced by host-runner's metric poller from trackio / wandb / tfevents | — |
 | `run_images` | Image-series checkpoints (e.g., generated samples, attention heatmaps) | — |
 | `run_histograms` | Histogram-series checkpoints (e.g., gradient distributions) | — |
@@ -200,7 +200,7 @@ Migrations live at `hub/migrations/NNNN_<name>.up.sql` and
 `hub/migrations/NNNN_<name>.down.sql`. The hub applies pending up-
 migrations on start; failures abort startup.
 
-**Current head:** `0033_sessions_engine_session_id`.
+**Current head:** `0072_runs_env_ref`.
 
 Recent migrations (selected):
 
@@ -221,6 +221,9 @@ Recent migrations (selected):
 | 0031 | `agent_events_fts` | FTS5 on agent_events |
 | 0033 | `sessions_engine_session_id` | resume cursor for engine sessions |
 | 0051 | `run_extras` | `run_config` + `run_system_metrics` + `run_alerts` (trackio sibling tables) |
+| 0068 | `datasets` | `datasets` table (name + location + folded digest, never bytes) incl. `env_ref` |
+| 0069 | `runs_dataset` | `runs.dataset_id` — what a run trained on / rolled out against |
+| 0072 | `runs_env_ref` | `runs.env_ref` — the environment a run ran in (opaque, unvalidated) |
 
 Each migration is idempotent on rerun via `INSERT OR IGNORE` /
 `CREATE TABLE IF NOT EXISTS` patterns where applicable. To add a new

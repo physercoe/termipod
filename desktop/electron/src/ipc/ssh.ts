@@ -637,19 +637,25 @@ export const sshHandlers: Record<string, Handler> = {
   },
 };
 
-/// Ranged remote-media access for the `termipod-media://sftp/` flavour
-/// (mediascheme.ts): stat the remote file, then open one bounded read stream
-/// per range request on a per-call SFTP channel. `close` must be called when
-/// the stream is done (or on refusal) so the channel doesn't leak. Returns
-/// null when the session is gone or the path isn't a regular file — the
-/// handler turns both into 404, same as a missing local file.
-export interface SftpMediaFile {
+/// Ranged read access to one remote file over a live session: stat it, then
+/// open one bounded read stream per call on a per-call SFTP channel. `close`
+/// must be called when the stream is done (or on refusal) so the channel
+/// doesn't leak. Returns null when the session is gone or the path isn't a
+/// regular file — the media handler turns both into 404, same as a missing
+/// local file.
+///
+/// Two consumers: the `termipod-media://sftp/` flavour (mediascheme.ts), which
+/// serves one HTTP range per call, and the Rerun recording fetch
+/// (`ipc/rerunfetch.ts`), which takes the whole file in one bounded stream.
+/// Named `openSftpMedia` when it had only the first — ADR-060's code pointer
+/// still uses that name.
+export interface SftpFile {
   size: number;
   open: (start: number, end: number) => NodeJS.ReadableStream;
   close: () => void;
 }
 
-export async function openSftpMedia(sessionId: string, remotePath: string): Promise<SftpMediaFile | null> {
+export async function openSftpFile(sessionId: string, remotePath: string): Promise<SftpFile | null> {
   if (!sessions.has(sessionId)) return null;
   let sftp: SFTPWrapper;
   try {

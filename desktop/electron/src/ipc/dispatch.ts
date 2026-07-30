@@ -40,6 +40,7 @@ import { webtabHandlers } from '../webtab';
 import { kimiwebHandlers } from '../kimiweb';
 import { kimiwebWinHandlers } from '../kimiwebwin';
 import { rerunHandlers } from '../rerun';
+import { rerunFetchHandlers } from './rerunfetch';
 import { browserBridgeHandlers } from '../browserbridge_host';
 
 export interface Ctx {
@@ -78,6 +79,7 @@ const handlers: Record<string, Handler> = {
   ...kimiwebHandlers,
   ...kimiwebWinHandlers,
   ...rerunHandlers,
+  ...rerunFetchHandlers,
   ...browserBridgeHandlers,
 };
 

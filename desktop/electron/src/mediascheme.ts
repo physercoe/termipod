@@ -27,7 +27,7 @@ import { Readable } from 'node:stream';
 import path from 'node:path';
 
 import { MEDIA_SCHEME, MEDIA_TYPES, MAX_MEDIA_BYTES, mediaPathOf, mediaSftpOf, parseRange } from './media_policy';
-import { openSftpMedia } from './ipc/ssh';
+import { openSftpFile } from './ipc/ssh';
 
 /// Shared tail of both flavours: range-check a known size, then stream the
 /// window. `open` supplies the bounded byte stream; `done` releases whatever
@@ -87,7 +87,7 @@ export function registerMediaScheme(sess: Electron.Session): void {
     if (sftpTarget !== null) {
       const type = MEDIA_TYPES[path.posix.extname(sftpTarget.path).toLowerCase()];
       if (type === undefined) return new Response('unsupported media type', { status: 415 });
-      const media = await openSftpMedia(sftpTarget.sessionId, sftpTarget.path);
+      const media = await openSftpFile(sftpTarget.sessionId, sftpTarget.path);
       if (media === null) return new Response('not found', { status: 404 });
       return rangedResponse(req, media.size, type, media.open, media.close);
     }

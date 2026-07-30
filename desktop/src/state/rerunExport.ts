@@ -20,13 +20,28 @@ export const EXPORT_POLL_MS = 2_000;
 
 /// Where the flow is. `running` covers both `pending` (the host has not picked
 /// it up) and `delivered` (it is working) — the distinction matters to the hub,
-/// not to someone waiting for a file.
-export type ExportPhase = 'idle' | 'submitting' | 'running' | 'opening' | 'ready' | 'failed';
+/// not to someone waiting for a file. `fetching` is W4b-2's remote case: the
+/// export finished on another machine and its bytes are coming over SFTP.
+export type ExportPhase =
+  | 'idle'
+  | 'submitting'
+  | 'running'
+  | 'fetching'
+  | 'opening'
+  | 'ready'
+  | 'failed';
 
 export interface ExportProgress {
   phase: string;
   done: number;
   total: number;
+}
+
+/// The recording a finished job produced, as the host described it.
+export interface Artifact {
+  path: string;
+  sha256: string;
+  bytes: number;
 }
 
 export interface ExportState {
@@ -35,8 +50,13 @@ export interface ExportState {
   /// caller can still cancel or re-read it.
   commandId: string | null;
   progress: ExportProgress | null;
-  /// Host-local absolute path of the produced recording.
-  path: string | null;
+  /// What the host reported it produced — a path on ITS filesystem, which is
+  /// only this machine's when the dataset is local.
+  artifact: Artifact | null;
+  /// Bytes moved / total for the `fetching` phase. Separate from `progress`,
+  /// which is the host's own export progress — conflating them would make a
+  /// stalled transfer look like a stalled export.
+  transfer: { done: number; total: number } | null;
   /// Loopback viewer URL, once the Rerun manager is serving it.
   viewerUrl: string | null;
   error: string | null;
@@ -46,7 +66,8 @@ export const IDLE_EXPORT: ExportState = {
   phase: 'idle',
   commandId: null,
   progress: null,
-  path: null,
+  artifact: null,
+  transfer: null,
   viewerUrl: null,
   error: null,
 };
@@ -58,6 +79,11 @@ export interface CommandView {
   status: string;
   progress: ExportProgress | null;
   path: string | null;
+  /// The host's sha-256 of the recording. Load-bearing for the remote fetch:
+  /// it names the local cache file and proves the bytes that arrived are the
+  /// ones the host exported.
+  sha256: string | null;
+  bytes: number;
   error: string | null;
 }
 
@@ -94,6 +120,8 @@ export function readCommand(entity: unknown): CommandView {
             total: num(progressRaw, 'total'),
           },
     path: resultRaw === null ? null : str(resultRaw, 'path'),
+    sha256: resultRaw === null ? null : str(resultRaw, 'sha256'),
+    bytes: resultRaw === null ? 0 : num(resultRaw, 'bytes'),
     error: str(row, 'error'),
   };
 }
@@ -119,7 +147,13 @@ export function advanceExport(prev: ExportState, view: CommandView): ExportState
           error: 'the export finished but reported no file',
         };
       }
-      return { ...prev, phase: 'opening', progress: null, path: view.path, error: null };
+      return {
+        ...prev,
+        phase: 'opening',
+        progress: null,
+        artifact: { path: view.path, sha256: view.sha256 ?? '', bytes: view.bytes },
+        error: null,
+      };
     case 'failed':
       return {
         ...prev,
@@ -161,6 +195,12 @@ export function progressLabel(s: ExportState): string | null {
       }
       return `${p.phase}…`;
     }
+    case 'fetching': {
+      const x = s.transfer;
+      if (x === null || x.total <= 0) return 'fetching the recording…';
+      const mb = (n: number): string => (n / (1024 * 1024)).toFixed(1);
+      return `fetching the recording — ${mb(x.done)} / ${mb(x.total)} MB`;
+    }
     case 'opening':
       return 'starting the viewer…';
     case 'ready':
@@ -170,20 +210,65 @@ export function progressLabel(s: ExportState): string | null {
   }
 }
 
-/// Whether the produced `.rrd` is on THIS machine.
+/// Why a finished export cannot be opened. Each maps to one sentence the
+/// director can act on — which is the whole point of naming them rather than
+/// returning a single "cannot open".
+export type BlockedReason =
+  | 'badPath' // the host reported something that is not an absolute .rrd
+  | 'noConnection' // the file is elsewhere and no SSH connection is set for this dataset
+  | 'noSession' // a connection is set, but no terminal tab is live on it
+  | 'noDigest'; // the host reported no sha256, so the transfer cannot be verified
+
+/// What to do with a finished export's artifact.
+export type ArtifactPlan =
+  | { kind: 'local'; path: string }
+  | { kind: 'fetch'; sessionId: string; path: string; sha256: string; bytes: number }
+  | { kind: 'blocked'; reason: BlockedReason };
+
+/// Decide how to get the recording in front of the viewer (J8 Replay W4b-2).
 ///
-/// The export always runs on the host that owns the dataset's bytes and returns
-/// a path in that host's jobcache. When the host is this machine that path opens
-/// directly, which is the local-first case W4b-1 serves. When it is not, the
-/// path names a file that does not exist here, and handing it to the viewer
-/// produces a baffling "rerun exited before serving" instead of a sentence
-/// anyone can act on.
+/// **`localExists` is the signal, not the dataset's remote-video setting.** The
+/// export always runs on the host that owns the dataset's bytes and returns a
+/// path on *that* filesystem; whether that host is this machine has no reliable
+/// answer in the hub's metadata, but the local filesystem answers it directly.
+/// An earlier revision used the video-source connection as the proxy, which got
+/// the common case right and silently mis-classified the rest: a remote dataset
+/// browsed for its plots alone has no connection set, so it read as local and
+/// the viewer failed with "rerun exited before serving".
 ///
-/// `remoteConn` is the SSH connection the director already picked for this
-/// dataset's video (`replayRemoteStore`) — the same signal, reused, rather than
-/// a second notion of "is this dataset remote". Null means local.
-export function isLocalArtifact(remoteConn: string | null): boolean {
-  return remoteConn === null || remoteConn === '';
+/// `remoteConn` (the connection the director picked for this dataset's video,
+/// from `replayRemoteStore`) is still what says *where* to fetch from, and
+/// `session` is that connection's live ssh session if a terminal tab has one.
+/// Reusing them means there is one notion of "the machine this dataset is on"
+/// rather than two that can disagree.
+export function planArtifact(
+  artifact: Artifact | null,
+  opts: { localExists: boolean; remoteConn: string | null; session: string | null },
+): ArtifactPlan {
+  if (artifact === null || !isOpenableRecording(artifact.path)) {
+    return { kind: 'blocked', reason: 'badPath' };
+  }
+  if (opts.localExists) return { kind: 'local', path: artifact.path };
+  if (opts.remoteConn === null || opts.remoteConn === '') {
+    return { kind: 'blocked', reason: 'noConnection' };
+  }
+  if (opts.session === null || opts.session === '') {
+    return { kind: 'blocked', reason: 'noSession' };
+  }
+  // Refused rather than fetched unverified: the digest is what names the local
+  // cache file and what proves the bytes are the ones the host exported. A
+  // host-runner too old to report one is a fixable state, not a reason to
+  // invent a filename and trust whatever arrives.
+  if (!/^[0-9a-f]{64}$/.test(artifact.sha256)) {
+    return { kind: 'blocked', reason: 'noDigest' };
+  }
+  return {
+    kind: 'fetch',
+    sessionId: opts.session,
+    path: artifact.path,
+    sha256: artifact.sha256,
+    bytes: artifact.bytes,
+  };
 }
 
 /// The recording path is handed straight to the Rerun manager, which will only

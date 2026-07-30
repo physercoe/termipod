@@ -4,15 +4,14 @@
 > **Status:** In progress (2026-07-30) — W1, W2, W3, W5 and **W4** complete
 > in code: W4b rides the
 > [ADR-058](../decisions/058-host-job-surface.md) host-job surface, and its
-> executor, the `dataset_export_rrd` kind and the desktop wiring have all
+> executor, the `dataset_export_rrd` kind, the desktop wiring and the
+> remote fetch (W4b-2, over the director's own SSH session) have all
 > landed. ★ The **render is still unverified** — no rerun viewer has been
-> watched displaying a real `.rrd` (§7 carries the checklist). W4b-2 (remote
-> fetch) additionally needs blob lifetime
-> ([ADR-061](../decisions/061-blob-lifetime.md)) (§7)
+> watched displaying a real `.rrd` (§7 carries the checklist)
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `cb54991a` (W1–W3, W5 complete) ·
 > `13b8cf31` (§7's host-job executor) · `cf50b286` (the export kind) ·
-> `6bd678d7` (the desktop wiring)
+> `6bd678d7` (the desktop wiring) · `fd12046b` (W4b-2's detection half)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -647,29 +646,17 @@ Two sub-wedges:
   Zero bytes cross the hub. The exporter's `--output-dir` must be confined
   to a host-side cache dir, because the path it returns becomes a process
   argument. This is the wedge that gives W4a's IPC handlers a caller.
-- **W4b-2 — remote hub-host. NOT BUILT.** The export job runs fine on the
-  remote host (same `host_commands` queue) and W4b-1 now *detects* the
-  case and says so — a dataset with an SSH connection configured for its
-  video (`replayRemoteStore`, the same signal reused rather than a second
-  notion of "remote") reports where the file is instead of handing a
-  foreign path to a local viewer, which would fail as the useless "rerun
-  exited before serving". What remains is the fetch itself. The two
-  transports, decided in the wedge per ADR-058 §4: the handoff chunk path
-  through the blob store — whose **blob lifetime** prerequisite,
-  [ADR-061](../decisions/061-blob-lifetime.md), has now landed
-  (`class=derived` + TTL + the sweeper), so that route is unblocked but
-  still needs a host-side artifact-upload kind and desktop-side manifest
-  reassembly — because ADR-057 D-3's
-  accepted "linger" was priced for teleport (rare, deliberate) and an
-  episodes table is *browsed*: a multi-camera `.rrd` is tens of
-  megabytes, so that transport at browsing frequency writes hundreds of
-  megabytes of otherwise-permanent bytes into the hub, against this very
-  feature's own stated rule that "bulk data does not live on the hub"
-  (`handlers_datasets.go:17-25`) — or a fetch over the user's live SSH
-  session via the now-landed forward/SFTP primitives (`be796b3e`), which
-  moves zero bytes through the hub at all. Distinct from both: hostless
-  `source:'sftp'` datasets have no host-runner, so they cannot export at
-  all — that is the recorded 501 posture
+- **W4b-2 — remote hub-host. BUILT, over SSH.** The export job runs fine
+  on the remote host (same `host_commands` queue); what was missing was
+  getting the file here. ADR-058 §4 left the transport to this wedge and
+  named two. **The session won, and the blob route was not built** — the
+  reasoning is below, because a route declined on purpose reads very
+  differently from one nobody got to. The chain now is: the finished job's
+  `{path, sha256, bytes}` → `rerun_fetch` on the ssh session the director
+  already has open to that machine → a content-addressed local cache →
+  `rerun_start` on the local copy. **Zero bytes cross the hub.** Distinct
+  from all of it: hostless `source:'sftp'` datasets have no host-runner, so
+  they cannot export at all — that is the recorded 501 posture
   (`handlers_datasets.go:528-536`), not a transport gap.
 
 Either sub-wedge needs the host to actually *have* the pinned
@@ -697,13 +684,68 @@ stub launcher and asserts that `--bind 127.0.0.1` reaches the process's
 those two claims is whether the robot's video is on the network. The
 assertion was mutation-checked by deleting the flag.
 
+### W4b-2 as shipped (2026-07-30) — the fetch, and the transport not taken
+
+`rerun_fetch` pulls the recording down the ssh session the director already
+has open to the dataset's machine, verifies it, and opens the local copy:
+`ipc/rerunfetch.ts` (the channel, the cache root, the progress event) over
+`rerun_cache.ts` (the pure streaming, verification and eviction, tested
+under `node --test`), decided by `planArtifact` in `state/rerunExport.ts`.
+
+**Why not the blob route.** ADR-058 §4 offers both and settles neither, so
+this wedge chose — and the choice is the ADR's own sentence taken
+seriously: "the hub never stores job artifacts". [ADR-061](../decisions/061-blob-lifetime.md)
+did unblock the chunked-manifest path (`class=derived` + TTL means the
+bytes would at least expire), but expiry answers *permanence*, not
+*volume*: a multi-camera `.rrd` is tens of megabytes and an episodes table
+is **browsed**, so at browsing frequency that route pushes hundreds of
+megabytes through hub disk per session — for a file that can be
+re-exported from the dataset at any time. The session moves the same bytes
+over a link the director is already holding open, and moves zero of them
+through the hub. Reversing this decision is a real piece of work, not a
+flag: it needs a host-side artifact-upload job kind (`internal/handoff`'s
+`chunkBundle` + `Client.UploadDerivedBlob`, both of which exist), plus
+desktop-side manifest reassembly and a blob GET streamed to a local file.
+
+**The detection heuristic W4b-1 shipped was wrong, and the fix is worth
+recording.** It read "is this artifact local?" off the dataset's
+video-source connection (`replayRemoteStore`) — right whenever a director
+had picked one, and silently wrong otherwise. A remote dataset browsed for
+its *plots* alone needs no SSH connection, so it classified as local and
+sent a foreign path to the viewer, which is exactly the baffling "rerun
+exited before serving" the detection existed to prevent. The signal is now
+`localfs_exists` on the returned path: whether the host that ran the export
+is this machine has no reliable answer in the hub's metadata, but the local
+filesystem answers it directly. The video-source connection still says
+*where to fetch from* — one notion of "the machine this dataset is on",
+not two that can disagree.
+
+**The cache is content-addressed, and that is a safety property.** The
+local filename is the host-reported sha256 and nothing else, because the
+remote path is untrusted input as far as this process is concerned and
+letting any part of it reach a local filename is how a fetch becomes an
+arbitrary write. The digest is verified against the bytes that actually
+arrived *before* the file is given its name, so a truncated or substituted
+transfer never becomes a file the viewer will open — and a re-export of the
+same episode is a cache hit that transfers nothing. A host-runner too old to
+report a digest is refused rather than trusted. Eviction is oldest-first
+above 8 GiB, never taking the file the viewer is about to open.
+
+One guard did not survive review: an explicit short-transfer check
+(`bytes read !== stat size`) was deleted after a mutation test showed
+removing it broke nothing. The digest already *is* the completeness check —
+a stream that ends early, or a size the host got wrong in either direction,
+all land as a hash mismatch — and a length check on top could only reject a
+transfer the digest had just proved correct.
+
 **What is still unverified is the render.** Nobody has watched a Rerun
 viewer display a real `.rrd` produced by this path, because it cannot be
 done on the development host: `rerun`, `lerobot` and `torch` are all
 absent, there is no display, and `xvfb-run` is not installed either. Every
 step around the render is covered — the argv, the refusals, the poll
-transitions, artifact discovery, the spawn — and none of that is the same
-as having seen it work. The checklist for whoever runs it first:
+transitions, artifact discovery, the spawn, the fetch's streaming and
+verification against real files — and none of that is the same as having
+seen it work. The checklist for whoever runs it first:
 
 1. On the dataset's host, install the pair into one environment and point
    the runner at it with `--lerobot-viz-cmd` (see
@@ -722,6 +764,14 @@ as having seen it work. The checklist for whoever runs it first:
 5. `ss -ltnp | grep <the web-viewer port>` must show it bound to
    `127.0.0.1`, never `0.0.0.0`. The test above pins the flag; this
    confirms rerun honoured it.
+6. Then the remote case, which is a different path end to end: open the
+   same episode on a dataset whose host is *not* this machine. With no
+   terminal open to it the export should end in "open a terminal on that
+   machine's SSH connection", not a viewer error. Open one, export again,
+   and the status line should read `fetching the recording — n / m MB`
+   before the viewer starts. Confirm the recording landed under
+   `<userData>/rerun-recordings/<sha256>.rrd` and that a second export of
+   the same episode skips the transfer entirely.
 
 ## 8. W5 — Runs ↔ episodes: eval rollouts become watchable
 

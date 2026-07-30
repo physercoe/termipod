@@ -1192,8 +1192,13 @@ const en: Dict = {
     'Runs on the dataset’s host: decodes the whole episode into a .rrd, then opens it in a local Rerun viewer.',
   'replay.export.desktopOnly': 'Rerun export needs the desktop app.',
   'replay.export.badPath': 'The host reported a file that is not an absolute .rrd path.',
-  'replay.export.remoteNotFetched':
-    'The export succeeded on the dataset\u2019s host, at {path} \u2014 but that machine is not this one, and fetching the recording from it is not built yet.',
+  'replay.export.remoteNoConnection':
+    'The recording is on the dataset\u2019s host, not this machine. Pick that machine\u2019s SSH connection under \u201cVideo source\u201d and export again \u2014 the recording is fetched over that session.',
+  'replay.export.remoteNoSession':
+    'The recording is on the dataset\u2019s host. Open a terminal on that machine\u2019s SSH connection and export again \u2014 the recording is fetched over that session.',
+  'replay.export.noDigest':
+    'The host reported no checksum for the recording, so it cannot be fetched and verified. Update the host-runner.',
+  'replay.export.retryOpen': 'Open it again',
   'replay.export.viewerTitle': 'Rerun viewer',
   'replay.export.viewerClose': 'Stop viewer',
   'replay.project': 'Project',
@@ -3195,7 +3200,12 @@ const zh: Dict = {
   'replay.export.hint': '在数据集所在主机上运行：将整段 episode 解码为 .rrd，然后在本地 Rerun 查看器中打开。',
   'replay.export.desktopOnly': 'Rerun 导出需要桌面应用。',
   'replay.export.badPath': '主机返回的文件不是绝对路径的 .rrd。',
-  'replay.export.remoteNotFetched': '导出已在数据集所在主机上完成，路径为 {path} —— 但该主机不是本机，尚未实现从远端取回录制文件。',
+  'replay.export.remoteNoConnection':
+    '录制文件在数据集所在主机上，不在本机。请在“视频来源”中选择该主机的 SSH 连接后重新导出 —— 录制文件将通过该会话取回。',
+  'replay.export.remoteNoSession':
+    '录制文件在数据集所在主机上。请在该主机的 SSH 连接上打开一个终端后重新导出 —— 录制文件将通过该会话取回。',
+  'replay.export.noDigest': '主机未返回录制文件的校验和，无法取回并校验。请升级 host-runner。',
+  'replay.export.retryOpen': '重新打开',
   'replay.export.viewerTitle': 'Rerun 查看器',
   'replay.export.viewerClose': '停止查看器',
   'replay.project': '项目',

@@ -4,11 +4,12 @@ import {
   IDLE_EXPORT,
   advanceExport,
   canCancel,
-  isLocalArtifact,
   isOpenableRecording,
   isPolling,
+  planArtifact,
   progressLabel,
   readCommand,
+  type Artifact,
   type ExportState,
 } from './rerunExport.ts';
 
@@ -45,6 +46,11 @@ test('readCommand reads status, progress and the result path', () => {
   assert.equal(v.status, 'done');
   assert.equal(v.path?.endsWith('lerobot_pusht_episode_0.rrd'), true);
   assert.equal(v.error, null);
+  // The digest and size are what W4b-2's fetch is built on: they name the local
+  // cache file and bound the transfer, so dropping them here would silently
+  // disable verification rather than fail.
+  assert.equal(v.sha256, 'deadbeef');
+  assert.equal(v.bytes, 12345);
 });
 
 test('readCommand survives a row with no progress, result or error', () => {
@@ -52,6 +58,8 @@ test('readCommand survives a row with no progress, result or error', () => {
   assert.equal(v.status, 'pending');
   assert.equal(v.progress, null);
   assert.equal(v.path, null);
+  assert.equal(v.sha256, null);
+  assert.equal(v.bytes, 0);
   assert.equal(v.error, null);
 });
 
@@ -101,7 +109,7 @@ test('done with a path moves to opening', () => {
     readCommand(finished({ path: '/tmp/x.rrd', bytes: 1, sha256: 'a' })),
   );
   assert.equal(s.phase, 'opening');
-  assert.equal(s.path, '/tmp/x.rrd');
+  assert.equal(s.artifact?.path, '/tmp/x.rrd');
   assert.equal(s.error, null);
 });
 
@@ -144,7 +152,9 @@ test('an unknown status holds the phase and keeps polling', () => {
 test('polling stops once the flow is over', () => {
   assert.equal(isPolling({ ...IDLE_EXPORT, phase: 'submitting' }), true);
   assert.equal(isPolling({ ...IDLE_EXPORT, phase: 'running' }), true);
-  for (const phase of ['idle', 'opening', 'ready', 'failed'] as const) {
+  // `fetching` is the transfer, not the hub job — polling the command row while
+  // bytes move would ask the hub about a job that finished minutes ago.
+  for (const phase of ['idle', 'fetching', 'opening', 'ready', 'failed'] as const) {
     assert.equal(isPolling({ ...IDLE_EXPORT, phase }), false, phase);
   }
 });
@@ -177,13 +187,98 @@ test('only an absolute .rrd is openable', () => {
   assert.equal(isOpenableRecording(null), false);
 });
 
+// ── planArtifact — W4b-2's decision: open it, fetch it, or say why not ───────
+//
 // The export runs where the bytes are. When that is not this machine, the path
 // it returns names a file that does not exist here — and handing it to the
 // viewer produces "rerun exited before serving", which tells nobody anything.
-test('an artifact is local only when no remote connection is configured', () => {
-  assert.equal(isLocalArtifact(null), true);
-  assert.equal(isLocalArtifact(''), true, 'an empty connection id is not a remote host');
-  assert.equal(isLocalArtifact('conn-gpu-box'), false);
+
+const SHA = 'a'.repeat(64);
+const REMOTE: Artifact = { path: '/srv/jobcache/pusht_episode_0.rrd', sha256: SHA, bytes: 40_000 };
+
+test('a recording that is on this machine is opened directly', () => {
+  const plan = planArtifact(REMOTE, { localExists: true, remoteConn: null, session: null });
+  assert.deepEqual(plan, { kind: 'local', path: REMOTE.path });
+});
+
+// The signal is the filesystem, NOT the dataset's video-source setting. A
+// director browsing a remote dataset for its plots alone has no connection set;
+// the earlier heuristic read that as "local" and sent a foreign path to rerun.
+test('a local recording is opened even when the dataset streams video over SSH', () => {
+  const plan = planArtifact(REMOTE, {
+    localExists: true,
+    remoteConn: 'conn-gpu-box',
+    session: 'ssh-7',
+  });
+  assert.equal(plan.kind, 'local');
+});
+
+test('a recording that is elsewhere is fetched over the live session', () => {
+  const plan = planArtifact(REMOTE, {
+    localExists: false,
+    remoteConn: 'conn-gpu-box',
+    session: 'ssh-7',
+  });
+  assert.deepEqual(plan, {
+    kind: 'fetch',
+    sessionId: 'ssh-7',
+    path: REMOTE.path,
+    sha256: SHA,
+    bytes: 40_000,
+  });
+});
+
+test('each way a fetch cannot happen is its own reason', () => {
+  const reason = (o: Parameters<typeof planArtifact>[1]): string => {
+    const p = planArtifact(REMOTE, o);
+    return p.kind === 'blocked' ? p.reason : p.kind;
+  };
+  // Nothing says which machine the file is on.
+  assert.equal(reason({ localExists: false, remoteConn: null, session: null }), 'noConnection');
+  assert.equal(reason({ localExists: false, remoteConn: '', session: null }), 'noConnection');
+  // A connection is chosen, but nothing is connected over it right now.
+  assert.equal(
+    reason({ localExists: false, remoteConn: 'conn-gpu-box', session: null }),
+    'noSession',
+  );
+  assert.equal(reason({ localExists: false, remoteConn: 'conn-gpu-box', session: '' }), 'noSession');
+});
+
+test('a recording with no usable digest is refused rather than fetched unverified', () => {
+  const live = { localExists: false, remoteConn: 'conn-gpu-box', session: 'ssh-7' };
+  for (const sha256 of ['', 'deadbeef', SHA.toUpperCase(), `${'a'.repeat(63)}/`]) {
+    const plan = planArtifact({ ...REMOTE, sha256 }, live);
+    assert.deepEqual(plan, { kind: 'blocked', reason: 'noDigest' }, sha256);
+  }
+});
+
+// The path check runs FIRST: a host that reported nonsense should be told so,
+// not have its nonsense fetched over an SSH session.
+test('a path that is not an absolute .rrd is blocked before anything else', () => {
+  const live = { localExists: false, remoteConn: 'conn-gpu-box', session: 'ssh-7' };
+  assert.deepEqual(planArtifact(null, live), { kind: 'blocked', reason: 'badPath' });
+  for (const path of ['', 'relative/x.rrd', '/etc/passwd', '/x.rrd.txt']) {
+    assert.deepEqual(
+      planArtifact({ ...REMOTE, path }, { ...live, localExists: true }),
+      { kind: 'blocked', reason: 'badPath' },
+      path,
+    );
+  }
+});
+
+test('the fetch phase reports how far the transfer has got', () => {
+  const s: ExportState = {
+    ...IDLE_EXPORT,
+    phase: 'fetching',
+    transfer: { done: 12 * 1024 * 1024, total: 40 * 1024 * 1024 },
+  };
+  assert.equal(progressLabel(s), 'fetching the recording — 12.0 / 40.0 MB');
+  // A cache hit reports its total in one tick; an unknown total must not render
+  // as "NaN%" or a bar that looks stuck at zero.
+  assert.equal(
+    progressLabel({ ...IDLE_EXPORT, phase: 'fetching', transfer: null }),
+    'fetching the recording…',
+  );
 });
 
 // The whole happy path, in the order a poll actually delivers it.
@@ -196,9 +291,15 @@ test('submit → running → progress → done → opening', () => {
   assert.equal(progressLabel(s), 'probing…');
   s = advanceExport(s, readCommand(running({ phase: 'exporting', done: 3, total: 4 })));
   assert.equal(progressLabel(s), 'exporting 75%');
-  s = advanceExport(s, readCommand(finished({ path: '/c/j/out.rrd', bytes: 9, sha256: 'b' })));
+  s = advanceExport(s, readCommand(finished({ path: '/c/j/out.rrd', bytes: 9, sha256: SHA })));
   assert.equal(s.phase, 'opening');
-  assert.equal(isOpenableRecording(s.path), true);
+  assert.equal(isOpenableRecording(s.artifact?.path ?? null), true);
   assert.equal(isPolling(s), false);
   assert.equal(s.commandId, 'cmd-1', 'the command id survives so cancel/re-read still work');
+  // …and on a remote host the same row continues into a transfer rather than
+  // stopping at a path nobody here can open.
+  assert.equal(
+    planArtifact(s.artifact, { localExists: false, remoteConn: 'c1', session: 'ssh-1' }).kind,
+    'fetch',
+  );
 });

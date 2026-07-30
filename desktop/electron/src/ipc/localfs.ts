@@ -87,6 +87,22 @@ export const localfsHandlers: Record<string, Handler> = {
     return await readFile(String(args.path ?? ''));
   },
 
+  /// Does this path name a regular file on THIS machine?
+  ///
+  /// Added for the Rerun export (J8 Replay W4b-2): the export runs on whichever
+  /// host owns the dataset's bytes and returns a path on that host, and "is
+  /// that host this machine" has no reliable answer in the hub's metadata — but
+  /// the local filesystem answers it directly. A boolean rather than a stat,
+  /// because the caller needs the yes/no and nothing else; a missing path and an
+  /// unreadable one are both "not here", which is the same decision either way.
+  localfs_exists: async (args): Promise<boolean> => {
+    try {
+      return (await stat(String(args.path ?? ''))).isFile();
+    } catch {
+      return false;
+    }
+  },
+
   localfs_write: async (args): Promise<void> => {
     await writeFile(String(args.path ?? ''), (args.bytes ?? new Uint8Array()) as Uint8Array);
   },

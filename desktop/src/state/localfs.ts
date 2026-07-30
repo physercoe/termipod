@@ -57,6 +57,10 @@ export function treeSearch(
 export function localRead(path: string): Promise<Uint8Array> {
   return invoke<Uint8Array>('localfs_read', { path });
 }
+/** Whether a path is a regular file on THIS machine (false for a missing or unreadable one). */
+export function localExists(path: string): Promise<boolean> {
+  return invoke<boolean>('localfs_exists', { path });
+}
 /** Write raw bytes to a local path (for download from remote). */
 export function localWrite(path: string, bytes: Uint8Array): Promise<void> {
   return invoke('localfs_write', { path, bytes });

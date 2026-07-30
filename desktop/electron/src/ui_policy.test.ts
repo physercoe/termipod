@@ -357,3 +357,102 @@ test('focus sender: cancel drops the pending trailing send', () => {
   timing.advance(1000);
   assert.deepEqual(sent.map((x) => x.surface), ['read']);
 });
+
+// ── Split panes (desktop-shell-split-pane.md §3.4 / §5) ──────────────────────
+// A visible split adds `secondary` + `active_pane`; one pane has neither
+// (absent means no split — no `"secondary": null` noise). The pinned pane is
+// served under ITS OWN row, and the gate follows FOCUS, not position.
+
+test('projectFocus: a visible split carries the pinned pane and the focus attribution', () => {
+  const raw: RawFocus = {
+    surface: 'author',
+    captured_at: 'now',
+    document: { id: 'd1', title: 'Draft' },
+    secondary: { surface: 'compare' },
+    active_pane: 'primary',
+  };
+  const out = projectFocus(raw);
+  assert.equal(out.surface, 'author');
+  assert.equal(out.active_pane, 'primary');
+  assert.deepEqual(out.secondary, { surface: 'compare' });
+  assert.deepEqual(out.document, { id: 'd1', title: 'Draft' });
+});
+
+test('projectFocus: a single pane emits neither field — absent means no split', () => {
+  const out = projectFocus({ surface: 'author', captured_at: 'now', document: { id: 'd1', title: 'Draft' } });
+  assert.equal('secondary' in out, false);
+  assert.equal('active_pane' in out, false);
+});
+
+test('projectFocus: the pinned pane is served under its OWN row', () => {
+  // `replay` pinned beside `author`: the replay block reaches the pane object
+  // through replay's row, and nothing outside that row does.
+  const out = projectFocus({
+    surface: 'author',
+    captured_at: 'now',
+    document: { id: 'd1', title: 'Draft' },
+    replay: { dataset_id: 'ds1' },
+    secondary: { surface: 'replay' },
+    active_pane: 'secondary',
+  });
+  assert.deepEqual(out.secondary, { surface: 'replay', replay: { dataset_id: 'ds1' } });
+  // Pinning can never publish more than opening would: the pane object carries
+  // no block the pinned surface's row does not allowlist.
+  assert.equal('document' in (out.secondary as Record<string, unknown>), false);
+});
+
+test('projectFocus: an undeclared pinned surface is not published at all', () => {
+  const out = projectFocus({
+    surface: 'author',
+    captured_at: 'now',
+    secondary: { surface: 'not-a-surface' },
+    active_pane: 'primary',
+  });
+  assert.equal('secondary' in out, false);
+  assert.equal('active_pane' in out, false);
+});
+
+test('projectFocus: the gate follows FOCUS across the split, not position', () => {
+  // The vault pane is the one the user is in, so the WHOLE answer degrades —
+  // including the other pane's blocks, which position-based gating would leak.
+  const raw: RawFocus = {
+    surface: 'author',
+    captured_at: 'now',
+    document: { id: 'd1', title: 'Draft' },
+    secondary: { surface: 'vault' },
+    active_pane: 'secondary',
+  };
+  assert.deepEqual(projectFocus(raw), { surface: 'author', captured_at: 'now' });
+  // …and with focus back on the author pane the same raw state projects fully.
+  const focused = projectFocus({ ...raw, active_pane: 'primary' });
+  assert.deepEqual(focused.document, { id: 'd1', title: 'Draft' });
+  // A vault pane still names itself (a surface id is not a secret — the same
+  // thing D1 already publishes when the vault is the only surface), but its
+  // empty row means it contributes no fields.
+  assert.deepEqual(focused.secondary, { surface: 'vault' });
+});
+
+test('assembleRawFocus: the split fields are set only when a pane is pinned', () => {
+  const base = {
+    fleetSelection: null,
+    projectSelection: null,
+    activeDocument: null,
+    inspectTabs: [],
+    inspectActive: null,
+    replayDatasetId: null,
+    terminalPaneId: null,
+    capturedAt: 'now',
+  };
+  // Absent (every pre-S3 caller) and explicit-null both read as "no split".
+  assert.deepEqual(assembleRawFocus({ ...base, job: 'read' }), { surface: 'read', captured_at: 'now' });
+  assert.deepEqual(assembleRawFocus({ ...base, job: 'read', secondaryJob: null }), {
+    surface: 'read',
+    captured_at: 'now',
+  });
+  assert.deepEqual(assembleRawFocus({ ...base, job: 'read', secondaryJob: 'compare', activePane: 'secondary' }), {
+    surface: 'read',
+    captured_at: 'now',
+    secondary: { surface: 'compare' },
+    active_pane: 'secondary',
+  });
+});

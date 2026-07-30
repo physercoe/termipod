@@ -1,14 +1,14 @@
 # Desktop shell split pane — minimal simultaneity
 
 > **Type:** plan
-> **Status:** In flight (2026-07-30) — **S1 shipped** (store + render + toggle,
-> §4.1) and **S2 shipped** (ergonomics, §4.2); **S3** (focus projection) open,
-> and now the smaller half of it — ui-context D1 landed first and already reads
-> the active pane.
-> Deliberately **not** a docking framework: exactly one pinned secondary surface,
-> per `desktop-design-review.md` §4.2's minimal cut.
+> **Status:** Done (2026-07-30) — all three wedges shipped: **S1** store +
+> render + toggle (§4.1), **S2** ergonomics (§4.2), **S3** focus projection
+> (§4.3). Deliberately **not** a docking framework: exactly one pinned secondary
+> surface, per `desktop-design-review.md` §4.2's minimal cut. Open questions in
+> §7 stay open — they were scoped out, not answered.
 > **Audience:** principal · contributors
-> **Last verified vs code:** 2026.727.938 (S1, `desktop/src/state/workbench.ts`)
+> **Last verified vs code:** 2026.727.938 (`desktop/src/state/workbench.ts`,
+> `src/state/ui_policy.ts`)
 
 **TL;DR.** ADR-050 argues the desktop's entire reason to exist is
 *simultaneity*, yet the shell is still a modal one-job-at-a-time switch
@@ -181,6 +181,17 @@ targets resolve in whichever pane hosts the ref's surface. If D1 lands before
 S3, the snapshot builder reads `secondary`/`activePane` from the same store —
 no IPC change, one more field in the throttled push.
 
+> **As shipped, `pane` is not emitted.** With `surface` positional (always the
+> primary) and `active_pane` naming the focused one, a top-level `pane` field
+> could only ever say `"primary"` — it carries no information a reader doesn't
+> already have. The sketch above shows a case where the two happen to agree,
+> which is what hid the redundancy.
+
+`ui_highlight` is D6 and unbuilt (no such tool exists in the tree at S3), so the
+resolve-in-the-hosting-pane rule is a constraint on D6, not something S3 could
+implement. What S3 owes it is the shape: the snapshot now says which surface is
+in which pane, which is exactly what a highlight target needs to resolve.
+
 ## 4. Wedges
 
 - **S1 — store + render + toggle** (the working core): 3.1 + 3.2, palette
@@ -191,9 +202,8 @@ no IPC change, one more field in the throttled push.
   **Shipped 2026-07-30** — see §4.2.
 - **S3 — focus projection**: snapshot fields + tests, coordinated with
   ui-context D1 (whichever lands second carries the integration test).
-  **D1 shipped first** (`d55ee136`) and reads `activeJob()`, so the snapshot
-  already follows the focused pane; what remains is the §3.4 shape — the
-  `secondary` object and `active_pane` — plus that integration test.
+  **Shipped 2026-07-30** — see §4.3. D1 landed first, so S3 carried the
+  integration test.
 
 ### 4.1 S1 as shipped (2026-07-30)
 
@@ -278,6 +288,31 @@ the ratio is not per-job (one row shape, not a remembered layout per pairing).
 Not verified locally, again: the e2e spec (`split S2`), including the divider
 drag. CI is the gate.
 
+### 4.3 S3 as shipped (2026-07-30)
+
+`workbench.ts` (`panesForFocus`), `state/ui_policy.ts`, `state/uiContext.ts`,
+`electron/src/ui_policy.test.ts`, `state/workbench.test.ts`; the UI-context
+plan's §3.2 shape updated to match.
+
+- **The top level became positional.** D1 published the *active* pane as
+  `surface` — the best answer available when there was no way to name the other
+  one. S3 makes `surface` the primary pane and adds `active_pane`, so a snapshot
+  describes what is **on screen** rather than only what has focus. With no split
+  the two readings are identical, so nothing changed for the single-pane case.
+- **The gate follows focus, not position.** `projectFocus` degrades the whole
+  answer when the row of the surface the user is *in* has an empty allowlist —
+  so a vault pane suppresses the other pane's blocks too. Gating on the
+  top-level (primary) surface instead would have leaked them.
+- **A pinned pane is served under its own row**, so pinning a surface can never
+  publish more than opening it would.
+- **A parked pin is never reported** (`panesForFocus` keys on `isSplitVisible`):
+  an agent is not told about a pane the user cannot see.
+- No main-side change: `desktopui_focus` caches the projection verbatim
+  (shape + 16 KiB size check only), so both fields ride through untouched.
+
+Left to D6: `ui_highlight` resolving a target into the pane that hosts its
+surface. No such tool exists yet; S3 supplies the shape it will need.
+
 ## 5. Testing
 
 State tests run manually (`node --test src/state/*.test.ts` — CI does not run
@@ -289,8 +324,14 @@ desktop state tests):
 - Restore: relaunch state = (job, secondary, activePane, ratio).
 - Boundary containment: a surface that throws in the secondary pane leaves the
   primary interactive (component test at the `SurfaceView` seam).
-- S3: snapshot includes `secondary` + `active_pane`; single-pane snapshot has
-  neither (no `"secondary": null` noise — absent means no split).
+- S3 (done): snapshot includes `secondary` + `active_pane`; single-pane snapshot
+  has neither (no `"secondary": null` noise — absent means no split); the pinned
+  pane carries only its own row's fields; an undeclared pinned surface is not
+  published; the gate follows focus across the split. These live in
+  `electron/src/ui_policy.test.ts`, which **CI does run**.
+- S3 integration (the plan's second-lander obligation): the real workbench store
+  driven through the real projection — pin, focus, swap, park on Settings, come
+  back — in `src/state/workbench.test.ts`.
 
 ## 6. Risks
 

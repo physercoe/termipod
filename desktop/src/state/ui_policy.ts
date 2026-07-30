@@ -92,12 +92,32 @@ export interface UiRefKimiweb {
   url?: string;
 }
 
+/// One pane of a split, as the agent sees it (split-pane plan §3.4). Carries its
+/// surface id plus that surface's OWN allowlisted blocks — a pinned pane is
+/// served under its own policy row, not under the focused pane's.
+export interface UiPaneRef {
+  surface: string;
+  /// …plus the row's allowlisted blocks, same shapes as `RawFocus`'s.
+  [block: string]: unknown;
+}
+
 /// The pre-projection focus state assembled renderer-side from the stores.
-/// `surface` is the active workbench job id (workbench.ts) — or a
-/// pseudo-surface id (`kimiweb`, `vault`) once a surface exposes one.
+///
+/// `surface` is the **primary** pane's workbench job id (workbench.ts) — or a
+/// pseudo-surface id (`kimiweb`, `vault`) once a surface exposes one. With no
+/// split that is simply the surface on screen. The top level is POSITIONAL so
+/// that a split can describe *both* panes: `secondary` is the pinned one and
+/// `active_pane` says which of the two the user is actually in.
 export interface RawFocus {
   surface: string;
   captured_at: string;
+  /// The pinned pane — present only while the split is on screen. A *parked*
+  /// pin (kept while the user visits Settings) is never reported: an agent is
+  /// not told about a pane the user cannot see.
+  secondary?: UiPaneRef;
+  /// Which pane holds the user's focus. Present only alongside `secondary`;
+  /// absent means there is one pane and it is the one described above.
+  active_pane?: 'primary' | 'secondary';
   agent?: UiRefAgent;
   project?: UiRefProject;
   tabs?: UiRefTab[];
@@ -161,19 +181,41 @@ export function uiPolicyFor(surface: string): UiPolicyRow | null {
 
 // ── The projection ───────────────────────────────────────────────────────────
 
-/// Project a raw focus state through the table. Two rules:
+/// The surface whose row gates the answer: the one the user is actually in.
+/// With a split that can be the pinned pane, not the top-level (primary) one —
+/// the gate follows *focus*, so "the user is in the vault" suppresses the
+/// snapshot no matter which half of the row the vault occupies.
+function activeSurfaceOf(raw: RawFocus): string {
+  return raw.active_pane === 'secondary' && raw.secondary !== undefined ? raw.secondary.surface : raw.surface;
+}
+
+/// Project a raw focus state through the table. Three rules:
 ///   1. the ACTIVE surface's row gates the answer — unknown surface, or a row
 ///      with an empty allowlist (settings, vault), degrades to existence only
-///      (`{surface, captured_at}`), suppressing every cross-surface block too;
+///      (`{surface, captured_at}`), suppressing every cross-surface block, the
+///      pinned pane and the focus attribution too;
 ///   2. otherwise each surface row contributes its own block(s) from the raw
 ///      state (the §3.2 example: surface=read still carries the focused
 ///      agent, the Inspect path + selection, the terminal pane), filtered to
-///      exactly the row's allowlisted sub-fields.
+///      exactly the row's allowlisted sub-fields;
+///   3. a visible split adds `secondary` + `active_pane` (split-pane plan
+///      §3.4). The pinned pane is served under ITS OWN row, so pinning a
+///      surface can never publish more than opening it would.
 export function projectFocus(raw: RawFocus): UiFocusSnapshot {
   const out = { surface: raw.surface, captured_at: raw.captured_at } as UiFocusSnapshot;
-  const active = UI_POLICY[raw.surface];
+  const active = UI_POLICY[activeSurfaceOf(raw)];
   if (active === undefined || active.snapshot.length === 0) return out;
   for (const row of Object.values(UI_POLICY)) applyAllowlist(out as unknown as Record<string, unknown>, raw, row.snapshot);
+  if (raw.secondary !== undefined) {
+    const row = UI_POLICY[raw.secondary.surface];
+    // An undeclared surface is not published at all — same posture as rule 1.
+    if (row !== undefined) {
+      const pane: Record<string, unknown> = { surface: raw.secondary.surface };
+      applyAllowlist(pane, raw, row.snapshot);
+      out.secondary = pane as UiPaneRef;
+      out.active_pane = raw.active_pane ?? 'primary';
+    }
+  }
   return out;
 }
 
@@ -219,9 +261,16 @@ function pickSubFields(val: Record<string, unknown>, subs: readonly string[]): R
 // zustand glue lives in uiContext.ts.
 
 export interface FocusSources {
-  /// The ACTIVE pane's job (workbench `activeJob()` — with a split pinned, the
-  /// user may be looking at the secondary pane, not `job`).
+  /// The PRIMARY pane's job — the only surface when there is no split. (D1
+  /// published the active pane here, because there was no way to express the
+  /// other one; S3 makes the top level positional and names the focused pane in
+  /// `activePane`, so a snapshot can carry both.)
   job: string;
+  /// The pinned pane's job, or null when no split is on screen. Optional: absent
+  /// reads as "no split", which is what every pre-S3 caller meant.
+  secondaryJob?: string | null;
+  /// Which pane the user is in. Only meaningful alongside `secondaryJob`.
+  activePane?: 'primary' | 'secondary';
   /// useFocus.fleet.selection — contributes `agent` when it names an agent.
   fleetSelection: { type: string; id: string; name?: string } | null;
   /// useFocus.projects.selection — contributes `project` when it names one.
@@ -261,6 +310,10 @@ export function assembleRawFocus(s: FocusSources): RawFocus {
   }
   if (s.terminalPaneId !== null) {
     raw.terminal = { pane_id: s.terminalPaneId };
+  }
+  if (s.secondaryJob !== undefined && s.secondaryJob !== null) {
+    raw.secondary = { surface: s.secondaryJob };
+    raw.active_pane = s.activePane ?? 'primary';
   }
   return raw;
 }

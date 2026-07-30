@@ -211,6 +211,13 @@ privacy decision lives. Shape:
   vault content, no settings values. When the vault surface (or any
   surface without an allowlist entry) is active, the snapshot degrades to
   `{ "surface": "vault" }` — existence, not content.
+- **Split panes** (`desktop-shell-split-pane.md` S3, shipped after D1): with
+  a split on screen the snapshot gains `secondary` (the pinned pane, served
+  under **its own** policy row) and `active_pane`, and `surface` becomes
+  *positional* — the primary pane — so both panes are described rather than
+  only the focused one. One pane emits neither field; absent means no split.
+  The degrade rule above follows **focus**, not position: the user being in
+  a vault pane suppresses the whole snapshot, including the other pane.
 - Read class: available wherever the tool set is injected, no approval.
 - Follow-ups in the same wedge if cheap: `ui_get_selection` (the user's
   current text selection in Inspect/transcript, bounded chars).

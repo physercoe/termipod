@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '../bridge';
 import { isShell } from '../platform';
-import { activeJob, useWorkbench } from './workbench';
+import { panesForFocus, useWorkbench } from './workbench';
 import { useFocus } from './focus';
 import { useDocuments } from './documents';
 import { useInspect } from './inspect';
@@ -94,9 +94,10 @@ function setPublishing(v: boolean): void {
 /// object reads only — the projection, not the assembly, is where fields are
 /// decided.
 function sourcesNow(): FocusSources {
-  // The ACTIVE pane's job — with a split pinned (S1), `job` alone is the
-  // primary pane, which is not necessarily what the user is looking at.
-  const job = activeJob(useWorkbench.getState());
+  // Both panes (split-pane S3). The top level is the PRIMARY pane and
+  // `activePane` names where the user is, so a split snapshot describes what is
+  // on screen rather than only the focused half. A parked pin is not reported.
+  const { job, secondaryJob, activePane } = panesForFocus(useWorkbench.getState());
   const focus = useFocus.getState();
   const docs = useDocuments.getState();
   const inspect = useInspect.getState();
@@ -106,6 +107,8 @@ function sourcesNow(): FocusSources {
   const activeInspect = inspect.activeId !== null ? (inspect.tabs.find((t) => t.id === inspect.activeId) ?? null) : null;
   return {
     job,
+    secondaryJob,
+    activePane,
     fleetSelection: focus.fleet.selection,
     projectSelection: focus.projects.selection,
     activeDocument: activeDoc !== null ? { id: activeDoc.id, title: activeDoc.title } : null,

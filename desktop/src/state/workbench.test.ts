@@ -17,10 +17,12 @@ import {
   healPanes,
   isSplitEligible,
   isSplitVisible,
+  panesForFocus,
   parseSplit,
   useWorkbench,
   type PaneState,
 } from './workbench.ts';
+import { assembleRawFocus, projectFocus } from './ui_policy.ts';
 
 const solo: PaneState = { job: 'read', secondary: null, activePane: 'primary' };
 const split: PaneState = { job: 'read', secondary: 'compare', activePane: 'primary' };
@@ -310,4 +312,75 @@ test('setRatio: clamps, and a no-op does not touch the store', () => {
   const before = useWorkbench.getState();
   useWorkbench.getState().setRatio(0.75);
   assert.equal(useWorkbench.getState(), before); // identical state object
+});
+
+// ── S3: what the ADR-062 focus snapshot sees ─────────────────────────────────
+
+test('panesForFocus: reports both panes, and never a parked pin', () => {
+  assert.deepEqual(panesForFocus(solo), { job: 'read', secondaryJob: null, activePane: 'primary' });
+  assert.deepEqual(panesForFocus(split), { job: 'read', secondaryJob: 'compare', activePane: 'primary' });
+  assert.deepEqual(panesForFocus({ ...split, activePane: 'secondary' }), {
+    job: 'read',
+    secondaryJob: 'compare',
+    activePane: 'secondary',
+  });
+  // Parked under a chrome primary: the pin is real in the store but off screen,
+  // so an agent is not told about a pane the user cannot see.
+  assert.deepEqual(panesForFocus({ job: 'settings', secondary: 'compare', activePane: 'primary' }), {
+    job: 'settings',
+    secondaryJob: null,
+    activePane: 'primary',
+  });
+});
+
+// The integration test the split-pane plan §4 assigns to whichever of S3 / D1
+// lands second — D1 shipped first, so it is S3's. Drives the REAL workbench
+// store through the REAL projection: store rules and snapshot shape agree.
+test('integration: the workbench store projects to a two-pane focus snapshot', () => {
+  const projected = (): ReturnType<typeof projectFocus> =>
+    projectFocus(
+      assembleRawFocus({
+        ...panesForFocus(useWorkbench.getState()),
+        fleetSelection: null,
+        projectSelection: null,
+        activeDocument: null,
+        inspectTabs: [],
+        inspectActive: null,
+        replayDatasetId: null,
+        terminalPaneId: null,
+        capturedAt: 'now',
+      }),
+    );
+
+  seed({ job: 'author' });
+  assert.deepEqual(projected(), { surface: 'author', captured_at: 'now' }); // one pane, no noise
+
+  // Pin Compare beside it — "open beside" focuses the new pane (S1).
+  useWorkbench.getState().setSecondary('compare');
+  assert.deepEqual(projected(), {
+    surface: 'author',
+    captured_at: 'now',
+    secondary: { surface: 'compare' },
+    active_pane: 'secondary',
+  });
+
+  // Click back into the primary: only the attribution moves.
+  useWorkbench.getState().focusPane('primary');
+  assert.equal(projected().active_pane, 'primary');
+
+  // Swap: the panes' contents trade places, the active POSITION does not (S2).
+  useWorkbench.getState().swapPanes();
+  const swapped = projected();
+  assert.equal(swapped.surface, 'compare');
+  assert.deepEqual(swapped.secondary, { surface: 'author' });
+  assert.equal(swapped.active_pane, 'primary');
+
+  // A trip to Settings parks the pin: the snapshot narrows to the one visible
+  // surface, and Settings' empty row then degrades it to existence only.
+  useWorkbench.getState().setJob('settings');
+  assert.deepEqual(projected(), { surface: 'settings', captured_at: 'now' });
+
+  // Coming back restores both panes — the pin survived the visit.
+  useWorkbench.getState().setJob('compare');
+  assert.deepEqual(projected().secondary, { surface: 'author' });
 });

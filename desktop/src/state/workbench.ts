@@ -117,6 +117,20 @@ export function activeJob(s: PaneState): JobId {
   return s.activePane === 'secondary' && s.secondary !== null ? s.secondary : s.job;
 }
 
+/// The pane facts the ADR-062 focus snapshot needs (S3 / `ui_policy.ts`). The
+/// top level of the snapshot is POSITIONAL — the primary pane — and `activePane`
+/// names where the user actually is; that is what lets a snapshot describe both
+/// panes instead of only the focused one.
+///
+/// A *parked* pin (§4.1: kept while the user visits a chrome job) is deliberately
+/// not reported: `isSplitVisible` decides, so an agent is never told about a pane
+/// the user cannot see.
+export function panesForFocus(s: PaneState): { job: JobId; secondaryJob: JobId | null; activePane: Pane } {
+  return isSplitVisible(s) && s.secondary !== null
+    ? { job: s.job, secondaryJob: s.secondary, activePane: s.activePane }
+    : { job: s.job, secondaryJob: null, activePane: 'primary' };
+}
+
 /// Is the split actually on screen? A pinned secondary is *kept* while the user
 /// visits a chrome job (settings is a full-surface switch, terminal is the
 /// bottom panel) and reappears when they come back to a work surface — so the

@@ -313,6 +313,12 @@ plan's §3.2 shape updated to match.
 Left to D6: `ui_highlight` resolving a target into the pane that hosts its
 surface. No such tool exists yet; S3 supplies the shape it will need.
 
+Review follow-up (2026-07-30): the `ui_get_focus` tool *description* still said
+"the active workbench surface" after `surface` became positional — an agent that
+never read `active_pane` would resolve "this/here" against the primary pane.
+The description now names all three fields and says to resolve deixis against
+the active pane.
+
 ## 5. Testing
 
 State tests run manually (`node --test src/state/*.test.ts` — CI does not run

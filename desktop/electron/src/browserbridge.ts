@@ -417,7 +417,7 @@ export const READ_TOOLS: readonly McpToolDef[] = [
   {
     name: 'ui_get_focus',
     description:
-      'What the TermiPod desktop user is currently looking at: the active workbench surface plus its focus state (open tab, focused agent, Inspect file + selection, terminal pane) as a compact JSON snapshot with captured_at. Ids, paths and fragment-stripped URLs only — never message bodies, vault material, or settings values. Call this when the user references what is on their screen ("this", "here", "what I\'m looking at", "why is this failing") or when grounding in the user\'s current view would materially change the answer; do NOT call by default on every turn.',
+      'What the TermiPod desktop user is currently looking at: the workbench surface(s) on screen plus focus state (open tab, focused agent, Inspect file + selection, terminal pane) as a compact JSON snapshot with captured_at. With a split, `surface` is the PRIMARY pane, `secondary` the pinned pane, and `active_pane` names the pane the user is in — resolve "this/here" against the active pane, not `surface` alone. Ids, paths and fragment-stripped URLs only — never message bodies, vault material, or settings values. Call this when the user references what is on their screen ("this", "here", "what I\'m looking at", "why is this failing") or when grounding in the user\'s current view would materially change the answer; do NOT call by default on every turn.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
 ];

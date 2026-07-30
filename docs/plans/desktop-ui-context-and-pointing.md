@@ -16,8 +16,9 @@
 > opt-in with the shipped W3 audit posture; session grants never cross
 > tool kinds.
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** origin/main `598e46ce`; kimi-code 0.28.1
-> verified on-host (macOS arm64)
+> **Last verified vs code:** HEAD `105b1d49` (the D1 wedge: frontend +
+> electron typecheck/build green, 225 node --test pass, lint-docs OK);
+> kimi-code 0.28.1 verified on-host (macOS arm64)
 
 **TL;DR.** The desktop UI is a **shared entity with two native consumers**
 (ADR-062): agents are half the userbase of an agent workbench, so "what is

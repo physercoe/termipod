@@ -23,14 +23,17 @@ test:
 # line (YYYY.MMDD.HHMM-alpha+N) and hub/internal/buildinfo/buildinfo.go's
 # Version constant in one shot. Usage:
 #   make bump VERSION=2026.722.219-alpha
-# Versions are date-based CalVer YYYY.MMDD.HHMM (UTC build time). The
-# build-number suffix (+N) is minutes-since-2020-01-01-UTC — a monotonic
+# Versions are date-based CalVer YYYY.MMDD.HHMM (UTC build time). Mint
+# the stamp from UTC, never the machine's locale time:
+#   make bump VERSION=$(date -u +%Y.%-m%d.%-H%M)-alpha        # GNU date
+#   (portable: date -u +%Y.%m%d.%H%M | awk -F. '{printf "%d.%d.%d", $1,$2+0,$3+0}')
+# The build-number suffix (+N) is minutes-since-2020-01-01-UTC — a monotonic
 # int32 Android versionCode that (unlike MAJOR*10000+MINOR*100+PATCH) does
 # not regress at the day boundary where HHMM wraps 2359→0. CI recomputes
 # the same value from the tag; keep the two formulas in sync.
 bump:
 ifndef VERSION
-	$(error VERSION is required, e.g. make bump VERSION=1.0.262-alpha)
+	$(error VERSION is required and minted from UTC, e.g. make bump VERSION=$$(date -u +%Y.%-m%d.%-H%M)-alpha)
 endif
 	@core=$$(echo "$(VERSION)" | sed 's/-.*//'); \
 	cvy=$$(echo $$core | cut -d. -f1); \

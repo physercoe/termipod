@@ -313,7 +313,11 @@ prerequisite). `CSC_IDENTITY_AUTO_DISCOVERY=false` is set so an absent cert
 never hangs the macOS runner on the keychain.
 
 **2. Release.** Bump the product version (`desktop/package.json`; the workflow
-stamps it into the electron package) and push an `electron-v<version>` tag. The
+stamps it into the electron package) and push an `electron-v<version>` tag.
+Mint the CalVer stamp from **UTC** (`date -u +%Y.%-m%d.%-H%M`), never the
+machine's locale time — the version *is* the UTC build time, and a
+locale-minted stamp from a TZ ahead of UTC can sort a later build below an
+earlier one. The
 matrix builds + signs, then the `release` job creates a **prerelease** GitHub
 release on that tag holding the installers + `latest*.yml`. (Prerelease is
 deliberate — it keeps the release out of `releases/latest`, which the mobile

@@ -40,7 +40,9 @@ own tag namespace and produces its own GitHub release:
 | Desktop | `electron-v<ver>` | `desktop-electron-release.yml` | `Desktop-<ver>-*` (dmg/exe/AppImage/deb) |
 
 `<ver>` is the shared CalVer (`YYYY.MMDD.HHMM-alpha`; bump mobile+hub+host in
-lockstep via `make bump VERSION=...`). The mobile release is non-prerelease so
+lockstep via `make bump VERSION=...`). Mint the stamp from **UTC**
+(`date -u +%Y.%-m%d.%-H%M`), never locale time — the version encodes the UTC
+build time and must stay monotonic across machines in different timezones. The mobile release is non-prerelease so
 it owns GitHub's `releases/latest` (the in-app updater reads it); hub / host /
 desktop releases are prereleases.
 

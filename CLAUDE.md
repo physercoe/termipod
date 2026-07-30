@@ -195,6 +195,12 @@ YAML file, not Go code.
   section per tagged release.
 - Doc-only changes do not bump the app version; release tags are cut
   only on explicit request.
+- **All times written into the repo are UTC, never locale time**: the
+  CalVer `YYYY.MMDD.HHMM` version stamp is the UTC build time (mint
+  with `date -u`), and dates in changelog sections, ADR status lines,
+  and doc status blocks are UTC dates. A machine's local timezone
+  must never leak into a stamp — it breaks version monotonicity and
+  date agreement across contributors in different timezones.
 
 ### Easy to get wrong
 

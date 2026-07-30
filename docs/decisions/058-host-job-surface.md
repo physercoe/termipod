@@ -1,7 +1,11 @@
 # 058. Host job surface — long-running host-side computations
 
 > **Type:** decision
-> **Status:** Accepted (2026-07-30, director) — resolves task #160, the W4b blocker in
+> **Status:** Accepted (2026-07-30, director) · Amended 2026-07-30 (TL;DR only:
+> the SSH-forward/SFTP primitives had already landed in `be796b3e` when this was
+> accepted, so the remote-fetch sentence no longer describes them as pending nor
+> pre-commits to the chunk transport — §4, which already said both, is
+> unchanged) — resolves task #160, the W4b blocker in
 > [`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md)
 > (.rrd export needs a computation the request/response dataset verbs cannot
 > carry). Written before any job code exists so the mechanism lands in the
@@ -32,8 +36,10 @@ its whole duration), a **`progress_json` heartbeat** on the command row, a
 shared with §11's ffmpeg extraction. Artifacts stay on the host
 (data-ownership law: hosts own bytes); v1 returns a host-local path, which
 is exactly what the local-first Replay consumer needs. Remote artifact
-fetch, when the SSH-forward wedge lands, reuses teleport's chunked-manifest
-blob transport — the pattern already exists. Explicitly out of scope: a
+fetch picks, in the consuming wedge, between teleport's chunked-manifest
+blob transport and a channel over the now-landed SSH-forward/SFTP
+primitives (`be796b3e`) — both patterns already exist; §4 has the
+comparison. Explicitly out of scope: a
 generic "run this command" kind, job persistence across host-runner
 restarts, queues/priorities/scheduling, and modeling jobs as runs.
 

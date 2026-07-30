@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-27)
+> **Status:** Current (2026-07-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.727.206-alpha
+> **Last verified vs code:** 2026.730.1231-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -38,6 +38,69 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## 2026.730.1231-alpha — 2026-07-30
+
+**Env profiles, sealed secrets and session teleport reach the phone.** An
+agent can now be spawned into a prepared environment from mobile — picked in
+the spawn sheet, managed on its own screen — with secret values sealed
+client-side to the target host's key so the hub only ever stores ciphertext
+it cannot read (ADR-056). A paused session can be moved to another host and
+resumed there (ADR-057). The run report gained an Issues sheet, and the
+transcript's streaming path stopped re-parsing the whole message on every
+chunk.
+
+**Lane note:** this cut tags the **mobile** lane only. The hub and host lanes
+share this version number and can be cut at the same `<ver>`
+(`hub-v2026.730.1231-alpha` / `host-v2026.730.1231-alpha`) when the hub is
+next redeployed; hub-side work landed since 2026.727.206 does not take effect
+until then.
+
+### Added
+- **Env profiles on mobile.** The spawn sheet gains an env-profile picker, and
+  a dedicated management screen creates/edits/deletes profiles — setup script,
+  plain env vars, secret refs, network policy — so an agent starts in a
+  prepared shell instead of a bare one. (#402, #403)
+- **Client-side env-secret sealing.** Secret refs resolve from the
+  zero-knowledge vault on the device and travel as envelopes sealed to the
+  target host's public key; the hub stores ciphertext it can never read
+  (ADR-056 D-3). The Rust and Dart implementations are KAT-locked against the
+  Go one, so all three agree byte-for-byte or the tests fail. (#409)
+- **Host-key fingerprint short code.** A host's env-seal key shows a short
+  verification code, so a human can confirm they are sealing to the machine
+  they think they are before a secret leaves the device (ADR-056 D-2). (#410)
+- **Teleport a paused session to another host.** A paused session can be moved
+  to a different machine and resumed there, carrying its conversational state
+  through the handoff bundle (ADR-057, T2c). (#428)
+- **Issues sheet on the run report.** The report surfaces the run's recorded
+  issues in a sheet rather than leaving them to the raw transcript. (#439)
+
+### Changed
+- **Streaming transcript costs the current block, not the whole message.**
+  Rendering a partial no longer re-parses and re-lays-out all accumulated text
+  on every chunk: highlight/math work left the per-chunk path (#440), and
+  settled blocks are cached as built widget instances split at safe block
+  boundaries (#442). Splitting refuses anywhere independent parsing could
+  change meaning — inside a fence, a list, a block quote, an indented code
+  block, or any document carrying a link reference definition — and a
+  completed message is still rendered as one body, so its layout is identical
+  to before by construction.
+- **`flutter_markdown` → `flutter_markdown_plus`.** The Flutter team
+  discontinued `flutter_markdown` (2025-05-30); this moves to the maintained
+  continuation, API-identical for everything used here (13 files, no call site
+  changed). Two renderer behaviours the plan wanted checked on device shipped
+  as regression tests instead — a link label renders once, and inline `code`
+  falls through to the stylesheet rather than the highlighter. (#443)
+
+### Fixed
+- **Env-profile attachment fails closed.** Review of the E1/E2 wedges: an
+  unusable workdir or an unsatisfiable network mode now refuses the spawn
+  rather than starting an agent in a half-prepared environment, and the
+  steward sheet's picker matches the ordinary spawn sheet's behaviour.
+- **Pinned host env-keys survive a vault round-trip on mobile.** Editing a
+  vault entry no longer drops the pinned host keys attached to it, which would
+  have silently un-sealed a profile's secrets on the next spawn (ADR-056
+  E3b-2b). (#413)
 
 ## 2026.727.206-alpha — 2026-07-27
 

@@ -1,8 +1,9 @@
 # Desktop UI context + pointing — shared user↔agent awareness
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-29) — wedges D1–D4 below; D1 is the
-> shippable slice. Builds on the agent browser bridge (W1–W3 shipped,
+> **Status:** Proposed (2026-07-29) — wedges D1–D5 below; D1+D2 (the LOCAL
+> kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
+> is second. Builds on the agent browser bridge (W1–W3 shipped,
 > `docs/plans/desktop-agent-browser-bridge.md`).
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** origin/main `598e46ce`; kimi-code 0.28.1
@@ -11,12 +12,15 @@
 **TL;DR.** Let agents know *what the user is looking at* in the desktop app
 — a curated, structured focus snapshot (`ui_get_focus`) — and let the user
 *point* at anything on screen — a rect-select annotation overlay whose crop
-rides the next message to the agent. Same rule as the browser bridge:
-**curated state, never shell CDP**. The focus state already lives in the
-renderer stores; the delivery channels (discovery-file injection for local
-spawns, the A2A reverse tunnel for remote agents) already exist from the
-bridge work. D1 ships the snapshot, D2 the gated screenshot, D3 the
-overlay, D4 element-resolved pointing.
+goes straight into the agent's composer. Same rule as the browser bridge:
+**curated state, never shell CDP**. **Priority is the LOCAL loop**: the
+embedded `kimi web` panel and the desktop share one machine, so the kimi
+agent reads the focus snapshot through kimi-code's own MCP discovery
+(user-level `mcp.json`), and the overlay injects the crop into kimi's
+composer main-side (user-initiated — the bridge's kimiweb read-only
+posture is untouched). Remote/hub-relayed delivery reuses the W3 tunnel
+and lands second (D5). D3 is the gated screenshot, D4 element-resolved
+pointing.
 
 ## 1. Context and grounding
 
@@ -69,14 +73,20 @@ instead of masked after the fact.
 
 ## 2. Goals / non-goals
 
-**Goals**
+**Goals** (priority-ordered — the LOCAL kimi-web loop first, remote
+hub-relayed second):
 
-- Agents (local or hub-relayed) can answer "what is the user looking at"
-  as structured JSON, toggle-gated, secret-free by construction.
+- The embedded `kimi web` agent (and the user's local kimi-code CLI) can
+  answer "what is the user looking at" as structured JSON through
+  kimi-code's own MCP discovery — toggle-gated, secret-free by
+  construction; hub-relayed agents get the same through the W3 tunnel
+  (D5).
+- The user can rect-select any region of the app (webview guests
+  included) and land the crop in **kimi web's composer** in one gesture —
+  main-side, user-initiated, the bridge's kimiweb read-only posture
+  untouched; a hub-attached agent session is the second target.
 - Agents can request a screenshot of the desktop window — per-call
   approval, sensitive surfaces refused.
-- The user can rect-select any region of the app (webview guests
-  included) and send the crop + note to an agent in one gesture.
 - Everything auditable the way bridge actions are (ring + hub mirror).
 
 **Non-goals**
@@ -179,8 +189,46 @@ The high-trust direction needs no approval — the user initiates:
 
 ### 3.5 Transfer mechanics — how an annotation reaches the context window
 
-The end-to-end path for a **hub-attached agent** exists today and was
-verified against `598e46ce`:
+**The LOCAL kimi-web loop is the first target — two mechanisms, neither
+touches the bridge's kimiweb read-only posture:**
+
+*The kimi agent reads the user's context (D1).* kimi-code discovers MCP
+servers at two levels (ADR-054 D3): user (`~/.kimi-code/mcp.json`) and
+project (`<cwd>/.kimi-code/mcp.json`, deep-merged, project wins). The
+desktop spawns the `kimi web` SERVER (`kimiweb.ts` — `web --no-open
+--port`) but sessions pick their own workspaces in kimi's UI, so
+project-level injection can't reach them; the deliverable channel is the
+**user-level file**: while the sharing toggle is on, the desktop
+deep-merges one additive entry (`termipod-desktop`, the same stdio relay
+as the bridge) into `~/.kimi-code/mcp.json` and removes it when off. The
+relay gains a fallback so a STATIC entry survives token rotation: when
+`TP_BROWSER_URL` is unset it reads the discovery file itself
+(`~/.termipod/browser-bridge.json`, 0o600, per-run bearer) — and exits
+cleanly when the file is absent (bridge off), which kimi-code marks as a
+down server, never a failure. Every local kimi-code client then gets
+`ui_get_focus` — kimi web sessions AND the user's own CLI (a bonus: the
+CLI user gets "what am I looking at in TermiPod" too; same loopback +
+bearer posture as the bridge). Hub-spawned agents already receive the
+tool set via the W2 per-spawn injection.
+
+*The user transfers context to kimi web (D2).* The `kimiweb` partition
+is `bridge: 'read'` to stop AGENTS typing into an agent's chat — but the
+overlay is the USER acting, and the desktop main is the authority
+process for its own guest: the read-only rule binds the agent-driven
+bridge, not the app's own UI. So D2 injects the crop **main-side**, with
+no bridge relaxation: the kimi web SPA's composer has a real file input
+behind its attach button (verified in the live 0.28.1 bundle —
+`r.value?.click()`, files → attach pipeline, the same path the paste
+handler feeds), so CDP `DOM.setFileInputFiles` on that input — exactly
+the mechanism W2's `browser_upload_file` proves — lands the image as a
+composer attachment, then the user reviews and hits send in kimi's own
+UI (the send action stays the user's, which is the consent). Fallback if
+the SPA's DOM shifts: write the crop to the clipboard + focus the panel,
+leaving the user one Cmd+V. This tool is NEVER registered on the bridge
+server — agents can't reach it.
+
+**The hub-attached path (remote agent sessions) exists today** and was
+verified against `598e46ce` — it ships second (D5):
 
 ```
 overlay crop → compose attachment → POST /agents/{id}/input
@@ -198,11 +246,11 @@ overlay crop → compose attachment → POST /agents/{id}/input
 ```
 
 No hub change is needed — the envelope already carries images. Two
-driver-family caveats become D3 scope:
+driver-family caveats become D5 scope:
 
 - **Pane/stdio (M2/tmux) drivers can't receive images** — the pane is a
   terminal; there is no remote image channel (the kimi TUI's clipboard
-  paste is a local feature, not tmux-drivable). D3 materializes the crop
+  paste is a local feature, not tmux-drivable). D5 materializes the crop
   into the agent's workdir instead (`.termipod/annotations/<ts>.png`,
   via the blob the input event already externalizes) and appends the
   path to the note text — "see attached image at <path>" — so a pane
@@ -212,38 +260,32 @@ driver-family caveats become D3 scope:
   `promptCapabilities.image == false`, the same workdir materialization
   is the fallback (today those blocks are just stripped).
 
-**The kimiweb path is different — and deliberately out of scope.** The
-session web panel embeds kimi web as a PARALLEL UI (`webPanels.ts` — hub
-events/attention do not see what happens inside the guest), and the
-`kimiweb` partition is `bridge: 'read'` (cross-agent prompt-injection
-posture): the bridge **cannot** inject the crop into kimi's composer.
-The user's own hands work today (kimi web's composer accepts image
-paste — verified §1.3), so the D3 overlay flow targets hub-attached
-agents only. A future narrow carve-out — a `browser_paste_image` tool
-class that injects ONE image into the composer without enabling
-arbitrary typing — is logged as open question 5, not a wedge.
-
-**UX of the transfer** (D3 detail): the crop appears in the compose box
-as a thumbnail chip (delete-able, like the existing context chips); the
-companion's already-bound session is the default target — no picker for
-v1 (the user points the companion at a session first, then annotates);
-in the transcript the sent message renders as an image card with the
-note beneath, and for D4 the structured pointer (`@e42 · button ·
-"Deploy"`) renders as a small caption chip on the card.
+**UX of the transfer** (D2 detail): after the drag, a target row offers
+the visible targets — the kimi-web panel first when it's open
+(“Attach to kimi web”), else the companion's bound session — then the
+crop appears as a thumbnail chip (delete-able, like the existing context
+chips) either in kimi's own composer (injected, user sends) or in the
+companion compose box. For the companion path, the sent message renders
+in the transcript as an image card with the note beneath, and for D4 the
+structured pointer (`@e42 · button · "Deploy"`) renders as a small
+caption chip on the card.
 
 ### 3.6 Delivery + hub tool surface
 
-- Local spawns: `ui_get_focus` / `ui_screenshot` join the bridge server's
-  tool list (read/action classification as above); no hostrunner change —
-  the injection already hands every spawn the read token and opted-in
-  spawns the action token.
-- Remote agents: tunnel kind `desktop.invoke` with the same envelope and
-  response shapes as `browser.invoke`; hub-native `desktop_ui_invoke`
-  `{host_id, tool, args}` tool mirroring `browser_invoke` — the
-  capability check key becomes `desktop_ui` in the registered host row's
-  capabilities (registered alongside `browser_bridge`), the gate/grant/
-  revoke helper in `mcp_browser_bridge.go` generalizes to both kinds
-  (one helper, two kind constants).
+- Local clients (FIRST): `ui_get_focus` / `ui_screenshot` join the bridge
+  server's tool list (read/action classification as above). They reach the
+  embedded kimi-web agent + the user's kimi-code CLI through the
+  user-level `~/.kimi-code/mcp.json` entry (§3.5), and hub-spawned local
+  agents through the existing W2 per-spawn injection — no hostrunner
+  change.
+- Remote agents (SECOND, D5): tunnel kind `desktop.invoke` with the same
+  envelope and response shapes as `browser.invoke`; hub-native
+  `desktop_ui_invoke` `{host_id, tool, args}` tool mirroring
+  `browser_invoke` — the capability check key becomes `desktop_ui` in the
+  registered host row's capabilities (registered alongside
+  `browser_bridge`), the gate/grant/revoke helper in
+  `mcp_browser_bridge.go` generalizes to both kinds (one helper, two kind
+  constants).
 - Revoke: the same Settings → Remote driving rows cover both kinds (an
   agent revoked there is refused at the desktop dispatch regardless of
   kind).
@@ -268,27 +310,41 @@ tab, focused agent, file path + selection) and what is never shared
 
 ## 4. Wedges
 
-**D1 — focus snapshot (this plan's shippable slice).** Renderer publisher
-+ IPC + main cache; `ui_get_focus` on the bridge server; `desktop.invoke`
-tunnel kind + hub `desktop_ui_invoke` (read class only); Settings toggle +
-blurb; unit tests (publisher allowlist — a non-allowlisted surface never
-emits fields; snapshot shape; tunnel dispatch) + hub tool tests mirroring
-`mcp_browser_bridge_test.go`.
+**D1 — focus snapshot + the local kimi-web read loop (first priority,
+shippable slice).** Renderer publisher + IPC + main cache; `ui_get_focus`
+on the bridge server; **user-level `~/.kimi-code/mcp.json` injection**
+(toggle-gated deep-merge, additive `termipod-desktop` entry, removed on
+toggle-off) + the relay's discovery-file fallback (static entries survive
+token rotation, clean exit when the bridge is off) — so the kimi-web
+agent AND the user's local kimi-code CLI can ask what the user is seeing;
+hub-spawned local agents get it via the existing W2 injection. Settings
+toggle + blurb; unit tests (publisher allowlist — a non-allowlisted
+surface never emits fields; snapshot shape; mcp.json merge/remove is
+additive-only and preserves foreign keys; relay fallback matrix:
+env-set / discovery-present / discovery-absent).
 
-**D2 — gated screenshot.** `ui_screenshot` with the `desktop_action`
+**D2 — annotation overlay, kimi-web first (first priority).** Rect-select
+overlay (shell + guest regions); target row — **the kimi-web panel first
+when open**: main-side `DOM.setFileInputFiles` injection into the SPA
+composer's file input (never a bridge tool; fallback clipboard + focus +
+one Cmd+V), the user reviews and sends in kimi's own UI; companion-bound
+hub session second (thumbnail chip, `postAgentInput`, transcript image
+card); Esc/cancel path. The only real UI work in the plan.
+
+**D3 — gated screenshot.** `ui_screenshot` with the `desktop_action`
 per-call card (no session grant), vault/sensitive refusal, size caps,
 audit; AttentionDock card branch.
 
-**D3 — annotation overlay.** Rect-select overlay (shell + guest regions),
-compose-box image attachment (thumbnail chip, companion-bound session as
-the default target, transcript image card), `postAgentInput` integration,
-Esc/cancel path. Includes the §3.5 transfer work: ACP image blocks ride
-the existing path, while pane/stdio drivers and `image:false` agents get
-the workdir materialization fallback (`.termipod/annotations/<ts>.png` +
-path in the note text). The only real UI work in the plan.
-
 **D4 — element-resolved pointing.** Rect-over-webtab → `@eN` ref via the
 bridge snapshot; structured pointer rides the attachment payload.
+
+**D5 — remote / hub-relayed delivery (second priority).** `desktop.invoke`
+tunnel kind + hub `desktop_ui_invoke` (read class first); generalized
+gate/grant/revoke; the §3.5 driver work — ACP image blocks ride the
+existing path, pane/stdio drivers and `image:false` agents get the
+workdir materialization fallback (`.termipod/annotations/<ts>.png` +
+path in the note text); hub tool tests mirroring
+`mcp_browser_bridge_test.go`.
 
 ## 5. Testing
 
@@ -300,9 +356,11 @@ bridge snapshot; structured pointer rides the attachment payload.
   read routing + `desktop_action` park/approve/timeout + no-session-grant
   rule, mirroring the browser_invoke suite.
 - **E2E (Playwright)**: D1 — toggle on, open a webtab, `ui_get_focus`
-  over the stdio relay returns the surface + tab; toggle off ⇒ refused.
-  D3 — synthesize a drag over a fixture region, assert the compose box
-  holds an attachment.
+  over the stdio relay returns the surface + tab; toggle off ⇒ refused;
+  the user-level mcp.json entry appears on toggle-on and is removed on
+  toggle-off with foreign keys intact. D2 — synthesize a drag over a
+  fixture region, assert the compose box (or the kimi-web guest's file
+  input, via CDP) holds the attachment.
 
 ## 6. Risks
 
@@ -312,9 +370,13 @@ bridge snapshot; structured pointer rides the attachment payload.
   on undeclared surfaces.
 - **Screenshot sensitivity** — mitigated by per-call-only approval +
   vault refusal + audit; revisited only with evidence.
-- **Overlay UX on multi-window / multi-display** — D3 scopes to the
+- **Overlay UX on multi-window / multi-display** — D2 scopes to the
   main window's bounds; guests in separate windows are out of the
   rect-select until D4.
+- **User-level mcp.json is shared territory** — a malformed merge could
+  break the user's OTHER kimi-code MCP servers; the merge is
+  additive-only, round-trip tested (D1), and the entry self-heals
+  (removed cleanly on toggle-off / app uninstall note in the docs).
 - **Tunnel traffic class proliferation** — `browser.invoke` +
   `desktop.invoke` share one dispatcher on the desktop; hub-side helper
   stays generic so a third kind costs ~zero.
@@ -326,14 +388,18 @@ bridge snapshot; structured pointer rides the attachment payload.
    share the browser but not the shell state.)
 2. Focus-snapshot field allowlist — exact per-surface field set gets its
    review at D1 implementation; the test matrix (§5) is the enforcement.
-3. Global hotkey for the annotation overlay (D3) or compose-button only?
-   (Proposal: compose-button for D3, hotkey once it's loved.)
+3. Global hotkey for the annotation overlay (D2) or compose-button only?
+   (Proposal: compose-button for D2, hotkey once it's loved.)
 4. Does `ui_get_selection` (bounded text selection) belong in D1 or D2?
    (Proposal: D1 if the transcript/Inspect selection APIs are clean, else
    D2 — it's the single most useful field for "explain this".)
-5. Should the bridge ever gain a narrow `browser_paste_image` tool class
-   for the kimiweb partition — injecting ONE image into kimi web's
-   composer without enabling arbitrary typing — so the overlay can target
-   kimi-web sessions too? (Proposal: not now; the read-only posture holds
-   until the hub-attached path proves the UX. The kimi web composer
-   already takes the user's own paste.)
+5. ~~Should the bridge ever gain a narrow `browser_paste_image` tool class
+   for the kimiweb partition?~~ **Resolved**: no agent-tool carve-out is
+   needed — D2 injects the crop main-side on the user's own gesture
+   (`DOM.setFileInputFiles` into the SPA composer's file input), so the
+   bridge's kimiweb read-only posture stands untouched. The send action
+   stays the user's.
+6. Is the user-level `~/.kimi-code/mcp.json` entry acceptable shared
+   territory, or should kimi-code grow a per-session/env config channel?
+   (Proposal: ship the user-level entry — additive, toggle-gated,
+   round-trip safe; revisit if kimi-code upstream adds a cleaner seam.)

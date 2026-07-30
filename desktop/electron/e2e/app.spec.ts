@@ -1010,8 +1010,11 @@ test('shell: a job pins beside the primary, swaps from the rail, and closes (spl
   const primary = page.locator('.shell-pane[data-pane="primary"]');
   const secondary = page.locator('.shell-pane[data-pane="secondary"]');
 
-  // One pane to start, whatever the earlier tests left active.
+  // One pane to start. The split PERSISTS (localStorage), so a mid-test failure
+  // in an earlier attempt can leave one open — establish the state, don't assume
+  // it, or the retry fails on a stale pane count.
   await page.getByRole('button', { name: 'Fleet', exact: true }).click();
+  if ((await panes.count()) > 1) await page.keyboard.press('ControlOrMeta+Backslash');
   await expect(panes).toHaveCount(1);
   await expect(primary.locator('.fleet-toolbar')).toBeVisible();
 
@@ -1058,6 +1061,8 @@ test('shell: rail Alt-click pins, Mod+\\ toggles, Mod+Shift+\\ swaps, the divide
   const compareTab = page.locator('[data-job="compare"]');
 
   await page.getByRole('button', { name: 'Fleet', exact: true }).click();
+  // Same reason as the S1 spec: establish one pane rather than assume it.
+  if ((await panes.count()) > 1) await page.keyboard.press('ControlOrMeta+Backslash');
   await expect(panes).toHaveCount(1);
 
   // Alt-click the rail: pins beside instead of switching — Fleet stays primary.
@@ -1083,18 +1088,27 @@ test('shell: rail Alt-click pins, Mod+\\ toggles, Mod+Shift+\\ swaps, the divide
   await expect(primary.locator('.compare-layout')).toBeVisible();
   await expect(secondary.locator('.fleet-toolbar')).toBeVisible();
 
-  // Drag the divider right: the primary pane's basis grows past the 50% default.
-  const before = await primary.evaluate((el) => (el as HTMLElement).style.flexBasis);
-  expect(before).toBe('50%');
-  const handle = page.locator('.shell-panes .resize-handle');
-  const box = await handle.boundingBox();
-  if (box === null) throw new Error('the split divider has no box');
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2, { steps: 8 });
-  await page.mouse.up();
-  const after = await primary.evaluate((el) => (el as HTMLElement).style.flexBasis);
-  expect(Number.parseFloat(after)).toBeGreaterThan(52);
+  // Drag the divider. The ratio persists too, so normalize first by dragging
+  // hard LEFT (which lands on the clamp's lower bound whatever it started at),
+  // then drag right and assert the primary pane's basis grew.
+  // Direct child: the SURFACES inside the panes have their own ResizeHandles
+  // (MissionLayout's nav + attention dock), so a descendant selector matches
+  // three elements and trips strict mode.
+  const handle = page.locator('.shell-panes > .resize-handle');
+  const basis = async (): Promise<number> =>
+    Number.parseFloat(await primary.evaluate((el) => (el as HTMLElement).style.flexBasis));
+  async function dragBy(dx: number): Promise<void> {
+    const box = await handle.boundingBox();
+    if (box === null) throw new Error('the split divider has no box');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+  }
+  await dragBy(-2000); // pin to the lower clamp
+  const before = await basis();
+  await dragBy(160);
+  expect(await basis()).toBeGreaterThan(before);
 
   // Leave one pane and the default ratio for whatever runs next.
   await page.keyboard.press('ControlOrMeta+Backslash');

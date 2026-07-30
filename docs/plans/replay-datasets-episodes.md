@@ -11,7 +11,8 @@
 > ([ADR-061](../decisions/061-blob-lifetime.md)) (§7)
 > **Audience:** principal · contributors
 > **Last verified vs code:** origin/main `cb54991a` (W1–W3, W5 complete) ·
-> `8fb89590` (§7's host-job executor) · `869694ed` (the export kind)
+> `13b8cf31` (§7's host-job executor) · `cf50b286` (the export kind) ·
+> `6bd678d7` (the desktop wiring)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)

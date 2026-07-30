@@ -73,8 +73,12 @@ function readConfig(target: string): Record<string, unknown> | null | 'corrupt' 
   let raw: string;
   try {
     raw = fs.readFileSync(target, 'utf8');
-  } catch {
-    return null; // absent (or unreadable — nothing we may write over blindly)
+  } catch (e) {
+    // Absent is the one benign case. Any OTHER read failure (EACCES, EISDIR,
+    // I/O) means something EXISTS at the path whose contents we cannot see —
+    // a merge would reseed a fresh config over it, so it gets the corrupt
+    // treatment: left untouched.
+    return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : 'corrupt';
   }
   try {
     const parsed: unknown = JSON.parse(raw);

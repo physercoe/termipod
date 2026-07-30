@@ -1260,6 +1260,12 @@ export async function handleMcpMessage(
       if (params.uri !== UI_FOCUS_RESOURCE_URI) {
         return rpcError(id, -32602, `unknown resource '${typeof params.uri === 'string' ? params.uri : ''}'`);
       }
+      // The consent gate binds this leg exactly like tools/call — the resource
+      // is the same data, so hiding it from resources/list alone would leave a
+      // read path the toggle does not govern.
+      if (deps.uiFocusAvailable?.() !== true) {
+        return rpcError(id, -32002, 'UI context sharing is off on the desktop (Settings → Assistant) — no focus snapshot is published');
+      }
       return rpcResult(id, {
         contents: [{ uri: UI_FOCUS_RESOURCE_URI, mimeType: 'application/json', text: uiFocusText(deps) }],
       });

@@ -127,6 +127,15 @@ test('resources/read ui://focus: the snapshot as application/json contents', asy
   assert.deepEqual(JSON.parse(contents[0]?.text ?? ''), SNAPSHOT);
 });
 
+test('resources/read ui://focus: toggle off → refused, never the cached snapshot', async () => {
+  // Parity with tools/call: hiding the resource from resources/list is not
+  // the gate — a stray cache write while off must not be readable either.
+  const out = await rpc(deps(SNAPSHOT, false), 'resources/read', { uri: UI_FOCUS_RESOURCE_URI });
+  assert.equal(out.error?.code, -32002);
+  assert.match(out.error?.message ?? '', /sharing is off/);
+  assert.equal(out.result, undefined);
+});
+
 test('resources/read: an unknown uri is a params error, and subscriptions are not faked', async () => {
   const unknown = await rpc(deps(SNAPSHOT, true), 'resources/read', { uri: 'ui://other' });
   assert.equal(unknown.error?.code, -32602);

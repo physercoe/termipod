@@ -139,6 +139,21 @@ test('removeSharingEntry: absent file / absent entry → noop, nothing created o
 
 // ── Corrupt → untouched, never clobbered ─────────────────────────────────────
 
+test('merge/remove: an unreadable-but-present config gets the corrupt treatment, never a reseed', () => {
+  const home = tmpHome();
+  try {
+    // A directory at the config path makes every read fail WITHOUT ENOENT —
+    // the deterministic stand-in for EACCES-style unreadability. Treating it
+    // as absent would reseed a fresh config over foreign servers.
+    fs.mkdirSync(kimiMcpConfigPath(home), { recursive: true });
+    assert.equal(mergeSharingEntry(home, NOLOG), 'corrupt');
+    assert.equal(removeSharingEntry(home, NOLOG), 'corrupt');
+    assert.ok(fs.statSync(kimiMcpConfigPath(home)).isDirectory(), 'the path must be left untouched');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('merge/remove: a corrupt file is left byte-identical and reported', () => {
   const home = tmpHome();
   try {

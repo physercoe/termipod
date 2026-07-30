@@ -219,7 +219,8 @@ function pickSubFields(val: Record<string, unknown>, subs: readonly string[]): R
 // zustand glue lives in uiContext.ts.
 
 export interface FocusSources {
-  /// The active workbench job (useWorkbench.job).
+  /// The ACTIVE pane's job (workbench `activeJob()` — with a split pinned, the
+  /// user may be looking at the secondary pane, not `job`).
   job: string;
   /// useFocus.fleet.selection — contributes `agent` when it names an agent.
   fleetSelection: { type: string; id: string; name?: string } | null;
@@ -267,8 +268,11 @@ export function assembleRawFocus(s: FocusSources): RawFocus {
 // ── Throttle + coalescing sender (plan §3.2: ≥500 ms, coalesced) ─────────────
 // The first change after a quiet window sends immediately; changes inside the
 // window collapse into ONE trailing send carrying the latest snapshot. A
-// snapshot identical to the last one sent (most store ticks change nothing
-// the projection reads) is dropped before any timer is armed.
+// snapshot content-identical to the last one sent (most store ticks change
+// nothing the projection reads) is dropped before any timer is armed —
+// `captured_at` is excluded from that comparison, because the assembly mints
+// a fresh timestamp on every store tick and would otherwise defeat the dedupe
+// (an Inspect typing burst would stream sends forever).
 
 export interface FocusSender {
   push: (snapshot: UiFocusSnapshot) => void;
@@ -295,15 +299,19 @@ export function createFocusSender(
   let pending: UiFocusSnapshot | null = null;
   let timer: unknown = null;
 
+  // Dedupe on content, not on capture time (see the header). The spread keeps
+  // key order, so deterministic assembly ⇒ deterministic key.
+  const dedupeKey = (snap: UiFocusSnapshot): string => JSON.stringify({ ...snap, captured_at: '' });
+
   const deliver = (snap: UiFocusSnapshot): void => {
     lastSentAt = now();
-    lastKey = JSON.stringify(snap);
+    lastKey = dedupeKey(snap);
     send(snap);
   };
 
   return {
     push(snapshot) {
-      const key = JSON.stringify(snapshot);
+      const key = dedupeKey(snapshot);
       if (pending === null && key === lastKey) return; // identical to what's already out
       const elapsed = now() - lastSentAt;
       if (elapsed >= intervalMs) {

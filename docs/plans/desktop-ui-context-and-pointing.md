@@ -16,8 +16,9 @@
 > opt-in with the shipped W3 audit posture; session grants never cross
 > tool kinds.
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** HEAD `105b1d49` (the D1 wedge: frontend +
-> electron typecheck/build green, 225 node --test pass, lint-docs OK);
+> **Last verified vs code:** the D1 wedge rebased onto origin/main
+> `c2d6701c` (S1 split pane) + review fixes (frontend + electron typecheck
+> green, 238 electron / 345 state node --test pass, lint-docs OK);
 > kimi-code 0.28.1 verified on-host (macOS arm64)
 
 **TL;DR.** The desktop UI is a **shared entity with two native consumers**

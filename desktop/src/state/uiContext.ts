@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '../bridge';
 import { isShell } from '../platform';
-import { useWorkbench } from './workbench';
+import { activeJob, useWorkbench } from './workbench';
 import { useFocus } from './focus';
 import { useDocuments } from './documents';
 import { useInspect } from './inspect';
@@ -94,7 +94,9 @@ function setPublishing(v: boolean): void {
 /// object reads only — the projection, not the assembly, is where fields are
 /// decided.
 function sourcesNow(): FocusSources {
-  const job = useWorkbench.getState().job;
+  // The ACTIVE pane's job — with a split pinned (S1), `job` alone is the
+  // primary pane, which is not necessarily what the user is looking at.
+  const job = activeJob(useWorkbench.getState());
   const focus = useFocus.getState();
   const docs = useDocuments.getState();
   const inspect = useInspect.getState();

@@ -67,6 +67,9 @@ export const desktopuiHandlers: Record<string, Handler> = {
   /// content itself is the renderer's own UI state, already projected through
   /// the policy table renderer-side.
   desktopui_focus: async (args): Promise<{ ok: boolean }> => {
+    // A push racing toggle-off must not refill the just-dropped cache — the
+    // renderer only publishes while on, but the gate belongs on both sides.
+    if (!sharingEnabled) return { ok: false };
     const s = args.snapshot;
     if (s === null || typeof s !== 'object' || Array.isArray(s)) return { ok: false };
     const surface = (s as Record<string, unknown>).surface;

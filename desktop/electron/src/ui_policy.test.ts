@@ -335,6 +335,18 @@ test('focus sender: an identical snapshot is dropped before arming any timer', (
   assert.equal(sent.length, 1);
 });
 
+test('focus sender: fresh captured_at alone is not a change — dedupe survives production timestamps', () => {
+  const timing = fakeTiming();
+  const sent: UiFocusSnapshot[] = [];
+  const s = createFocusSender(500, (x) => sent.push(x), timing);
+  s.push({ surface: 'read', captured_at: 't0' });
+  timing.advance(600); // outside the throttle window — only the key comparison can drop the next push
+  s.push({ surface: 'read', captured_at: 't1' }); // same content, new stamp (the assembly mints one per store tick)
+  assert.equal(sent.length, 1, 'a captured_at-only difference must dedupe');
+  s.push({ surface: 'debug', captured_at: 't2' }); // a real change still sends, carrying its fresh stamp
+  assert.deepEqual(sent.map((x) => x.captured_at), ['t0', 't2']);
+});
+
 test('focus sender: cancel drops the pending trailing send', () => {
   const timing = fakeTiming();
   const sent: UiFocusSnapshot[] = [];

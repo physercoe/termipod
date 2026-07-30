@@ -633,7 +633,12 @@ paths:
       parameters:
         - in: query
           name: status
-          schema: { type: string, enum: [pending, done, failed] }
+          description: >-
+            Defaults to `pending`, which also flips the returned rows to
+            `delivered` (the queue is claimed on read). Any other status is a
+            plain read; `delivered` is what a restarting host-runner lists to
+            fail the jobs its previous process abandoned.
+          schema: { type: string, enum: [pending, delivered, done, failed] }
       responses:
         "200":
           description: Commands page
@@ -744,17 +749,36 @@ paths:
     patch:
       tags: [Hosts]
       operationId: patchHostCommand
-      summary: Update host-command status
+      summary: Report host-command outcome, or a running job's progress
+      description: >-
+        With a status this is the terminal report. With `progress` and no
+        status it is a detached job's heartbeat (ADR-058 §3): it updates
+        `progress_json` + `progress_at` and touches nothing else, which is why
+        the command statuses needed no new value.
       requestBody:
         content:
           application/json:
             schema:
               type: object
               properties:
-                status: { type: string, enum: [done, failed] }
+                status:
+                  type: string
+                  enum: [done, failed]
+                  description: Omit only when reporting progress.
+                result: { type: object, additionalProperties: true }
                 error: { type: string }
+                progress:
+                  type: object
+                  additionalProperties: true
+                  description: >-
+                    Ignored when a status is also present — the terminal report
+                    is authoritative.
       responses:
-        "200": { description: Updated }
+        "204": { description: Updated }
+        "400": { description: Malformed body, or neither a status nor progress }
+        "404": { description: No such command }
+        "409": { description: Progress reported for a command that is not running }
+        "413": { description: Progress payload too large }
 
   # ======================================================================
   # Agents
@@ -3440,13 +3464,41 @@ components:
         probed_at: { type: string, format: date-time }
 
     HostCommandsPage:
+      type: array
+      items: { $ref: "#/components/schemas/HostCommand" }
+
+    HostCommand:
       type: object
+      additionalProperties: true
       properties:
-        items:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
+        id: { type: string }
+        host_id: { type: string }
+        agent_id: { type: string }
+        kind: { type: string }
+        args: { type: object, additionalProperties: true }
+        status:
+          type: string
+          enum: [pending, delivered, done, failed]
+          description: >-
+            For a detached host job (ADR-058) `delivered` means *running*; the
+            lifecycle gained no new state.
+        result: { type: object, additionalProperties: true }
+        error: { type: string }
+        progress:
+          type: object
+          additionalProperties: true
+          description: >-
+            A running host job's coarse `{phase, done, total}`. Absent for
+            inline kinds, which never report progress.
+        progress_at:
+          type: string
+          description: >-
+            Hub receipt time of the last progress patch — stamped by the hub,
+            never taken from the payload. The stale-job sweep compares against
+            this.
+        created_at: { type: string }
+        delivered_at: { type: string }
+        completed_at: { type: string }
 
     A2ACard:
       type: object

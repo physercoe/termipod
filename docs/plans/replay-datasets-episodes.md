@@ -1,13 +1,16 @@
 # J8 Replay — datasets, episodes & multimodal rollout analysis (embodied pilot, round 1)
 
 > **Type:** plan
-> **Status:** In progress (2026-07-29) — W1, W2, W3 and W5 complete;
+> **Status:** In progress (2026-07-30) — W1, W2, W3 and W5 complete;
 > W4 half-landed (W4a); W4b rides the
-> [ADR-058](../decisions/058-host-job-surface.md) job surface — W4b-1
-> waits only on it, W4b-2 additionally on blob lifetime
+> [ADR-058](../decisions/058-host-job-surface.md) host-job surface, whose
+> executor has now landed — what W4b-1 still needs is the
+> `dataset_export_rrd` handler and the desktop wiring; W4b-2 additionally
+> needs blob lifetime
 > ([ADR-061](../decisions/061-blob-lifetime.md)) (§7)
 > **Audience:** principal · contributors
-> **Last verified vs code:** origin/main `cb54991a` (W1–W3, W5 complete)
+> **Last verified vs code:** origin/main `cb54991a` (W1–W3, W5 complete) ·
+> `8fb89590` (§7's host-job executor claims)
 > **Parents:** [`embodied-ai-research-workbench.md`](../discussions/embodied-ai-research-workbench.md)
 > (director-directed pilot domain + the corrected viewer postures, §5/§8) ·
 > [`embodied-ai-tooling-landscape.md`](../discussions/embodied-ai-tooling-landscape.md)
@@ -43,10 +46,10 @@ Sequencing: **W1 dataset entity + library/episodes table → W2 episode player
 linkage**. Each wedge independently shippable. W1, W2, W3 and W5 have
 shipped, as has W4's desktop half; its `.rrd` export is a typed
 `host_commands` kind executed detached per
-[ADR-058](../decisions/058-host-job-surface.md)'s job surface — the
-same-machine case waits only on that surface; the remote fetch
-additionally on blob lifetime
-([ADR-061](../decisions/061-blob-lifetime.md)) (§7).
+[ADR-058](../decisions/058-host-job-surface.md)'s host-job surface —
+that surface has now landed, so the same-machine case needs only the
+export kind plus the desktop wiring; the remote fetch additionally needs
+blob lifetime ([ADR-061](../decisions/061-blob-lifetime.md)) (§7).
 
 ---
 
@@ -524,7 +527,7 @@ plugin API, SDK↔viewer lock-step; pin the Rerun version pair in one place).
 Remote episodes ride the same SSH-forward follow-up as W2.
 
 
-### W4 as half-shipped (2026-07-29) — W4a landed, W4b blocked
+### W4 as half-shipped (2026-07-30) — W4a landed; W4b's substrate landed, its export kind has not
 
 **W4a** (#469) is the desktop half this section describes: a `rerunweb`
 partition row in `webtab_policy.ts`, a pure `rerun_policy.ts` (argv, viewer
@@ -586,10 +589,19 @@ a rare deliberate op; an episodes table is browsed). Job kinds dispatch
 to ADR-058's detached single-flight executor, with `progress_json`
 heartbeat, `job_cancel`, and restart reconciliation.
 
+**That executor has now landed** (`internal/hostjobs` allowlist,
+`hostrunner/jobs.go` + `jobcache.go`, migration 0070's
+`progress_json`/`progress_at`, and the hub's stale-job sweep in
+`server/job_sweep.go`). What remains for W4b-1 is the
+`dataset_export_rrd` handler itself and the desktop wiring — not the
+mechanism.
+
 Two sub-wedges:
 
-- **W4b-1 — same machine, no transport.** A `dataset_episode_export` kind
-  returning `{path, sha256, bytes}`; the hub polls with
+- **W4b-1 — same machine, no transport.** The `dataset_export_rrd` kind
+  (ADR-058 §1's name; an earlier revision of this bullet called it
+  `dataset_episode_export`, and one name has to win — the accepted ADR's
+  does) returning `{path, sha256, bytes}`; the hub polls with
   `awaitHostCommand`; the desktop opens the returned absolute path
   directly, which `isRecordingPath` already gates (absolute + `.rrd`).
   Zero bytes cross the hub. The exporter's `--output-dir` must be confined

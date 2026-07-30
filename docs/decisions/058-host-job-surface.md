@@ -5,7 +5,12 @@
 > the SSH-forward/SFTP primitives had already landed in `be796b3e` when this was
 > accepted, so the remote-fetch sentence no longer describes them as pending nor
 > pre-commits to the chunk transport — §4, which already said both, is
-> unchanged) — resolves task #160, the W4b blocker in
+> unchanged) · Amended 2026-07-30 (implementation note, §3: the progress column
+> landed as *two* — `progress_json` plus a hub-stamped `progress_at` — because
+> the stale-job sweep §3 mandates needs a receipt time, and reading one out of
+> the payload would let a skewed host clock decide whether the hub declares that
+> host's jobs dead; migration 0070. No decision changes) — resolves task #160,
+> the W4b blocker in
 > [`plans/replay-datasets-episodes.md`](../plans/replay-datasets-episodes.md)
 > (.rrd export needs a computation the request/response dataset verbs cannot
 > carry). Written before any job code exists so the mechanism lands in the

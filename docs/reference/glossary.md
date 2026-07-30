@@ -439,6 +439,25 @@ kernel, hostname). Probed once at host-runner startup via
 - *Distinguish from:* **hub stats** (`/v1/hub/stats` payload — the
   hub-self capacity report; ADR-022 D2).
 
+### host job
+A long-running host-side computation, submitted as an allowlisted
+`host_commands` kind and executed **detached** on the host-runner —
+one at a time per host, reporting `progress_json` while it runs
+(ADR-058). Its artifacts stay host-local, under the host-runner's
+jobcache. The allowlist is `internal/hostjobs`; a kind not on it runs
+inline on the poll tick instead.
+
+Always say **host job** in full, never bare "job", because:
+- *Distinguish from:* a desktop **job** — one surface in the
+  activity bar (Fleet, Read, Inspect, **Replay** …). Unrelated: that
+  is a place in the UI, this is work running on a machine.
+- *Distinguish from:* a **run** — a user-visible experiment record
+  with metrics and Compare semantics. A host job is plumbing; it
+  writes no `runs` row and emits no run events (ADR-058 §5).
+- *Distinguish from:* a **task** — steward-dispatched work with a
+  todo/in_progress/done lifecycle (ADR-029). A host job has no
+  lifecycle of its own; it borrows the command row's.
+
 ### pane
 A tmux pane. M4 agents are anchored to a pane (the user can attach
 a real terminal). M2 agents have an optional cosmetic pane running
@@ -706,6 +725,17 @@ that.
 ---
 
 ## 10. UI surfaces
+
+### job
+One surface in the **desktop** control plane's activity bar — Fleet,
+Projects, Read, Author, Inspect, Compare, Record, Terminal, Replay.
+The desktop's top-level unit of navigation, the way a **screen** is
+the mobile app's. Capitalized when it names one ("the Replay job").
+Planned and tracked as J1–J8 (`docs/plans/desktop-workbench-jobs.md`).
+- *Distinguish from:* **host job** (§5) — a detached computation
+  running on a host (ADR-058). Unqualified "job" always means this
+  activity-bar surface; the other is always written in full.
+- *Distinguish from:* **screen** (a Flutter route in the mobile app).
 
 ### screen
 A full-screen Flutter widget registered as a route. `lib/screens/`.
@@ -1340,6 +1370,10 @@ A flat list of the high-traffic confusion points, for grep:
   policy-generated trajectory; same shape, different provenance.
 - **Replay** (the J8 job) vs **raw-wire replay** (a transcript
   mode) — different surfaces, different entities.
+- **host job** (a detached host-side computation, ADR-058) vs a
+  desktop **job** (one surface in the activity bar) vs a **run** vs a
+  **task** — say "host job" in full; bare "job" means the activity-bar
+  surface.
 - **channel** (an axis of an **episode series**, §11) vs a project
   channel's messages (§4, deferred) — a robot signal's track vs a place
   to post.

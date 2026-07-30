@@ -3,11 +3,13 @@ import { invoke } from '../bridge';
 import { isShell } from '../platform';
 import { useSession } from '../state/session';
 import { useT } from '../i18n';
+import { remoteMediaConn } from '../state/replayRemoteStore';
 import {
   EXPORT_POLL_MS,
   IDLE_EXPORT,
   advanceExport,
   canCancel,
+  isLocalArtifact,
   isOpenableRecording,
   isPolling,
   progressLabel,
@@ -119,6 +121,18 @@ export function RerunExportButton({
     const path = state.path;
     if (!isOpenableRecording(path)) {
       setState((s) => ({ ...s, phase: 'failed', error: t('replay.export.badPath') }));
+      return;
+    }
+    if (!isLocalArtifact(remoteMediaConn(datasetId))) {
+      // The export ran on the host that owns the bytes, so the path it returned
+      // is on that machine. Handing it to a local viewer would fail as
+      // "rerun exited before serving", which tells the director nothing. Say
+      // where the file is instead — fetching it is W4b-2, not yet built.
+      setState((s) => ({
+        ...s,
+        phase: 'failed',
+        error: t('replay.export.remoteNotFetched').replace('{path}', path ?? ''),
+      }));
       return;
     }
     let stopped = false;

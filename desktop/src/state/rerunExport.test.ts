@@ -4,6 +4,7 @@ import {
   IDLE_EXPORT,
   advanceExport,
   canCancel,
+  isLocalArtifact,
   isOpenableRecording,
   isPolling,
   progressLabel,
@@ -174,6 +175,15 @@ test('only an absolute .rrd is openable', () => {
   assert.equal(isOpenableRecording(''), false);
   assert.equal(isOpenableRecording('   '), false);
   assert.equal(isOpenableRecording(null), false);
+});
+
+// The export runs where the bytes are. When that is not this machine, the path
+// it returns names a file that does not exist here — and handing it to the
+// viewer produces "rerun exited before serving", which tells nobody anything.
+test('an artifact is local only when no remote connection is configured', () => {
+  assert.equal(isLocalArtifact(null), true);
+  assert.equal(isLocalArtifact(''), true, 'an empty connection id is not a remote host');
+  assert.equal(isLocalArtifact('conn-gpu-box'), false);
 });
 
 // The whole happy path, in the order a poll actually delivers it.

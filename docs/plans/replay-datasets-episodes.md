@@ -646,12 +646,19 @@ Two sub-wedges:
   Zero bytes cross the hub. The exporter's `--output-dir` must be confined
   to a host-side cache dir, because the path it returns becomes a process
   argument. This is the wedge that gives W4a's IPC handlers a caller.
-- **W4b-2 — remote hub-host.** The export job runs fine on the remote
-  host (same `host_commands` queue); the question is only how the
-  produced `.rrd` reaches the desktop. Two candidate transports, decided
-  in the wedge per ADR-058 §4: the handoff chunk path through the blob
-  store — which is blocked on a **blob lifetime** answer,
-  [ADR-061](../decisions/061-blob-lifetime.md), because ADR-057 D-3's
+- **W4b-2 — remote hub-host. NOT BUILT.** The export job runs fine on the
+  remote host (same `host_commands` queue) and W4b-1 now *detects* the
+  case and says so — a dataset with an SSH connection configured for its
+  video (`replayRemoteStore`, the same signal reused rather than a second
+  notion of "remote") reports where the file is instead of handing a
+  foreign path to a local viewer, which would fail as the useless "rerun
+  exited before serving". What remains is the fetch itself. The two
+  transports, decided in the wedge per ADR-058 §4: the handoff chunk path
+  through the blob store — whose **blob lifetime** prerequisite,
+  [ADR-061](../decisions/061-blob-lifetime.md), has now landed
+  (`class=derived` + TTL + the sweeper), so that route is unblocked but
+  still needs a host-side artifact-upload kind and desktop-side manifest
+  reassembly — because ADR-057 D-3's
   accepted "linger" was priced for teleport (rare, deliberate) and an
   episodes table is *browsed*: a multi-camera `.rrd` is tens of
   megabytes, so that transport at browsing frequency writes hundreds of

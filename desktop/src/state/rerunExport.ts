@@ -170,6 +170,22 @@ export function progressLabel(s: ExportState): string | null {
   }
 }
 
+/// Whether the produced `.rrd` is on THIS machine.
+///
+/// The export always runs on the host that owns the dataset's bytes and returns
+/// a path in that host's jobcache. When the host is this machine that path opens
+/// directly, which is the local-first case W4b-1 serves. When it is not, the
+/// path names a file that does not exist here, and handing it to the viewer
+/// produces a baffling "rerun exited before serving" instead of a sentence
+/// anyone can act on.
+///
+/// `remoteConn` is the SSH connection the director already picked for this
+/// dataset's video (`replayRemoteStore`) — the same signal, reused, rather than
+/// a second notion of "is this dataset remote". Null means local.
+export function isLocalArtifact(remoteConn: string | null): boolean {
+  return remoteConn === null || remoteConn === '';
+}
+
 /// The recording path is handed straight to the Rerun manager, which will only
 /// accept an absolute `.rrd`. Checking it here too means a malformed result
 /// surfaces as this flow's error rather than as an opaque rejection from the

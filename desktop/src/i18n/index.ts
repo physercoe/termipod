@@ -1192,6 +1192,8 @@ const en: Dict = {
     'Runs on the dataset’s host: decodes the whole episode into a .rrd, then opens it in a local Rerun viewer.',
   'replay.export.desktopOnly': 'Rerun export needs the desktop app.',
   'replay.export.badPath': 'The host reported a file that is not an absolute .rrd path.',
+  'replay.export.remoteNotFetched':
+    'The export succeeded on the dataset\u2019s host, at {path} \u2014 but that machine is not this one, and fetching the recording from it is not built yet.',
   'replay.export.viewerTitle': 'Rerun viewer',
   'replay.export.viewerClose': 'Stop viewer',
   'replay.project': 'Project',
@@ -3193,6 +3195,7 @@ const zh: Dict = {
   'replay.export.hint': '在数据集所在主机上运行：将整段 episode 解码为 .rrd，然后在本地 Rerun 查看器中打开。',
   'replay.export.desktopOnly': 'Rerun 导出需要桌面应用。',
   'replay.export.badPath': '主机返回的文件不是绝对路径的 .rrd。',
+  'replay.export.remoteNotFetched': '导出已在数据集所在主机上完成，路径为 {path} —— 但该主机不是本机，尚未实现从远端取回录制文件。',
   'replay.export.viewerTitle': 'Rerun 查看器',
   'replay.export.viewerClose': '停止查看器',
   'replay.project': '项目',

@@ -73,10 +73,11 @@ drive a browser, and the shell splits in two.** `electron-v2026.730.1242-alpha`
   `Mod+Shift+\`, resized by a draggable divider. The focus snapshot describes
   both panes, so an agent asked about "this" resolves against the pane the user
   is actually in.
-- **UI context + pointing (D1–D2).** A `ui_get_focus` MCP tool — off by
+- **UI context + pointing (D1–D2.1).** A `ui_get_focus` MCP tool — off by
   default — lets an agent on this host ask what the director is looking at
   (#476), and an annotation overlay lets the director point at it in return
-  (#477).
+  (#477). Annotating is reachable from anywhere: a status-bar chip, a ⌘K
+  palette entry and a bindable chord (#480).
 - **Env profiles + sealed secrets on the desktop.** A picker in the spawn sheet
   (#400) and a management UI in Settings (#401); env-profile secrets are sealed
   to the target host at spawn behind a host-key trust dialog (#412), with a

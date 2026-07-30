@@ -4,8 +4,13 @@
 > **Status:** Proposed (2026-07-30) — wedges D1–D5 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
 > is second. Builds on the agent browser bridge (W1–W3 shipped,
-> `docs/plans/desktop-agent-browser-bridge.md`). Review amendments
-> 2026-07-30: relay fallback is read-token-only; stable relay copy (the
+> `docs/plans/desktop-agent-browser-bridge.md`). **Derives from
+> [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)**
+> (desktop UI as agent-addressable entity) — reframed 2026-07-30 from
+> "the bridge grows two more tools" to verbs over a first-class UI
+> entity: UIRef both directions, one per-surface policy table, three
+> representations, agent pointing (D6). Review amendments 2026-07-30:
+> relay fallback is read-token-only; stable relay copy (the
 > resourcesPath pin breaks on AppImage); D5 sits behind the Remote-driving
 > opt-in with the shipped W3 audit posture; session grants never cross
 > tool kinds.
@@ -13,11 +18,16 @@
 > **Last verified vs code:** origin/main `598e46ce`; kimi-code 0.28.1
 > verified on-host (macOS arm64)
 
-**TL;DR.** Let agents know *what the user is looking at* in the desktop app
-— a curated, structured focus snapshot (`ui_get_focus`) — and let the user
-*point* at anything on screen — a rect-select annotation overlay whose crop
-goes straight into the agent's composer. Same rule as the browser bridge:
-**curated state, never shell CDP**. **Priority is the LOCAL loop**: the
+**TL;DR.** The desktop UI is a **shared entity with two native consumers**
+(ADR-062): agents are half the userbase of an agent workbench, so "what is
+the user looking at" and "look at THIS" are verbs over a first-class
+entity, not bolted-on tools. Concretely: agents read a structured focus
+projection (`ui_get_focus`, returning a **UIRef** — the join key into the
+entity graph agents already reach through their own tools), the user
+points via a rect-select annotation overlay whose crop goes straight into
+the agent's composer, and the agent points back (`ui_highlight`,
+transcript ref-chips — D6). Same rule as the browser bridge: **curated
+state, never shell CDP**. **Priority is the LOCAL loop**: the
 embedded `kimi web` panel and the desktop share one machine, so the kimi
 agent reads the focus snapshot through kimi-code's own MCP discovery
 (user-level `mcp.json`), and the overlay injects the crop into kimi's
@@ -91,6 +101,9 @@ hub-relayed second):
   untouched; a hub-attached agent session is the second target.
 - Agents can request a screenshot of the desktop window — per-call
   approval, sensitive surfaces refused.
+- Agents can *point back* (ADR-062 D-5): emit UIRefs that render as
+  clickable transcript chips, and draw ephemeral attributed highlights —
+  non-actuating in both cases (D6).
 - Everything auditable the way the bridge is (ring always; hub mirror
   per the shipped W3 posture — actions mirrored, hub-leg reads ring-only).
 
@@ -103,10 +116,50 @@ hub-relayed second):
   only; nothing leaves the machine unprompted).
 - Mobile-side UI context (no embedded desktop to point at; the *agent*
   side works from anywhere since delivery is hub-relayed).
-- Driving the shell UI (click/type into TermiPod itself) — read-only
-  awareness, no actuation.
+- Driving the shell UI (click/type into TermiPod itself) — awareness and
+  annotation, no actuation: a highlight or ref-chip never focuses,
+  scrolls, clicks, or types; the user's click is the only actuator
+  (ADR-062 D-5).
 
 ## 3. Design
+
+### 3.0 The entity model (ADR-062) — what everything below derives from
+
+Every capability in this plan is a verb over one entity, in one of three
+representations, governed by one policy table:
+
+**The UIRef** (ADR-062 D-2) is the unit of reference — compact,
+secret-free (ids/paths/fragment-stripped-urls/coordinates, never
+content), and the **join key** into the entity graph the agent already
+reaches through its own hub tools:
+
+```json
+{ "surface": "replay", "entity": { "dataset_id": "ds_…", "episode_id": "ep_…", "cursor": 1234 } }
+{ "surface": "debug",  "path": { "file": "src/foo.ts", "selection": [42, 58] } }
+{ "surface": "read",   "guest": { "tab_id": "wt_3", "ax_ref": "@e42" }, "rect": [412, 88, 640, 320] }
+```
+
+A UIRef is what `ui_get_focus` returns (wrapped with `captured_at`),
+what the D4 pointer embeds, what `ui_highlight` targets, what audit
+entries cite — and it flows **both directions**: agent-emitted refs
+render as clickable transcript chips (D6). The grammar is
+client-agnostic (nothing assumes Electron).
+
+**The policy table** (ADR-062 D-3) is one registry file —
+`desktop/src/state/ui_policy.ts`, one row per surface, the
+`webtab_policy` pattern — with three independent columns: `snapshot`
+(the exact field allowlist the projection may emit; empty = existence
+only), `capture: allow | refuse` (may pixels of this surface ever be
+captured), `highlight: allow | refuse` (may an agent annotate over it).
+The table IS the privacy review; a surface with no row degrades to
+existence-only everywhere and the unit test fails on undeclared
+surfaces. Vault refuses everything, always.
+
+**Three representations, one serving rule** (ADR-062 D-4): semantic
+(UIRef + projected fields — §3.2), structural (AX/DOM, webtab guests
+only — §3.4 D4), visual (pixels — §3.3). **Structure when it exists,
+pixels for the residue** — and the hub relays but never stores any of
+them (ADR-062 D-7).
 
 ### 3.1 Components
 
@@ -135,8 +188,10 @@ hub-relayed second):
 Renderer-side publisher: subscribes to the stores, pushes a compact
 snapshot on change (≥500 ms throttle, only when the bridge-class sharing
 toggle is on) over a new IPC channel. Main caches the last snapshot and
-serves it as a tool. Shape (allowlisted per surface — the allowlist IS the
-privacy review):
+serves it as a tool. The snapshot is the **semantic projection** of the
+§3.0 entity: a UIRef plus the fields the surface's `ui_policy` row
+`snapshot` column allows — the row, not the pipeline, is where the
+privacy decision lives. Shape:
 
 ```json
 {
@@ -182,11 +237,23 @@ grounding, it shares more than the conversation asks for, and — the
 decisive constraint for the first-priority target — kimi web exposes no
 system-prompt seam, so an MCP tool is the kimi-code-native channel.
 
+**Between polling and ambient sits the native shape** (ADR-062 D-6):
+focus is also exposed as an MCP **resource** (`ui://focus`,
+change-notified, ref-sized payloads bounded by the ≥500 ms throttle) for
+clients that support resource subscriptions — a subscribed agent *sees*
+focus changes without polling or per-turn injection, and still decides
+for itself when the context matters. Subscription support is
+capability-detected, never assumed (kimi-code's is unverified — open
+question 7); the tool is the portable floor everywhere.
+
 **Surface coverage — every main job is covered, by matrix not by
 exception.** The workbench has nine jobs (`workbench.ts:37-60`): fleet,
 projects, read, author, debug, compare, replay, record, terminal (+
-settings + the kimi-web session panel). Each maps to an allowlist entry;
-the first-cut field set (D1 review finalizes it, open question 2):
+settings + the kimi-web session panel). Each maps to a `ui_policy` row
+(§3.0); the table below previews the `snapshot` column — the `capture` /
+`highlight` bits get their defaults at the same D1 review (vault and
+settings refuse capture; vault refuses highlight). First-cut field set
+(D1 review finalizes it, open question 2):
 
 | Surface (job) | Emitted on focus | Never emitted |
 |---|---|---|
@@ -218,13 +285,20 @@ can emit** (a frame of everything the user sees), so:
   (reuse the W3 parking/grant machinery, but NO `option_id: "session"`
   escape: screenshots never get a standing grant). The card shows which
   region/surface is requested.
-- **Refused outright** on sensitive surfaces (`SURFACE_SENSITIVE`) — an
-  explicit per-surface `capture: allow | refuse` bit beside the §3.2
-  allowlist, NOT "has an allowlist entry": the two encode different
-  sensitivities (settings has a snapshot entry that emits the surface id
-  only, yet a *pixel* capture of settings shows its values — snapshot
-  allowed, capture refused). Vault refuses both, always.
+- **Refused outright** on sensitive surfaces (`SURFACE_SENSITIVE`) — the
+  `ui_policy` row's `capture` column (§3.0), NOT "has an allowlist
+  entry": the columns encode different sensitivities (settings has a
+  snapshot entry that emits the surface id only, yet a *pixel* capture
+  of settings shows its values — snapshot allowed, capture refused).
+  Vault refuses both, always.
 - Audited like every bridge action (ring + hub mirror, `via` stamped).
+
+The friction is architecturally **tiered by the table, not blanket**
+(ADR-062 D-4): v1 ships per-call for every capture, but capture of
+`capture: allow` surfaces may later be offered under a per-kind session
+grant — a policy-row + card-kind change inside this frame, never a
+redesign. Full-window capture, or any rect intersecting a
+`capture: refuse` surface, stays per-call forever.
 
 ### 3.4 Capability C — pointing (user → agent): the annotation overlay
 
@@ -266,6 +340,30 @@ at all** beyond the toggle: the agent calls `ui_get_focus` when it wants
 grounding, and the snapshot simply arrives. The design intent is that
 D1's zero-effort ambient context handles most turns, and the overlay is
 the one-gesture escalation when the user wants to be specific.
+
+### 3.4b Capability D — agent pointing (agent → user): highlights + ref-chips
+
+Deixis is symmetric (ADR-062 D-5): a collaborating agent needs "look
+here" as much as "what are you looking at". Two primitives, both
+**non-actuating** — the no-driving non-goal stands:
+
+- **Ref-chips.** An agent-emitted UIRef in a reply renders in the
+  transcript as a clickable chip (`replay · ep_… @ 1234`,
+  `src/foo.ts:42`); clicking focuses that surface/entity. The agent
+  directs attention, **the click is the user's** — no consent machinery,
+  because nothing happens until the user acts. Cost: one chip renderer +
+  a UIRef→focus dispatcher (the workbench store already has the
+  setters).
+- **`ui_highlight { ref, note?, ttl? }`.** An ephemeral, visibly
+  attributed ("kimi-1 points here"), dismissible glow over a
+  `highlight: allow` surface — or over an AX element of a webtab guest
+  (the D4 machinery in reverse). Renders and expires (default ~8s);
+  never occludes the Attention dock or modal consent UI; never focuses,
+  scrolls, clicks, or types. Consent is the sharing toggle + the policy
+  bit — no approval card (it draws pixels, it takes no action with user
+  authority) — but every call is **audited like an action** (ring + hub
+  mirror, `via` stamped) and remote delivery sits behind the full D5
+  stack like everything else.
 
 ### 3.5 Transfer mechanics — how an annotation reaches the context window
 
@@ -431,8 +529,12 @@ tab, focused agent, file path + selection) and what is never shared
 ## 4. Wedges
 
 **D1 — focus snapshot + the local kimi-web read loop (first priority,
-shippable slice).** Renderer publisher + IPC + main cache; `ui_get_focus`
-on the bridge server; **user-level `~/.kimi-code/mcp.json` injection**
+shippable slice).** The **UIRef shape + the `ui_policy` table** land
+here (§3.0 — all three columns, even though only `snapshot` has a
+consumer yet: the table is the frame the later wedges fill); renderer
+publisher + IPC + main cache; `ui_get_focus` on the bridge server;
+`ui://focus` as a subscribable MCP resource where the client supports it
+(capability-detected; open question 7); **user-level `~/.kimi-code/mcp.json` injection**
 (toggle-gated deep-merge, additive `termipod-desktop` entry, removed on
 toggle-off) + the relay's discovery-file fallback (static entries survive
 token rotation, clean exit when the bridge is off) — so the kimi-web
@@ -469,12 +571,23 @@ workdir materialization fallback (`.termipod/annotations/<ts>.png` +
 path in the note text); hub tool tests mirroring
 `mcp_browser_bridge_test.go`.
 
+**D6 — agent pointing (§3.4b).** Ref-chips: transcript renderer for
+agent-emitted UIRefs + the UIRef→focus dispatcher (chips ship first —
+they are pure rendering, no consent surface). `ui_highlight`: overlay
+renderer (attributed, TTL, never over Attention/modal UI), policy
+`highlight` bit enforcement, action-class audit; local first, remote
+rides D5's generalized dispatch unchanged.
+
 ## 5. Testing
 
-- **Unit (node --test, electron-free)**: publisher allowlist matrix
-  (every surface id → emitted fields or degradation); snapshot
-  throttle/coalescing; `desktop.invoke` dispatch incl. unknown tool,
-  revoked agent, sensitive-surface refusal; envelope shapes.
+- **Unit (node --test, electron-free)**: `ui_policy` matrix — every
+  surface id → emitted fields or degradation, `capture` and `highlight`
+  bits enforced, undeclared surface fails; UIRef shape (round-trips,
+  never carries content fields); snapshot throttle/coalescing;
+  `desktop.invoke` dispatch incl. unknown tool, revoked agent,
+  sensitive-surface refusal; `ui_highlight` TTL/attribution/refusal on
+  `highlight: refuse`; ref-chip parse + dispatch (a chip click focuses,
+  a bare render never does); envelope shapes.
 - **Hub (go test)**: `desktop_ui_invoke` validation + capability gate +
   read routing + `desktop_action` park/approve/timeout + no-session-grant
   rule, mirroring the browser_invoke suite.
@@ -488,9 +601,14 @@ path in the note text); hub tool tests mirroring
 ## 6. Risks
 
 - **Privacy regression by allowlist creep** — every new surface field is
-  a privacy decision; the allowlist lives in ONE file with a comment
-  header stating the rule (ids/paths/urls only) and the unit test fails
-  on undeclared surfaces.
+  a privacy decision; the policy lives in ONE file (`ui_policy.ts`,
+  §3.0) with a comment header stating the rule (ids/paths/urls only)
+  and the unit test fails on undeclared surfaces.
+- **Highlight abuse (attention spam / fake-UI phishing)** — `ui_highlight`
+  is rate-limited per agent, always attributed, TTL-bounded, never
+  renders over the Attention dock or modal consent UI, and carries no
+  interactive elements (a glow + a note, not a button); every call is
+  audited.
 - **Screenshot sensitivity** — mitigated by per-call-only approval +
   vault refusal + audit; revisited only with evidence.
 - **Overlay UX on multi-window / multi-display** — D2 scopes to the
@@ -526,3 +644,7 @@ path in the note text); hub tool tests mirroring
    territory, or should kimi-code grow a per-session/env config channel?
    (Proposal: ship the user-level entry — additive, toggle-gated,
    round-trip safe; revisit if kimi-code upstream adds a cleaner seam.)
+7. Does kimi-code (and each hub-spawned family) support MCP resource
+   subscriptions? (D1 detects capability and falls back to the tool;
+   verify per family at D1 — the resource is additive either way,
+   ADR-062 D-6.)

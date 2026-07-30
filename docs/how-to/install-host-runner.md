@@ -532,6 +532,64 @@ expose TensorBoard curves should set
 `runs.trackio_run_uri = "tb://<run-path>"` via the existing
 `POST /v1/teams/.../runs/<id>/metric_uri` endpoint.
 
+### Enabling the Rerun `.rrd` export for J8 Replay (optional, ADR-058)
+
+Replay's "Export to Rerun" runs as a **host job** — a detached
+`host_commands` kind, because decoding every frame of an episode takes
+minutes and must not ride a 60-second request. Nothing here is needed
+for the rest of Replay: the dataset library, episodes table, plots and
+3D pose all read metadata through the synchronous dataset verbs.
+
+The export shells out to **LeRobot's own** exporter rather than writing
+`.rrd` files itself (plan §11.3 — a bespoke writer would have to track
+rerun's format *and* LeRobot's internals in lock-step). So the host needs
+the pinned pair installed **in one environment**:
+
+```bash
+# a dedicated venv keeps LeRobot's torch out of the system python
+python3 -m venv /opt/lerobot-venv
+/opt/lerobot-venv/bin/pip install 'lerobot' 'rerun-sdk'
+```
+
+LeRobot constrains `rerun-sdk>=0.24.0,<0.34.0` itself, and the version
+that *wrote* a recording has to match the viewer that opens it — so the
+pair is recorded in the job's result and travels with the artifact.
+
+Two flags, both optional:
+
+- `--lerobot-viz-cmd '/opt/lerobot-venv/bin/lerobot-dataset-viz'` — the
+  argv prefix used to invoke the exporter. A `uvx` form works too:
+  `--lerobot-viz-cmd 'uvx --from lerobot==0.6.1 lerobot-dataset-viz'`.
+  Leave it unset and the host-runner probes for `lerobot-dataset-viz` on
+  its own `PATH`, then `python3 -m lerobot.scripts.lerobot_dataset_viz`.
+  Set it whenever the daemon's `PATH` is not the environment LeRobot
+  lives in — which, under systemd, it usually is not.
+- `--jobcache-dir` / `--jobcache-cap-gib` — where host jobs write their
+  artifacts and how much disk they may hold. Defaults:
+  `~/.termipod/hostrunner/jobcache` and 20 GiB, evicted a whole job's
+  output at a time, coldest first.
+
+Whether it worked is visible **before** anyone submits an export: the
+capabilities sweep publishes a `tools["lerobot-export"]` entry every
+15 minutes, carrying `installed`, the resolved `invoke`, the version
+pair, and — when it is not installed — a `detail` naming what is
+missing. Check it with:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" \
+  "$HUB/v1/teams/default/hosts/$HOST_ID" | jq '.capabilities.tools'
+```
+
+A host without the pair is not broken; the export is simply not offered
+there. The job also re-checks at start and fails with the same reason
+rather than half-running, so the failure mode is never a long poll
+ending in a Python traceback.
+
+Artifacts stay on the host (the hub owns names and events, hosts own
+bytes). For a desktop on the *same* machine that is exactly what is
+wanted — the returned absolute path opens directly. Fetching a `.rrd`
+from a remote host is a separate wedge.
+
 ## 5. Health: how to tell if a host is alive
 
 There are three signals, in decreasing reliability:

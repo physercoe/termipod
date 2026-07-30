@@ -546,10 +546,40 @@ looser — the "another web UI is one registry row" promise only holds if a
 new row cannot quietly widen the policy.
 
 **W4b — the `.rrd` export — rides a typed `host_commands` kind.** The
-exporter is `python -m lerobot.scripts.lerobot_dataset_viz --repo-id …
---root … --episode-index N --save 1 --output-dir …`, which writes
-`{repo_id with / → _}_episode_{n}.rrd` and decodes every frame of the
-episode.
+exporter is LeRobot's own, invoked as `lerobot-dataset-viz --repo-id …
+--root … --episode-index N --mode local --save 1 --output-dir …`, which
+writes `{repo_id with / → _}_episode_{n}.rrd` and decodes every frame of
+the episode. Verified against LeRobot main (v0.6.1) when the kind was
+built, and three details of that line are load-bearing:
+
+- **`--root` is the dataset directory itself**, not a parent that
+  `repo_id` is appended to. `lerobot_dataset_viz.py` passes it straight to
+  `LeRobotDataset(repo_id, root=root)`, which uses it as-is and only falls
+  back to `$HF_LEROBOT_HOME/{repo_id}` when it is `None`. LeRobot's own
+  *docs* example reads the other way ("`--root ./my_local_data_dir`… to
+  search in `./my_local_data_dir/lerobot/pusht`"); the source is
+  authoritative, and the hub's `datasets.root_path` is already the dataset
+  dir, so it is passed through unchanged.
+- **`--save` is an int flag defaulting to 0**, so it must be `--save 1`. A
+  bare `--save` leaves the exporter in viewer mode and writes nothing.
+- **The console entry point is `lerobot-dataset-viz`** (`pyproject.toml
+  [project.scripts]` → `lerobot.scripts.lerobot_dataset_viz:main`). The
+  module was `lerobot.scripts.visualize_dataset` before the package moved
+  under `src/`, so the invocation is *probed* from a candidate list rather
+  than pinned — and `--lerobot-viz-cmd` overrides it for a pinned
+  venv/uvx, which is what a systemd-launched daemon needs.
+
+`--display-mode` is deliberately **not** passed: rerun is already the
+default, the flag does not exist on older LeRobot, and argparse rejects
+unknown flags outright — so naming it would trade a real compatibility
+break for protection against a hypothetical default flip.
+
+The subprocess runs with `HF_HUB_OFFLINE=1`. That is a confinement, not a
+speed-up: `LeRobotDataset` falls back to `snapshot_download(repo_id)`, so
+a `repo_id` that was derived rather than declared could otherwise pull a
+*different* dataset off the Hub, silently, inside a job with a 30-minute
+ceiling. For a local dataset export, reaching the network is never the
+right answer.
 
 An earlier revision of this section recorded W4b as blocked on "an async
 host job (submit → poll → fetch) that the dataset verb surface does not
@@ -592,9 +622,17 @@ heartbeat, `job_cancel`, and restart reconciliation.
 **That executor has now landed** (`internal/hostjobs` allowlist,
 `hostrunner/jobs.go` + `jobcache.go`, migration 0070's
 `progress_json`/`progress_at`, and the hub's stale-job sweep in
-`server/job_sweep.go`). What remains for W4b-1 is the
-`dataset_export_rrd` handler itself and the desktop wiring — not the
-mechanism.
+`server/job_sweep.go`), **and so has the `dataset_export_rrd` kind**
+(`hostrunner/lerobot_export.go`). What remains for W4b-1 is the desktop
+wiring: a submit endpoint, a poll, and handing `result.path` to W4a's
+Rerun manager.
+
+Availability is answerable before anyone submits: the capabilities sweep
+publishes `tools["lerobot-export"]` with the resolved invocation and the
+`(lerobot, rerun-sdk)` version pair, or a `detail` naming which half is
+missing. The pin travels in the job's result too, because the viewer W4a
+launches has to match the SDK that wrote the file (LeRobot itself
+constrains `rerun-sdk>=0.24.0,<0.34.0`).
 
 Two sub-wedges:
 

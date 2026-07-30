@@ -254,6 +254,12 @@ func runDaemon(args []string) {
 	noTrackio := fs.Bool("no-trackio", false, "disable the trackio metric-digest poller even when a default trackio dir resolves")
 	wandbDir := fs.String("wandb-dir", "", "wandb offline-run root dir (contains run-*/files/wandb-history.jsonl). REQUIRED to enable the wandb poller — empty disables it (wandb has no reliable default the host-runner daemon can resolve).")
 	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. REQUIRED to enable the TensorBoard poller — empty disables it (no published default).")
+	jobCacheDir := fs.String("jobcache-dir", "", "where detached host jobs write their artifacts (ADR-058); empty uses ~/.termipod/hostrunner/jobcache")
+	jobCacheCapGiB := fs.Float64("jobcache-cap-gib", 0, "total-bytes ceiling for the host-job artifact cache, in GiB; 0 uses the 20 GiB default")
+	lerobotVizCmd := fs.String("lerobot-viz-cmd", "",
+		"how to invoke LeRobot's .rrd exporter, as a space-separated argv prefix "+
+			"(e.g. '/opt/lerobot-venv/bin/lerobot-dataset-viz', or 'uvx --from lerobot==0.6.1 lerobot-dataset-viz'). "+
+			"Empty probes for lerobot-dataset-viz on PATH, then python3 -m lerobot.scripts.lerobot_dataset_viz.")
 	_ = fs.Parse(args)
 
 	// Only trackio is on by default. It has a stable, HOME-relative
@@ -344,6 +350,9 @@ func runDaemon(args []string) {
 		TrackioDir:      *trackioDir,
 		WandbDir:        *wandbDir,
 		TensorBoardDir:  *tbDir,
+		JobCacheRoot:    *jobCacheDir,
+		JobCacheCap:     int64(*jobCacheCapGiB * (1 << 30)),
+		LeRobotVizCmd:   strings.Fields(*lerobotVizCmd),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

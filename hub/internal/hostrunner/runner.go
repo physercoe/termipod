@@ -160,6 +160,11 @@ type Runner struct {
 	// jobCacheDefaultCap (20 GiB).
 	JobCacheCap int64
 
+	// LeRobotVizCmd overrides how the `.rrd` exporter is invoked — the argv
+	// prefix for a pinned venv or `uvx` form (replay plan §11.3). Empty probes
+	// for `lerobot-dataset-viz` on PATH, then `python3 -m …`.
+	LeRobotVizCmd []string
+
 	// jobs is the detached job executor (ADR-058 §2) — one running job per
 	// host, off the main-loop goroutine. jobKinds is its handler registry and
 	// jobcache the artifact store they share. See jobs.go / jobcache.go.
@@ -1007,6 +1012,12 @@ func (a *Runner) probeLoop(ctx context.Context) {
 	push := func() {
 		caps := ProbeWithFamilies(ctx, a.fetchFamilies(ctx))
 		caps.Host = a.hostInfo
+		// Non-agent tooling (ADR-058 §2). Kept on the same sweep so a host that
+		// gains the pinned (lerobot, rerun-sdk) pair starts offering the export
+		// within one probe interval, with no restart.
+		caps.Tools = map[string]ToolCap{
+			ToolLeRobotExport: probeLeRobotExport(ctx, a.LeRobotVizCmd),
+		}
 		if a.hostPubKey != "" {
 			caps.HostPubKey = a.hostPubKey
 			caps.EnvEnvelopeV = EnvEnvelopeVersion

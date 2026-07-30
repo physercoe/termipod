@@ -71,15 +71,38 @@ const (
 // both the ceiling above and operator cancellation.
 type jobHandler func(ctx context.Context, a *Runner, cmd HostCommand, run *JobRun) (map[string]any, error)
 
+// jobRegistry is the package-level handler table. Each kind's own file registers
+// into it from an init(); defaults() copies it onto the Runner so a test can
+// substitute its own set without mutating global state.
+var jobRegistry = map[string]jobHandler{}
+
+// registerJobHandler wires one kind's implementation.
+//
+// It panics rather than degrading, because both failure modes are programming
+// errors that a process should not start with: a handler for a kind missing from
+// the hostjobs allowlist would never be dispatched (it would run *inline*, the
+// one thing this whole mechanism exists to prevent), and a duplicate
+// registration means two files silently disagree about who owns a kind.
+func registerJobHandler(kind string, h jobHandler) {
+	if !hostjobs.Is(kind) {
+		panic("hostrunner: job handler for " + kind + " which is not in the hostjobs allowlist")
+	}
+	if _, dup := jobRegistry[kind]; dup {
+		panic("hostrunner: duplicate job handler for " + kind)
+	}
+	jobRegistry[kind] = h
+}
+
 // defaultJobHandlers is the registry the executor dispatches through. A kind in
 // the hostjobs allowlist with no entry here is failed with a typed
 // "not supported by this host-runner build" error rather than silently
 // accepted — see invoke.
-//
-// Empty today: `dataset_export_rrd`'s handler is task #162. This is the seam it
-// registers into.
 func defaultJobHandlers() map[string]jobHandler {
-	return map[string]jobHandler{}
+	out := make(map[string]jobHandler, len(jobRegistry))
+	for k, v := range jobRegistry {
+		out[k] = v
+	}
+	return out
 }
 
 // jobProgress is the coarse shape a job reports. Deliberately small: this is a

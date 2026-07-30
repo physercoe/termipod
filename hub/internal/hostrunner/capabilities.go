@@ -42,6 +42,12 @@ type Capabilities struct {
 	// re-attaches them each sweep, like Host.
 	HostPubKey   string `json:"host_pubkey,omitempty"`
 	EnvEnvelopeV int    `json:"env_envelope_v,omitempty"`
+	// Tools carries probe results for non-agent host tooling, keyed by tool
+	// name (`lerobot-export` today; §11's ffmpeg extraction is the next one).
+	// Published so a caller can soft-degrade an offer *before* submitting a
+	// host job that would otherwise poll for minutes and end in a traceback
+	// (ADR-058 §2, the #394 pattern). Populated by the probe loop.
+	Tools map[string]ToolCap `json:"tools,omitempty"`
 }
 
 // ProbeCapabilities probes against the embedded family registry. Kept for
@@ -112,10 +118,21 @@ func parseVersion(s string) string {
 // Hash returns a stable hex digest of the capabilities payload, ignoring
 // ProbedAt so timestamp churn alone does not force a PUT. Keys are sorted
 // to make json.Marshal deterministic regardless of map iteration order.
+//
+// Agents and Tools are both included: they are what a probe sweep can discover
+// changing while the runner is up (an engine installed, the pinned exporter pair
+// upgraded), and a change nobody hashes is a change the hub never learns about.
+// Host / HostPubKey / EnvEnvelopeV are excluded because they are resolved once
+// at startup and cannot change without a restart, which forces a first push
+// anyway.
 func (c Capabilities) Hash() string {
 	type pair struct {
 		K string   `json:"k"`
 		V AgentCap `json:"v"`
+	}
+	type toolPair struct {
+		K string  `json:"k"`
+		V ToolCap `json:"v"`
 	}
 	keys := make([]string, 0, len(c.Agents))
 	for k := range c.Agents {
@@ -132,7 +149,19 @@ func (c Capabilities) Hash() string {
 		}
 		flat = append(flat, pair{k, v})
 	}
-	b, _ := json.Marshal(flat)
+	tkeys := make([]string, 0, len(c.Tools))
+	for k := range c.Tools {
+		tkeys = append(tkeys, k)
+	}
+	sort.Strings(tkeys)
+	tflat := make([]toolPair, 0, len(tkeys))
+	for _, k := range tkeys {
+		tflat = append(tflat, toolPair{k, c.Tools[k]})
+	}
+	b, _ := json.Marshal(struct {
+		Agents []pair     `json:"agents"`
+		Tools  []toolPair `json:"tools,omitempty"`
+	}{flat, tflat})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

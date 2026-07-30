@@ -101,6 +101,31 @@ test('swapPanes: swaps content, keeps the active POSITION', () => {
   assert.equal(applySwapPanes(solo), solo); // nothing to swap
 });
 
+test('setSecondary: pinning under a chrome primary parks the pin unfocused', () => {
+  // Unreachable from the S1 palette (gated on an eligible primary) but the S2
+  // entry points (rail Alt-click, Mod+\) call in from anywhere — the reducer
+  // must never mint the state healPanes exists to repair: focus naming a pane
+  // that is off screen.
+  const onSettings: PaneState = { job: 'settings', secondary: null, activePane: 'primary' };
+  const s = applySetSecondary(onSettings, 'compare');
+  assert.deepEqual(s, { job: 'settings', secondary: 'compare', activePane: 'primary' });
+  assert.deepEqual(healPanes(s), s); // already healed — nothing to repair
+  assert.equal(isSplitVisible(s), false);
+});
+
+test('setJob: clicking the parked pin promotes it — chrome never swaps into a pane', () => {
+  // read+compare split → visit Settings (the pin parks) → click Compare's rail
+  // icon. The unguarded swap branch seated SETTINGS as the secondary pane —
+  // an id `setSecondary` refuses — and isSplitVisible rendered it half-width.
+  const parked: PaneState = { job: 'settings', secondary: 'compare', activePane: 'primary' };
+  assert.deepEqual(applySetJob(parked, 'compare'), { job: 'compare', secondary: null, activePane: 'primary' });
+});
+
+test('swapPanes: a parked split cannot swap', () => {
+  const parked: PaneState = { job: 'settings', secondary: 'compare', activePane: 'primary' };
+  assert.equal(applySwapPanes(parked), parked);
+});
+
 test('focusPane: refuses a pane that is not there', () => {
   assert.equal(applyFocusPane(solo, 'secondary'), solo);
   assert.deepEqual(applyFocusPane(split, 'secondary'), { ...split, activePane: 'secondary' });

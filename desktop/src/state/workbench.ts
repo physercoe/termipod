@@ -145,9 +145,11 @@ export function healPanes(s: PaneState): PaneState {
 /// Swap the two panes' contents. `activePane` deliberately does NOT follow the
 /// content: it names a position, so after a swap the user's pane shows the other
 /// surface. That is what makes `applySetJob`'s swap-on-click land the clicked job
-/// in the pane the user is looking at.
+/// in the pane the user is looking at. Only a VISIBLE split can swap: with the
+/// pin parked under a chrome primary, a swap would seat the chrome job in the
+/// pane it is banned from.
 export function applySwapPanes(s: PaneState): PaneState {
-  if (s.secondary === null) return s;
+  if (!isSplitVisible(s) || s.secondary === null) return s;
   return { job: s.secondary, secondary: s.job, activePane: s.activePane };
 }
 
@@ -165,19 +167,25 @@ export function applySetJob(s: PaneState, job: JobId): PaneState {
   // selection), so the same job can never sit in both panes. Clicking the job
   // already pinned in the OTHER pane swaps instead of duplicating it.
   const other = s.activePane === 'primary' ? s.secondary : s.job;
-  if (job === other) return applySwapPanes(s);
+  // A parked pin (chrome primary) has no visible other pane to swap with:
+  // clicking its rail icon means "show me that job", so it takes the primary
+  // and the now-duplicate pin is released.
+  if (job === other) return isSplitVisible(s) ? applySwapPanes(s) : { job, secondary: null, activePane: 'primary' };
   const current = s.activePane === 'primary' ? s.job : s.secondary;
   if (job === current) return s;
   return s.activePane === 'primary' ? { ...s, job } : { ...s, secondary: job };
 }
 
 /// Pin `job` beside the primary, or close the split with `null`. Opening focuses
-/// the new pane (the user asked to look at it); closing forces focus back to the
-/// primary, which is then the only pane there is.
+/// the new pane (the user asked to look at it) — unless the primary is a chrome
+/// job, where the pin parks off screen (`isSplitVisible`) and focus may not
+/// name it (the healed invariant: `activeJob()` never reports an unseen
+/// surface). Closing forces focus back to the primary, which is then the only
+/// pane there is.
 export function applySetSecondary(s: PaneState, job: JobId | null): PaneState {
   if (job === null) return { ...s, secondary: null, activePane: 'primary' };
   if (!isKnownJob(job) || !isSplitEligible(job) || job === s.job) return s;
-  return { ...s, secondary: job, activePane: 'secondary' };
+  return { ...s, secondary: job, activePane: isSplitEligible(s.job) ? 'secondary' : 'primary' };
 }
 
 /// Move focus attribution to a pane. Focusing a pane that isn't there is a no-op.

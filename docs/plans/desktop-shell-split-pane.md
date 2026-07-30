@@ -202,7 +202,11 @@ Three judgement calls the plan left open, and how they resolved:
    no-ops is worse than an absent one. The paired invariant: **`activePane` may
    never name a pane that is off screen**, or `activeJob()` would report a
    surface the user cannot see (the goal-3 focus attribution, and later the
-   ADR-062 snapshot, both read it).
+   ADR-062 snapshot, both read it). Review follow-up: the *parked* pin obeys
+   the same rules at every reducer, not just the healer — pinning under a
+   chrome primary parks the pin unfocused, clicking the parked pin's rail icon
+   promotes it to the primary (the swap branch would have seated the chrome
+   job in a pane it is banned from), and a parked split refuses `swapPanes`.
 3. **Persistence is two keys, not a migrated blob.** The primary keeps
    `termipod.workbench.job` with its original shape (a bare job id) and the split
    rides in `termipod.workbench.split.v1`, absent when there is none. No

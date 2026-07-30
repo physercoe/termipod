@@ -24,7 +24,8 @@ examples.
 | `select` | closed enumerated set of N options | `request_select` | one button per option |
 | `help_request` | open / unlistable / free text | `request_help` | text composer + Skip |
 
-Two more attention kinds exist but are not agent-callable:
+Two more attention kinds exist but are not agent-callable (plus
+`browser_action`, below):
 
 - `permission_prompt` — per-tool-call gate. **Per-engine support
   matrix:**
@@ -49,6 +50,40 @@ Two more attention kinds exist but are not agent-callable:
   the right artifact is the template body itself.
 - `idle` — emitted by host-runner when an agent is paused awaiting
   input. State signal, not a request.
+
+### The gated sibling — `browser_action`
+
+| Kind | Answer space | Raised by | Mobile rendering |
+|---|---|---|---|
+| `browser_action` | binary {approve, reject} (+ optional `option_id: "session"`) | hub's `browser_invoke` MCP handler (W3 browser bridge) | Approve / Deny (+ "allow session" option) |
+
+Not agent-callable directly — the hub raises it when an agent calls
+`browser_invoke` with an **action** tool (`browser_navigate`,
+`browser_click`, `browser_type`, …) against a desktop it has no session
+grant for, and parks the MCP call in-process until the row resolves
+(same posture as `permission_prompt`, which is why `browser_action` is
+deliberately NOT in `attentionAwaitsAgentReply` — no fan-back turn is
+wanted). `pending_payload` carries `{host_id, host_name, tool, args,
+agent_id}` with the values of the `text` and `keys` arg keys replaced
+by `"[redacted N chars]"` (typed content never sits in the card; urls,
+selectors, and the eval script stay visible for the approver).
+Decisions:
+
+- `{decision: "approve"}` → the action routes to the desktop, once.
+- `{decision: "approve", option_id: "session"}` → routes AND records an
+  in-memory session grant for (team, desktop, agent); further action
+  calls skip the card. Grants die on hub restart and are revocable via
+  `POST /v1/teams/{team}/hosts/{host}/browserbridge/revoke`
+  (`{agent_id}`, empty = all agents on that host).
+- `{decision: "reject", reason?: "..."}` → the MCP call returns
+  `{behavior: "deny", message: reason}`.
+- No decision within 10 minutes → the hub auto-resolves the row and
+  returns `{behavior: "deny", message: "no decision within timeout —
+  denied"}` (fail closed).
+
+Read tools (`browser_list_tabs`, `browser_snapshot`,
+`browser_screenshot`, `browser_read_text`) never raise a row — they
+route immediately.
 
 ### The answerless sibling — `notice`
 
@@ -286,6 +321,9 @@ vendor-neutral equivalent.
   `mcpRequestHelp`, `mcpPostNotice` handlers + tool definitions.
 - `hub/internal/server/handlers_attention.go` — `decide` endpoint;
   validates `body` for help_request.
+- `hub/internal/server/mcp_browser_bridge.go` — `browser_invoke` tool,
+  the `browser_action` approval-card raise + park, the session-grant
+  cache, and the revoke endpoint.
 - `lib/screens/me/me_screen.dart` — `_ApprovalActions` (binary +
   select) and `_HelpRequestActions` (free text).
 - `hub/internal/server/tiers.go` — `request_approval`, `request_select`,

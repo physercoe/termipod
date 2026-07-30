@@ -19,24 +19,40 @@ import { useSession } from './session';
 /// action calls as hub agent_events — the bearer never crosses IPC (main
 /// reads its own keychain). The Settings "recent bridge actions" view reads
 /// the main-side ring via `refreshAudit`.
+///
+/// W3: with the bridge on AND a hub context pushed, main registers as a hub
+/// host and long-polls the reverse tunnel so REMOTE agents can drive the
+/// browser (approval-gated hub-side). The Settings "Remote driving" block
+/// reads those sessions via `refreshRemoteSessions` and revokes one via
+/// `revokeRemote`.
 
 const LS_KEY = 'termipod.browserBridge.enabled';
+/// W3: the SEPARATE remote-driving consent (default off). The main toggle's
+/// consent is "agents on this machine"; exposing the tabs to every agent in
+/// the team through the hub is a different sentence, so it never rides the
+/// main toggle silently.
+const LS_REMOTE_KEY = 'termipod.browserBridge.remote';
 
-function loadEnabled(): boolean {
+function loadFlag(key: string): boolean {
   try {
-    return localStorage.getItem(LS_KEY) === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-function persistEnabled(v: boolean): void {
+function persistFlag(key: string, v: boolean): void {
   try {
-    localStorage.setItem(LS_KEY, v ? '1' : '0');
+    localStorage.setItem(key, v ? '1' : '0');
   } catch {
     /* private mode — the toggle still works for the session */
   }
 }
+
+const loadEnabled = (): boolean => loadFlag(LS_KEY);
+const persistEnabled = (v: boolean): void => {
+  persistFlag(LS_KEY, v);
+};
 
 /// One row of the main-side action audit ring (mirrors BridgeAuditEntry in
 /// electron/src/browserbridge.ts). Args are redacted main-side.
@@ -44,6 +60,9 @@ export interface BridgeActionRow {
   ts: string;
   tool: string;
   agent_id: string;
+  /// W3: 'local' (same-host spawn) or 'hub' (remote agent via the hub tunnel).
+  via: 'local' | 'hub';
+  agent_handle?: string;
   tab_id: number | null;
   url: string | null;
   partition: string | null;
@@ -53,23 +72,54 @@ export interface BridgeActionRow {
   hub?: 'ok' | 'failed' | 'skipped';
 }
 
+/// One row of the W3 "Remote driving" view (mirrors BridgeRemoteSession in
+/// electron/src/browserbridge.ts): a remote agent that drove this desktop's
+/// browser via the hub this app run.
+export interface BridgeRemoteSessionRow {
+  agent_id: string;
+  agent_handle?: string;
+  last_tool: string;
+  last_ts: string;
+  revoked: boolean;
+}
+
 interface BrowserBridgeState {
   /// The user's setting (persisted). Main may still be catching up — `running`
   /// is the server's actual state.
   enabled: boolean;
+  /// W3: the separate remote-driving consent (persisted, default off) —
+  /// gates the hub relay main-side; without it the desktop never registers
+  /// a hosts row, so remote agents can't see it, read it, or drive it.
+  remoteEnabled: boolean;
   /// The main-process MCP server is up (from browserbridge_status).
   running: boolean;
   /// The last-50 action ring (browserbridge_audit_tail), oldest-first.
   audit: BridgeActionRow[];
+  /// W3: remote hub-driven sessions (browserbridge_remote_sessions),
+  /// most-recent-first.
+  remoteSessions: BridgeRemoteSessionRow[];
   setEnabled: (v: boolean) => void;
+  setRemoteEnabled: (v: boolean) => void;
   refreshStatus: () => Promise<void>;
   refreshAudit: () => Promise<void>;
+  refreshRemoteSessions: () => Promise<void>;
+  revokeRemote: (agentId: string) => void;
 }
 
-export const useBrowserBridge = create<BrowserBridgeState>((set) => ({
+export const useBrowserBridge = create<BrowserBridgeState>((set, get) => ({
   enabled: loadEnabled(),
+  remoteEnabled: loadFlag(LS_REMOTE_KEY),
   running: false,
   audit: [],
+  remoteSessions: [],
+  setRemoteEnabled: (v) => {
+    // Optimistic: main's browserbridge_set_remote only flips a flag and
+    // reconciles the relay — there is no bind step to fail like the server.
+    persistFlag(LS_REMOTE_KEY, v);
+    set({ remoteEnabled: v });
+    if (!isShell()) return;
+    void invoke('browserbridge_set_remote', { enabled: v }).catch(() => undefined);
+  },
   setEnabled: (v) => {
     persistEnabled(v);
     set({ enabled: v });
@@ -103,6 +153,22 @@ export const useBrowserBridge = create<BrowserBridgeState>((set) => ({
       /* older main without W2 handlers — leave the list as-is */
     }
   },
+  refreshRemoteSessions: async () => {
+    if (!isShell()) return;
+    try {
+      const r = await invoke<{ sessions: BridgeRemoteSessionRow[] }>('browserbridge_remote_sessions');
+      set({ remoteSessions: r.sessions });
+    } catch {
+      /* older main without W3 handlers — leave the list as-is */
+    }
+  },
+  revokeRemote: (agentId) => {
+    // Confirm-less: mark the row revoked immediately; the IPC result only
+    // reports the hub-side grant clear, which the row doesn't display.
+    set({ remoteSessions: get().remoteSessions.map((s) => (s.agent_id === agentId ? { ...s, revoked: true } : s)) });
+    if (!isShell()) return;
+    void invoke('browserbridge_revoke_remote', { agent_id: agentId }).catch(() => undefined);
+  },
 }));
 
 /// Boot push (called from main.tsx): hand the persisted toggle to the main
@@ -113,6 +179,12 @@ export function syncBrowserBridgeToMain(): void {
   void invoke('browserbridge_set_enabled', { enabled: true })
     .then(() => useBrowserBridge.getState().refreshStatus())
     .catch(() => undefined);
+  // W3: the remote-driving consent rides the same boot push. Only when on —
+  // off is the main-side default; and only when the bridge itself is on
+  // (the guard above), since the relay needs both.
+  if (loadFlag(LS_REMOTE_KEY)) {
+    void invoke('browserbridge_set_remote', { enabled: true }).catch(() => undefined);
+  }
 }
 
 /// Push the current hub session's non-secret identity (baseUrl/teamId/

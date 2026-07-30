@@ -28,6 +28,14 @@
 ///     the action tools. Every action call is audit-recorded — a local ring
 ///     buffer for the Settings debug view plus a best-effort hub agent_events
 ///     row keyed to the calling agent (relayed per-spawn via x-tp-agent-id);
+///   - W3 REMOTE DRIVING: agents on OTHER hosts reach the same tool surface
+///     through the hub — its `browser_invoke` MCP tool wraps the call in a
+///     `browser.invoke` reverse-tunnel envelope and the host's poll loop
+///     (browserbridge_host.ts) funnels it into dispatchHubInvoke in-process.
+///     The hub approval-gates action calls per (desktop, agent) session
+///     before routing; the desktop adds its own per-run revoked set
+///     (Settings → Remote driving) and stamps hub calls via:'hub' in the
+///     audit;
 ///   - web content returned by snapshot/read_text/eval is untrusted input to
 ///     the agent — the tool descriptions say so explicitly.
 import http from 'node:http';
@@ -165,6 +173,13 @@ export interface BridgeRequestContext {
   /// x-tp-agent-id), or null for ad-hoc callers — the audit row records
   /// 'unknown' rather than guessing.
   agentId: string | null;
+  /// W3: which leg the call arrived on. Absent/'local' for the loopback
+  /// relay (the HTTP layer never sets it); 'hub' for a remote agent's call
+  /// dispatched from the reverse tunnel. Recorded on the audit entry.
+  via?: 'local' | 'hub';
+  /// W3: the remote agent's display handle (hub payload), recorded on hub
+  /// action entries so Settings → Remote driving can name the session.
+  agentHandle?: string;
 }
 
 export const READ_CTX: BridgeRequestContext = { scope: 'read', agentId: null };
@@ -177,6 +192,12 @@ export interface BridgeAuditEntry {
   ts: string;
   tool: string;
   agent_id: string;
+  /// W3: 'local' (same-host stdio relay) or 'hub' (remote agent through the
+  /// hub tunnel). Always stamped by callTool; mirrored to the hub payload.
+  via: 'local' | 'hub';
+  /// W3 hub calls only: the remote agent's display handle, when the hub
+  /// supplied one. Local-only (not mirrored — the hub already knows it).
+  agent_handle?: string;
   tab_id: number | null;
   /// The tab's URL at call time, fragment-stripped like every bridge URL.
   url: string | null;
@@ -503,6 +524,16 @@ export const ACTION_TOOLS: readonly McpToolDef[] = [
 ];
 
 const ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(ACTION_TOOLS.map((t) => t.name));
+const READ_TOOL_NAMES: ReadonlySet<string> = new Set(READ_TOOLS.map((t) => t.name));
+
+/// Whether an audit entry should be mirrored to the hub as an agent event.
+/// Actions always mirror (W2 contract). Hub-leg READS stay ring-only: the
+/// hub routed the call, so a mirror row adds no information — the ring
+/// entry exists purely so Settings → Remote driving can show (and revoke)
+/// read-only remote sessions.
+export function shouldMirrorAudit(entry: BridgeAuditEntry): boolean {
+  return !(entry.via === 'hub' && READ_TOOL_NAMES.has(entry.tool));
+}
 
 const EVAL_RESULT_MAX = 8000;
 
@@ -974,15 +1005,20 @@ async function runTool(deps: McpServerDeps, name: string, args: Record<string, u
 }
 
 /// Dispatch one tool call. Action calls are wrapped in the W2 audit hook:
-/// exactly one entry per call, success or failure, args redacted.
+/// exactly one entry per call, success or failure, args redacted. W3: calls
+/// arriving over the hub leg are audited even when the tool is a read —
+/// remote access to the user's tabs must be visible in Settings → Remote
+/// driving (local reads stay unaudited: same-machine spawns, high frequency,
+/// and the ring would churn).
 async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!ACTION_TOOL_NAMES.has(name)) return runTool(deps, name, args);
+  if (!ACTION_TOOL_NAMES.has(name) && ctx.via !== 'hub') return runTool(deps, name, args);
   const tabId = typeof args.tabId === 'number' && Number.isInteger(args.tabId) ? args.tabId : null;
   const target = tabId === null ? undefined : deps.backend.listTargets().find((t) => t.tabId === tabId);
   const entry: BridgeAuditEntry = {
     ts: new Date().toISOString(),
     tool: name,
     agent_id: ctx.agentId ?? 'unknown',
+    via: ctx.via ?? 'local',
     tab_id: tabId,
     url: target !== undefined ? stripFragment(target.url) : null,
     partition: target?.partition ?? null,
@@ -990,6 +1026,7 @@ async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: st
     ok: false,
     error: null,
   };
+  if (ctx.agentHandle !== undefined) entry.agent_handle = ctx.agentHandle;
   try {
     const out = await runTool(deps, name, args);
     entry.ok = true;
@@ -1004,6 +1041,110 @@ async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: st
       /* the audit hook never breaks a tool call */
     }
   }
+}
+
+// ── W3 hub dispatch (remote agents via the reverse tunnel) ───────────────────
+// The hub's `browser_invoke` MCP tool routes a remote agent's call to this
+// desktop as a tunnel envelope (kind "browser.invoke"); the host's poll loop
+// (browserbridge_host.ts) funnels the payload through dispatchHubInvoke and
+// base64s the result back. Hub-side, ACTION tools are approval-gated per
+// (desktop, agent) before routing, so an arriving action call is
+// pre-authorized — the desktop still enforces its own per-run revoked set
+// (Settings → Remote driving; it refuses READS too — revoked means gone)
+// plus the usual class gating (callTool → requireActionTarget), and audits
+// EVERY hub-leg call — reads included — via:'hub' (hub reads are ring-only,
+// see shouldMirrorAudit).
+
+/// One browser.invoke tunnel payload (hub → desktop).
+export interface HubInvokePayload {
+  tool: string;
+  args: Record<string, unknown>;
+  /// The calling agent's hub id — recorded on the audit row; the hub mirror
+  /// post targets this agent's event stream (it is in the same team).
+  agent_id: string;
+  /// Display handle for the Settings "Remote driving" view; the hub fills it
+  /// best-effort.
+  agent_handle?: string;
+}
+
+/// The tunnel response body: base64(JSON) of this shape is exactly what the
+/// hub's browser_invoke unwraps (ok → MCP result, !ok → agent-visible error).
+export type HubInvokeResult = { ok: true; result: unknown } | { ok: false; error: string };
+
+/// Dispatch one hub-relayed call in-process. This is the in-process entry
+/// into the SAME machinery the HTTP MCP path funnels into (callTool) — the
+/// bearer parse is skipped (the hub authenticated the agent and
+/// approval-gated action calls) but class gating and the audit-once
+/// semantics are identical, stamped via:'hub'.
+export async function dispatchHubInvoke(
+  deps: McpServerDeps,
+  payload: HubInvokePayload,
+  revoked: ReadonlySet<string>,
+): Promise<HubInvokeResult> {
+  const isRead = READ_TOOLS.some((t) => t.name === payload.tool);
+  const isAction = ACTION_TOOL_NAMES.has(payload.tool);
+  if (!isRead && !isAction) return { ok: false, error: 'unknown_tool' };
+  // The desktop's own kill switch, checked BEFORE the tool machinery runs —
+  // a refusal is a gate event, not an audited action (the same posture as
+  // W2's scope refusal). It covers READS too: "Revoke" must mean this agent
+  // no longer touches this browser at all — a revoked agent that could
+  // still screenshot the user's tabs would make the revoked pill a lie.
+  if (revoked.has(payload.agent_id)) {
+    return { ok: false, error: 'revoked by user on desktop' };
+  }
+  const ctx: BridgeRequestContext = {
+    scope: 'full',
+    agentId: payload.agent_id !== '' ? payload.agent_id : null,
+    via: 'hub',
+    ...(payload.agent_handle !== undefined && payload.agent_handle !== '' ? { agentHandle: payload.agent_handle } : {}),
+  };
+  try {
+    const out = await callTool(deps, ctx, payload.tool, payload.args);
+    // A tool-level isError result (EVAL_EXCEPTION, bad params that don't
+    // throw) maps to the error half of the envelope — the hub renders it as
+    // an agent-visible MCP error, exactly what a local caller sees.
+    const shaped = out as { content?: Array<{ text?: string }>; isError?: boolean } | null;
+    if (shaped !== null && typeof shaped === 'object' && shaped.isError === true) {
+      const text = (shaped.content ?? []).map((c) => c.text ?? '').join('\n');
+      return { ok: false, error: text !== '' ? text : 'tool failed' };
+    }
+    return { ok: true, result: out };
+  } catch (e) {
+    if (e instanceof BridgeError) return { ok: false, error: `${e.code}: ${e.message}` };
+    return { ok: false, error: `INTERNAL: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/// One row of the Settings "Remote driving" view (W3): a remote agent that
+/// ran action calls via the hub this app run.
+export interface BridgeRemoteSession {
+  agent_id: string;
+  agent_handle?: string;
+  last_tool: string;
+  last_ts: string;
+  revoked: boolean;
+}
+
+/// Fold the audit ring into Remote-driving rows: hub-via entries only, one
+/// row per agent, most-recent-first. Ring order is push order, so scanning
+/// newest→oldest and keeping the first sighting per agent yields the latest
+/// tool/ts/handle in one pass.
+export function foldRemoteSessions(entries: BridgeAuditEntry[], revoked: ReadonlySet<string>): BridgeRemoteSession[] {
+  const seen = new Set<string>();
+  const out: BridgeRemoteSession[] = [];
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const e = entries[i];
+    if (e === undefined || e.via !== 'hub' || seen.has(e.agent_id)) continue;
+    seen.add(e.agent_id);
+    out.push({
+      agent_id: e.agent_id,
+      ...(e.agent_handle !== undefined ? { agent_handle: e.agent_handle } : {}),
+      last_tool: e.tool,
+      last_ts: e.ts,
+      revoked: revoked.has(e.agent_id),
+    });
+  }
+  return out;
 }
 
 /// Handle one JSON-RPC message. Returns the response object, or null for

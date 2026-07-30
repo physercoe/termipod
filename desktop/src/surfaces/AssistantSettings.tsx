@@ -8,6 +8,7 @@ import { useBrowserBridge } from '../state/browserBridge';
 import { useWorkbench } from '../state/workbench';
 import { kindForInspectFile, useInspect } from '../state/inspect';
 import { localHome, localList, localRead } from '../state/localfs';
+import { relTime } from './TaskDetail';
 
 /// Settings → Assistant: the config home for the embedded kimi-code assistant.
 /// Shows the shared `kimi web` server status + dock control, then the assistant's
@@ -116,6 +117,8 @@ export function AssistantSettings(): JSX.Element {
     void useBrowserBridge.getState().refreshStatus();
     // …and the W2 audit ring for the "recent bridge actions" view.
     void useBrowserBridge.getState().refreshAudit();
+    // …and the W3 hub-driven sessions for the "Remote driving" block.
+    void useBrowserBridge.getState().refreshRemoteSessions();
     return () => {
       cancelled = true;
     };
@@ -247,6 +250,64 @@ export function AssistantSettings(): JSX.Element {
                 </span>
               </div>
               <span className={`pill small ${e.ok ? 'ok' : ''}`}>{e.ok ? 'ok' : 'err'}</span>
+            </div>
+          ))
+        ))}
+
+      {bridge.enabled && (
+        <div className="assistant-cfg-row">
+          <div className="assistant-cfg-main">
+            <span className="assistant-cfg-label">{t('assistant.bridgeRemote')}</span>
+            <span className="small muted">{t('assistant.bridgeRemoteBlurb')}</span>
+          </div>
+          {/* W3 consent gate: remote driving is its own opt-in (default off) —
+              team-wide read exposure must never ride the local toggle. */}
+          <input
+            type="checkbox"
+            checked={bridge.remoteEnabled}
+            onChange={(e) => bridge.setRemoteEnabled(e.target.checked)}
+          />
+        </div>
+      )}
+      {bridge.enabled && bridge.remoteEnabled && (
+        <div className="assistant-cfg-row">
+          <div className="assistant-cfg-main">
+            <span className="small muted">{t('assistant.bridgeRemoteSessions')}</span>
+          </div>
+          <button className="import-btn" onClick={() => void bridge.refreshRemoteSessions()}>
+            <Icon name="refresh" size={13} /> {t('assistant.bridgeAuditRefresh')}
+          </button>
+        </div>
+      )}
+      {bridge.enabled &&
+        bridge.remoteEnabled &&
+        (bridge.remoteSessions.length === 0 ? (
+          <div className="assistant-cfg-row">
+            <div className="assistant-cfg-main">
+              <span className="small muted">{t('assistant.bridgeRemoteEmpty')}</span>
+            </div>
+          </div>
+        ) : (
+          // Most-recent first (main already folds the ring). Same row layout
+          // as the audit list above; the revoke is confirm-less — the row
+          // marks itself revoked immediately.
+          bridge.remoteSessions.map((s) => (
+            <div className="assistant-cfg-row" key={s.agent_id}>
+              <div className="assistant-cfg-main">
+                <span className="mono small" title={s.agent_id}>
+                  {s.agent_handle ?? s.agent_id.slice(0, 8)}
+                </span>
+                <span className="mono small muted">
+                  {s.last_tool} · {relTime(s.last_ts)}
+                </span>
+              </div>
+              {s.revoked ? (
+                <span className="pill small">{t('assistant.bridgeRemoteRevoked')}</span>
+              ) : (
+                <button className="import-btn" onClick={() => bridge.revokeRemote(s.agent_id)}>
+                  {t('assistant.bridgeRemoteRevoke')}
+                </button>
+              )}
             </div>
           ))
         ))}

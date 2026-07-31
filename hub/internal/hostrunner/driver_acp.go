@@ -1719,13 +1719,28 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		// principal sees why their attachment didn't reach the agent;
 		// otherwise we forward as-is.
 		if len(images) > 0 && !d.promptCapImage() {
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
-				map[string]any{
-					"reason":     "agent did not advertise image input support — attached images dropped",
-					"dropped":    len(images),
-					"engine":     "acp",
-					"capability": "promptCapabilities.image",
-				})
+			// desktop-ui-context D5 §3.5: dropping is the wrong answer
+			// for an annotation — the user deliberately pointed at
+			// something, and this agent can read a file even though it
+			// cannot take an image block. Materialize into its workdir
+			// and name the path in the text; only a FAILED write falls
+			// back to the historical drop-and-warn.
+			paths, merr := materializeImageInputs(d.Workdir, images, time.Now())
+			if merr == nil && len(paths) == len(images) {
+				body = annotationNote(body, paths)
+			} else {
+				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+					map[string]any{
+						"reason":     "agent did not advertise image input support — attached images dropped",
+						"dropped":    len(images) - len(paths),
+						"engine":     "acp",
+						"capability": "promptCapabilities.image",
+						"fallback":   fallbackReason(merr),
+					})
+				if len(paths) > 0 {
+					body = annotationNote(body, paths)
+				}
+			}
 			images = nil
 			if body == "" && len(pdfs)+len(audios)+len(videos) == 0 {
 				return fmt.Errorf("acp driver: text input has no body and image attachments were dropped (agent rejected promptCapabilities.image)")

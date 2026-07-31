@@ -47,6 +47,13 @@ type PaneDriver struct {
 	// SendKeys lets tests inject a fake for tmux send-keys; nil defaults
 	// to the real tmuxSendKeys below. Used by Input (P1.8) for M4 input.
 	SendKeys PaneSendKeysFunc
+	// Workdir is the agent's cwd, when the runner could derive one. A
+	// pane is a terminal — there is no image channel into it at all —
+	// so an annotation image is materialized here and its path named in
+	// the text (desktop-ui-context D5 §3.5). Empty means "no workdir
+	// derived": the image is reported as dropped rather than written
+	// somewhere the agent cannot see.
+	Workdir string
 
 	mu      sync.Mutex
 	started bool
@@ -226,6 +233,23 @@ func (d *PaneDriver) Input(ctx context.Context, kind string, payload map[string]
 	switch kind {
 	case "text":
 		body, _ := payload["body"].(string)
+		// D5 §3.5: the pane cannot receive an image (the kimi TUI's
+		// clipboard paste is a LOCAL feature, not something send-keys
+		// can drive), so an annotation crop is written into the agent's
+		// workdir and the path rides the text it CAN read.
+		if images := extractImageInputs(payload); len(images) > 0 {
+			paths, merr := materializeImageInputs(d.Workdir, images, time.Now())
+			body = annotationNote(body, paths)
+			if merr != nil || len(paths) != len(images) {
+				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+					map[string]any{
+						"reason":   "a tmux pane has no image input channel and the workdir fallback failed — attached images dropped",
+						"dropped":  len(images) - len(paths),
+						"engine":   "pane",
+						"fallback": fallbackReason(merr),
+					})
+			}
+		}
 		if body == "" {
 			return fmt.Errorf("pane driver: text input missing body")
 		}

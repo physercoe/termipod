@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.805
+> **Last verified vs code:** 2026.730.1231 (D3 introduced `desktop_action`; D5 adds the hub-raised leg)
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`
@@ -84,6 +84,44 @@ Decisions:
 Read tools (`browser_list_tabs`, `browser_snapshot`,
 `browser_screenshot`, `browser_read_text`) never raise a row — they
 route immediately.
+
+### Its per-call sibling — `desktop_action`
+
+| Kind | Answer space | Raised by | Rendering |
+|---|---|---|---|
+| `desktop_action` | binary {approve, reject} — **no session option** | the desktop itself (local calls) or the hub's `desktop_ui_invoke` handler (remote), for `ui_screenshot` | Allow once / Reject |
+
+The same machinery as `browser_action`, one rule apart: **a screenshot
+of the desktop never gets a standing grant**
+([ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)
+D-4, `plans/desktop-ui-context-and-pointing.md` §3.3). A frame of
+everything the user can see is the most sensitive artifact the app can
+emit, so consent is per call, forever — `option_id: "session"` is
+accepted and **ignored**, and the card's `pending_payload` carries
+`session_grant: false` so a client renders the right buttons instead of
+inferring them from the kind.
+
+`pending_payload` differs by leg, because the two raisers know different
+things — both are *references* to what was requested, never a pixel: the
+image does not exist until this decision says yes.
+
+- **Desktop-raised (local calls):** `{tool, scope, surfaces, url,
+  agent_id, session_grant}` — the desktop can say which surfaces are on
+  screen, or which embedded tab.
+- **Hub-raised (remote, `desktop_ui_invoke`):** `{host_id, host_name,
+  tool, args, agent_id, session_grant}` — the hub cannot know what is on
+  the remote screen, so a remote window-capture approval is
+  **sight-unseen**: the card names the host and the asking agent, not the
+  surfaces. (The desktop still re-applies its own refusal table after
+  routing, so a refused surface stays refused even post-approval.)
+
+Both legs raise it: a LOCAL agent's call is carded by the desktop (which
+posts the row itself and parks for 2 minutes — shorter than the hub's 10,
+because that leg holds an MCP call open over stdio), a hub-relayed call by
+the hub before it routes. A call already carded by the hub is marked so the
+desktop does not raise a second one.
+
+`ui_get_focus` never raises a row — it is a read.
 
 ### The answerless sibling — `notice`
 

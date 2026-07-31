@@ -763,6 +763,7 @@ test('W3 dispatch: hub-leg read runs, ring-audited via:hub — but never hub-mir
     deps,
     { tool: 'browser_list_tabs', args: {}, agent_id: 'agent-remote', agent_handle: 'r2d2' },
     new Set(),
+    'browser',
   );
   assert.equal(out.ok, true);
   if (out.ok) assert.match((out.result as ToolResult).content[0]?.text ?? '', /"tabId": 7/);
@@ -792,7 +793,7 @@ test('W3 dispatch: local reads stay unaudited; actions and hub entries mirror', 
 test('W3 dispatch: a revoked agent is refused for READS too — revoked means gone', async () => {
   const backend = actionBackend();
   const { deps, entries } = auditDeps(backend);
-  const revoked = await dispatchHubInvoke(deps, { tool: 'browser_list_tabs', args: {}, agent_id: 'agent-remote' }, new Set(['agent-remote']));
+  const revoked = await dispatchHubInvoke(deps, { tool: 'browser_list_tabs', args: {}, agent_id: 'agent-remote' }, new Set(['agent-remote']), 'browser');
   assert.deepEqual(revoked, { ok: false, error: 'revoked by user on desktop' });
   assert.equal(backend.calls.length, 0, 'refused before any CDP call');
   assert.equal(entries.length, 0, 'a revoked refusal is a gate event, not an audited call');
@@ -801,7 +802,7 @@ test('W3 dispatch: a revoked agent is refused for READS too — revoked means go
 test('W3 dispatch: unknown tool refused without touching the backend', async () => {
   const backend = actionBackend();
   const { deps, entries } = auditDeps(backend);
-  const out = await dispatchHubInvoke(deps, { tool: 'browser_nuke', args: {}, agent_id: 'agent-remote' }, new Set());
+  const out = await dispatchHubInvoke(deps, { tool: 'browser_nuke', args: {}, agent_id: 'agent-remote' }, new Set(), 'browser');
   assert.deepEqual(out, { ok: false, error: 'unknown_tool' });
   assert.equal(backend.calls.length, 0);
   assert.equal(entries.length, 0);
@@ -813,6 +814,7 @@ test('W3 dispatch: action call runs pre-authorized, audited once with via:hub', 
     deps,
     { tool: 'browser_navigate', args: { tabId: 7, url: 'https://example.com/#frag' }, agent_id: 'agent-remote', agent_handle: 'r2d2' },
     new Set(),
+    'browser',
   );
   assert.equal(out.ok, true);
   assert.equal(entries.length, 1, 'exactly one audit entry per action call');
@@ -828,6 +830,7 @@ test('W3 dispatch: action call runs pre-authorized, audited once with via:hub', 
     deps,
     { tool: 'browser_navigate', args: { tabId: 999, url: 'https://example.com/' }, agent_id: 'agent-remote' },
     new Set(),
+    'browser',
   );
   assert.equal(gone.ok, false);
   if (!gone.ok) assert.match(gone.error, /^TARGET_GONE: /);
@@ -844,6 +847,7 @@ test('W3 dispatch: a revoked agent is refused before the tool machinery', async 
     deps,
     { tool: 'browser_click', args: { tabId: 7, selector: '#go' }, agent_id: 'agent-remote' },
     new Set(['agent-remote']),
+    'browser',
   );
   assert.deepEqual(out, { ok: false, error: 'revoked by user on desktop' });
   assert.equal(backend.calls.length, 0, 'refused before any CDP call');
@@ -856,6 +860,7 @@ test('W3 dispatch: a tool-level isError result maps to the error half of the env
     deps,
     { tool: 'browser_eval', args: { tabId: 7, expression: 'thrower()' }, agent_id: 'agent-remote' },
     new Set(),
+    'browser',
   );
   assert.equal(out.ok, false);
   if (!out.ok) {

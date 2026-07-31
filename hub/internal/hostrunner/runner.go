@@ -881,7 +881,27 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		}
 		var p string
 		var err error
+		paneWorkdir := ""
 		if cmd != "" {
+			// Run the raw pane in the SAME derived workdir every specialized
+			// launcher cds into — without the cd, the pane inherits the tmux
+			// server's cwd while annotation images (D5 §3.5) materialize into
+			// the derived path, where a cwd-confined agent would never look.
+			// Best-effort: a failed derivation/mkdir launches bare (the old
+			// behaviour) and leaves Workdir empty, so materialization
+			// drop-with-warns instead of naming a directory the agent isn't in.
+			if wd := DeriveWorkdir(a.Client.Team, spec.Backend.DefaultWorkdir, sp.ProjectID,
+				sp.Handle, sp.ChildID, false); wd != "" {
+				if expanded, werr := expandHome(wd); werr == nil {
+					if merr := os.MkdirAll(expanded, 0o755); merr == nil {
+						paneWorkdir = expanded
+						cmd = fmt.Sprintf("cd %s && %s", shellEscape(expanded), cmd)
+					} else {
+						a.Log.Warn("raw pane workdir mkdir failed; launching in the launcher default cwd",
+							"handle", sp.Handle, "workdir", expanded, "err", merr)
+					}
+				}
+			}
 			// Raw PaneDriver: the agent runs in this tmux pane, so secrets go
 			// via tmux -e (launchCmdWithEnv), never the command string.
 			p, err = launchCmdWithEnv(ctx, a.Launcher, sp, cmd, secretEnv)
@@ -920,11 +940,16 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			return
 		}
 		pane = p
+		// paneWorkdir is set ONLY when the launch above actually cd'd into
+		// it — Workdir must name where the agent runs, not a derivation the
+		// pane never entered (an annotation image materialized there would
+		// be invisible to a cwd-confined agent).
 		drv = &PaneDriver{
 			AgentID: sp.ChildID,
 			PaneID:  pane,
 			Poster:  a.agentPoster,
 			Log:     a.Log,
+			Workdir: paneWorkdir,
 		}
 	}
 

@@ -27,6 +27,7 @@ import path from 'node:path';
 import {
   annotationTempPath,
   injectImageIntoComposer,
+  injectNoteIntoComposer,
   isAnnotationTempFile,
   fitWithin,
   pickCaptureTarget,
@@ -36,12 +37,14 @@ import {
   type GuestRegion,
   type SurfaceRegion,
 } from './annotation';
-import { stripFragment } from './browserbridge';
+import { registerAnnotationRef, stripFragment } from './browserbridge';
 import { recordUserOverlayAudit } from './browserbridge_host';
 import { isUiSharingEnabled } from './desktopui';
+import { resolvePointer } from './uipointer';
 import type { Handler } from './ipc/dispatch';
 import { policyForGuest } from './webtab';
 import { KIMIWEB_PARTITION } from './webtab_policy';
+import type { UiPointer } from '../../src/state/uiPointer';
 
 // ── Arg narrowing (the renderer is our own, but handlers validate anyway) ────
 
@@ -152,6 +155,42 @@ function ensureDebugger(wc: WebContents): void {
   wc.once('destroyed', () => attached.delete(wc.id));
 }
 
+// ── D4 element-resolved pointing ─────────────────────────────────────────────
+
+/// Resolve the element under the crop's centre, for a rect that landed on a
+/// bridgeable guest. Best-effort by design: the crop is the deliverable and a
+/// pointer is the bonus, so every failure path (no debugger, no AX tree, a
+/// canvas app with nothing to name) yields `null` and the capture still
+/// returns. An interactive hit is registered with the bridge (merge, never
+/// replacing the map the agent's last snapshot minted) so the ref in the
+/// message is one `browser_click` can resolve.
+///
+/// The point is the CLIPPED rect's centre: a drag straddling the guest edge
+/// hit-tests the centre of the part inside the guest, not the user's whole
+/// drag — the part outside the guest has no elements to name.
+async function pointerForGuest(wc: WebContents, rect: AnnotRect): Promise<UiPointer | null> {
+  const policy = policyForGuest(wc);
+  // `none` partitions are outside the bridge entirely — an @eN ref for a tab
+  // no tool can address would be a reference to nowhere.
+  if (policy === null || policy.bridge === 'none') return null;
+  try {
+    ensureDebugger(wc);
+    const resolved = await resolvePointer(
+      (method, params) => wc.debugger.sendCommand(method, params ?? {}),
+      wc.id,
+      { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+      { actionable: policy.bridge === 'full' },
+    );
+    if (resolved === null) return null;
+    if (resolved.refBackendNodeId !== null) {
+      resolved.pointer.ref = registerAnnotationRef(wc.id, resolved.refBackendNodeId);
+    }
+    return resolved.pointer;
+  } catch {
+    return null;
+  }
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 let captureSeq = 0;
@@ -175,11 +214,13 @@ export const annotationHostHandlers: Record<string, Handler> = {
     const target = pickCaptureTarget(rect, guests);
     let wc: WebContents;
     let partition: string | null = null;
+    let guestForPointer: WebContents | null = null;
     if (target.kind === 'guest') {
       const guest = resolveGuest(target.id);
       if (guest === null) return { ok: false, error: 'guest-gone' };
       wc = guest;
       partition = policyForGuest(guest)?.partition ?? null;
+      guestForPointer = guest;
     } else {
       if (ctx.win === null || ctx.win.isDestroyed()) return { ok: false, error: 'no-window' };
       wc = ctx.win.webContents;
@@ -205,13 +246,24 @@ export const annotationHostHandlers: Record<string, Handler> = {
         ? img.resize({ width: pfit.width, height: pfit.height })
         : img
       ).toDataURL();
+      // D4: the structural half of the same gesture. Resolved AFTER the
+      // pixels so a pointer failure can never cost the user their crop.
+      const pointer = guestForPointer !== null ? await pointerForGuest(guestForPointer, target.rect) : null;
       recordUserOverlayAudit({
         ts: new Date().toISOString(),
         tool: 'ui_annotate_capture',
         tab_id: target.kind === 'guest' ? target.id : null,
         url: target.kind === 'guest' ? stripFragment(wc.getURL()) : null,
         partition,
-        args: { rect: [rect.x, rect.y, rect.width, rect.height], target: target.kind, width: fit.width, height: fit.height },
+        args: {
+          rect: [rect.x, rect.y, rect.width, rect.height],
+          target: target.kind,
+          width: fit.width,
+          height: fit.height,
+          // The audit says WHICH element was pointed at — the ref and role,
+          // never the crop (the entry is a reference, ADR-062 D-2).
+          ...(pointer !== null ? { pointer: { ref: pointer.ref ?? null, role: pointer.role ?? null } } : {}),
+        },
         ok: true,
         error: null,
       });
@@ -223,6 +275,7 @@ export const annotationHostHandlers: Record<string, Handler> = {
         preview,
         data_b64: png.toString('base64'),
         target: target.kind,
+        ...(pointer !== null ? { pointer } : {}),
       };
     } catch (e) {
       recordUserOverlayAudit({
@@ -240,12 +293,16 @@ export const annotationHostHandlers: Record<string, Handler> = {
   },
 
   /// "Attach to kimi web": inject the crop into the kimi composer's file
-  /// input. The renderer names the kimi guest (it knows which panel is open);
-  /// main re-validates the id is a live kimiweb-partition guest before
-  /// attaching — this path can never reach a webtab or the shell.
+  /// input, and the note (the user's words + the D4 pointer line) into its
+  /// text box — the kimi path must deliver the same pointer the companion
+  /// path folds into postAgentInput, or the pre-send chip promises what the
+  /// agent never receives. The renderer names the kimi guest (it knows which
+  /// panel is open); main re-validates the id is a live kimiweb-partition
+  /// guest before attaching — this path can never reach a webtab or the shell.
   annotation_attach_kimi: async (args) => {
     if (!isUiSharingEnabled()) return { ok: false, error: 'sharing-off' };
     const file = typeof args.file === 'string' ? args.file : '';
+    const note = typeof args.note === 'string' ? args.note : '';
     const guestId = typeof args.guest_id === 'number' && Number.isInteger(args.guest_id) ? args.guest_id : null;
     if (!isAnnotationTempFile(os.tmpdir(), file) || !fs.existsSync(file)) return { ok: false, error: 'bad-file' };
     if (guestId === null) return { ok: false, error: 'bad-guest' };
@@ -286,11 +343,24 @@ export const annotationHostHandlers: Record<string, Handler> = {
 
     try {
       ensureDebugger(wc);
-      const res = await injectImageIntoComposer((method, params) => wc.debugger.sendCommand(method, params ?? {}), file);
+      const send = (method: string, params?: Record<string, unknown>): Promise<unknown> => wc.debugger.sendCommand(method, params ?? {});
+      const res = await injectImageIntoComposer(send, file);
       if (res !== 'attached') return fallback('no-input');
+      // The note rides beside the crop. Its failure must not cost the
+      // attachment (the crop is the deliverable) — the result says whether
+      // it landed so the renderer can tell the user to type it themselves.
+      // The audit records the FLAG only, never the note's content.
+      let noteInjected: boolean | undefined;
+      if (note !== '') {
+        try {
+          noteInjected = (await injectNoteIntoComposer(send, note)) === 'injected';
+        } catch {
+          noteInjected = false;
+        }
+      }
       wc.focus();
-      audit(true, { via: 'file-input' }, null);
-      return { ok: true, injected: true };
+      audit(true, { via: 'file-input', ...(noteInjected !== undefined ? { note_injected: noteInjected } : {}) }, null);
+      return { ok: true, injected: true, ...(noteInjected !== undefined ? { note_injected: noteInjected } : {}) };
     } catch (e) {
       return fallback(e instanceof Error ? e.message : String(e));
     }

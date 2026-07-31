@@ -227,6 +227,15 @@ export function redactBridgeArgs(tool: string, args: Record<string, unknown>): R
       out[k] = v.length > 200 ? `${v.slice(0, 200)}… (${String(v.length)} chars)` : v;
     } else if (tool === 'browser_send_keys' && k === 'keys' && typeof v === 'string' && v.length === 1) {
       out[k] = '<redacted char>';
+    } else if (tool === 'ui_highlight' && k === 'note' && typeof v === 'string') {
+      // The ring must not out-store what the marker shows: the tool clips the
+      // note to one short line, so the audit entry does too.
+      out[k] = v.length > 140 ? `${v.slice(0, 140)}… (${String(v.length)} chars)` : v;
+    } else if (tool === 'ui_highlight' && k === 'ref' && v !== null && typeof v === 'object') {
+      // An agent-authored object of arbitrary depth — audit the shape, capped,
+      // rather than retaining the whole structure in memory for 50 entries.
+      const json = JSON.stringify(v) ?? '';
+      out[k] = json.length > 200 ? `${json.slice(0, 200)}… (${String(json.length)} chars)` : json;
     } else if (k === 'url' && typeof v === 'string') {
       out[k] = stripFragment(v);
     } else {
@@ -437,17 +446,42 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  // D6 (plan §3.4b, ADR-062 D-5): deixis is symmetric — the agent points back.
+  // NON-ACTUATING by construction: it draws a glow and expires. No approval
+  // card (it takes no action with the user's authority) but audited like one,
+  // because "an agent drew on my screen" is exactly what the audit view is for.
+  {
+    name: 'ui_highlight',
+    description:
+      'Point the TermiPod desktop user at something on their own screen: an ephemeral, visibly attributed glow over a surface, with an optional note. NON-ACTUATING — it never focuses, scrolls, clicks or types, and it expires on its own; the user\'s click is the only actuator. `ref` is a UIRef, either the JSON shape ui_get_focus returns ({"surface":"replay","entity":{"dataset_id":"ds_1"}}) or its URI spelling ("ui://replay?dataset_id=ds_1"). Use it when words alone would make the user hunt ("the failing pane", "that row"). Refused over surfaces the desktop marks non-annotatable. You can also write a ui:// reference inline in your reply — it renders as a chip the user can click.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: {
+          description: 'A UIRef: the JSON shape from ui_get_focus, or a "ui://<surface>?<ids>" string.',
+        },
+        note: { type: 'string', description: 'One short line shown with the highlight (<=140 chars).' },
+        ttl_ms: { type: 'integer', description: 'How long it stays up (default 8000, max 30000).' },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+  },
 ];
 
-/// The D1/D3 desktop-UI tools, which the sharing toggle gates as a set: off
-/// means neither appears in any catalog and both refuse on call.
-export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot']);
+/// The D1/D3/D6 desktop-UI tools, which the sharing toggle gates as a set: off
+/// means none appears in any catalog and all refuse on call.
+export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot', 'ui_highlight']);
 
 /// Desktop-UI tools that are ACTION class despite living in READ_TOOLS (the
 /// bearer scope they need and the consent they need are different questions —
 /// see the ui_screenshot definition). They audit + hub-mirror like an action
-/// on every leg, and their own handler owns the approval gate.
-export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot']);
+/// on every leg, and their own handler owns whatever gate it needs.
+///
+/// `ui_highlight` is here for the AUDIT, not for an approval: ADR-062 D-5 is
+/// explicit that a highlight needs no card (consent is the sharing toggle plus
+/// the policy bit) but is audited like an action.
+export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot', 'ui_highlight']);
 
 /// D1: the MCP resource uri mirroring ui_get_focus (ADR-062 D-6). list + read
 /// only — subscriptions are deliberately NOT implemented: the relay forwards
@@ -609,6 +643,10 @@ export interface McpServerDeps {
   /// provider owns the policy refusal AND the per-call approval — this module
   /// only resolves the target and shapes the result.
   captureUi?: (req: UiCaptureRequest) => Promise<UiCaptureResult>;
+  /// D6: the agent-pointing highlight (uihighlight_host.ts). The provider owns
+  /// the policy bit, the rate limit and the TTL; this module only shapes the
+  /// call and the answer.
+  highlightUi?: (req: UiHighlightRequest) => Promise<UiHighlightResult>;
 }
 
 /// One `ui_screenshot` request, with the target already resolved against the
@@ -631,6 +669,24 @@ export interface UiCaptureRequest {
 export type UiCaptureResult =
   | { ok: true; data_b64: string; width: number; height: number }
   | { ok: false; code: string; message: string };
+
+/// D6: one `ui_highlight` call, with the caller's identity attached — a
+/// highlight is ATTRIBUTED on screen ("kimi-1 points here"), which is half of
+/// why it needs no approval card.
+export interface UiHighlightRequest {
+  /// The raw `ref` argument, JSON or `ui://` string — parsed by the provider
+  /// through the shared grammar, so the tool and the transcript chip point at
+  /// the same thing by construction.
+  ref: unknown;
+  note: string;
+  ttlMs: number | null;
+  agentId: string;
+  agentHandle: string;
+  // No `via`: the leg is recorded by the audit ring at the callTool wrapper,
+  // and the highlight itself treats local and relayed callers identically.
+}
+
+export type UiHighlightResult = { ok: true; surface: string; ttl_ms: number } | { ok: false; code: string; message: string };
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -671,6 +727,36 @@ const snapshotRefs = new Map<number, Map<string, number>>();
 /// last ref map for the life of the process.
 export function pruneSnapshotRefs(tabId: number): void {
   snapshotRefs.delete(tabId);
+}
+
+/// Register ONE ref minted outside a `browser_snapshot` call — D4's
+/// annotation pointer names an element on the user's gesture, and the ref it
+/// hands the agent has to be one `browser_click` can resolve. Deliberately
+/// NOT latest-wins over the whole map: replacing the tab's map would renumber
+/// refs the agent still holds from its last snapshot, silently retargeting an
+/// agent-held `@e5` at a different element (no REF_STALE — the ref would
+/// still exist). Instead the pointer MERGES:
+///
+///   - if the agent's last snapshot already named this node, reuse that ref —
+///     the agent recognizes it;
+///   - otherwise mint an `@aN` (annotation namespace, monotonic across tabs,
+///     never colliding with `@eN` or a previous `@aN`) and add it alongside
+///     the existing entries.
+///
+/// A later browser_snapshot still replaces the whole map, so `@aN` dies with
+/// it — the ordinary REF_STALE contract.
+let annotationRefSeq = 0;
+
+export function registerAnnotationRef(tabId: number, backendNodeId: number): string {
+  const map = snapshotRefs.get(tabId) ?? new Map<string, number>();
+  for (const [ref, backend] of map) {
+    if (backend === backendNodeId) return ref;
+  }
+  annotationRefSeq += 1;
+  const ref = `@a${String(annotationRefSeq)}`;
+  map.set(ref, backendNodeId);
+  snapshotRefs.set(tabId, map);
+  return ref;
 }
 
 /// Resolve + validate a tabId argument against the live registry. Throws a
@@ -1122,10 +1208,43 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
       if (!res.ok) throw new BridgeError(res.code, res.message);
       return { content: [{ type: 'image', data: res.data_b64, mimeType: 'image/png' }] };
     }
+    case 'ui_highlight': {
+      if (deps.uiFocusAvailable?.() !== true) {
+        throw new BridgeError(
+          'UI_UNAVAILABLE',
+          'UI context sharing is off on the desktop (Settings → Assistant) — the desktop UI is not addressable',
+        );
+      }
+      if (deps.highlightUi === undefined) {
+        throw new BridgeError('UI_UNAVAILABLE', 'this desktop build cannot render agent highlights');
+      }
+      const note = typeof args.note === 'string' ? args.note.slice(0, HIGHLIGHT_NOTE_MAX) : '';
+      let ttlMs: number | null = null;
+      if (args.ttl_ms !== undefined) {
+        if (typeof args.ttl_ms !== 'number' || !Number.isInteger(args.ttl_ms) || args.ttl_ms <= 0) {
+          throw new BridgeError('INVALID_PARAMS', 'ttl_ms must be a positive integer (milliseconds)');
+        }
+        ttlMs = args.ttl_ms;
+      }
+      const res = await deps.highlightUi({
+        ref: args.ref,
+        note,
+        ttlMs,
+        agentId: ctx.agentId ?? '',
+        agentHandle: ctx.agentHandle ?? '',
+      });
+      if (!res.ok) throw new BridgeError(res.code, res.message);
+      // The answer says what the user will SEE, so the agent can describe it
+      // ("I've highlighted the replay panel") rather than guess.
+      return textContent(`highlighted ${res.surface} for ${String(Math.round(res.ttl_ms / 1000))}s — the user sees an attributed marker; nothing was focused or clicked`);
+    }
     default:
       throw new BridgeError('UNKNOWN_TOOL', `unknown tool '${name}'`);
   }
 }
+
+/// A highlight note is a caption, not a message channel: one short line.
+const HIGHLIGHT_NOTE_MAX = 140;
 
 /// The focus answer as JSON text. Never blocks: before the renderer's first
 /// push the cache is null and the answer is an explicit empty snapshot —
@@ -1209,6 +1328,27 @@ export interface HubInvokePayload {
 /// hub's browser_invoke unwraps (ok → MCP result, !ok → agent-visible error).
 export type HubInvokeResult = { ok: true; result: unknown } | { ok: false; error: string };
 
+/// The two traffic classes the desktop exposes over the tunnel (D5). They are
+/// separate envelope kinds because they are separate consent sentences: the
+/// browser class drives embedded web pages, the desktop class describes and
+/// captures the user's own screen.
+export type TunnelClass = 'browser' | 'desktop';
+
+export const TUNNEL_KINDS: Readonly<Record<TunnelClass, string>> = {
+  browser: 'browser.invoke',
+  desktop: 'desktop.invoke',
+};
+
+/// Which class a tool belongs to, or null if we have never heard of it. The
+/// desktop-UI tools live in READ_TOOLS for scope reasons (see
+/// DESKTOP_ACTION_TOOL_NAMES), so membership alone cannot answer this — the
+/// UI_TOOL_NAMES set does.
+export function tunnelClassForTool(tool: string): TunnelClass | null {
+  if (UI_TOOL_NAMES.has(tool)) return 'desktop';
+  if (READ_TOOLS.some((t) => t.name === tool) || ACTION_TOOL_NAMES.has(tool)) return 'browser';
+  return null;
+}
+
 /// Dispatch one hub-relayed call in-process. This is the in-process entry
 /// into the SAME machinery the HTTP MCP path funnels into (callTool) — the
 /// bearer parse is skipped (the hub authenticated the agent and
@@ -1218,10 +1358,18 @@ export async function dispatchHubInvoke(
   deps: McpServerDeps,
   payload: HubInvokePayload,
   revoked: ReadonlySet<string>,
+  cls: TunnelClass,
 ): Promise<HubInvokeResult> {
-  const isRead = READ_TOOLS.some((t) => t.name === payload.tool);
-  const isAction = ACTION_TOOL_NAMES.has(payload.tool);
-  if (!isRead && !isAction) return { ok: false, error: 'unknown_tool' };
+  const actual = tunnelClassForTool(payload.tool);
+  if (actual === null) return { ok: false, error: 'unknown_tool' };
+  // Defense in depth against a hub that routed by the wrong kind: the hub
+  // gates BY CLASS (browser_invoke never raises a desktop_action card), so a
+  // ui_screenshot arriving in a browser.invoke envelope would be a capture
+  // nobody approved. The desktop is the authority for its own pixels — it
+  // checks rather than trusts.
+  if (actual !== cls) {
+    return { ok: false, error: `tool_kind_mismatch: '${payload.tool}' is not a ${TUNNEL_KINDS[cls]} tool` };
+  }
   // The desktop's own kill switch, checked BEFORE the tool machinery runs —
   // a refusal is a gate event, not an audited action (the same posture as
   // W2's scope refusal). It covers READS too: "Revoke" must mean this agent

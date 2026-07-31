@@ -217,7 +217,7 @@ test('ui_screenshot mirrors to the hub on every leg; ui_get_focus does not', () 
 
 test('a hub-relayed capture is marked via:hub so the desktop raises no second card', async () => {
   const h = harness();
-  const out = await dispatchHubInvoke(h.deps, { tool: 'ui_screenshot', args: {}, agent_id: 'ag_9', agent_handle: 'remote-1' }, new Set());
+  const out = await dispatchHubInvoke(h.deps, { tool: 'ui_screenshot', args: {}, agent_id: 'ag_9', agent_handle: 'remote-1' }, new Set(), 'desktop');
   assert.equal(out.ok, true);
   assert.equal(h.seen[0]?.via, 'hub', 'the hub gated this call already (D5) — a second card would double-prompt');
   assert.equal(h.seen[0]?.agentId, 'ag_9');
@@ -226,7 +226,7 @@ test('a hub-relayed capture is marked via:hub so the desktop raises no second ca
 
 test('a revoked agent cannot capture, and never reaches the provider', async () => {
   const h = harness();
-  const out = await dispatchHubInvoke(h.deps, { tool: 'ui_screenshot', args: {}, agent_id: 'ag_9' }, new Set(['ag_9']));
+  const out = await dispatchHubInvoke(h.deps, { tool: 'ui_screenshot', args: {}, agent_id: 'ag_9' }, new Set(['ag_9']), 'desktop');
   assert.equal(out.ok, false);
   assert.equal(h.seen.length, 0);
 });

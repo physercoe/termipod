@@ -245,3 +245,36 @@ export async function injectImageIntoComposer(send: CdpSend, filePath: string): 
   }
   return 'attached';
 }
+
+/// Where the composer's TEXT lands. Chat composers are either a textarea or a
+/// contenteditable; same ordered-candidates posture as the file input above.
+export const KIMI_TEXT_INPUT_SELECTORS: readonly string[] = ['textarea', '[contenteditable="true"]'];
+
+export type KimiNoteResult = 'injected' | 'no-input';
+
+/// Put the user's note (their words + the D4 pointer line) into the kimi
+/// composer's text box, beside the crop the file injection just attached —
+/// without this, the kimi path delivers pixels only and the pre-send pointer
+/// chip promises something the agent never receives (§3.4 step 5).
+///
+/// `DOM.focus` + `Input.insertText`: the insertion rides the browser's own
+/// input pipeline (React's value tracker included), exactly as typing would —
+/// never a `.value=` assignment the SPA can't see. The user still reviews and
+/// hits send in kimi's own UI; this NEVER sends.
+export async function injectNoteIntoComposer(send: CdpSend, note: string): Promise<KimiNoteResult> {
+  const doc = (await send('DOM.getDocument', { depth: 1 })) as { root?: { nodeId?: number } };
+  const rootId = doc.root?.nodeId;
+  if (rootId === undefined) return 'no-input';
+  let inputNode: number | null = null;
+  for (const selector of KIMI_TEXT_INPUT_SELECTORS) {
+    const res = (await send('DOM.querySelectorAll', { nodeId: rootId, selector })) as { nodeIds?: number[] };
+    if (Array.isArray(res.nodeIds) && res.nodeIds.length > 0) {
+      inputNode = res.nodeIds[0] ?? null;
+      break;
+    }
+  }
+  if (inputNode === null) return 'no-input';
+  await send('DOM.focus', { nodeId: inputNode });
+  await send('Input.insertText', { text: note });
+  return 'injected';
+}

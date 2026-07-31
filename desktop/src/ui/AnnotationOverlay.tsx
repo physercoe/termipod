@@ -5,6 +5,7 @@ import { useAnnotation, resolveTargets, type AnnotationCapture } from '../state/
 import { kimiAttachable, useAssistant } from '../state/assistant';
 import { toast } from '../state/toast';
 import { useUiContext } from '../state/uiContext';
+import { appendPointerNote, formatPointerLabel, type UiPointer } from '../state/uiPointer';
 import { uiPolicyFor } from '../state/ui_policy';
 import { isSplitVisible, useWorkbench } from '../state/workbench';
 import { Icon } from './Icon';
@@ -54,11 +55,19 @@ interface CaptureResponse {
   preview?: string;
   data_b64?: string;
   target?: 'shell' | 'guest';
+  /// D4: the element resolved under the crop's centre, when the rect landed
+  /// on a bridgeable guest. Absent over the shell, or when the page had
+  /// nothing to name.
+  pointer?: UiPointer;
 }
 
 interface AttachResponse {
   ok: boolean;
   injected?: boolean;
+  /// Whether the note (user words + pointer line) landed in the composer's
+  /// text box. Absent when no note was sent; false = the crop attached but
+  /// the user must type the note themselves.
+  note_injected?: boolean;
   fallback?: string;
   error?: string;
 }
@@ -187,6 +196,7 @@ export function AnnotationOverlay(): JSX.Element | null {
               width: r.width ?? 0,
               height: r.height ?? 0,
               target: r.target ?? 'shell',
+              ...(r.pointer !== undefined ? { pointer: r.pointer } : {}),
             } satisfies AnnotationCapture);
             return;
           }
@@ -285,9 +295,16 @@ export function AnnotationOverlay(): JSX.Element | null {
     if (capture === null || kimiId === null || busy) return;
     setBusy(true);
     try {
-      const r = await invoke<AttachResponse>('annotation_attach_kimi', { file: capture.file, guest_id: kimiId });
+      // The kimi path delivers the SAME message the companion path would:
+      // the user's note with the D4 pointer line folded in, injected into
+      // the composer beside the crop (main-side, same user-gesture posture).
+      const composed = appendPointerNote(note.trim(), capture.pointer);
+      const r = await invoke<AttachResponse>('annotation_attach_kimi', { file: capture.file, guest_id: kimiId, note: composed });
       if (r.ok === true && r.injected === true) {
-        toast.success(t('annotate.attached'));
+        // The crop landed; if the note did not, say so — a silent drop would
+        // leave the pointer chip promising what the agent never received.
+        if (composed !== '' && r.note_injected === false) toast.info(t('annotate.attachedNoNote'));
+        else toast.success(t('annotate.attached'));
         cancel(); // the temp file stays (the SPA may read lazily; the LRU reaps)
         // Land the user in kimi's composer to review and send (D2.2).
         revealAssistant('kimi');
@@ -317,6 +334,14 @@ export function AnnotationOverlay(): JSX.Element | null {
       <div className="annot-target" role="dialog" aria-label={t('annotate.title')}>
         {capture !== null && capture.preview !== '' && (
           <img className="annot-thumb" src={capture.preview} alt={t('annotate.title')} />
+        )}
+        {/* D4: what the agent will be told it is looking at. Shown BEFORE the
+            send so a mis-resolved element is the user's to correct — they
+            re-select rather than discovering it in the agent's reply. */}
+        {capture?.pointer !== undefined && (
+          <span className="annot-pointer" title={t('annotate.pointing')}>
+            {formatPointerLabel(capture.pointer, t('annotate.pointerTab').replace('{id}', String(capture.pointer.tab_id)))}
+          </span>
         )}
         <input
           className="annot-note"

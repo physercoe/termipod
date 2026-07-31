@@ -83,11 +83,12 @@ type Server struct {
 	policy    *policyStore
 	escalator *Escalator
 	tunnel    *TunnelManager
-	// browserGrants is the W3 browser-bridge session-grant cache
-	// (principal approved an action tool with option_id="session").
+	// bridgeGrants is the session-grant cache for BOTH tunnel classes
+	// (browser.invoke and desktop.invoke — grants are keyed by kind;
+	// principal approved an action tool with option_id="session").
 	// In-memory, no expiry — hub restart clears, same posture as
 	// TunnelManager. See mcp_browser_bridge.go.
-	browserGrants *browserGrantStore
+	bridgeGrants *bridgeGrantStore
 	agentFamilies *agentfamilies.Registry
 	// pricing serves the session-cost chip (ADR-036 D8 chip 2). One
 	// loader per server; thread-safe; mtime-hot-reloaded so an
@@ -227,7 +228,7 @@ func New(cfg Config) (*Server, error) {
 	s.sched = NewScheduler(s, cfg.Logger)
 	s.escalator = NewEscalator(s, cfg.Logger, 0)
 	s.tunnel = newTunnelManager()
-	s.browserGrants = &browserGrantStore{}
+	s.bridgeGrants = &bridgeGrantStore{}
 	// Pricing loader (ADR-036 D10). Warner closure adapts the
 	// loader's action/summary/meta call into the server's recordAudit
 	// row — operator-visible parse errors land in audit_events under

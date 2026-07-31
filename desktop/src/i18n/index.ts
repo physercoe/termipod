@@ -1707,8 +1707,17 @@ const en: Dict = {
   'annotate.notePlaceholder': 'Add a note (optional)',
   'annotate.noTarget': 'No target — open the kimi panel or pick an agent first',
   'annotate.attached': 'Attached in kimi — review and send there',
+  'annotate.attachedNoNote': 'Attached in kimi — the note could not be added, type it in the composer',
+  'annotate.pointerTab': 'tab {id}',
   'annotate.clipboard': 'Copied — paste ({key}) into the kimi composer',
   'annotate.failed': 'The annotation could not be captured.',
+  // D4: the title on the resolved-element chip in the target row.
+  'annotate.pointing': 'The element the agent will be pointed at',
+  // D6 — agent pointing. The attribution is not decoration: it is what keeps
+  // an agent's marker from reading as the app talking.
+  'highlight.points': '{agent} points here',
+  'highlight.goThere': 'Go there',
+  'uiref.surfaceOnly': 'Opened the surface — this build can\u2019t jump to the exact item',
 
   'debug.lines_one': '{n} line',
   'debug.lines_other': '{n} lines',
@@ -3748,8 +3757,14 @@ const zh: Dict = {
   'annotate.notePlaceholder': '添加备注（可选）',
   'annotate.noTarget': '没有可用目标——请打开 kimi 面板或先选择智能体',
   'annotate.attached': '已附加到 kimi——请在那里检查并发送',
+  'annotate.attachedNoNote': '已附加到 kimi——备注未能写入，请在输入框中手动输入',
+  'annotate.pointerTab': '标签页 {id}',
   'annotate.clipboard': '已复制——在 kimi 输入框中粘贴（{key}）',
   'annotate.failed': '无法截取标注。',
+  'annotate.pointing': '将指给智能体的元素',
+  'highlight.points': '{agent} 指向这里',
+  'highlight.goThere': '前往',
+  'uiref.surfaceOnly': '已打开对应界面——当前版本无法定位到具体条目',
 
   'debug.lines': '{n} 行',
   'debug.placeholder': '粘贴代码、差异、堆栈或日志…',

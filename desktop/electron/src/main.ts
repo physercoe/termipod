@@ -31,6 +31,8 @@ import { disposeAnnotations } from './annotation_host';
 // D3: importing the module registers the gated-screenshot provider on the
 // bridge server; setShellWindow tells it which window "the desktop" means.
 import { setShellWindow } from './uicapture_host';
+// D6: importing the module registers the agent-highlight provider.
+import './uihighlight_host';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) it resolves to

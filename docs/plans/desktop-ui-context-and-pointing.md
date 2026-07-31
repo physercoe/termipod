@@ -4,20 +4,23 @@
 > **Status:** In flight (2026-07-31) — wedges D1–D6 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
 > is second. **D1 shipped (#476), D2 shipped (#477) + D2.1 (#480);
-> D3 implemented — PR pending.** Builds on the agent browser bridge
+> D3 shipped (#487), D4 shipped (#488), D5 shipped (#489), D6 shipped
+> (#490) — the plan is code-complete and fully landed.** Builds on
+> the agent browser bridge
 > (W1–W3 shipped, `docs/plans/desktop-agent-browser-bridge.md`).
 > **Derives from
 > [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)** —
 > verbs over a first-class UI entity: UIRef both directions, one
 > per-surface policy table, three representations, agent pointing (D6).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** the D3 wedge on origin/main `4f5d86c3`
-> (rebased past the unified assistant dock #483): frontend + electron typecheck
-> green, 283 electron `node --test` pass (D3 adds 21), 376 frontend
-> state/ssh tests pass, `lint-desktop-tokens.sh` clean at baseline 65.
-> D3's Electron halves (`capturePage`, the hub approval round trip) are
-> **unexercised on this machine** — no display, no Electron binary — and
-> need the Playwright/desktop pass
+> **Last verified vs code:** the D3–D6 wedges + review-fix commits at
+> the stack tip (now merged; D3 base `4f5d86c3`): frontend + electron
+> typecheck green, 322 electron `node --test` pass, 423 frontend
+> state/ssh tests pass, `go build ./...` + `go test ./...` green,
+> lint-docs/arb/hardcoded-strings clean. Everything that needs a SCREEN
+> — `capturePage`, the live CDP hit-test, the overlays, the chip click —
+> is **unexercised on the authoring machines** (no display, no Electron
+> binary), as is the live tunnel; they need the Playwright/desktop pass
 
 **Review amendments (2026-07-30), folded into the body below.** The relay
 fallback is read-token-only (§3.5); the `mcp.json` entry pins a stable
@@ -623,6 +626,42 @@ audit; AttentionDock card branch.
 **D4 — element-resolved pointing.** Rect-over-webtab → `@eN` ref via the
 bridge snapshot; structured pointer rides the attachment payload.
 
+> **D4 as shipped.** The resolution chain is: hit-test the rect centre
+> (`elementFromPoint`, then `closest()` to the nearest interactive ancestor —
+> the user drags over a button's LABEL and means the button) → `requestNode` /
+> `describeNode` for the `backendNodeId` → the tab's AX snapshot compacted by
+> the SAME `compactAxTree` `browser_snapshot` uses, which mints the `@eN` →
+> `getPartialAXTree` for role + name. Four decisions worth recording:
+>
+> - **The ref is live, and registering it never clobbers.** An interactive
+>   hit is MERGED into the tab's ref map (`registerAnnotationRef`): if the
+>   agent's last `browser_snapshot` already named the node, the pointer
+>   reuses that ref; otherwise it mints an `@aN` (annotation namespace)
+>   alongside the existing entries. A whole-map replacement would silently
+>   renumber refs the agent still holds — an agent-held `@e5` retargeted at a
+>   different element with no REF_STALE. A later snapshot still replaces the
+>   map, so `@aN` expires on the ordinary staleness contract.
+> - **`actionable` is a field, not an assumption.** Only `bridge: 'full'`
+>   partitions are action-drivable; on kimiweb/rerunweb the note says the ref
+>   is for reference, because promising a click there is a lie the agent
+>   discovers only on refusal.
+> - **The pointer rides IN the note, on BOTH paths.** `postAgentInput`
+>   carries a body and images; a structured field beside them would be
+>   dropped on the floor. So the line lands in the user's draft, above the
+>   send button — and the kimi path injects the same composed note into the
+>   kimi composer's text box beside the crop (`DOM.focus` +
+>   `Input.insertText`, the same user-gesture posture as the file
+>   injection; a failed injection is reported so the user types it, never
+>   silently dropped). The chip in the target row shows the pointer before
+>   either send.
+> - **Every failure degrades to no pointer.** The crop is the deliverable. No
+>   debugger, no AX tree, a canvas app with nothing to name: the capture
+>   returns unchanged, and role falls back to the DOM tag name rather than
+>   inventing one.
+>
+> Names are flattened and clipped to 80 chars: the pointer is a reference, not
+> a content channel (ADR-062 D-2).
+
 **D5 — remote / hub-relayed delivery (second priority).** `desktop.invoke`
 tunnel kind + hub `desktop_ui_invoke` (read class first); generalized
 gate/grant/revoke (per-kind grants; reachable only behind the
@@ -632,12 +671,115 @@ workdir materialization fallback (`.termipod/annotations/<ts>.png` +
 path in the note text); hub tool tests mirroring
 `mcp_browser_bridge_test.go`.
 
+> **D5 as shipped.** The generalization cost about what §3.6 predicted —
+> one grant store, one approval helper, one router, two kind constants —
+> and the interesting parts are the three places the classes deliberately
+> DIFFER:
+>
+> - **Grants are keyed by kind; revocation is not.** Granting `browser`
+>   must never silence a `desktop_action` card (the review amendment).
+>   But "Revoke" in Settings → Remote driving means this agent no longer
+>   touches this desktop, so revoke clears every kind — the same
+>   asymmetry the desktop's own revoked-set already applies to reads.
+> - **`ui_screenshot` consults no grant at all**, and the approval helper
+>   enforces that rather than trusting the client to hide the button: a
+>   class with no grant namespace ignores `option_id: "session"`
+>   entirely. The card also carries `session_grant: false` so a renderer
+>   states the consent shape instead of inferring it from the kind.
+> - **The desktop re-checks the envelope kind.** The hub gates BY CLASS,
+>   so a `ui_screenshot` routed as `browser.invoke` would be a capture
+>   nobody approved. `dispatchHubInvoke` refuses a tool that arrived
+>   under the wrong kind — the desktop is the authority for its own
+>   pixels, and it checks rather than trusts.
+>
+> The capability key `desktop_ui` tracks the sharing toggle and is
+> re-posted when it flips, so `hosts_list` answers truthfully instead of
+> making the agent discover the refusal on call. Bridge toggle +
+> Remote-driving toggle still gate the relay itself, so all three
+> consents stand.
+>
+> **The driver fallback replaced three drop sites, not one.** The plan
+> named pane/stdio and `image:false` ACP; gemini's exec-per-turn argv was
+> a third with the same defect, so all three now materialize into
+> `<workdir>/.termipod/annotations/` (0600) and name the path in the
+> text. Two consequences worth stating: an image-only input used to be
+> *rejected* by the gemini driver and is now a valid turn whose body is
+> the path (the user pointed at something and said nothing — a legitimate
+> message); and a FAILED write keeps the historical drop-and-warn, with
+> the reason in the event, because "notes the drop rather than failing
+> silently" is the rule. Two review follow-ons: the raw-PaneDriver
+> fallback now cd-wraps its launch into the same derived workdir every
+> specialized launcher uses (its `Workdir` was previously a derivation
+> the pane never entered, so a cwd-confined agent could not find the
+> crop), and the annotations directory is capped (newest 32 kept —
+> crops are one-turn artifacts, not a gallery).
+
 **D6 — agent pointing (§3.4b).** Ref-chips: transcript renderer for
 agent-emitted UIRefs + the UIRef→focus dispatcher (chips ship first —
 they are pure rendering, no consent surface). `ui_highlight`: overlay
 renderer (attributed, TTL, never over Attention/modal UI), policy
 `highlight` bit enforcement, action-class audit; local first, remote
 rides D5's generalized dispatch unchanged.
+
+> **D6 as shipped.** The wedge needed one thing the plan left implicit: a
+> **written form for a UIRef an agent can type**. ADR-062 defines the JSON
+> shape, but a reply is prose, so the wire form is the URI spelling of the
+> same fields — `ui://replay?dataset_id=ds_1&cursor=1234` — on the scheme
+> already minted for `ui://focus`. One grammar (`state/uiRef.ts`), two
+> spellings: `ui_highlight` accepts either, and a chip and a tool call
+> therefore point at the same thing by construction.
+>
+> - **Chips are a string pre-pass, not a markdown plugin.** `linkifyUiRefs`
+>   rewrites bare tokens into markdown links so the transcript's existing
+>   link renderer paints them; that keeps it a pure function `node --test`
+>   can prove — including the one thing it must never do, which is touch
+>   code (an agent explaining a URI inside a fence is showing it, not
+>   pointing with it).
+> - **Focus dispatch is honest about its depth.** Switching surface always
+>   works; entity focus works where a store already exposes a setter
+>   (Replay's dataset/episode, an Inspect tab already open on that path)
+>   and stops at the surface where none does. A ref this build cannot
+>   focus still renders — a reference is worth reading — just not as a
+>   control.
+> - **`ui_highlight` raises no card, and the hub had to be told.** ADR-062
+>   D-5 says consent is the sharing toggle plus the policy bit, so the hub
+>   class list gained a third class (`annotate`) between read and action:
+>   routed immediately, but named distinctly so nobody later reads
+>   "routes without a card" as "is a read". Its safety lives where the
+>   risk section put it — the `highlight` column, a per-agent rate limit
+>   (6/minute), a TTL that is ours not the caller's, always-present
+>   attribution, and an audit entry per call.
+> - **The overlay sits BELOW the modal tier — and the Attention dock now
+>   stacks above the overlay too.** The dock is an in-flow region, so
+>   z-order alone did not protect its bottom strip from the fixed
+>   bottom-right marker layer; `.region.dock` is raised one step over the
+>   highlight layer (still below menus/modals) so an agent's marker can
+>   never paint over — or click-intercept — the UI that governs it.
+> - **The highlight is a corner marker, not a positional glow — a
+>   deliberate v1 descope.** §3.4b's fuller shape (a glow over the
+>   surface's own region, or over an AX element of a webtab guest — the
+>   D4 machinery in reverse) needs surface-region geometry the renderer
+>   does not yet expose to this layer; the shipped marker NAMES the
+>   surface, carries the attribution/note, and offers the user-actuated
+>   "Go there". Positional payloads in a ref (D4's `{guest, rect}`)
+>   parse but do not place the marker yet. Owed to a follow-up wedge
+>   alongside the Playwright pass.
+> - **Local-loop attribution is coarse.** The static `mcp.json` path
+>   (kimi web/CLI — the first-priority channel) sends no `x-tp-agent-id`,
+>   so every local caller renders as the generic subject and shares one
+>   rate bucket. Remote (hub-relayed) callers are attributed exactly.
+>   Acceptable for v1: the local loop has at most one kimi panel talking.
+>
+> Refusals deliberately do **not** consume rate budget: the limit exists to
+> stop a loop, not to punish an agent that mistyped a ref. Review
+> hardening (post-fleet-review): ref-chips ride the `text` feed kind (the
+> agent's actual replies), malformed percent escapes in a `ui://` token
+> are junk params rather than a `decodeURIComponent` throw (which crashed
+> the transcript on render, persistently), the audit ring clips the note
+> and stringifies+caps the ref instead of retaining raw agent-authored
+> structures, the renderer re-clamps TTL/note on the IPC boundary, turning
+> sharing off clears live markers, and a chip click that stops at the
+> surface tier says so in a toast.
 
 ## 5. Testing
 

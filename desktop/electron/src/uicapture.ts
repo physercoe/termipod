@@ -57,6 +57,17 @@ export function surfaceForPartition(partition: string | null): string | null {
 ///
 /// Returns null when there is no usable snapshot: the answer is "unknown",
 /// which the caller must treat as refusal, not as "nothing sensitive".
+///
+/// INVARIANT this rests on: when the ACTIVE pane's row has an empty allowlist
+/// (settings, vault), projectFocus rule 1 degrades the snapshot to
+/// existence-only and DROPS `secondary` — so a hypothetical split with a
+/// refusing surface active in the pinned pane would report only the primary
+/// here, and "a split refuses if either pane refuses" would not hold. That
+/// state is unreachable today because every `capture: 'refuse'` row is also
+/// `splitEligible: false` (workbench.ts) — a refusing surface can only ever
+/// be the primary, which rule 1 still reports as `surface`. If a refusing
+/// surface ever becomes split-eligible, this helper must read the raw
+/// (unprojected) focus state instead of the projection.
 export function visibleSurfaces(snapshot: Record<string, unknown> | null): string[] | null {
   if (snapshot === null) return null;
   const primary = snapshot.surface;
@@ -172,7 +183,7 @@ export function readCaptureDecision(row: unknown): CaptureOutcome {
 
 /// The denial sentence an agent sees, by cause. Kept here (not in the host) so
 /// the wording is testable and identical on both legs.
-export function captureDenialMessage(cause: 'denied' | 'timeout' | 'unavailable'): string {
+export function captureDenialMessage(cause: 'denied' | 'timeout' | 'unavailable' | 'raise_failed'): string {
   switch (cause) {
     case 'denied':
       return 'the desktop user denied this screenshot';
@@ -183,5 +194,9 @@ export function captureDenialMessage(cause: 'denied' | 'timeout' | 'unavailable'
         'this desktop cannot ask for screenshot approval — it is not signed in to a hub, ' +
         'and ui_screenshot is per-call approved, always. Use ui_get_focus for structure instead'
       );
+    case 'raise_failed':
+      // Distinct from 'unavailable': the desktop IS signed in, but the hub
+      // refused or errored the card — a retry may succeed, signing in won't.
+      return 'the hub did not accept the approval card for this screenshot — denied (transient hub error; retrying may work)';
   }
 }

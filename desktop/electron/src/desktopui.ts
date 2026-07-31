@@ -16,7 +16,10 @@
 ///     toggle-off removes just that entry. All file mechanics live in the
 ///     electron-free kimimcp.ts.
 ///
-/// D1 is LOCAL-ONLY: nothing here touches the hub or the tunnel (that is D5).
+/// D1 shipped LOCAL-ONLY; since D5 this module also re-posts the `desktop_ui`
+/// capability to the hub when the toggle flips (refreshHostCapabilities), so
+/// `hosts_list` answers truthfully — the tunnel routing itself lives in
+/// browserbridge_host.ts.
 import os from 'node:os';
 import { installStableRelay, mergeSharingEntry, removeSharingEntry, type KimiMcpWrite } from './kimimcp';
 import { refreshHostCapabilities, setUiFocusProvider, stdioBridgePath } from './browserbridge_host';

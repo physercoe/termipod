@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -118,7 +119,38 @@ func materializeImageInputs(workdir string, images []imageInput, stamp time.Time
 		}
 		paths = append(paths, p)
 	}
+	pruneAnnotationDir(dir)
 	return paths, nil
+}
+
+// annotationKeep caps how many materialized images loiter per workdir.
+// A crop is a one-turn artifact, not a gallery — without a cap the
+// directory grows for the workdir's lifetime. Newest-kept, because a
+// path named in a recent note should keep resolving; the filenames are
+// UTC-stamped so lexical order IS chronological order.
+const annotationKeep = 32
+
+// pruneAnnotationDir drops the oldest materialized images beyond the
+// cap. Best-effort by design: a prune failure must never fail the turn
+// that just materialized successfully.
+func pruneAnnotationDir(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) <= annotationKeep {
+		return
+	}
+	sort.Strings(names)
+	for _, name := range names[:len(names)-annotationKeep] {
+		_ = os.Remove(filepath.Join(dir, name))
+	}
 }
 
 // fallbackReason renders the materialization failure for the warning

@@ -120,6 +120,41 @@ func TestMaterializeImageInputs_NoImagesIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestMaterializeImageInputs_PrunesTheOldestBeyondTheCap(t *testing.T) {
+	wd := t.TempDir()
+	dir := filepath.Join(wd, ".termipod", "annotations")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed a full directory of older crops (UTC-stamped names sort
+	// chronologically, so lexical order is age order).
+	for i := 0; i < annotationKeep; i++ {
+		name := annotationFilename(testStamp.Add(-time.Duration(annotationKeep-i)*time.Minute), 1, "image/png")
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := materializeImageInputs(wd, []imageInput{{mime: "image/png", data: "aGVsbG8="}}, testStamp)
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("materialize: %v %v", paths, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != annotationKeep {
+		t.Fatalf("want the cap (%d) after pruning, got %d", annotationKeep, len(entries))
+	}
+	// The newest — the one a note just named — survived; the oldest went.
+	if _, serr := os.Stat(paths[0]); serr != nil {
+		t.Errorf("the just-materialized crop must never be pruned: %v", serr)
+	}
+	oldest := annotationFilename(testStamp.Add(-time.Duration(annotationKeep)*time.Minute), 1, "image/png")
+	if _, serr := os.Stat(filepath.Join(dir, oldest)); !os.IsNotExist(serr) {
+		t.Errorf("the oldest crop should have been pruned")
+	}
+}
+
 func TestAnnotationNote_PutsTheUsersWordsFirst(t *testing.T) {
 	one := annotationNote("why is this red?", []string{"/w/.termipod/annotations/a.png"})
 	if !strings.HasPrefix(one, "why is this red?") {

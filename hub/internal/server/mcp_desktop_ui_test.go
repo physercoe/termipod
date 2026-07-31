@@ -105,6 +105,24 @@ func TestDesktopUIInvoke_UnknownToolNamesTheRealOnes(t *testing.T) {
 	}
 }
 
+func TestBrowserInvoke_RejectsDesktopUITools(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// The mirror of the cross-class check above: a desktop-UI tool routed
+	// as browser.invoke would arrive without THIS class's card (the hub
+	// gates by class), so it must die at the catalog — the desktop's own
+	// kind re-check (tunnelclass.test.ts) is the second wall, not the
+	// only one.
+	for _, tool := range []string{"ui_screenshot", "ui_get_focus"} {
+		_, jerr := s.mcpBrowserInvoke(context.Background(), defaultTeamID, agentID,
+			json.RawMessage(`{"host_id":"h1","tool":"`+tool+`"}`))
+		if jerr == nil || jerr.Code != -32602 {
+			t.Fatalf("%s via browser_invoke: want -32602, got %+v", tool, jerr)
+		}
+	}
+}
+
 func TestDesktopUIInvoke_CapabilityIsTheSharingToggle(t *testing.T) {
 	s, _ := newTestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")

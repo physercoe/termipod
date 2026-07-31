@@ -706,7 +706,12 @@ path in the note text); hub tool tests mirroring
 > the path (the user pointed at something and said nothing — a legitimate
 > message); and a FAILED write keeps the historical drop-and-warn, with
 > the reason in the event, because "notes the drop rather than failing
-> silently" is the rule.
+> silently" is the rule. Two review follow-ons: the raw-PaneDriver
+> fallback now cd-wraps its launch into the same derived workdir every
+> specialized launcher uses (its `Workdir` was previously a derivation
+> the pane never entered, so a cwd-confined agent could not find the
+> crop), and the annotations directory is capped (newest 32 kept —
+> crops are one-turn artifacts, not a gallery).
 
 **D6 — agent pointing (§3.4b).** Ref-chips: transcript renderer for
 agent-emitted UIRefs + the UIRef→focus dispatcher (chips ship first —

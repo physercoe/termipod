@@ -23,7 +23,12 @@
 //   - `ui_screenshot` consults no grant at all. It raises a
 //     `desktop_action` card on every single call, and the card says so
 //     — screenshots are the one artifact with no standing consent
-//     (plan §3.3, ADR-062 D-4).
+//     (plan §3.3, ADR-062 D-4);
+//   - `ui_highlight` raises NO card. It is non-actuating annotation —
+//     it draws an attributed glow that expires and takes no action with
+//     the user's authority — so ADR-062 D-5 puts its consent in the
+//     sharing toggle plus the policy table's `highlight` bit, and its
+//     safety in the desktop's rate limit and the audit trail.
 //
 // The hub relays and never stores: no focus snapshot, no capture, ever
 // lands in a table (ADR-062 D-7). What crosses is audited by the
@@ -62,6 +67,23 @@ var desktopUIReadTools = []string{
 	"ui_get_focus",
 }
 
+// desktopUIAnnotateTools route immediately like a read, but WRITE
+// something the user sees. `ui_highlight` (D6) is the whole class: an
+// ephemeral, attributed, self-expiring marker over a surface the policy
+// table allows. ADR-062 D-5 is explicit that it takes NO approval card —
+// it is annotation, not action: nothing is focused, scrolled, clicked or
+// typed, and the user's own click remains the only actuator. Its consent
+// is the sharing toggle plus the `highlight` policy bit; its safety is
+// the desktop's per-agent rate limit; and every call is audited like an
+// action (ring + hub mirror), which is where "an agent drew on my
+// screen" becomes visible.
+//
+// A separate list rather than a read: these are worth naming distinctly
+// so nobody later reads "routes without a card" as "is a read".
+var desktopUIAnnotateTools = []string{
+	"ui_highlight",
+}
+
 var desktopUIActionTools = []string{
 	"ui_screenshot",
 }
@@ -70,6 +92,11 @@ func desktopUIToolClass(tool string) string {
 	for _, n := range desktopUIReadTools {
 		if n == tool {
 			return "read"
+		}
+	}
+	for _, n := range desktopUIAnnotateTools {
+		if n == tool {
+			return "annotate"
 		}
 	}
 	for _, n := range desktopUIActionTools {
@@ -81,8 +108,9 @@ func desktopUIToolClass(tool string) string {
 }
 
 func desktopUIToolNames() []string {
-	out := make([]string, 0, len(desktopUIReadTools)+len(desktopUIActionTools))
+	out := make([]string, 0, len(desktopUIReadTools)+len(desktopUIAnnotateTools)+len(desktopUIActionTools))
 	out = append(out, desktopUIReadTools...)
+	out = append(out, desktopUIAnnotateTools...)
 	out = append(out, desktopUIActionTools...)
 	return out
 }
@@ -90,9 +118,14 @@ func desktopUIToolNames() []string {
 // desktopUIGrantable reports whether an action tool of this class may
 // EVER ride a session grant. `ui_screenshot` may not: a frame of
 // everything the user can see is the most sensitive artifact the app
-// can emit, so consent is per call, forever (plan §3.3). Encoded as a
-// predicate rather than a comment because the grant path is shared
-// with a class that does offer session grants.
+// can emit, so consent is per call, forever (plan §3.3).
+//
+// Today that makes the predicate constantly false, because ui_screenshot
+// is the class's only ACTION tool. It is written as a predicate anyway,
+// and desktopGrantKind reserved, because the grant path is shared with a
+// class that DOES offer session grants — a future grantable desktop
+// action must land in its own namespace rather than borrowing the
+// browser one (the §3.6 review amendment).
 func desktopUIGrantable(tool string) bool {
 	return tool != "ui_screenshot"
 }
@@ -152,8 +185,9 @@ func (s *Server) mcpDesktopUIInvoke(ctx context.Context, team, agentID string, r
 
 	agentHandle, _ := s.lookupHandleByID(ctx, team, agentID)
 
-	// Action tools need a human decision. A grantable one may ride a
-	// prior session grant for THIS class; ui_screenshot never does.
+	// Reads and annotations route immediately; only ACTION needs a human
+	// decision. A grantable action may ride a prior session grant for THIS
+	// class; ui_screenshot never does.
 	if class == "action" {
 		grantKind := ""
 		if desktopUIGrantable(a.Tool) {

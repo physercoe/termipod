@@ -799,6 +799,9 @@ func buildNativeTools() []nativeTool {
 				"an approval card the user must accept ON EVERY CALL — there is no session grant, and " +
 				"a capture is refused outright while a sensitive surface is on screen. Prefer " +
 				"ui_get_focus; reach for pixels only when the question is visual. " +
+				"ui_highlight points the user at something on their own screen — an ephemeral, " +
+				"attributed marker over a UIRef, non-actuating (it never focuses, scrolls, clicks " +
+				"or types) and needing no approval; the user's click is the only actuator. " +
 				"Required: host_id, tool. Optional: args (object, default {}).",
 			InputSchema: map[string]any{
 				"type": "object",

@@ -8,6 +8,7 @@ import { useInspect } from './inspect';
 import { useReplay } from './replay';
 import { useTerminals } from '../terminal/store';
 import { assembleRawFocus, createFocusSender, projectFocus, type FocusSources } from './ui_policy';
+import { useAgentHighlight } from './agentHighlight';
 
 /// UI context sharing (D1 — docs/plans/desktop-ui-context-and-pointing.md
 /// §3.2/§3.7). Whether agents ON THIS HOST (the embedded kimi web panel and
@@ -62,6 +63,10 @@ export const useUiContext = create<UiContextState>((set) => ({
     persistEnabled(v);
     set({ enabled: v });
     setPublishing(v);
+    // Turning sharing OFF revokes the agents' presence on screen — any live
+    // highlight markers (D6) go with it rather than glowing out their TTL
+    // after the user withdrew consent.
+    if (!v) useAgentHighlight.getState().clear();
     if (!isShell()) return;
     void invoke('desktopui_set_enabled', { enabled: v }).catch(() => undefined);
   },

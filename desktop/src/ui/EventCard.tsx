@@ -370,7 +370,7 @@ function InputTextBody({ p }: { p: Entity }): JSX.Element {
     <div className="ev-input">
       <span className="ev-from">{label}</span>
       <InputImages p={p} />
-      <Markdown text={text} />
+      <Markdown text={text} uiRefs />
     </div>
   );
 }
@@ -408,11 +408,14 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
   const p = ev.payload;
   switch (ev.kind) {
     case 'text': {
+      // `text` is the agent's own prose — the PRIMARY carrier of D6
+      // ref-chips ("an agent-emitted UIRef in a reply renders as a
+      // clickable chip"). uiRefs must ride both branches of the fold.
       const body = str(p, 'text') ?? '';
-      if (!isFoldable(body)) return <Markdown text={body} />;
+      if (!isFoldable(body)) return <Markdown text={body} uiRefs />;
       return (
         <ClampText>
-          <Markdown text={body} />
+          <Markdown text={body} uiRefs />
         </ClampText>
       );
     }
@@ -528,7 +531,7 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
         return <ThoughtBody p={p} />;
       }
       const text = str(p, 'text');
-      if (text !== undefined) return <Markdown text={text} />;
+      if (text !== undefined) return <Markdown text={text} uiRefs />;
       return (
         <div className="ev-generic">
           <span className="ev-kind-label">{ev.kind}</span>

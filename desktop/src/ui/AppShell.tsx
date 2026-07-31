@@ -34,6 +34,7 @@ import { AssistantDock } from './AssistantDock';
 import { useAssistant } from '../state/assistant';
 import { useTerminals } from '../terminal/store';
 import { ActivityBar } from './ActivityBar';
+import { AgentHighlightOverlay } from './AgentHighlightOverlay';
 import { AnnotationOverlay } from './AnnotationOverlay';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
@@ -408,6 +409,10 @@ export function AppShell(): JSX.Element {
           GLOBALLY by the status-bar chip / palette entry (D2.1); renders only
           while the UI-context-sharing toggle is on. */}
       <AnnotationOverlay />
+      {/* D6: the agent's half of the pointing symmetry — attributed, expiring,
+          non-actuating, and painted BELOW the modal tier so it can never cover
+          the Attention dock (ADR-062 D-5). */}
+      <AgentHighlightOverlay />
     </div>
   );
 }

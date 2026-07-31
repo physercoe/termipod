@@ -4,20 +4,20 @@
 > **Status:** In flight (2026-07-31) — wedges D1–D6 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
 > is second. **D1 shipped (#476), D2 shipped (#477) + D2.1 (#480);
-> D3 implemented — PR pending.** Builds on the agent browser bridge
+> D3 + D4 implemented — PRs pending.** Builds on the agent browser bridge
 > (W1–W3 shipped, `docs/plans/desktop-agent-browser-bridge.md`).
 > **Derives from
 > [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)** —
 > verbs over a first-class UI entity: UIRef both directions, one
 > per-surface policy table, three representations, agent pointing (D6).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** the D3 wedge on origin/main `4f5d86c3`
+> **Last verified vs code:** the D3+D4 wedges on origin/main `4f5d86c3`
 > (rebased past the unified assistant dock #483): frontend + electron typecheck
-> green, 283 electron `node --test` pass (D3 adds 21), 376 frontend
+> green, 293 electron `node --test` pass (D3 +21, D4 +10), 380 frontend
 > state/ssh tests pass, `lint-desktop-tokens.sh` clean at baseline 65.
-> D3's Electron halves (`capturePage`, the hub approval round trip) are
-> **unexercised on this machine** — no display, no Electron binary — and
-> need the Playwright/desktop pass
+> The Electron halves (`capturePage`, the hub approval round trip, the
+> live CDP hit-test) are **unexercised on this machine** — no display,
+> no Electron binary — and need the Playwright/desktop pass
 
 **Review amendments (2026-07-30), folded into the body below.** The relay
 fallback is read-token-only (§3.5); the `mcp.json` entry pins a stable
@@ -622,6 +622,33 @@ audit; AttentionDock card branch.
 
 **D4 — element-resolved pointing.** Rect-over-webtab → `@eN` ref via the
 bridge snapshot; structured pointer rides the attachment payload.
+
+> **D4 as shipped.** The resolution chain is: hit-test the rect centre
+> (`elementFromPoint`, then `closest()` to the nearest interactive ancestor —
+> the user drags over a button's LABEL and means the button) → `requestNode` /
+> `describeNode` for the `backendNodeId` → the tab's AX snapshot compacted by
+> the SAME `compactAxTree` `browser_snapshot` uses, which mints the `@eN` →
+> `getPartialAXTree` for role + name. Four decisions worth recording:
+>
+> - **The ref is live.** The compaction registers its refs against the tab
+>   (`setSnapshotRefs`), so the `@e42` in the message is one `browser_click`
+>   resolves — otherwise the plan's "actionable" claim would be decorative.
+> - **`actionable` is a field, not an assumption.** Only `bridge: 'full'`
+>   partitions are action-drivable; on kimiweb/rerunweb the note says the ref
+>   is for reference, because promising a click there is a lie the agent
+>   discovers only on refusal.
+> - **The pointer rides IN the note.** `postAgentInput` carries a body and
+>   images; a structured field beside them would be dropped on the floor. So
+>   the line lands in the user's draft, above the send button, where they can
+>   see and edit what the agent will be told — and the chip in the target row
+>   shows it before that.
+> - **Every failure degrades to no pointer.** The crop is the deliverable. No
+>   debugger, no AX tree, a canvas app with nothing to name: the capture
+>   returns unchanged, and role falls back to the DOM tag name rather than
+>   inventing one.
+>
+> Names are flattened and clipped to 80 chars: the pointer is a reference, not
+> a content channel (ADR-062 D-2).
 
 **D5 — remote / hub-relayed delivery (second priority).** `desktop.invoke`
 tunnel kind + hub `desktop_ui_invoke` (read class first); generalized

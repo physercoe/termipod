@@ -1709,6 +1709,8 @@ const en: Dict = {
   'annotate.attached': 'Attached in kimi — review and send there',
   'annotate.clipboard': 'Copied — paste ({key}) into the kimi composer',
   'annotate.failed': 'The annotation could not be captured.',
+  // D4: the title on the resolved-element chip in the target row.
+  'annotate.pointing': 'The element the agent will be pointed at',
 
   'debug.lines_one': '{n} line',
   'debug.lines_other': '{n} lines',
@@ -3750,6 +3752,7 @@ const zh: Dict = {
   'annotate.attached': '已附加到 kimi——请在那里检查并发送',
   'annotate.clipboard': '已复制——在 kimi 输入框中粘贴（{key}）',
   'annotate.failed': '无法截取标注。',
+  'annotate.pointing': '将指给智能体的元素',
 
   'debug.lines': '{n} 行',
   'debug.placeholder': '粘贴代码、差异、堆栈或日志…',

@@ -11,6 +11,7 @@ import {
   type AnnotationPhase,
   type CompanionTarget,
 } from './annotationTargets';
+import { appendPointerNote, type UiPointer } from './uiPointer';
 
 // The origin / companion-target types + the target-row resolution + the pure
 // decisions (dock-hide flag, handoff routing/reveal) live in
@@ -52,6 +53,11 @@ export interface AnnotationCapture {
   width: number;
   height: number;
   target: 'shell' | 'guest';
+  /// D4: the element under the crop's centre, when the rect landed on a
+  /// bridgeable `<webview>` guest and the page had something to name. Absent
+  /// over the shell, and absent when resolution found nothing — the crop
+  /// never depends on it.
+  pointer?: UiPointer;
 }
 
 /// The companion-path handoff: the crop becomes a delete-able chip in the
@@ -132,7 +138,11 @@ export const useAnnotation = create<AnnotationState>((set, get) => ({
       refused: null,
       handoff: {
         storageKey: key,
-        note,
+        // D4: the pointer rides IN the note, because that is what actually
+        // reaches the model — `postAgentInput` carries a body and images, and
+        // a structured field beside them would be dropped on the floor. The
+        // user sees the line in their draft before they hit send.
+        note: appendPointerNote(note, capture.pointer),
         name: `annotation-${String(capture.width)}x${String(capture.height)}.png`,
         image: { mime_type: 'image/png', data: capture.dataB64 },
         preview: capture.preview,

@@ -1315,3 +1315,20 @@
   flex: 1;
   min-width: 160px;
 }
+/* D4: the structural pointer resolved under the crop (`@e42 · button ·
+   "Deploy"`). Shown before sending so the user can see exactly what the agent
+   will be told it is looking at — and re-select if it named the wrong thing. */
+.annot-pointer {
+  flex: none;
+  max-width: 220px;
+  overflow: hidden;
+  padding: 2px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

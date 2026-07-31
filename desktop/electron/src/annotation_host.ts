@@ -36,12 +36,14 @@ import {
   type GuestRegion,
   type SurfaceRegion,
 } from './annotation';
-import { stripFragment } from './browserbridge';
+import { setSnapshotRefs, stripFragment } from './browserbridge';
 import { recordUserOverlayAudit } from './browserbridge_host';
 import { isUiSharingEnabled } from './desktopui';
+import { resolvePointer } from './uipointer';
 import type { Handler } from './ipc/dispatch';
 import { policyForGuest } from './webtab';
 import { KIMIWEB_PARTITION } from './webtab_policy';
+import type { UiPointer } from '../../src/state/uiPointer';
 
 // ── Arg narrowing (the renderer is our own, but handlers validate anyway) ────
 
@@ -152,6 +154,35 @@ function ensureDebugger(wc: WebContents): void {
   wc.once('destroyed', () => attached.delete(wc.id));
 }
 
+// ── D4 element-resolved pointing ─────────────────────────────────────────────
+
+/// Resolve the element under the crop's centre, for a rect that landed on a
+/// bridgeable guest. Best-effort by design: the crop is the deliverable and a
+/// pointer is the bonus, so every failure path (no debugger, no AX tree, a
+/// canvas app with nothing to name) yields `null` and the capture still
+/// returns. Refs minted here are registered against the tab so the `@eN` in
+/// the message is one `browser_click` can resolve.
+async function pointerForGuest(wc: WebContents, rect: AnnotRect): Promise<UiPointer | null> {
+  const policy = policyForGuest(wc);
+  // `none` partitions are outside the bridge entirely — an @eN ref for a tab
+  // no tool can address would be a reference to nowhere.
+  if (policy === null || policy.bridge === 'none') return null;
+  try {
+    ensureDebugger(wc);
+    const resolved = await resolvePointer(
+      (method, params) => wc.debugger.sendCommand(method, params ?? {}),
+      wc.id,
+      { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+      { actionable: policy.bridge === 'full' },
+    );
+    if (resolved === null) return null;
+    setSnapshotRefs(wc.id, resolved.refs);
+    return resolved.pointer;
+  } catch {
+    return null;
+  }
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 let captureSeq = 0;
@@ -175,11 +206,13 @@ export const annotationHostHandlers: Record<string, Handler> = {
     const target = pickCaptureTarget(rect, guests);
     let wc: WebContents;
     let partition: string | null = null;
+    let guestForPointer: WebContents | null = null;
     if (target.kind === 'guest') {
       const guest = resolveGuest(target.id);
       if (guest === null) return { ok: false, error: 'guest-gone' };
       wc = guest;
       partition = policyForGuest(guest)?.partition ?? null;
+      guestForPointer = guest;
     } else {
       if (ctx.win === null || ctx.win.isDestroyed()) return { ok: false, error: 'no-window' };
       wc = ctx.win.webContents;
@@ -205,13 +238,24 @@ export const annotationHostHandlers: Record<string, Handler> = {
         ? img.resize({ width: pfit.width, height: pfit.height })
         : img
       ).toDataURL();
+      // D4: the structural half of the same gesture. Resolved AFTER the
+      // pixels so a pointer failure can never cost the user their crop.
+      const pointer = guestForPointer !== null ? await pointerForGuest(guestForPointer, target.rect) : null;
       recordUserOverlayAudit({
         ts: new Date().toISOString(),
         tool: 'ui_annotate_capture',
         tab_id: target.kind === 'guest' ? target.id : null,
         url: target.kind === 'guest' ? stripFragment(wc.getURL()) : null,
         partition,
-        args: { rect: [rect.x, rect.y, rect.width, rect.height], target: target.kind, width: fit.width, height: fit.height },
+        args: {
+          rect: [rect.x, rect.y, rect.width, rect.height],
+          target: target.kind,
+          width: fit.width,
+          height: fit.height,
+          // The audit says WHICH element was pointed at — the ref and role,
+          // never the crop (the entry is a reference, ADR-062 D-2).
+          ...(pointer !== null ? { pointer: { ref: pointer.ref ?? null, role: pointer.role ?? null } } : {}),
+        },
         ok: true,
         error: null,
       });
@@ -223,6 +267,7 @@ export const annotationHostHandlers: Record<string, Handler> = {
         preview,
         data_b64: png.toString('base64'),
         target: target.kind,
+        ...(pointer !== null ? { pointer } : {}),
       };
     } catch (e) {
       recordUserOverlayAudit({

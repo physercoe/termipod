@@ -673,6 +673,15 @@ export function pruneSnapshotRefs(tabId: number): void {
   snapshotRefs.delete(tabId);
 }
 
+/// Register refs minted OUTSIDE a `browser_snapshot` call — D4's annotation
+/// pointer runs the same AX compaction on the user's gesture, and the `@eN`
+/// it hands the agent has to be one `browser_click` can resolve. Same
+/// per-tab, latest-wins semantics as a snapshot: whoever compacted the tree
+/// most recently owns the map.
+export function setSnapshotRefs(tabId: number, refs: Map<string, number>): void {
+  snapshotRefs.set(tabId, refs);
+}
+
 /// Resolve + validate a tabId argument against the live registry. Throws a
 /// coded BridgeError the tool wrapper renders as an isError result.
 function requireTarget(deps: McpServerDeps, args: Record<string, unknown>): BridgeTarget {

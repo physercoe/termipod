@@ -28,6 +28,9 @@ import { disposeKimiWebWin } from './kimiwebwin';
 import { disposeRerun } from './rerun';
 import { disposeBrowserBridge } from './browserbridge_host';
 import { disposeAnnotations } from './annotation_host';
+// D3: importing the module registers the gated-screenshot provider on the
+// bridge server; setShellWindow tells it which window "the desktop" means.
+import { setShellWindow } from './uicapture_host';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) it resolves to
@@ -72,6 +75,7 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  setShellWindow(win);
   // A `window.open` from any embedded content would spawn a child window that
   // INHERITS this window's webPreferences — preload included — handing
   // `__ELECTRON_BRIDGE__` and the whole command allowlist to remote content.
@@ -89,6 +93,7 @@ function createWindow(): void {
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
+    setShellWindow(null);
   });
   void win.loadURL(`${APP_ORIGIN}/index.html`);
 }

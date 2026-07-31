@@ -62,6 +62,8 @@ import {
   type HubInvokePayload,
   type HubInvokeResult,
   type McpServerDeps,
+  type UiCaptureRequest,
+  type UiCaptureResult,
 } from './browserbridge';
 import { policyForGuest } from './webtab';
 import { keychainGetLocal } from './ipc/keychain';
@@ -273,6 +275,24 @@ export function setUiFocusProvider(p: UiFocusProvider): void {
   uiFocusProvider = p;
 }
 
+/// D3: the gated screenshot provider (uicapture_host.ts), plugged in the same
+/// way and for the same reason — it needs the hub context and the focus cache
+/// this module and desktopui.ts own, so it registers instead of being imported.
+type UiCaptureProvider = (req: UiCaptureRequest) => Promise<UiCaptureResult>;
+
+let uiCaptureProvider: UiCaptureProvider | null = null;
+
+export function setUiCaptureProvider(p: UiCaptureProvider): void {
+  uiCaptureProvider = p;
+}
+
+/// The hub identity the audit mirror and the D3 approval card both post as.
+/// Non-secret: the bearer is fetched from the keychain per use, never held
+/// here (and never handed across IPC).
+export function currentHubContext(): { baseUrl: string; teamId: string; profileId: string } | null {
+  return hubContext;
+}
+
 // ── Enable/disable lifecycle ─────────────────────────────────────────────────
 
 let server: BridgeServer | null = null;
@@ -298,6 +318,12 @@ async function enable(): Promise<void> {
     // ui_get_focus on the next tools/list without a server restart.
     uiFocusAvailable: () => uiFocusProvider?.available() ?? false,
     getUiFocus: () => uiFocusProvider?.snapshot() ?? null,
+    // D3: read through the holder on every call, so a provider registered
+    // after the server started (module init order) is still reachable.
+    captureUi: (req) =>
+      uiCaptureProvider !== null
+        ? uiCaptureProvider(req)
+        : Promise.resolve<UiCaptureResult>({ ok: false, code: 'UI_UNAVAILABLE', message: 'the capture provider is not wired' }),
   };
   server = await startBridgeServer({ ...mcpDeps, token, actionToken });
   writeBridgeDiscovery(os.homedir(), {

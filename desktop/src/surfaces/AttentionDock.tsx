@@ -75,6 +75,19 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
           {preview(pending['args']) !== '' && <div className="mono">{preview(pending['args'])}</div>}
         </div>
       )}
+      {/* D3 (docs/plans/desktop-ui-context-and-pointing.md §3.3): the gated
+          desktop screenshot. The card describes WHAT was asked for — which
+          surfaces are on screen, or which embedded tab — because the image
+          does not exist until this decision says yes. */}
+      {kind === 'desktop_action' && pending !== undefined && (
+        <div className="card-detail">
+          <code>{str(pending, 'tool') ?? 'desktop tool'}</code>
+          {str(pending, 'scope') !== undefined && <span> · {str(pending, 'scope')}</span>}
+          {preview(pending['surfaces']) !== '' && <div className="mono">{preview(pending['surfaces'])}</div>}
+          {str(pending, 'url') !== undefined && <div className="mono">{str(pending, 'url')}</div>}
+          <div className="muted">{t('att.perCallOnly')}</div>
+        </div>
+      )}
       {changeKind !== undefined && (
         <div className="card-detail mono">{preview(item['change_spec'] ?? item['target_ref'])}</div>
       )}
@@ -117,6 +130,18 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
           </button>
           <button disabled={busy} onClick={() => void decide('approve', { option_id: 'session' })}>
             {t('att.allowSession')}
+          </button>
+          <button disabled={busy} onClick={() => void decide('reject')}>
+            {t('att.reject')}
+          </button>
+        </div>
+      ) : kind === 'desktop_action' ? (
+        // Deliberately NO "Allow session" — a screenshot never gets a standing
+        // grant (plan §3.3, ADR-062 D-4). The tool parks on this decision and
+        // fails closed if it does not arrive.
+        <div className="card-actions">
+          <button className="primary" disabled={busy} onClick={() => void decide('approve')}>
+            {t('att.allowOnce')}
           </button>
           <button disabled={busy} onClick={() => void decide('reject')}>
             {t('att.reject')}

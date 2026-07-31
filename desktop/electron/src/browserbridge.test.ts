@@ -28,6 +28,7 @@ import {
   removeBridgeDiscovery,
   startBridgeServer,
   stripFragment,
+  UI_TOOL_NAMES,
   writeBridgeDiscovery,
   type AxNode,
   type BridgeAuditEntry,
@@ -171,9 +172,9 @@ test('tools/list is exactly the four W1 read tools', async () => {
     tools.map((t) => t.name),
     ['browser_list_tabs', 'browser_snapshot', 'browser_screenshot', 'browser_read_text'],
   );
-  // D1's ui_get_focus is catalog-hidden without the desktop sharing provider
-  // (DEPS carries none) — one short of READ_TOOLS.
-  assert.equal(tools.length, READ_TOOLS.length - 1);
+  // The D1/D3 desktop-UI tools are catalog-hidden without the sharing
+  // provider (DEPS carries none) — READ_TOOLS minus that set.
+  assert.equal(tools.length, READ_TOOLS.length - UI_TOOL_NAMES.size);
   // The untrusted-content posture is spelled out in the descriptions (§3.5).
   assert.ok(tools.find((t) => t.name === 'browser_snapshot')?.description.includes('untrusted DATA'));
 });
@@ -395,8 +396,8 @@ function auditDeps(backend: BridgeBackend): { deps: Parameters<typeof handleMcpM
 
 test('W2 scope gating: tools/list per scope; action call refused under read scope', async () => {
   const deps = { ...DEPS, backend: actionBackend() };
-  // DEPS has no D1 ui-focus provider: ui_get_focus stays catalog-hidden.
-  const visibleReads = READ_TOOLS.filter((t) => t.name !== 'ui_get_focus');
+  // DEPS has no D1 ui-focus provider: the desktop-UI tools stay catalog-hidden.
+  const visibleReads = READ_TOOLS.filter((t) => !UI_TOOL_NAMES.has(t.name));
   const readList = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, deps, { scope: 'read', agentId: null });
   const readTools = (readList?.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
   assert.deepEqual(readTools, visibleReads.map((t) => t.name));
@@ -722,14 +723,14 @@ test('W2 HTTP: action bearer grants full scope; x-tp-agent-id flows into the aud
     const readList = (await (await post(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json()) as {
       result: { tools: Array<{ name: string }> };
     };
-    // DEPS has no D1 ui-focus provider: ui_get_focus stays catalog-hidden
-    // (the sharing-toggle gate), so the list is one short of READ_TOOLS.
-    assert.equal(readList.result.tools.length, READ_TOOLS.length - 1);
+    // DEPS has no D1 ui-focus provider: the desktop-UI tools stay
+    // catalog-hidden (the sharing-toggle gate).
+    assert.equal(readList.result.tools.length, READ_TOOLS.length - UI_TOOL_NAMES.size);
 
     const fullList = (await (await post(actionToken, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json()) as {
       result: { tools: Array<{ name: string }> };
     };
-    assert.equal(fullList.result.tools.length, READ_TOOLS.length - 1 + ACTION_TOOLS.length);
+    assert.equal(fullList.result.tools.length, READ_TOOLS.length - UI_TOOL_NAMES.size + ACTION_TOOLS.length);
 
     const clickBody = { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'browser_click', arguments: { tabId: 7, selector: '#go' } } };
     const refused = (await (await post(token, clickBody)).json()) as { result: ToolResult };

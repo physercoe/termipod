@@ -429,6 +429,9 @@ const en: Dict = {
   'att.replyPlaceholder': 'Reply…',
   'att.answer': 'Answer',
   'att.dismiss': 'Dismiss',
+  // D3: the desktop screenshot card. No "Allow session" button exists for it —
+  // this line says why, so the missing option reads as a decision.
+  'att.perCallOnly': 'Screenshots are approved one call at a time — there is no standing grant.',
 
   'kanban.todo': 'To do',
   'kanban.in_progress': 'In progress',
@@ -2491,6 +2494,7 @@ const zh: Dict = {
   'att.replyPlaceholder': '回复…',
   'att.answer': '回答',
   'att.dismiss': '忽略',
+  'att.perCallOnly': '截屏需逐次批准，不提供长期授权。',
 
   'kanban.todo': '待办',
   'kanban.in_progress': '进行中',

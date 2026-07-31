@@ -1,27 +1,29 @@
 # Desktop UI context + pointing — shared user↔agent awareness
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-30) — wedges D1–D5 below; D1+D2 (the LOCAL
+> **Status:** In flight (2026-07-31) — wedges D1–D6 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
-> is second. **D1 (PR #476), D2 (PR #477) and D2.1 — the global
-> annotate trigger (PR #480) — shipped; D3–D6 open.** Builds on the agent
-> browser bridge (W1–W3 shipped,
-> `docs/plans/desktop-agent-browser-bridge.md`). **Derives from
-> [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)**
-> (desktop UI as agent-addressable entity) — reframed 2026-07-30 from
-> "the bridge grows two more tools" to verbs over a first-class UI
-> entity: UIRef both directions, one per-surface policy table, three
-> representations, agent pointing (D6). Review amendments 2026-07-30:
-> relay fallback is read-token-only; stable relay copy (the
-> resourcesPath pin breaks on AppImage); D5 sits behind the Remote-driving
-> opt-in with the shipped W3 audit posture; session grants never cross
-> tool kinds.
+> is second. **D1 shipped (#476), D2 shipped (#477) + D2.1 (#480);
+> D3 implemented — PR pending.** Builds on the agent browser bridge
+> (W1–W3 shipped, `docs/plans/desktop-agent-browser-bridge.md`).
+> **Derives from
+> [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)** —
+> verbs over a first-class UI entity: UIRef both directions, one
+> per-surface policy table, three representations, agent pointing (D6).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** the D2 wedge rebased onto origin/main
-> `17abbd08` (S2/S3 split pane + ui_get_focus description) + review
-> fixes: frontend + electron typecheck/build green, 256 electron
-> node --test pass, lint-docs OK, the D2 Playwright spec green on
-> Electron 43; kimi-code 0.28.1 verified on-host (macOS arm64)
+> **Last verified vs code:** the D3 wedge on origin/main `4f5d86c3`
+> (rebased past the unified assistant dock #483): frontend + electron typecheck
+> green, 283 electron `node --test` pass (D3 adds 21), 376 frontend
+> state/ssh tests pass, `lint-desktop-tokens.sh` clean at baseline 65.
+> D3's Electron halves (`capturePage`, the hub approval round trip) are
+> **unexercised on this machine** — no display, no Electron binary — and
+> need the Playwright/desktop pass
+
+**Review amendments (2026-07-30), folded into the body below.** The relay
+fallback is read-token-only (§3.5); the `mcp.json` entry pins a stable
+`~/.termipod/bridge/` relay copy, because the `resourcesPath` pin breaks on
+AppImage (§3.5); D5 sits behind the Remote-driving opt-in with the shipped W3
+audit posture, and session grants never cross tool kinds (§3.6).
 
 **TL;DR.** The desktop UI is a **shared entity with two native consumers**
 (ADR-062): agents are half the userbase of an agent workbench, so "what is
@@ -585,6 +587,38 @@ default chord (OQ3's shipped hotkey stays open).
 **D3 — gated screenshot.** `ui_screenshot` with the `desktop_action`
 per-call card (no session grant), vault/sensitive refusal, size caps,
 audit; AttentionDock card branch.
+
+> **D3 as shipped.** Four decisions the wedge had to make that §3.3 left
+> open, all pinned by tests (`uicapture.test.ts`, `uiscreenshot.test.ts`):
+>
+> - **Read scope, action class.** `ui_screenshot` lives in `READ_TOOLS`, so
+>   the local kimi-code loop (which holds only the read token) can reach it
+>   — the consent that governs a capture is the per-call card, not the
+>   spawn-time `browser_bridge: true` flag. It is an ACTION everywhere else:
+>   audited on EVERY leg (local reads are not) and hub-mirrored on every leg
+>   (hub-leg reads are ring-only). `DESKTOP_ACTION_TOOL_NAMES` is that
+>   distinction, in one place.
+> - **Who raises the card.** §3.3 says "a hub `desktop_action` attention
+>   card", and the hub raises it for relayed calls (D5) — but a LOCAL call
+>   never touches the hub, so the desktop raises the same card kind itself
+>   and parks on it. A call marked `via: 'hub'` skips that, or a remote
+>   agent would be double-prompted. Signed out ⇒ no way to ask ⇒ refused
+>   (`UI_APPROVAL_UNAVAILABLE`), never captured unasked.
+> - **The refusal reads the focus cache, and covers both panes.** "Which
+>   surfaces are on screen" is answered by the same projected snapshot the
+>   agent can already see — not a second source of truth — and a split
+>   refuses if EITHER pane refuses, so the vault cannot ride along in the
+>   half the user is not focused on. No snapshot yet ⇒ refuse: we decline
+>   what we cannot classify. Guests are governed by the same table through
+>   `surfaceForPartition`, so a new partition opts in by naming its row.
+> - **Re-checked after the park.** The approval was for what was on screen
+>   when the card was raised; the user may have walked into the vault while
+>   it sat open, so the window leg re-runs the refusal before it captures.
+>
+> The park is **2 minutes**, not the hub's 10: this leg holds an MCP call
+> open over stdio, and a client that gives up mid-park would leave the user
+> approving a call nobody is waiting for. Timeout dismisses the row and
+> denies.
 
 **D4 — element-resolved pointing.** Rect-over-webtab → `@eN` ref via the
 bridge snapshot; structured pointer rides the attachment payload.

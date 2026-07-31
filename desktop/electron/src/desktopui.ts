@@ -40,6 +40,13 @@ export function isUiSharingEnabled(): boolean {
 /// that crosses IPC), so main's job is just to hold and serve it.
 let focusCache: Record<string, unknown> | null = null;
 
+/// D3's capture path reads the same cache to learn which surfaces are on
+/// screen — the refusal decision must be made from the SAME view of the
+/// screen the agent can already see, not from a second source of truth.
+export function currentFocusSnapshot(): Record<string, unknown> | null {
+  return sharingEnabled ? focusCache : null;
+}
+
 /// A runaway publisher can't fill memory: snapshots are ref-sized (a handful
 /// of ids/paths); anything bigger is a bug, not a bigger allowance.
 const MAX_SNAPSHOT_BYTES = 16384;

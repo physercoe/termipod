@@ -47,6 +47,7 @@ import type { AddressInfo } from 'node:net';
 // Explicit .ts extension: this module runs under `node --test`'s strip-only
 // loader (which resolves like plain ESM) as well as esbuild.
 import { partitionPolicy } from './webtab_policy.ts';
+import { parseScreenshotArgs } from './uicapture.ts';
 
 // ── Targets / backend ────────────────────────────────────────────────────────
 
@@ -420,7 +421,33 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       'What the TermiPod desktop user is currently looking at: the workbench surface(s) on screen plus focus state (open tab, focused agent, Inspect file + selection, terminal pane) as a compact JSON snapshot with captured_at. With a split, `surface` is the PRIMARY pane, `secondary` the pinned pane, and `active_pane` names the pane the user is in — resolve "this/here" against the active pane, not `surface` alone. Ids, paths and fragment-stripped URLs only — never message bodies, vault material, or settings values. Call this when the user references what is on their screen ("this", "here", "what I\'m looking at", "why is this failing") or when grounding in the user\'s current view would materially change the answer; do NOT call by default on every turn.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
+  // D3 (plan §3.3, ADR-062 D-4): the VISUAL representation — pixels for the
+  // residue structure cannot answer. Read-SCOPED on purpose (the local
+  // kimi-code loop holds only the read token) but action-CLASS in every other
+  // respect: per-call approval, no session grant, audited + hub-mirrored.
+  {
+    name: 'ui_screenshot',
+    description:
+      'Capture a PNG screenshot of the TermiPod desktop window, or of one embedded browser tab (tabId from browser_list_tabs). EVERY call raises an approval card the desktop user must accept — there is no standing grant, so use this only when pixels are the answer: a rendering bug, a layout question, "why does this look wrong". For what the user is looking at, ui_get_focus is cheaper, precise and needs no approval; for page content, browser_snapshot. Captures are refused outright while a sensitive surface (vault, settings) is on screen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'integer', description: 'Capture this embedded tab instead of the whole desktop window.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
+
+/// The D1/D3 desktop-UI tools, which the sharing toggle gates as a set: off
+/// means neither appears in any catalog and both refuse on call.
+export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot']);
+
+/// Desktop-UI tools that are ACTION class despite living in READ_TOOLS (the
+/// bearer scope they need and the consent they need are different questions —
+/// see the ui_screenshot definition). They audit + hub-mirror like an action
+/// on every leg, and their own handler owns the approval gate.
+export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot']);
 
 /// D1: the MCP resource uri mirroring ui_get_focus (ADR-062 D-6). list + read
 /// only — subscriptions are deliberately NOT implemented: the relay forwards
@@ -547,11 +574,14 @@ const ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(ACTION_TOOLS.map((t) => t
 const READ_TOOL_NAMES: ReadonlySet<string> = new Set(READ_TOOLS.map((t) => t.name));
 
 /// Whether an audit entry should be mirrored to the hub as an agent event.
-/// Actions always mirror (W2 contract). Hub-leg READS stay ring-only: the
-/// hub routed the call, so a mirror row adds no information — the ring
-/// entry exists purely so Settings → Remote driving can show (and revoke)
-/// read-only remote sessions.
+/// Actions always mirror (W2 contract) — including the desktop-UI action
+/// tools, which sit in READ_TOOLS for scope reasons but are actions for
+/// consent and audit (D3). Hub-leg READS stay ring-only: the hub routed the
+/// call, so a mirror row adds no information — the ring entry exists purely
+/// so Settings → Remote driving can show (and revoke) read-only remote
+/// sessions.
 export function shouldMirrorAudit(entry: BridgeAuditEntry): boolean {
+  if (DESKTOP_ACTION_TOOL_NAMES.has(entry.tool)) return true;
   return !(entry.via === 'hub' && READ_TOOL_NAMES.has(entry.tool));
 }
 
@@ -574,7 +604,33 @@ export interface McpServerDeps {
   /// D1: the main-side focus cache (the renderer's last projected push), or
   /// null before the first push — the tool then answers an empty snapshot.
   getUiFocus?: () => Record<string, unknown> | null;
+  /// D3: the gated screenshot (uicapture_host.ts). Absent means the capability
+  /// is not wired at all, which refuses like any other unavailable tool. The
+  /// provider owns the policy refusal AND the per-call approval — this module
+  /// only resolves the target and shapes the result.
+  captureUi?: (req: UiCaptureRequest) => Promise<UiCaptureResult>;
 }
+
+/// One `ui_screenshot` request, with the target already resolved against the
+/// live guest registry (so a guessed tabId can never name the app:// shell)
+/// and the caller's identity attached for the approval card + audit.
+export interface UiCaptureRequest {
+  /// null = the desktop window itself.
+  tabId: number | null;
+  /// The guest's fragment-stripped URL, when capturing a tab.
+  url: string | null;
+  /// The guest's partition, when capturing a tab — the policy key.
+  partition: string | null;
+  agentId: string;
+  agentHandle: string;
+  /// 'hub' calls arrive pre-approved (the hub raises the desktop_action card
+  /// before routing — D5), so the desktop must not raise a second one.
+  via: 'local' | 'hub';
+}
+
+export type UiCaptureResult =
+  | { ok: true; data_b64: string; width: number; height: number }
+  | { ok: false; code: string; message: string };
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -893,7 +949,7 @@ async function uploadFiles(deps: McpServerDeps, target: BridgeTarget, args: Reco
   }
 }
 
-async function runTool(deps: McpServerDeps, name: string, args: Record<string, unknown>): Promise<unknown> {
+async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: string, args: Record<string, unknown>): Promise<unknown> {
   const { backend } = deps;
   switch (name) {
     case 'browser_list_tabs': {
@@ -1039,6 +1095,33 @@ async function runTool(deps: McpServerDeps, name: string, args: Record<string, u
       }
       return textContent(uiFocusText(deps));
     }
+    case 'ui_screenshot': {
+      // Same consent gate as ui_get_focus (the toggle governs the whole D1/D3
+      // capability set), then the target resolution — `requireTarget` is what
+      // keeps a tabId inside the allowlisted guest registry.
+      if (deps.uiFocusAvailable?.() !== true) {
+        throw new BridgeError(
+          'UI_UNAVAILABLE',
+          'UI context sharing is off on the desktop (Settings → Assistant) — the desktop UI is not addressable',
+        );
+      }
+      if (deps.captureUi === undefined) {
+        throw new BridgeError('UI_UNAVAILABLE', 'this desktop build cannot capture its own window');
+      }
+      const parsed = parseScreenshotArgs(args);
+      if ('error' in parsed) throw new BridgeError('INVALID_PARAMS', parsed.error);
+      const target = parsed.tabId === null ? null : requireTarget(deps, { tabId: parsed.tabId });
+      const res = await deps.captureUi({
+        tabId: parsed.tabId,
+        url: target !== null ? stripFragment(target.url) : null,
+        partition: target?.partition ?? null,
+        agentId: ctx.agentId ?? '',
+        agentHandle: ctx.agentHandle ?? '',
+        via: ctx.via ?? 'local',
+      });
+      if (!res.ok) throw new BridgeError(res.code, res.message);
+      return { content: [{ type: 'image', data: res.data_b64, mimeType: 'image/png' }] };
+    }
     default:
       throw new BridgeError('UNKNOWN_TOOL', `unknown tool '${name}'`);
   }
@@ -1060,7 +1143,13 @@ function uiFocusText(deps: McpServerDeps): string {
 /// driving (local reads stay unaudited: same-machine spawns, high frequency,
 /// and the ring would churn).
 async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!ACTION_TOOL_NAMES.has(name) && ctx.via !== 'hub') return runTool(deps, name, args);
+  // D3: a desktop-UI action tool is audited on EVERY leg, local included — a
+  // screenshot of the user's own screen is exactly what the Settings audit
+  // view exists to show, and unlike a browser read it is neither cheap nor
+  // frequent, so the ring will not churn.
+  if (!ACTION_TOOL_NAMES.has(name) && !DESKTOP_ACTION_TOOL_NAMES.has(name) && ctx.via !== 'hub') {
+    return runTool(deps, ctx, name, args);
+  }
   const tabId = typeof args.tabId === 'number' && Number.isInteger(args.tabId) ? args.tabId : null;
   const target = tabId === null ? undefined : deps.backend.listTargets().find((t) => t.tabId === tabId);
   const entry: BridgeAuditEntry = {
@@ -1077,7 +1166,7 @@ async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: st
   };
   if (ctx.agentHandle !== undefined) entry.agent_handle = ctx.agentHandle;
   try {
-    const out = await runTool(deps, name, args);
+    const out = await runTool(deps, ctx, name, args);
     entry.ok = true;
     return out;
   } catch (e) {
@@ -1234,10 +1323,10 @@ export async function handleMcpMessage(
       return rpcResult(id, {});
     case 'tools/list': {
       // Scope gate #1: a read-scoped session never SEES the action tools.
-      // Consent gate (D1): ui_get_focus is catalog-visible only while the
-      // desktop's UI context sharing toggle is on.
-      const reads =
-        deps.uiFocusAvailable?.() === true ? READ_TOOLS : READ_TOOLS.filter((t) => t.name !== 'ui_get_focus');
+      // Consent gate (D1/D3): the desktop-UI tools are catalog-visible only
+      // while the sharing toggle is on — off means no publisher and no tool
+      // in any catalog.
+      const reads = deps.uiFocusAvailable?.() === true ? READ_TOOLS : READ_TOOLS.filter((t) => !UI_TOOL_NAMES.has(t.name));
       return rpcResult(id, { tools: ctx.scope === 'full' ? [...reads, ...ACTION_TOOLS] : reads });
     }
     case 'resources/list': {

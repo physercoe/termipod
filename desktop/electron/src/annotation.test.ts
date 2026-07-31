@@ -14,8 +14,10 @@ import {
   annotationTempPath,
   fitWithin,
   injectImageIntoComposer,
+  injectNoteIntoComposer,
   isAnnotationTempFile,
   KIMI_FILE_INPUT_SELECTORS,
+  KIMI_TEXT_INPUT_SELECTORS,
   MAX_IMAGE_EDGE,
   normalizeDrag,
   pickCaptureTarget,
@@ -155,6 +157,8 @@ function fakeCdp(nodeIds: number[]): { send: (m: string, p?: Record<string, unkn
       if (method === 'DOM.setFileInputFiles') return {};
       if (method === 'Runtime.callFunctionOn') return {};
       if (method === 'Runtime.releaseObject') return {};
+      if (method === 'DOM.focus') return {};
+      if (method === 'Input.insertText') return {};
       throw new Error(`unexpected ${method}`);
     },
   };
@@ -212,6 +216,41 @@ test('kimi injection: an unresolvable node → no-input', async () => {
     return {};
   };
   assert.equal(await injectImageIntoComposer(send, '/tmp/x.png'), 'no-input');
+});
+
+// ── kimi composer NOTE injection (D4 — the pointer must ride this path too) ──
+
+test('kimi note: focus the composer text box, then insert via the input pipeline', async () => {
+  const { send, calls } = fakeCdp([7]);
+  const res = await injectNoteIntoComposer(send, 'why is this red?\nPointing at a button…');
+  assert.equal(res, 'injected');
+  const focus = calls.findIndex((c) => c.method === 'DOM.focus');
+  const insert = calls.findIndex((c) => c.method === 'Input.insertText');
+  assert.ok(focus >= 0 && insert > focus, 'focus before insert');
+  assert.equal(calls[focus].params?.nodeId, 7);
+  // Input.insertText rides the browser's own input pipeline (React's value
+  // tracker included) — never a .value= assignment the SPA can't see.
+  assert.equal(calls[insert].params?.text, 'why is this red?\nPointing at a button…');
+});
+
+test('kimi note: textarea, then contenteditable — first match wins', async () => {
+  const tried: string[] = [];
+  const send = async (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+    if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
+    if (method === 'DOM.querySelectorAll') {
+      tried.push(String(params?.selector));
+      return { nodeIds: params?.selector === KIMI_TEXT_INPUT_SELECTORS[KIMI_TEXT_INPUT_SELECTORS.length - 1] ? [5] : [] };
+    }
+    return {};
+  };
+  assert.equal(await injectNoteIntoComposer(send, 'note'), 'injected');
+  assert.deepEqual(tried, [...KIMI_TEXT_INPUT_SELECTORS]);
+});
+
+test('kimi note: no text box → no-input, and nothing inserted', async () => {
+  const { send, calls } = fakeCdp([]);
+  assert.equal(await injectNoteIntoComposer(send, 'note'), 'no-input');
+  assert.ok(!calls.some((c) => c.method === 'Input.insertText'));
 });
 
 // ── Companion chip → postAgentInput payload shape ────────────────────────────

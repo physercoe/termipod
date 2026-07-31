@@ -34,14 +34,22 @@ export interface UiPointer {
   actionable: boolean;
 }
 
+/// Accessible names come from the PAGE — quotes inside one must not read as
+/// closing the quoted span it renders in.
+function quoted(name: string): string {
+  return `"${name.replace(/"/g, '\\"')}"`;
+}
+
 /// The compact chip shown in the target row and the composer: `@e42 · button
 /// · "Deploy"`. Missing pieces are dropped rather than rendered as blanks.
-export function formatPointerLabel(p: UiPointer): string {
+/// `tabFallback` is the (localized) label when nothing else resolved — the
+/// caller passes its own t() string; the default keeps non-UI callers working.
+export function formatPointerLabel(p: UiPointer, tabFallback?: string): string {
   const parts: string[] = [];
   if (p.ref !== undefined && p.ref !== '') parts.push(p.ref);
   if (p.role !== undefined && p.role !== '') parts.push(p.role);
-  if (p.name !== undefined && p.name !== '') parts.push(`"${p.name}"`);
-  return parts.length > 0 ? parts.join(' · ') : `tab ${String(p.tab_id)}`;
+  if (p.name !== undefined && p.name !== '') parts.push(quoted(p.name));
+  return parts.length > 0 ? parts.join(' · ') : (tabFallback ?? `tab ${String(p.tab_id)}`);
 }
 
 /// The line the AGENT reads. The image alone says "somewhere around here";
@@ -60,9 +68,16 @@ export function formatPointerNote(p: UiPointer): string {
   return `Pointing at ${what} in ${where} — ref ${p.ref}.${how}`;
 }
 
+/// The name is page-derived and rides the user-trusted note channel, so the
+/// sentence SAYS so ("the page labels …") instead of presenting it as the
+/// user's words — the same provenance discipline the bridge's content tools
+/// apply with their UNTRUSTED marker, scaled to an 80-char label.
 function describeElement(p: UiPointer): string {
   const role = p.role !== undefined && p.role !== '' ? p.role : 'element';
-  return p.name !== undefined && p.name !== '' ? `the ${role} "${p.name}"` : `a ${role}`;
+  const article = /^[aeiou]/i.test(role) ? 'an' : 'a';
+  return p.name !== undefined && p.name !== ''
+    ? `${article} ${role} the page labels ${quoted(p.name)}`
+    : `${article} ${role}`;
 }
 
 /// Fold the pointer into the user's note. The user's own words come first —

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { looksLikeDot } from './dotGraph';
+import { looksLikeDot } from './dotGraph.ts';
 
 /// The Inspect (J3) surface's open-tab model — the multi-source inspector shell
 /// that replaces the round-1 paste textarea. Each tab is a viewer over one

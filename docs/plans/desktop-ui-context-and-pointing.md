@@ -749,11 +749,37 @@ rides D5's generalized dispatch unchanged.
 >   risk section put it — the `highlight` column, a per-agent rate limit
 >   (6/minute), a TTL that is ours not the caller's, always-present
 >   attribution, and an audit entry per call.
-> - **The overlay sits BELOW the modal tier.** An agent must not be able
->   to cover the Attention dock or a consent dialog with its own marker.
+> - **The overlay sits BELOW the modal tier — and the Attention dock now
+>   stacks above the overlay too.** The dock is an in-flow region, so
+>   z-order alone did not protect its bottom strip from the fixed
+>   bottom-right marker layer; `.region.dock` is raised one step over the
+>   highlight layer (still below menus/modals) so an agent's marker can
+>   never paint over — or click-intercept — the UI that governs it.
+> - **The highlight is a corner marker, not a positional glow — a
+>   deliberate v1 descope.** §3.4b's fuller shape (a glow over the
+>   surface's own region, or over an AX element of a webtab guest — the
+>   D4 machinery in reverse) needs surface-region geometry the renderer
+>   does not yet expose to this layer; the shipped marker NAMES the
+>   surface, carries the attribution/note, and offers the user-actuated
+>   "Go there". Positional payloads in a ref (D4's `{guest, rect}`)
+>   parse but do not place the marker yet. Owed to a follow-up wedge
+>   alongside the Playwright pass.
+> - **Local-loop attribution is coarse.** The static `mcp.json` path
+>   (kimi web/CLI — the first-priority channel) sends no `x-tp-agent-id`,
+>   so every local caller renders as the generic subject and shares one
+>   rate bucket. Remote (hub-relayed) callers are attributed exactly.
+>   Acceptable for v1: the local loop has at most one kimi panel talking.
 >
 > Refusals deliberately do **not** consume rate budget: the limit exists to
-> stop a loop, not to punish an agent that mistyped a ref.
+> stop a loop, not to punish an agent that mistyped a ref. Review
+> hardening (post-fleet-review): ref-chips ride the `text` feed kind (the
+> agent's actual replies), malformed percent escapes in a `ui://` token
+> are junk params rather than a `decodeURIComponent` throw (which crashed
+> the transcript on render, persistently), the audit ring clips the note
+> and stringifies+caps the ref instead of retaining raw agent-authored
+> structures, the renderer re-clamps TTL/note on the IPC boundary, turning
+> sharing off clears live markers, and a chip click that stops at the
+> surface tier says so in a toast.
 
 ## 5. Testing
 

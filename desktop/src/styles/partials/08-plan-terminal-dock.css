@@ -1351,6 +1351,16 @@
   pointer-events: none;
   max-width: min(420px, calc(100vw - 48px));
 }
+/* The Attention dock is an in-flow region (z-auto); without this it shares
+   the bottom-right corner with the fixed highlight layer, and a marker's
+   card (pointer-events: auto) could paint over — and click-intercept — the
+   dock's bottom strip, where desktop_action approval cards render. The
+   dock therefore stacks ABOVE the highlight layer (and still below menus/
+   modals): an agent's marker must never cover the UI that governs it. */
+.region.dock {
+  position: relative;
+  z-index: calc(var(--z-overlay) + 1);
+}
 .agent-highlight {
   display: flex;
   align-items: center;

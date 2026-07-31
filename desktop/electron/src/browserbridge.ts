@@ -227,6 +227,15 @@ export function redactBridgeArgs(tool: string, args: Record<string, unknown>): R
       out[k] = v.length > 200 ? `${v.slice(0, 200)}… (${String(v.length)} chars)` : v;
     } else if (tool === 'browser_send_keys' && k === 'keys' && typeof v === 'string' && v.length === 1) {
       out[k] = '<redacted char>';
+    } else if (tool === 'ui_highlight' && k === 'note' && typeof v === 'string') {
+      // The ring must not out-store what the marker shows: the tool clips the
+      // note to one short line, so the audit entry does too.
+      out[k] = v.length > 140 ? `${v.slice(0, 140)}… (${String(v.length)} chars)` : v;
+    } else if (tool === 'ui_highlight' && k === 'ref' && v !== null && typeof v === 'object') {
+      // An agent-authored object of arbitrary depth — audit the shape, capped,
+      // rather than retaining the whole structure in memory for 50 entries.
+      const json = JSON.stringify(v) ?? '';
+      out[k] = json.length > 200 ? `${json.slice(0, 200)}… (${String(json.length)} chars)` : json;
     } else if (k === 'url' && typeof v === 'string') {
       out[k] = stripFragment(v);
     } else {
@@ -673,7 +682,8 @@ export interface UiHighlightRequest {
   ttlMs: number | null;
   agentId: string;
   agentHandle: string;
-  via: 'local' | 'hub';
+  // No `via`: the leg is recorded by the audit ring at the callTool wrapper,
+  // and the highlight itself treats local and relayed callers identically.
 }
 
 export type UiHighlightResult = { ok: true; surface: string; ttl_ms: number } | { ok: false; code: string; message: string };
@@ -1222,7 +1232,6 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
         ttlMs,
         agentId: ctx.agentId ?? '',
         agentHandle: ctx.agentHandle ?? '',
-        via: ctx.via ?? 'local',
       });
       if (!res.ok) throw new BridgeError(res.code, res.message);
       // The answer says what the user will SEE, so the agent can describe it

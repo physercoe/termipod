@@ -408,11 +408,14 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
   const p = ev.payload;
   switch (ev.kind) {
     case 'text': {
+      // `text` is the agent's own prose — the PRIMARY carrier of D6
+      // ref-chips ("an agent-emitted UIRef in a reply renders as a
+      // clickable chip"). uiRefs must ride both branches of the fold.
       const body = str(p, 'text') ?? '';
-      if (!isFoldable(body)) return <Markdown text={body} />;
+      if (!isFoldable(body)) return <Markdown text={body} uiRefs />;
       return (
         <ClampText>
-          <Markdown text={body} />
+          <Markdown text={body} uiRefs />
         </ClampText>
       );
     }

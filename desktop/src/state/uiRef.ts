@@ -47,6 +47,19 @@ const SURFACE_RE = /^[a-z][a-z0-9_-]*$/;
 /// a trailing `.` or `)` belongs to the sentence, not the ref.
 export const UI_REF_TOKEN_RE = /ui:\/\/[a-z][a-z0-9_-]*(?:\?[A-Za-z0-9_=&,.:/@%+-]*)?/g;
 
+/// decodeURIComponent throws on malformed escapes (`%`, `%zz`) — and this
+/// grammar reads AGENT PROSE, where "100% done" is a sentence, not an
+/// escape. A throw here would take the whole transcript surface down on
+/// render, and the message persists, so it would crash again on every
+/// re-mount. A pair we cannot decode is junk, not an exception.
+function safeDecode(part: string): string | null {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return null;
+  }
+}
+
 export function parseUiRefUri(uri: string): UiRef | null {
   if (!uri.startsWith('ui://')) return null;
   const rest = uri.slice('ui://'.length);
@@ -59,9 +72,9 @@ export function parseUiRefUri(uri: string): UiRef | null {
       if (pair === '') continue;
       const eq = pair.indexOf('=');
       if (eq <= 0) continue;
-      const key = decodeURIComponent(pair.slice(0, eq));
-      const value = decodeURIComponent(pair.slice(eq + 1));
-      if (key === '' || value === '' || value.length > MAX_PARAM_LEN) continue;
+      const key = safeDecode(pair.slice(0, eq));
+      const value = safeDecode(pair.slice(eq + 1));
+      if (key === null || value === null || key === '' || value === '' || value.length > MAX_PARAM_LEN) continue;
       if (Object.keys(params).length >= MAX_PARAMS) break;
       params[key] = value;
     }

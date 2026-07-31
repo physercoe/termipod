@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useT } from '../i18n';
+import { toast } from '../state/toast';
 import { useAgentHighlight, type HighlightOrder } from '../state/agentHighlight';
 import { canFocusUiRef, focusUiRef } from '../state/uiRefFocus';
 import { uiRefLabel } from '../state/uiRef';
@@ -36,12 +37,22 @@ function HighlightCard({ order }: { order: HighlightOrder }): JSX.Element {
   return (
     <div className="agent-highlight" role="status">
       <span className="agent-highlight-who">
-        <Icon name="crosshair" size={12} /> {t('highlight.points').replace('{agent}', order.by)}
+        {/* Function replacement: `by` is agent-influenced, and a literal `$&`
+            in a handle must render as itself, not as a replace() pattern. */}
+        <Icon name="crosshair" size={12} /> {t('highlight.points').replace('{agent}', () => order.by)}
       </span>
       <span className="agent-highlight-ref">{uiRefLabel(order.ref)}</span>
       {order.note !== '' && <span className="agent-highlight-note">{order.note}</span>}
       {focusable && (
-        <button type="button" className="link-btn" onClick={() => void focusUiRef(order.ref)}>
+        <button
+          type="button"
+          className="link-btn"
+          onClick={() => {
+            if (focusUiRef(order.ref) === 'surface' && Object.keys(order.ref.params).length > 0) {
+              toast.info(t('uiref.surfaceOnly'));
+            }
+          }}
+        >
           {t('highlight.goThere')}
         </button>
       )}

@@ -12,10 +12,12 @@
 /// setter for it (Replay's dataset/episode, Inspect's tabs by path), and where
 /// one does not, the chip lands the user on the surface and stops. That beats
 /// pretending, and it beats not shipping the chip at all.
-import { isKnownJob, useWorkbench, type JobId } from './workbench';
-import { useReplay } from './replay';
-import { useInspect } from './inspect';
-import type { UiRef } from './uiRef';
+// `.ts` extensions so `node --test` resolves the module graph — all three
+// stores are pure zustand and this file is on the plan's §5 test list.
+import { isKnownJob, useWorkbench, type JobId } from './workbench.ts';
+import { useReplay } from './replay.ts';
+import { useInspect } from './inspect.ts';
+import type { UiRef } from './uiRef.ts';
 
 /// How far a click got. Returned so the caller can say something honest when
 /// a ref points at a surface this build cannot open.

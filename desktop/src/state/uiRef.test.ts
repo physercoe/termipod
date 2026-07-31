@@ -90,6 +90,21 @@ test('linkifyUiRefs turns agent prose into chips — and leaves code alone', () 
   assert.equal(linkifyUiRefs('nothing here'), 'nothing here');
 });
 
+test('malformed percent escapes are junk params, never a throw', () => {
+  // Regression: decodeURIComponent throws on a lone `%` / `%zz`, and this
+  // grammar reads AGENT PROSE — "100% done" is a sentence. The throw
+  // happened during Markdown render, so one such message crashed the
+  // transcript surface on every re-mount (persistent, agent-controlled).
+  assert.doesNotThrow(() => linkifyUiRefs('see ui://read?file=100% done'));
+  assert.doesNotThrow(() => linkifyUiRefs('x ui://read?a=%zz y'));
+  assert.doesNotThrow(() => parseUiRefUri('ui://read?a=%'));
+  // The pair that failed to decode is dropped; the ref itself survives —
+  // "a token we cannot parse stays prose" applies to the pair, not the ref.
+  assert.deepEqual(parseUiRefUri('ui://read?a=%zz&tab_id=wt_3'), { surface: 'read', params: { tab_id: 'wt_3' } });
+  // And the linkified output still renders as a chip for the valid part.
+  assert.match(linkifyUiRefs('ui://read?a=%zz&tab_id=wt_3'), /^\[.*\]\(ui:\/\/read\?a=%zz&tab_id=wt_3\)$/);
+});
+
 test('a ref carries references only — never content', () => {
   // Stated as an invariant: the type has no content field and the parser
   // mints none. A future field addition has to argue with this line

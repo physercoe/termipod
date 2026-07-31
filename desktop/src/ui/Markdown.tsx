@@ -1,6 +1,7 @@
 import { isValidElement, memo, useEffect, useState, type ReactNode } from 'react';
 import { linkifyUiRefs, parseUiRefUri } from '../state/uiRef';
 import { canFocusUiRef, focusUiRef } from '../state/uiRefFocus';
+import { toast } from '../state/toast';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { Icon } from './Icon';
 import { useT } from '../i18n';
@@ -223,6 +224,7 @@ export const Markdown = memo(function Markdown({
   uiRefs?: boolean;
 }): JSX.Element {
   const openLink = useOpenLink();
+  const t = useT();
   const withRefs = uiRefs ? linkifyUiRefs(text) : text;
   const src = singleDollarMath ? normalizeMath(withRefs) : withRefs;
   const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'): Components[typeof Tag] =>
@@ -264,7 +266,18 @@ export const Markdown = memo(function Markdown({
                   className="md-uiref"
                   title={href}
                   disabled={!focusable}
-                  onClick={focusable ? () => void focusUiRef(ref) : undefined}
+                  onClick={
+                    focusable
+                      ? () => {
+                          // Honest about depth: when the surface opened but
+                          // the entity focus stopped short, say so — a silent
+                          // partial jump reads as a broken chip.
+                          if (focusUiRef(ref) === 'surface' && Object.keys(ref.params).length > 0) {
+                            toast.info(t('uiref.surfaceOnly'));
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   {children}
                 </button>

@@ -61,11 +61,16 @@ export function asHighlightOrder(value: unknown): HighlightOrder | null {
   const surface = (ref as Record<string, unknown>).surface;
   if (typeof v.id !== 'string' || v.id === '' || typeof surface !== 'string' || surface === '') return null;
   const params = (ref as Record<string, unknown>).params;
-  const ttl = typeof v.ttl_ms === 'number' && Number.isFinite(v.ttl_ms) && v.ttl_ms > 0 ? v.ttl_ms : 8000;
+  // Main already clamps TTL (30s max) and clips the note (140) — re-applied
+  // here because a renderer store takes nothing on trust from an IPC payload
+  // an agent's arguments reached, however filtered (defense in depth).
+  const rawTtl = typeof v.ttl_ms === 'number' && Number.isFinite(v.ttl_ms) && v.ttl_ms > 0 ? v.ttl_ms : 8000;
+  const ttl = Math.min(rawTtl, 30_000);
+  const note = typeof v.note === 'string' ? v.note.slice(0, 140) : '';
   return {
     id: v.id,
     ref: { surface, params: params !== null && typeof params === 'object' ? (params as Record<string, string>) : {} },
-    note: typeof v.note === 'string' ? v.note : '',
+    note,
     by: typeof v.by === 'string' && v.by !== '' ? v.by : 'an agent',
     ttl_ms: ttl,
     at: typeof v.at === 'string' ? v.at : '',

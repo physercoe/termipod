@@ -2,6 +2,7 @@ package kimi_code
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -314,6 +315,11 @@ func TestMapper_DropsKnownNoise(t *testing.T) {
 		`{"type":"llm.tools_snapshot","hash":"abc","tools":[]}`,
 		`{"type":"llm.request","kind":"loop","model":"k3","time":1}`,
 		`{"type":"context.append_loop_event","event":{"type":"step.begin","uuid":"s","turnId":"0","step":1},"time":1}`,
+		// 0.31: the compaction bookends bracket the apply event that
+		// carries the signal; mcp.tools_discovered is tool-catalog noise.
+		`{"type":"full_compaction.begin","source":"manual","time":1}`,
+		`{"type":"full_compaction.complete","time":2}`,
+		`{"type":"mcp.tools_discovered","serverName":"s","enabledNames":["a"],"hash":"h","tools":[],"time":3}`,
 	} {
 		if evs := mustMap(t, m, line); len(evs) != 0 {
 			t.Errorf("noise line produced events: %s → %+v", line, evs)
@@ -394,5 +400,264 @@ func TestMapper_RealFixtureReplay(t *testing.T) {
 			plans[1]["message_id"] != plans[2]["message_id"]) {
 		t.Errorf("fixture plan updates didn't share the chain: %q %q %q",
 			plans[0]["message_id"], plans[1]["message_id"], plans[2]["message_id"])
+	}
+}
+
+// --- kimi-code 0.31.0 wire vocabulary ---
+
+// turn.cancel → turn.result with EXACTLY the ACP driver's eager-cancel
+// vocabulary (driver_acp.go Input("cancel")): the busy-walker
+// terminates on the kind, the digest reads stop_reason ("cancelled" is
+// a normal stop — an intentional end, not a finding), and status
+// matches what ACP engines post on a user cancel. This is THE 0.31
+// correctness fix: kimi writes no step.end end_turn for the
+// interrupted turn, so without it the session stayed busy forever.
+func TestMapper_TurnCancelMapsToCancelledTurnResult(t *testing.T) {
+	m := NewMapper("main", "", "")
+	evs := mustMap(t, m, `{"type":"turn.cancel","time":1784620213235}`)
+	if len(evs) != 1 || evs[0].Kind != "turn.result" {
+		t.Fatalf("want one turn.result; got %+v", evs)
+	}
+	ev := evs[0]
+	if ev.Producer != "agent" {
+		t.Fatalf("producer = %q, want agent", ev.Producer)
+	}
+	if ev.Payload["status"] != "cancelled" || ev.Payload["stop_reason"] != "cancelled" {
+		t.Fatalf("cancel vocabulary wrong: %+v", ev.Payload)
+	}
+	// No reason:end_of_turn — that spelling means a clean finish.
+	if _, has := ev.Payload["reason"]; has {
+		t.Fatalf("cancelled turn.result must not carry the end_of_turn reason key: %+v", ev.Payload)
+	}
+}
+
+// A subagent's turn.cancel describes its inner loop, not the session's
+// turn — same drop guard as mapStepEnd (#374).
+func TestMapper_TurnCancel_SubagentDrops(t *testing.T) {
+	m := NewMapper("agent-9", "main", "")
+	if evs := mustMap(t, m, `{"type":"turn.cancel","time":1}`); len(evs) != 0 {
+		t.Fatalf("subagent turn.cancel should drop; got %+v", evs)
+	}
+}
+
+// turn.steer drops EVERY origin explicitly (no unknown_type drift
+// noise): background_task is the engine's own task-notification
+// envelope (129/133 steers in the 0.31 capture), user steers duplicate
+// the hub's input.text (same rationale as turn.prompt), unknown
+// origins drop quietly rather than guess.
+func TestMapper_TurnSteerDropsAllOrigins(t *testing.T) {
+	m := NewMapper("main", "", "")
+	for _, line := range []string{
+		`{"type":"turn.steer","input":[{"type":"text","text":"x"}],"origin":{"kind":"background_task","taskId":"bash-0576ywug","status":"completed","notificationId":"task:bash-0576ywug:completed"},"time":1}`,
+		`{"type":"turn.steer","input":[{"type":"text","text":"x"}],"origin":{"kind":"user"},"time":2}`,
+		`{"type":"turn.steer","input":[{"type":"text","text":"x"}],"origin":{"kind":"some_future_origin"},"time":3}`,
+		`{"type":"turn.steer","input":[{"type":"text","text":"x"}],"time":4}`,
+	} {
+		if evs := mustMap(t, m, line); len(evs) != 0 {
+			t.Errorf("steer should drop silently (no events, no unknown_type): %s → %+v", line, evs)
+		}
+	}
+}
+
+// turn.prompt origin.kind=task (0.31 goal/cron engine tasks +
+// background-task notices) drops like any prompt but STILL re-arms the
+// per-turn plan chain — a task prompt opens a real engine turn.
+func TestMapper_TurnPromptTaskOriginDropsAndRearms(t *testing.T) {
+	m := NewMapper("main", "", "")
+	mustMap(t, m, `{"type":"turn.prompt","input":[{"type":"text","text":"do things"}],"origin":{"kind":"user"},"time":1}`)
+	first := mustMap(t, m, `{"type":"tools.update_store","key":"todo","value":[{"title":"a","status":"pending"}],"time":2}`)
+	idA := first[0].Payload["message_id"]
+
+	taskPrompt := `{"type":"turn.prompt","input":[{"type":"text","text":"<notification redacted>"}],"origin":{"kind":"task","taskId":"bash-kl8rz8bn","status":"completed","notificationId":"task:bash-kl8rz8bn:completed"},"time":3}`
+	if evs := mustMap(t, m, taskPrompt); len(evs) != 0 {
+		t.Fatalf("task-origin prompt should drop; got %+v", evs)
+	}
+	second := mustMap(t, m, `{"type":"tools.update_store","key":"todo","value":[{"title":"b","status":"pending"}],"time":4}`)
+	if second[0].Payload["message_id"] == idA {
+		t.Fatalf("task prompt should re-arm the plan chain; still %q", idA)
+	}
+}
+
+// context.apply_compaction → ONE system event (subtype compaction)
+// with the summary (bounded), the token delta and the compacted count;
+// a text line feeds the default card renderer. begin/complete and
+// mcp.tools_discovered are dropped in TestMapper_DropsKnownNoise.
+func TestMapper_ApplyCompactionMapsToSystemEvent(t *testing.T) {
+	m := NewMapper("main", "", "")
+	evs := mustMap(t, m, `{"type":"context.apply_compaction","summary":"working brief","contextSummary":"boilerplate","compactedCount":135,"tokensBefore":150972,"tokensAfter":1585,"keptUserMessageCount":7,"time":1}`)
+	if len(evs) != 1 || evs[0].Kind != "system" || evs[0].Producer != "system" {
+		t.Fatalf("want one system event; got %+v", evs)
+	}
+	p := evs[0].Payload
+	if p["subtype"] != "compaction" {
+		t.Fatalf("subtype = %v", p["subtype"])
+	}
+	if p["summary"] != "working brief" {
+		t.Fatalf("summary = %v", p["summary"])
+	}
+	if p["compacted_count"] != 135 || p["tokens_before"] != 150972 || p["tokens_after"] != 1585 {
+		t.Fatalf("counts wrong: %+v", p)
+	}
+	text, _ := p["text"].(string)
+	if !strings.Contains(text, "135") || !strings.Contains(text, "150972") || !strings.Contains(text, "1585") {
+		t.Fatalf("text summary = %q", text)
+	}
+	// contextSummary is engine-facing boilerplate, not carried.
+	if _, has := p["contextSummary"]; has {
+		t.Fatalf("contextSummary should not be forwarded: %+v", p)
+	}
+
+	// The summary is bounded so one event can't dominate the transcript.
+	long := strings.Repeat("a", 600)
+	evs2 := mustMap(t, m, `{"type":"context.apply_compaction","summary":"`+long+`","compactedCount":1,"tokensBefore":2,"tokensAfter":1,"time":2}`)
+	got, _ := evs2[0].Payload["summary"].(string)
+	if r := []rune(got); len(r) != 501 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("summary not truncated to the bound: %d runes", len(r))
+	}
+}
+
+// plan_mode / permission.set_mode / swarm_mode (0.31) → producer=system
+// cards carrying the phase/mode/trigger. producer=system keeps them off
+// mobile's busy-inference path (same treatment as the ACP driver's
+// current_mode_update forward).
+func TestMapper_ModeEvents(t *testing.T) {
+	m := NewMapper("main", "", "")
+
+	enter := mustMap(t, m, `{"type":"plan_mode.enter","id":"lockjaw-iron-fist-adam-warlock","time":1}`)
+	p := enter[0].Payload
+	if enter[0].Kind != "system" || enter[0].Producer != "system" ||
+		p["subtype"] != "plan_mode" || p["phase"] != "enter" || p["id"] != "lockjaw-iron-fist-adam-warlock" {
+		t.Fatalf("plan_mode.enter payload = %+v", p)
+	}
+	if text, _ := p["text"].(string); !strings.Contains(text, "enter") || !strings.Contains(text, "lockjaw") {
+		t.Fatalf("plan_mode.enter text = %q", text)
+	}
+
+	for _, line := range []string{
+		`{"type":"plan_mode.cancel","time":2}`,
+		`{"type":"plan_mode.exit","time":3}`,
+	} {
+		evs := mustMap(t, m, line)
+		if len(evs) != 1 || evs[0].Payload["subtype"] != "plan_mode" {
+			t.Fatalf("plan_mode arm produced %+v", evs)
+		}
+		if _, has := evs[0].Payload["id"]; has {
+			t.Fatalf("non-enter phases carry no id: %+v", evs[0].Payload)
+		}
+	}
+
+	perm := mustMap(t, m, `{"type":"permission.set_mode","mode":"yolo","time":4}`)
+	if perm[0].Payload["subtype"] != "permission_mode" || perm[0].Payload["mode"] != "yolo" {
+		t.Fatalf("permission.set_mode payload = %+v", perm[0].Payload)
+	}
+
+	swarmIn := mustMap(t, m, `{"type":"swarm_mode.enter","trigger":"tool","time":5}`)
+	if swarmIn[0].Payload["subtype"] != "swarm_mode" || swarmIn[0].Payload["phase"] != "enter" ||
+		swarmIn[0].Payload["trigger"] != "tool" {
+		t.Fatalf("swarm_mode.enter payload = %+v", swarmIn[0].Payload)
+	}
+	swarmOut := mustMap(t, m, `{"type":"swarm_mode.exit","time":6}`)
+	if swarmOut[0].Payload["phase"] != "exit" {
+		t.Fatalf("swarm_mode.exit payload = %+v", swarmOut[0].Payload)
+	}
+	if _, has := swarmOut[0].Payload["trigger"]; has {
+		t.Fatalf("exit carries no trigger: %+v", swarmOut[0].Payload)
+	}
+}
+
+// The 0.31 event types must not disturb the per-turn plan chain
+// (turnSeq / planMsgID): steers, mode events, compaction and
+// turn.cancel all leave the chain intact; only turn.prompt re-arms.
+func TestMapper_PlanChainUnaffectedBy031Events(t *testing.T) {
+	m := NewMapper("main", "", "")
+	todo := `{"type":"tools.update_store","key":"todo","value":[{"title":"x","status":"pending"}],"time":%d}`
+
+	mustMap(t, m, `{"type":"turn.prompt","input":[{"type":"text","text":"go"}],"origin":{"kind":"user"},"time":1}`)
+	first := mustMap(t, m, fmt.Sprintf(todo, 2))
+	idA := first[0].Payload["message_id"]
+
+	for i, line := range []string{
+		`{"type":"turn.steer","input":[{"type":"text","text":"x"}],"origin":{"kind":"user"},"time":3}`,
+		`{"type":"plan_mode.enter","id":"p","time":4}`,
+		`{"type":"plan_mode.cancel","time":5}`,
+		`{"type":"permission.set_mode","mode":"yolo","time":6}`,
+		`{"type":"swarm_mode.enter","trigger":"tool","time":7}`,
+		`{"type":"swarm_mode.exit","time":8}`,
+		`{"type":"context.apply_compaction","summary":"s","compactedCount":1,"tokensBefore":9,"tokensAfter":2,"time":9}`,
+		`{"type":"turn.cancel","time":10}`,
+	} {
+		mustMap(t, m, line)
+		again := mustMap(t, m, fmt.Sprintf(todo, 20+i))
+		if again[0].Payload["message_id"] != idA {
+			t.Fatalf("after %s the chain moved: %q → %q", line, idA, again[0].Payload["message_id"])
+		}
+	}
+
+	// And turn.prompt still re-arms after all of the above.
+	mustMap(t, m, `{"type":"turn.prompt","input":[{"type":"text","text":"next"}],"origin":{"kind":"user"},"time":100}`)
+	third := mustMap(t, m, fmt.Sprintf(todo, 101))
+	if third[0].Payload["message_id"] == idA {
+		t.Fatalf("turn.prompt should re-arm; still %q", idA)
+	}
+}
+
+// Fixture replay: the sanitized real 0.31.0 capture maps end-to-end —
+// every new event type exercises its arm, explicit drops emit nothing,
+// and the kind histogram + plan-chain rotation + cancel vocabulary are
+// pinned (the drift alarm for 0.31 shapes, alongside the 0.28.1 pin in
+// TestMapper_RealFixtureReplay).
+func TestMapper_RealFixtureReplay_0_31(t *testing.T) {
+	data, err := os.ReadFile("testdata/wire_main_0_31.jsonl")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	m := NewMapper("main", "", "kimi-code-ts")
+	counts := map[string]int{}
+	var plans []map[string]any
+	var turnResults []map[string]any
+	for i, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		evs, err := m.MapLine([]byte(line))
+		if err != nil {
+			t.Fatalf("fixture line %d (%s): %v", i, line[:60], err)
+		}
+		for _, ev := range evs {
+			counts[ev.Kind]++
+			switch ev.Kind {
+			case "plan":
+				plans = append(plans, ev.Payload)
+			case "turn.result":
+				turnResults = append(turnResults, ev.Payload)
+			case "system":
+				if ev.Payload["subtype"] == "unknown_type" {
+					t.Errorf("line %d fell to unknown_type — a 0.31 type lost its arm: %s", i, line[:80])
+				}
+			}
+		}
+	}
+	// The fixture carries: 2 todo updates (one per turn), 1 text part,
+	// 1 usage, 1 turn.cancel, and the mode/compaction system events
+	// (2 plan_mode + 1 permission_mode + 2 swarm_mode + 1 compaction).
+	want := map[string]int{
+		"plan":        2,
+		"system":      6,
+		"text":        1,
+		"usage":       1,
+		"turn.result": 1,
+	}
+	for kind, n := range want {
+		if counts[kind] != n {
+			t.Errorf("kind %s = %d, want %d (all: %v)", kind, counts[kind], n, counts)
+		}
+	}
+	// The task-origin turn.prompt between the two todo updates re-armed
+	// the chain.
+	if len(plans) == 2 && plans[0]["message_id"] == plans[1]["message_id"] {
+		t.Errorf("plan chain should rotate across turns; both %q", plans[0]["message_id"])
+	}
+	// The single turn.result is the cancel terminal, in the ACP
+	// eager-cancel vocabulary.
+	if len(turnResults) == 1 &&
+		(turnResults[0]["status"] != "cancelled" || turnResults[0]["stop_reason"] != "cancelled") {
+		t.Errorf("turn.result payload = %+v, want cancelled/cancelled", turnResults[0])
 	}
 }

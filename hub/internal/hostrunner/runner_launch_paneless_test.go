@@ -353,6 +353,55 @@ func TestLaunchOne_RefusesEmptyBackendCmd(t *testing.T) {
 	}
 }
 
+// TestLaunchOne_RawPaneRunsInTheDerivedWorkdir pins the D5 §3.5
+// consistency rule: PaneDriver.Workdir is where annotation images
+// materialize, so the pane command MUST actually run there — the raw
+// fallback now cd-wraps exactly like every specialized launcher, and
+// Workdir is set only when that cd really happened.
+func TestLaunchOne_RawPaneRunsInTheDerivedWorkdir(t *testing.T) {
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(hub.Close)
+
+	wd := t.TempDir()
+	launcher := &recordingLauncher{pane: "hub-agents:raw-worker.0"}
+	r := &Runner{
+		Client:    NewClient(hub.URL, "tok", "default"),
+		HostID:    "host-x",
+		Launcher:  launcher,
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:   map[string]Driver{},
+		tailers:   map[string]*Tailer{},
+		worktrees: map[string]WorktreeSpec{},
+		panes:     map[string]paneState{},
+		templates: &agentTemplates{},
+	}
+	r.agentPoster = r.Client
+	r.inputs = NewInputRouter(r.Client, r.Log)
+
+	sp := Spawn{
+		ChildID:   "agent-raw-pane",
+		Handle:    "raw-worker",
+		Kind:      "some-tui",
+		Mode:      "M4",
+		SpawnSpec: "driving_mode: M4\nbackend:\n  cmd: some-tui --yolo\n  default_workdir: " + wd + "\n",
+	}
+	r.launchOne(context.Background(), sp)
+
+	got := launcher.gotCmd
+	if !strings.HasPrefix(got, "cd ") || !strings.Contains(got, wd) || !strings.Contains(got, "&& some-tui --yolo") {
+		t.Errorf("raw pane cmd should cd into the derived workdir first; got %q", got)
+	}
+	drv, ok := r.drivers[sp.ChildID].(*PaneDriver)
+	if !ok {
+		t.Fatalf("want a PaneDriver, got %T", r.drivers[sp.ChildID])
+	}
+	if drv.Workdir != wd {
+		t.Errorf("Workdir must name where the pane actually runs: want %q, got %q", wd, drv.Workdir)
+	}
+}
+
 // TestLaunchOne_SkipsWhenDriverAlreadyRegistered pins the W3 dedup
 // guard. The respawn-loop bug in the coder.v1 incident (v1.0.619)
 // reproduced as follows: a malformed spawn fell through to the

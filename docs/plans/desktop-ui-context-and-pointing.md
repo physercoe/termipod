@@ -633,18 +633,27 @@ bridge snapshot; structured pointer rides the attachment payload.
 > the SAME `compactAxTree` `browser_snapshot` uses, which mints the `@eN` →
 > `getPartialAXTree` for role + name. Four decisions worth recording:
 >
-> - **The ref is live.** The compaction registers its refs against the tab
->   (`setSnapshotRefs`), so the `@e42` in the message is one `browser_click`
->   resolves — otherwise the plan's "actionable" claim would be decorative.
+> - **The ref is live, and registering it never clobbers.** An interactive
+>   hit is MERGED into the tab's ref map (`registerAnnotationRef`): if the
+>   agent's last `browser_snapshot` already named the node, the pointer
+>   reuses that ref; otherwise it mints an `@aN` (annotation namespace)
+>   alongside the existing entries. A whole-map replacement would silently
+>   renumber refs the agent still holds — an agent-held `@e5` retargeted at a
+>   different element with no REF_STALE. A later snapshot still replaces the
+>   map, so `@aN` expires on the ordinary staleness contract.
 > - **`actionable` is a field, not an assumption.** Only `bridge: 'full'`
 >   partitions are action-drivable; on kimiweb/rerunweb the note says the ref
 >   is for reference, because promising a click there is a lie the agent
 >   discovers only on refusal.
-> - **The pointer rides IN the note.** `postAgentInput` carries a body and
->   images; a structured field beside them would be dropped on the floor. So
->   the line lands in the user's draft, above the send button, where they can
->   see and edit what the agent will be told — and the chip in the target row
->   shows it before that.
+> - **The pointer rides IN the note, on BOTH paths.** `postAgentInput`
+>   carries a body and images; a structured field beside them would be
+>   dropped on the floor. So the line lands in the user's draft, above the
+>   send button — and the kimi path injects the same composed note into the
+>   kimi composer's text box beside the crop (`DOM.focus` +
+>   `Input.insertText`, the same user-gesture posture as the file
+>   injection; a failed injection is reported so the user types it, never
+>   silently dropped). The chip in the target row shows the pointer before
+>   either send.
 > - **Every failure degrades to no pointer.** The crop is the deliverable. No
 >   debugger, no AX tree, a canvas app with nothing to name: the capture
 >   returns unchanged, and role falls back to the DOM tag name rather than
@@ -698,7 +707,12 @@ path in the note text); hub tool tests mirroring
 > the path (the user pointed at something and said nothing — a legitimate
 > message); and a FAILED write keeps the historical drop-and-warn, with
 > the reason in the event, because "notes the drop rather than failing
-> silently" is the rule.
+> silently" is the rule. Two review follow-ons: the raw-PaneDriver
+> fallback now cd-wraps its launch into the same derived workdir every
+> specialized launcher uses (its `Workdir` was previously a derivation
+> the pane never entered, so a cwd-confined agent could not find the
+> crop), and the annotations directory is capped (newest 32 kept —
+> crops are one-turn artifacts, not a gallery).
 
 **D6 — agent pointing (§3.4b).** Ref-chips: transcript renderer for
 agent-emitted UIRefs + the UIRef→focus dispatcher (chips ship first —

@@ -47,15 +47,25 @@ export function pointerHitScript(x: number, y: number): string {
 }
 
 export interface PointerResolution {
+  /// `ref` is left unset here: the CALLER registers the node with the bridge
+  /// (registerAnnotationRef — merge semantics, never clobbering the map the
+  /// agent's last snapshot minted) and fills in whatever name that returns.
   pointer: UiPointer;
-  /// The refs the AX snapshot minted, for the caller to register against this
-  /// tab — without that, the `@eN` in the message would resolve to nothing.
-  refs: Map<string, number>;
+  /// The node to register, when the element is interactive (this compaction
+  /// minted a ref for it). null = a ref-less pointer: nothing to register,
+  /// and the tab's existing ref map must not be touched.
+  refBackendNodeId: number | null;
 }
 
 /// Resolve the element under `point` (guest CSS px, i.e. the capture rect's
 /// centre translated into the guest's own coordinate space). Returns null when
 /// there is nothing to point at; throws only if the caller's `send` does.
+///
+/// This runs AFTER capturePage (a pointer failure must never cost the crop),
+/// so it hit-tests what is under the point NOW, not what the crop shows — a
+/// navigation, scroll, or SPA re-render in between can make the pointer name
+/// a different element than the pixels. The pre-send chip is the mitigation:
+/// the user sees what the agent will be told and re-selects on a mismatch.
 export async function resolvePointer(
   send: CdpSend,
   tabId: number,
@@ -87,25 +97,27 @@ export async function resolvePointer(
     await send('Runtime.releaseObject', { objectId }).catch(() => undefined);
   }
 
-  // The @eN refs come from the SAME compaction browser_snapshot performs, so
-  // a ref handed to the user is one browser_click already understands.
+  // Interactivity is decided by the SAME compaction browser_snapshot
+  // performs — an element it would mint a ref for is one browser_click can
+  // address. Only the DECISION is taken from this compaction; the name the
+  // agent sees comes from the bridge's registry (registerAnnotationRef), so
+  // the map an earlier snapshot minted is merged into, never replaced.
   const tree = (await send('Accessibility.getFullAXTree')) as { nodes?: AxNode[] };
   const compact = compactAxTree(tree.nodes ?? []);
-  let ref: string | undefined;
-  for (const [candidate, backend] of compact.refs) {
+  let refable = false;
+  for (const backend of compact.refs.values()) {
     if (backend === backendNodeId) {
-      ref = candidate;
+      refable = true;
       break;
     }
   }
 
   const described = await describeAx(send, backendNodeId);
   const pointer: UiPointer = { tab_id: tabId, actionable: opts.actionable };
-  if (ref !== undefined) pointer.ref = ref;
   const role = described.role !== '' ? described.role : tagName;
   if (role !== '') pointer.role = role;
   if (described.name !== '') pointer.name = described.name;
-  return { pointer, refs: compact.refs };
+  return { pointer, refBackendNodeId: refable ? backendNodeId : null };
 }
 
 /// Role + accessible name for one DOM node. A page with no accessibility node

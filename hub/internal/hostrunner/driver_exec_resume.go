@@ -276,23 +276,30 @@ func (d *ExecResumeDriver) Input(ctx context.Context, kind string, payload map[s
 		// other modalities have no such fallback and still drop.
 		images := extractImageInputs(payload)
 		dropped := 0
+		var imgErr error
 		if len(images) > 0 {
 			paths, merr := materializeImageInputs(d.Workdir, images, time.Now())
 			body = annotationNote(body, paths)
 			if merr != nil || len(paths) != len(images) {
 				dropped += len(images) - len(paths)
+				imgErr = merr
 			}
 		}
 		dropped += len(extractAttachmentInputs(payload, "pdfs"))
 		dropped += len(extractAttachmentInputs(payload, "audios"))
 		dropped += len(extractAttachmentInputs(payload, "videos"))
 		if dropped > 0 {
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
-				map[string]any{
-					"reason":  "gemini exec-per-turn has no inline multimodal support — switch to gemini --acp (M1) for multimodal turns",
-					"engine":  "gemini-exec",
-					"dropped": dropped,
-				})
+			evt := map[string]any{
+				"reason":  "gemini exec-per-turn has no inline multimodal support — switch to gemini --acp (M1) for multimodal turns",
+				"engine":  "gemini-exec",
+				"dropped": dropped,
+			}
+			// Same field the pane/ACP drivers carry: WHY the workdir
+			// fallback failed for the dropped images, not just that it did.
+			if imgErr != nil {
+				evt["fallback"] = fallbackReason(imgErr)
+			}
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", evt)
 		}
 		if body == "" {
 			return fmt.Errorf("exec-resume driver: text input missing body")

@@ -315,8 +315,10 @@ func (s *Server) requestBridgeApproval(ctx context.Context, req bridgeApproval) 
 	); err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
+	// The summary names the CLASS that raised it — a browser_action request
+	// must not audit as a "desktop action" (and vice versa).
 	s.recordAudit(ctx, team, req.AttentionKind+".request", "attention", id,
-		"desktop action awaiting approval: "+tool+" on "+hostName,
+		strings.ReplaceAll(req.AttentionKind, "_", " ")+" awaiting approval: "+tool+" on "+hostName,
 		map[string]any{"tool": tool, "host_id": hostID, "agent_id": agentID})
 
 	pctx, cancel := context.WithTimeout(ctx, browserApprovalTimeout)

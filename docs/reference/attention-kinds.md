@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** 2026.730.1231 (D5 adds `desktop_action`)
+> **Last verified vs code:** 2026.730.1231 (D3 introduced `desktop_action`; D5 adds the hub-raised leg)
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`
@@ -101,10 +101,19 @@ accepted and **ignored**, and the card's `pending_payload` carries
 `session_grant: false` so a client renders the right buttons instead of
 inferring them from the kind.
 
-`pending_payload` is `{tool, scope, surfaces, url, agent_id,
-session_grant}` — a *reference* to what was requested (which surfaces
-are on screen, or which embedded tab), never a pixel: the image does not
-exist until this decision says yes.
+`pending_payload` differs by leg, because the two raisers know different
+things — both are *references* to what was requested, never a pixel: the
+image does not exist until this decision says yes.
+
+- **Desktop-raised (local calls):** `{tool, scope, surfaces, url,
+  agent_id, session_grant}` — the desktop can say which surfaces are on
+  screen, or which embedded tab.
+- **Hub-raised (remote, `desktop_ui_invoke`):** `{host_id, host_name,
+  tool, args, agent_id, session_grant}` — the hub cannot know what is on
+  the remote screen, so a remote window-capture approval is
+  **sight-unseen**: the card names the host and the asking agent, not the
+  surfaces. (The desktop still re-applies its own refusal table after
+  routing, so a refused surface stays refused even post-approval.)
 
 Both legs raise it: a LOCAL agent's call is carded by the desktop (which
 posts the row itself and parks for 2 minutes — shorter than the hub's 10,

@@ -95,8 +95,8 @@ test('tools/call ui_get_focus: toggle off → actionable isError, not unknown-to
 
 test('hub-leg ui_get_focus: the sharing gate binds the tunnel path too (D1 is local-first, D5 unchanged)', async () => {
   // dispatchHubInvoke classifies ui_get_focus as a read tool — the gate at
-  // the tool (not just the catalog filter) is what keeps a remote call
-  // consent-gated until D5 builds its own stack.
+  // the tool (not just the catalog filter) is what keeps the D5 tunnel leg
+  // consent-gated: a relayed call hits the same refusal as a local one.
   const off = await dispatchHubInvoke(deps(SNAPSHOT, false), { tool: 'ui_get_focus', args: {}, agent_id: 'ag_1' }, new Set(), 'desktop');
   assert.equal(off.ok, false);
   if (!off.ok) assert.match(off.error, /UI_UNAVAILABLE/);

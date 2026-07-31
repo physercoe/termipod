@@ -83,8 +83,9 @@ type Server struct {
 	policy    *policyStore
 	escalator *Escalator
 	tunnel    *TunnelManager
-	// bridgeGrants is the desktop session-grant cache
-	// (principal approved an action tool with option_id="session").
+	// bridgeGrants is the session-grant cache for BOTH tunnel classes
+	// (browser.invoke and desktop.invoke — grants are keyed by kind;
+	// principal approved an action tool with option_id="session").
 	// In-memory, no expiry — hub restart clears, same posture as
 	// TunnelManager. See mcp_browser_bridge.go.
 	bridgeGrants *bridgeGrantStore

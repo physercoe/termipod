@@ -97,10 +97,10 @@ test('hub-leg ui_get_focus: the sharing gate binds the tunnel path too (D1 is lo
   // dispatchHubInvoke classifies ui_get_focus as a read tool — the gate at
   // the tool (not just the catalog filter) is what keeps a remote call
   // consent-gated until D5 builds its own stack.
-  const off = await dispatchHubInvoke(deps(SNAPSHOT, false), { tool: 'ui_get_focus', args: {}, agent_id: 'ag_1' }, new Set());
+  const off = await dispatchHubInvoke(deps(SNAPSHOT, false), { tool: 'ui_get_focus', args: {}, agent_id: 'ag_1' }, new Set(), 'desktop');
   assert.equal(off.ok, false);
   if (!off.ok) assert.match(off.error, /UI_UNAVAILABLE/);
-  const on = await dispatchHubInvoke(deps(SNAPSHOT, true), { tool: 'ui_get_focus', args: {}, agent_id: 'ag_1' }, new Set());
+  const on = await dispatchHubInvoke(deps(SNAPSHOT, true), { tool: 'ui_get_focus', args: {}, agent_id: 'ag_1' }, new Set(), 'desktop');
   assert.equal(on.ok, true);
 });
 

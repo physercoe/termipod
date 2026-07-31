@@ -443,7 +443,7 @@ func TestBrowserInvoke_ActionRejectDenies(t *testing.T) {
 	if n := len(fake.seen()); n != 0 {
 		t.Errorf("rejected call must not route; fake desktop saw %d requests", n)
 	}
-	if s.browserGrants.has(defaultTeamID, hostID, agentID) {
+	if s.bridgeGrants.has(browserGrantKind, defaultTeamID, hostID, agentID) {
 		t.Error("reject must not record a session grant")
 	}
 }
@@ -460,8 +460,8 @@ func TestBrowserBridgeRevoke_ClearsGrant(t *testing.T) {
 	})
 
 	// Stand up grants for two agents against this host.
-	s.browserGrants.grant(defaultTeamID, hostID, agentID)
-	s.browserGrants.grant(defaultTeamID, hostID, "other-agent")
+	s.bridgeGrants.grant(browserGrantKind, defaultTeamID, hostID, agentID)
+	s.bridgeGrants.grant(browserGrantKind, defaultTeamID, hostID, "other-agent")
 
 	// Host-kind deputy tokens may not revoke — grants are principal
 	// decisions. Mint a host token scoped to the team to prove it.
@@ -475,7 +475,7 @@ func TestBrowserBridgeRevoke_ClearsGrant(t *testing.T) {
 		map[string]any{"agent_id": agentID}); status != http.StatusForbidden {
 		t.Fatalf("host token: status=%d body=%s; want 403", status, body)
 	}
-	if !s.browserGrants.has(defaultTeamID, hostID, agentID) {
+	if !s.bridgeGrants.has(browserGrantKind, defaultTeamID, hostID, agentID) {
 		t.Fatal("host-token call must not have revoked the grant")
 	}
 
@@ -485,10 +485,10 @@ func TestBrowserBridgeRevoke_ClearsGrant(t *testing.T) {
 		map[string]any{"agent_id": agentID}); status != http.StatusNoContent {
 		t.Fatalf("revoke: status=%d body=%s; want 204", status, body)
 	}
-	if s.browserGrants.has(defaultTeamID, hostID, agentID) {
+	if s.bridgeGrants.has(browserGrantKind, defaultTeamID, hostID, agentID) {
 		t.Error("grant survived revoke")
 	}
-	if !s.browserGrants.has(defaultTeamID, hostID, "other-agent") {
+	if !s.bridgeGrants.has(browserGrantKind, defaultTeamID, hostID, "other-agent") {
 		t.Error("targeted revoke cleared another agent's grant")
 	}
 
@@ -511,7 +511,7 @@ func TestBrowserBridgeRevoke_ClearsGrant(t *testing.T) {
 		map[string]any{}); status != http.StatusNoContent {
 		t.Fatalf("clear-all revoke: status=%d body=%s; want 204", status, body)
 	}
-	if s.browserGrants.has(defaultTeamID, hostID, "other-agent") {
+	if s.bridgeGrants.has(browserGrantKind, defaultTeamID, hostID, "other-agent") {
 		t.Error("clear-all revoke left a grant behind")
 	}
 }

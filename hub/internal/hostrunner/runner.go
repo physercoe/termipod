@@ -920,11 +920,24 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			return
 		}
 		pane = p
+		// The workdir the pane command runs in — same derivation the M1/M2
+		// launchers use, so an annotation image materialized here (D5
+		// §3.5) lands where the agent's own file tools will find it.
+		// needsWorkdir=false: this is a read of an existing derivation,
+		// not a reason to force one.
+		paneWorkdir := ""
+		if wd := DeriveWorkdir(a.Client.Team, spec.Backend.DefaultWorkdir, sp.ProjectID,
+			sp.Handle, sp.ChildID, false); wd != "" {
+			if expanded, err := expandHome(wd); err == nil {
+				paneWorkdir = expanded
+			}
+		}
 		drv = &PaneDriver{
 			AgentID: sp.ChildID,
 			PaneID:  pane,
 			Poster:  a.agentPoster,
 			Log:     a.Log,
+			Workdir: paneWorkdir,
 		}
 	}
 

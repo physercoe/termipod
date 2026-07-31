@@ -4,20 +4,22 @@
 > **Status:** In flight (2026-07-31) — wedges D1–D6 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
 > is second. **D1 shipped (#476), D2 shipped (#477) + D2.1 (#480);
-> D3 + D4 implemented — PRs pending.** Builds on the agent browser bridge
+> D3–D5 implemented — PRs pending.** Builds on the agent browser bridge
 > (W1–W3 shipped, `docs/plans/desktop-agent-browser-bridge.md`).
 > **Derives from
 > [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)** —
 > verbs over a first-class UI entity: UIRef both directions, one
 > per-surface policy table, three representations, agent pointing (D6).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** the D3+D4 wedges on origin/main `4f5d86c3`
-> (rebased past the unified assistant dock #483): frontend + electron typecheck
-> green, 293 electron `node --test` pass (D3 +21, D4 +10), 380 frontend
-> state/ssh tests pass, `lint-desktop-tokens.sh` clean at baseline 65.
+> **Last verified vs code:** the D3–D5 wedges on origin/main `4f5d86c3`
+> (rebased past the unified assistant dock #483): frontend + electron
+> typecheck green, 299 electron `node --test` pass (D3 +21, D4 +10, D5
+> +6), 409 frontend state/ssh tests pass, `go build ./...` +
+> `go test ./...` green, `lint-desktop-tokens.sh` clean at baseline 65.
 > The Electron halves (`capturePage`, the hub approval round trip, the
-> live CDP hit-test) are **unexercised on this machine** — no display,
-> no Electron binary — and need the Playwright/desktop pass
+> live CDP hit-test) and the live tunnel are **unexercised on this
+> machine** — no display, no Electron binary — and need the
+> Playwright/desktop pass
 
 **Review amendments (2026-07-30), folded into the body below.** The relay
 fallback is read-token-only (§3.5); the `mcp.json` entry pins a stable
@@ -658,6 +660,44 @@ existing path, pane/stdio drivers and `image:false` agents get the
 workdir materialization fallback (`.termipod/annotations/<ts>.png` +
 path in the note text); hub tool tests mirroring
 `mcp_browser_bridge_test.go`.
+
+> **D5 as shipped.** The generalization cost about what §3.6 predicted —
+> one grant store, one approval helper, one router, two kind constants —
+> and the interesting parts are the three places the classes deliberately
+> DIFFER:
+>
+> - **Grants are keyed by kind; revocation is not.** Granting `browser`
+>   must never silence a `desktop_action` card (the review amendment).
+>   But "Revoke" in Settings → Remote driving means this agent no longer
+>   touches this desktop, so revoke clears every kind — the same
+>   asymmetry the desktop's own revoked-set already applies to reads.
+> - **`ui_screenshot` consults no grant at all**, and the approval helper
+>   enforces that rather than trusting the client to hide the button: a
+>   class with no grant namespace ignores `option_id: "session"`
+>   entirely. The card also carries `session_grant: false` so a renderer
+>   states the consent shape instead of inferring it from the kind.
+> - **The desktop re-checks the envelope kind.** The hub gates BY CLASS,
+>   so a `ui_screenshot` routed as `browser.invoke` would be a capture
+>   nobody approved. `dispatchHubInvoke` refuses a tool that arrived
+>   under the wrong kind — the desktop is the authority for its own
+>   pixels, and it checks rather than trusts.
+>
+> The capability key `desktop_ui` tracks the sharing toggle and is
+> re-posted when it flips, so `hosts_list` answers truthfully instead of
+> making the agent discover the refusal on call. Bridge toggle +
+> Remote-driving toggle still gate the relay itself, so all three
+> consents stand.
+>
+> **The driver fallback replaced three drop sites, not one.** The plan
+> named pane/stdio and `image:false` ACP; gemini's exec-per-turn argv was
+> a third with the same defect, so all three now materialize into
+> `<workdir>/.termipod/annotations/` (0600) and name the path in the
+> text. Two consequences worth stating: an image-only input used to be
+> *rejected* by the gemini driver and is now a valid turn whose body is
+> the path (the user pointed at something and said nothing — a legitimate
+> message); and a FAILED write keeps the historical drop-and-warn, with
+> the reason in the event, because "notes the drop rather than failing
+> silently" is the rule.
 
 **D6 — agent pointing (§3.4b).** Ref-chips: transcript renderer for
 agent-emitted UIRefs + the UIRef→focus dispatcher (chips ship first —

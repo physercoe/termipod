@@ -270,8 +270,19 @@ func (d *ExecResumeDriver) Input(ctx context.Context, kind string, payload map[s
 		// artifact-type-registry W7.2 — PDF/audio/video share the same
 		// strip-and-warn path; gemini exec-per-turn argv accepts no
 		// multimodal attachments at all.
+		// desktop-ui-context D5 §3.5: images get one more chance before
+		// the drop — materialized into the agent's workdir with the
+		// path named in the prompt text, which gemini CAN open. The
+		// other modalities have no such fallback and still drop.
+		images := extractImageInputs(payload)
 		dropped := 0
-		dropped += len(extractImageInputs(payload))
+		if len(images) > 0 {
+			paths, merr := materializeImageInputs(d.Workdir, images, time.Now())
+			body = annotationNote(body, paths)
+			if merr != nil || len(paths) != len(images) {
+				dropped += len(images) - len(paths)
+			}
+		}
 		dropped += len(extractAttachmentInputs(payload, "pdfs"))
 		dropped += len(extractAttachmentInputs(payload, "audios"))
 		dropped += len(extractAttachmentInputs(payload, "videos"))

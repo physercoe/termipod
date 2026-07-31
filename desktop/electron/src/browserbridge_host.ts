@@ -51,6 +51,7 @@ import {
   READ_TOOLS,
   removeBridgeDiscovery,
   shouldMirrorAudit,
+  TUNNEL_KINDS,
   startBridgeServer,
   stripFragment,
   writeBridgeDiscovery,
@@ -62,6 +63,7 @@ import {
   type HubInvokePayload,
   type HubInvokeResult,
   type McpServerDeps,
+  type TunnelClass,
   type UiCaptureRequest,
   type UiCaptureResult,
 } from './browserbridge';
@@ -420,10 +422,7 @@ async function startHubRelay(ctx: BridgeHubContext): Promise<void> {
     const res = await fetch(`${ctx.baseUrl}/v1/teams/${encodeURIComponent(ctx.teamId)}/hosts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        name: `desktop-${os.hostname()}`,
-        capabilities: { browser_bridge: true, app_version: app.getVersion(), tools: READ_TOOLS.length + ACTION_TOOLS.length },
-      }),
+      body: JSON.stringify({ name: hostRegistrationName(), capabilities: hostCapabilities() }),
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return;
@@ -457,6 +456,38 @@ async function postHubHeartbeat(relay: HubRelay): Promise<void> {
   } catch {
     /* best-effort */
   }
+}
+
+function hostRegistrationName(): string {
+  return `desktop-${os.hostname()}`;
+}
+
+/// What this desktop advertises to the hub. `desktop_ui` (D5) tracks the
+/// UI-context-sharing toggle, so a remote agent's hosts_list answer says
+/// truthfully whether this desktop will talk about its own screen — the
+/// toggle is not a refusal the agent discovers only on call.
+function hostCapabilities(): Record<string, unknown> {
+  return {
+    browser_bridge: true,
+    desktop_ui: uiFocusProvider?.available() ?? false,
+    app_version: app.getVersion(),
+    tools: READ_TOOLS.length + ACTION_TOOLS.length,
+  };
+}
+
+/// Re-post the registration so a mid-run toggle flip is reflected in what the
+/// hub advertises (the POST upserts on (team, name), which is why W3 could
+/// re-post on every enable). Best-effort and idempotent: a failure just
+/// leaves the previous capabilities until the next sync.
+export function refreshHostCapabilities(): void {
+  const relay = hubRelay;
+  if (relay === null) return;
+  void fetch(`${relay.ctx.baseUrl}/v1/teams/${encodeURIComponent(relay.ctx.teamId)}/hosts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${relay.token}` },
+    body: JSON.stringify({ name: hostRegistrationName(), capabilities: hostCapabilities() }),
+    signal: AbortSignal.timeout(10000),
+  }).catch(() => undefined);
 }
 
 /// Abortable sleep for the poll backoff.
@@ -527,10 +558,13 @@ async function hubTunnelLoop(relay: HubRelay): Promise<void> {
   }
 }
 
-/// Route one envelope. Only kind browser.invoke is ours; anything else gets
-/// the contract's unknown_kind error rather than killing the loop.
+/// Route one envelope. Two kinds are ours (D5) — browser.invoke drives the
+/// embedded tabs, desktop.invoke describes/captures the desktop's own UI —
+/// and they share this dispatcher; anything else gets the contract's
+/// unknown_kind error rather than killing the loop.
 async function answerTunnelEnvelope(env: TunnelEnvelope): Promise<HubInvokeResult> {
-  if (env.kind !== 'browser.invoke') return { ok: false, error: 'unknown_kind' };
+  const cls = (Object.keys(TUNNEL_KINDS) as TunnelClass[]).find((k) => TUNNEL_KINDS[k] === env.kind);
+  if (cls === undefined) return { ok: false, error: 'unknown_kind' };
   const deps = mcpDeps;
   if (deps === null) return { ok: false, error: 'bridge not running' };
   const p = (env.payload !== null && typeof env.payload === 'object' ? env.payload : {}) as Record<string, unknown>;
@@ -540,7 +574,7 @@ async function answerTunnelEnvelope(env: TunnelEnvelope): Promise<HubInvokeResul
     agent_id: typeof p.agent_id === 'string' ? p.agent_id : '',
     ...(typeof p.agent_handle === 'string' && p.agent_handle !== '' ? { agent_handle: p.agent_handle } : {}),
   };
-  return dispatchHubInvoke(deps, payload, revokedAgents);
+  return dispatchHubInvoke(deps, payload, revokedAgents, cls);
 }
 
 /// W3: agent ids the user revoked from Settings → Remote driving. In-memory,

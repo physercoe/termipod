@@ -1218,6 +1218,27 @@ export interface HubInvokePayload {
 /// hub's browser_invoke unwraps (ok → MCP result, !ok → agent-visible error).
 export type HubInvokeResult = { ok: true; result: unknown } | { ok: false; error: string };
 
+/// The two traffic classes the desktop exposes over the tunnel (D5). They are
+/// separate envelope kinds because they are separate consent sentences: the
+/// browser class drives embedded web pages, the desktop class describes and
+/// captures the user's own screen.
+export type TunnelClass = 'browser' | 'desktop';
+
+export const TUNNEL_KINDS: Readonly<Record<TunnelClass, string>> = {
+  browser: 'browser.invoke',
+  desktop: 'desktop.invoke',
+};
+
+/// Which class a tool belongs to, or null if we have never heard of it. The
+/// desktop-UI tools live in READ_TOOLS for scope reasons (see
+/// DESKTOP_ACTION_TOOL_NAMES), so membership alone cannot answer this — the
+/// UI_TOOL_NAMES set does.
+export function tunnelClassForTool(tool: string): TunnelClass | null {
+  if (UI_TOOL_NAMES.has(tool)) return 'desktop';
+  if (READ_TOOLS.some((t) => t.name === tool) || ACTION_TOOL_NAMES.has(tool)) return 'browser';
+  return null;
+}
+
 /// Dispatch one hub-relayed call in-process. This is the in-process entry
 /// into the SAME machinery the HTTP MCP path funnels into (callTool) — the
 /// bearer parse is skipped (the hub authenticated the agent and
@@ -1227,10 +1248,18 @@ export async function dispatchHubInvoke(
   deps: McpServerDeps,
   payload: HubInvokePayload,
   revoked: ReadonlySet<string>,
+  cls: TunnelClass,
 ): Promise<HubInvokeResult> {
-  const isRead = READ_TOOLS.some((t) => t.name === payload.tool);
-  const isAction = ACTION_TOOL_NAMES.has(payload.tool);
-  if (!isRead && !isAction) return { ok: false, error: 'unknown_tool' };
+  const actual = tunnelClassForTool(payload.tool);
+  if (actual === null) return { ok: false, error: 'unknown_tool' };
+  // Defense in depth against a hub that routed by the wrong kind: the hub
+  // gates BY CLASS (browser_invoke never raises a desktop_action card), so a
+  // ui_screenshot arriving in a browser.invoke envelope would be a capture
+  // nobody approved. The desktop is the authority for its own pixels — it
+  // checks rather than trusts.
+  if (actual !== cls) {
+    return { ok: false, error: `tool_kind_mismatch: '${payload.tool}' is not a ${TUNNEL_KINDS[cls]} tool` };
+  }
   // The desktop's own kill switch, checked BEFORE the tool machinery runs —
   // a refusal is a gate event, not an audited action (the same posture as
   // W2's scope refusal). It covers READS too: "Revoke" must mean this agent

@@ -784,6 +784,38 @@ func buildNativeTools() []nativeTool {
 			Handler: teamAgentArgs((*Server).mcpBrowserInvoke),
 		},
 		{
+			Name:  "desktop_ui_invoke",
+			Short: "Ask an online desktop what its user is looking at, or (approved per call) for a screenshot.",
+			Description: "Invoke a desktop-UI tool on an online TermiPod desktop that registered the " +
+				"desktop_ui capability; the call rides the hub's A2A reverse tunnel, so the desktop " +
+				"can be on a different host than you. Discover desktops via hosts_list (hosts whose " +
+				"capabilities show desktop_ui — a desktop advertises it only while its user has UI " +
+				"context sharing on). ui_get_focus returns a compact JSON snapshot of the workbench " +
+				"surface(s) on screen plus focus state (open tab, focused agent, Inspect file + " +
+				"selection, terminal pane): ids, paths and fragment-stripped URLs only, never message " +
+				"bodies, vault material or settings values — it is the cheap, precise way to ground " +
+				"\"this\"/\"here\", and the ids join straight into your other hub tools. " +
+				"ui_screenshot returns a PNG of the desktop window (or one embedded tab) and raises " +
+				"an approval card the user must accept ON EVERY CALL — there is no session grant, and " +
+				"a capture is refused outright while a sensitive surface is on screen. Prefer " +
+				"ui_get_focus; reach for pixels only when the question is visual. " +
+				"Required: host_id, tool. Optional: args (object, default {}).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"host_id": map[string]any{"type": "string"},
+					"tool": map[string]any{
+						"type": "string",
+						"enum": desktopUIToolNames(),
+					},
+					"args": map[string]any{"type": "object", "default": map[string]any{}},
+				},
+				"required": []string{"host_id", "tool"},
+			},
+			Tier: TierSignificant, WorkerEligible: true,
+			Handler: teamAgentArgs((*Server).mcpDesktopUIInvoke),
+		},
+		{
 			Name:  "agents_fanout",
 			Short: "Spawn N workers in one orchestrator-worker fan-out.",
 			Description: "Spawn N workers in parallel under one correlation_id. " +
@@ -929,7 +961,8 @@ var nativeToolMeta = map[string]struct {
 	"pause_self":                  {false, []string{"shutdown_self", "agents_terminate"}},
 	"shutdown_self":               {false, []string{"pause_self"}},
 	"permission_prompt":           {false, []string{"request_approval"}},
-	"browser_invoke":              {false, []string{"hosts_list", "request_approval"}},
+	"browser_invoke":              {false, []string{"hosts_list", "desktop_ui_invoke", "request_approval"}},
+	"desktop_ui_invoke":           {false, []string{"hosts_list", "browser_invoke", "request_approval"}},
 	"agents_fanout":               {false, []string{"agents_gather", "agents_spawn"}},
 	"agents_gather":               {true, []string{"agents_fanout", "reports_post"}},
 	"reports_post":                {false, []string{"tasks_complete", "agents_gather"}},

@@ -19,7 +19,7 @@
 /// D1 is LOCAL-ONLY: nothing here touches the hub or the tunnel (that is D5).
 import os from 'node:os';
 import { installStableRelay, mergeSharingEntry, removeSharingEntry, type KimiMcpWrite } from './kimimcp';
-import { setUiFocusProvider, stdioBridgePath } from './browserbridge_host';
+import { refreshHostCapabilities, setUiFocusProvider, stdioBridgePath } from './browserbridge_host';
 import type { Handler } from './ipc/dispatch';
 
 /// Whether the user turned UI context sharing on (Settings → Assistant).
@@ -82,6 +82,10 @@ export const desktopuiHandlers: Record<string, Handler> = {
     sharingEnabled = args.enabled === true;
     if (!sharingEnabled) focusCache = null;
     const mcp = reconcileSharing(sharingEnabled);
+    // D5: `desktop_ui` in the hub host row tracks this toggle, so a remote
+    // agent's hosts_list answer says truthfully whether this desktop will
+    // talk about its own screen. No-op unless a hub relay is live.
+    refreshHostCapabilities();
     return { enabled: sharingEnabled, mcp };
   },
   /// The renderer's focus push. Validated defensively (shape + size) — the

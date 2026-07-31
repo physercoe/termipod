@@ -43,6 +43,11 @@ import (
 // Payload; an unknown Kind comes back as a transport error.
 const browserTunnelKind = "browser.invoke"
 
+// browserGrantKind namespaces this class's session grants in the
+// shared store. The desktop-UI class has its own (mcp_desktop_ui.go),
+// so a grant for one never silences the other's card.
+const browserGrantKind = "browser"
+
 // browserInvokeTimeout caps one hub→desktop round trip. Tighter than
 // the approval wait; long enough for a navigate + CDP evaluation.
 const browserInvokeTimeout = 60 * time.Second
@@ -99,40 +104,64 @@ func browserToolNames() []string {
 	return out
 }
 
-// browserGrantStore is the session-grant cache for action-tool
-// approvals (W3). Keyed team|hostID|agentID; presence means the
+// bridgeGrantStore is the session-grant cache for action-tool
+// approvals (W3). Keyed kind|team|hostID|agentID; presence means the
 // principal approved with option_id="session" and this agent may run
-// action tools against that desktop without further prompts. No
-// expiry — a hub restart clears it (same posture as TunnelManager's
-// in-memory state); revocation is explicit via the revoke endpoint.
-type browserGrantStore struct {
-	m sync.Map // "team|hostID|agentID" → struct{}{}
+// action tools of THAT KIND against that desktop without further
+// prompts. No expiry — a hub restart clears it (same posture as
+// TunnelManager's in-memory state); revocation is explicit via the
+// revoke endpoint.
+//
+// The `kind` dimension is load-bearing (desktop-ui-context plan §3.6
+// review amendment): W3 keyed grants team|host|agent with no kind, so
+// generalizing the helper to a second traffic class without it would
+// let a browser-driving session grant silence a desktop screenshot
+// card — two different sentences, one consent. (Screenshots go
+// further and consult no grant at all; see the desktop_action rule in
+// mcp_desktop_ui.go.)
+type bridgeGrantStore struct {
+	m sync.Map // "kind|team|hostID|agentID" → struct{}{}
 }
 
-func browserGrantKey(team, hostID, agentID string) string {
-	return team + "|" + hostID + "|" + agentID
+func bridgeGrantKey(kind, team, hostID, agentID string) string {
+	return kind + "|" + team + "|" + hostID + "|" + agentID
 }
 
-func (g *browserGrantStore) has(team, hostID, agentID string) bool {
-	_, ok := g.m.Load(browserGrantKey(team, hostID, agentID))
+func (g *bridgeGrantStore) has(kind, team, hostID, agentID string) bool {
+	_, ok := g.m.Load(bridgeGrantKey(kind, team, hostID, agentID))
 	return ok
 }
 
-func (g *browserGrantStore) grant(team, hostID, agentID string) {
-	g.m.Store(browserGrantKey(team, hostID, agentID), struct{}{})
+func (g *bridgeGrantStore) grant(kind, team, hostID, agentID string) {
+	g.m.Store(bridgeGrantKey(kind, team, hostID, agentID), struct{}{})
 }
 
-// revoke drops one (team, host, agent) grant; an empty agentID clears
-// every grant for the (team, host) pair — the desktop's own "forget
-// all sessions" path.
-func (g *browserGrantStore) revoke(team, hostID, agentID string) {
+// revoke drops grants for one (team, host, agent) across EVERY kind;
+// an empty agentID clears every grant for the (team, host) pair — the
+// desktop's own "forget all sessions" path.
+//
+// Revocation is deliberately kind-BLIND even though granting is
+// kind-scoped: "Revoke" in Settings → Remote driving means this agent
+// no longer touches this desktop, and an agent that kept a standing
+// browser grant after being revoked would make that pill a lie
+// (the same asymmetry the desktop's own revoked-set applies to reads).
+func (g *bridgeGrantStore) revoke(team, hostID, agentID string) {
+	suffix := "|" + team + "|" + hostID + "|"
 	if agentID != "" {
-		g.m.Delete(browserGrantKey(team, hostID, agentID))
-		return
+		suffix += agentID
 	}
-	prefix := team + "|" + hostID + "|"
 	g.m.Range(func(k, _ any) bool {
-		if ks, ok := k.(string); ok && strings.HasPrefix(ks, prefix) {
+		ks, ok := k.(string)
+		if !ok {
+			return true
+		}
+		if agentID != "" {
+			if strings.HasSuffix(ks, suffix) {
+				g.m.Delete(k)
+			}
+			return true
+		}
+		if strings.Contains(ks, suffix) {
 			g.m.Delete(k)
 		}
 		return true
@@ -197,9 +226,18 @@ func (s *Server) mcpBrowserInvoke(ctx context.Context, team, agentID string, raw
 
 	// Action tools need a human decision unless the principal already
 	// granted this (desktop, agent) session.
-	if class == "action" && !s.browserGrants.has(team, a.HostID, agentID) {
-		deny, jerr := s.requestBrowserApproval(ctx, team, agentID, agentHandle,
-			a.HostID, hostName, a.Tool, a.Args)
+	if class == "action" && !s.bridgeGrants.has(browserGrantKind, team, a.HostID, agentID) {
+		deny, jerr := s.requestBridgeApproval(ctx, bridgeApproval{
+			Team:          team,
+			AgentID:       agentID,
+			AgentHandle:   agentHandle,
+			HostID:        a.HostID,
+			HostName:      hostName,
+			Tool:          a.Tool,
+			Args:          a.Args,
+			AttentionKind: "browser_action",
+			GrantKind:     browserGrantKind,
+		})
 		if jerr != nil {
 			return nil, jerr
 		}
@@ -207,15 +245,42 @@ func (s *Server) mcpBrowserInvoke(ctx context.Context, team, agentID string, raw
 			return deny, nil
 		}
 	}
-	return s.routeBrowserInvoke(ctx, agentID, agentHandle, a.HostID, a.Tool, a.Args)
+	return s.routeTunnelInvoke(ctx, browserTunnelKind, agentID, agentHandle, a.HostID, a.Tool, a.Args)
 }
 
-// requestBrowserApproval raises the browser_action approval card and
-// parks on its resolution. Returns (nil, nil) when the call may
-// proceed (approve), (denyResult, nil) when the principal rejected or
-// the wait timed out, or (nil, jrpcError) on an infrastructure fault.
-// A session-option approve records the grant before returning.
-func (s *Server) requestBrowserApproval(ctx context.Context, team, agentID, agentHandle, hostID, hostName, tool string, args json.RawMessage) (any, *jrpcError) {
+// bridgeApproval is one approval request against a desktop. The two
+// traffic classes differ only in the attention kind they raise and
+// whether a session grant is on offer, so they share the parking
+// machinery rather than each growing their own copy of it.
+type bridgeApproval struct {
+	Team        string
+	AgentID     string
+	AgentHandle string
+	HostID      string
+	HostName    string
+	Tool        string
+	Args        json.RawMessage
+	// AttentionKind is the attention_items.kind the card is raised as
+	// ("browser_action", "desktop_action") — it selects the renderer on
+	// every client, so it must match what those clients branch on.
+	AttentionKind string
+	// GrantKind names the grant namespace an option_id="session"
+	// approve writes to. EMPTY means no session grant exists for this
+	// class: an approve authorizes exactly this call, no matter which
+	// option the principal picked. That is the desktop screenshot rule
+	// (plan §3.3) and it is enforced HERE, not by hoping the client
+	// omits the button.
+	GrantKind string
+}
+
+// requestBridgeApproval raises the approval card and parks on its
+// resolution. Returns (nil, nil) when the call may proceed (approve),
+// (denyResult, nil) when the principal rejected or the wait timed out,
+// or (nil, jrpcError) on an infrastructure fault. A session-option
+// approve records the grant before returning — when the class has one.
+func (s *Server) requestBridgeApproval(ctx context.Context, req bridgeApproval) (any, *jrpcError) {
+	team, agentID, agentHandle := req.Team, req.AgentID, req.AgentHandle
+	hostID, hostName, tool, args := req.HostID, req.HostName, req.Tool, req.Args
 	displayAgent := agentHandle
 	if displayAgent == "" {
 		displayAgent = agentID
@@ -227,6 +292,9 @@ func (s *Server) requestBrowserApproval(ctx context.Context, team, agentID, agen
 		"tool":      tool,
 		"args":      redactBrowserArgs(args),
 		"agent_id":  agentID,
+		// The card states the consent shape it can grant, so a client
+		// renders the right buttons instead of inferring them by kind.
+		"session_grant": req.GrantKind != "",
 	})
 
 	id := NewID()
@@ -240,15 +308,15 @@ func (s *Server) requestBrowserApproval(ctx context.Context, team, agentID, agen
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
 			actor_kind, actor_handle, pending_payload_json
-		) VALUES (?, NULL, 'team', ?, 'browser_action',
+		) VALUES (?, NULL, 'team', ?, ?,
 		          ?, 'minor', '[]', 'open', ?,
 		          'agent', NULLIF(?, ''), ?)`,
-		id, team, summary, now, agentHandle, string(payload),
+		id, team, req.AttentionKind, summary, now, agentHandle, string(payload),
 	); err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
-	s.recordAudit(ctx, team, "browser_action.request", "attention", id,
-		"browser action awaiting approval: "+tool+" on "+hostName,
+	s.recordAudit(ctx, team, req.AttentionKind+".request", "attention", id,
+		"desktop action awaiting approval: "+tool+" on "+hostName,
 		map[string]any{"tool": tool, "host_id": hostID, "agent_id": agentID})
 
 	pctx, cancel := context.WithTimeout(ctx, browserApprovalTimeout)
@@ -276,10 +344,12 @@ func (s *Server) requestBrowserApproval(ctx context.Context, team, agentID, agen
 	decision, _ := last["decision"].(string)
 	if decision == "approve" {
 		// option_id="session" upgrades this approve to a session grant:
-		// subsequent action calls from this agent to this desktop skip
-		// the card until revoked or the hub restarts.
-		if optionID, _ := last["option_id"].(string); optionID == "session" {
-			s.browserGrants.grant(team, hostID, agentID)
+		// subsequent action calls of the SAME KIND from this agent to
+		// this desktop skip the card until revoked or the hub restarts.
+		// A class with no grant namespace ignores the option entirely —
+		// per-call means per-call.
+		if optionID, _ := last["option_id"].(string); optionID == "session" && req.GrantKind != "" {
+			s.bridgeGrants.grant(req.GrantKind, team, hostID, agentID)
 		}
 		return nil, nil
 	}
@@ -293,13 +363,13 @@ func (s *Server) requestBrowserApproval(ctx context.Context, team, agentID, agen
 	}), nil
 }
 
-// routeBrowserInvoke packages one call as a browser.invoke tunnel
-// envelope and parks on the desktop's response. The desktop answers
+// routeTunnelInvoke packages one call as a tunnel envelope of the
+// given kind and parks on the desktop's response. The desktop answers
 // Status 200 with BodyB64 = base64({"ok":true,"result":...} or
 // {"ok":false,"error":"..."}); a non-200 Status is a transport-level
 // failure and is treated as an error too. Failures come back as MCP
 // error results (agent-visible, retryable), not protocol faults.
-func (s *Server) routeBrowserInvoke(ctx context.Context, agentID, agentHandle, hostID, tool string, args json.RawMessage) (any, *jrpcError) {
+func (s *Server) routeTunnelInvoke(ctx context.Context, tunnelKind, agentID, agentHandle, hostID, tool string, args json.RawMessage) (any, *jrpcError) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage(`{}`)
 	}
@@ -314,15 +384,15 @@ func (s *Server) routeBrowserInvoke(ctx context.Context, agentID, agentHandle, h
 	defer cancel()
 	resp, err := s.tunnel.enqueueAndWait(rctx, hostID, &tunnelRequest{
 		ReqID:   NewID(),
-		Kind:    browserTunnelKind,
+		Kind:    tunnelKind,
 		Payload: payload,
 	})
 	if err != nil {
-		return mcpResultError("desktop did not answer browser.invoke: " + err.Error()), nil
+		return mcpResultError("desktop did not answer " + tunnelKind + ": " + err.Error()), nil
 	}
 	if resp.Status != 0 && resp.Status != http.StatusOK {
 		return mcpResultError(fmt.Sprintf(
-			"desktop browser bridge returned transport status %d", resp.Status)), nil
+			"desktop bridge returned transport status %d", resp.Status)), nil
 	}
 	body, err := base64.StdEncoding.DecodeString(resp.BodyB64)
 	if err != nil {
@@ -350,25 +420,10 @@ func (s *Server) routeBrowserInvoke(ctx context.Context, agentID, agentHandle, h
 }
 
 // browserBridgeCapable reads the truthiness of capabilities_json's
-// browser_bridge key. The desktop writes a JSON true; tolerate the
-// other JSON-truthy shapes (non-empty string, non-zero number) so a
-// hand-rolled capabilities row can't silently strand the feature.
+// browser_bridge key. The generic reader (hostCapable, mcp_desktop_ui.go)
+// does the work; this name stays as the browser class's spelling of it.
 func browserBridgeCapable(capsJSON string) bool {
-	var caps map[string]any
-	if err := json.Unmarshal([]byte(capsJSON), &caps); err != nil {
-		return false
-	}
-	switch v := caps["browser_bridge"].(type) {
-	case nil:
-		return false
-	case bool:
-		return v
-	case string:
-		return v != ""
-	case float64:
-		return v != 0
-	}
-	return true
+	return hostCapable(capsJSON, "browser_bridge")
 }
 
 // redactBrowserArgs returns the tool args as a map with the VALUES of
@@ -430,6 +485,6 @@ func (s *Server) handleBrowserBridgeRevoke(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "malformed body: "+err.Error())
 		return
 	}
-	s.browserGrants.revoke(team, host, in.AgentID)
+	s.bridgeGrants.revoke(team, host, in.AgentID)
 	w.WriteHeader(http.StatusNoContent)
 }

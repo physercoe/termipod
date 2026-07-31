@@ -185,7 +185,7 @@ func (s *Server) findRunningGeneralSteward(ctx context.Context, team string) (st
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id FROM agents
 		WHERE team_id = ? AND kind = ?
-		  AND status NOT IN ('terminated','crashed','failed')
+		  AND `+sqlAgentNotTerminal+`
 		  AND terminated_at IS NULL
 		ORDER BY created_at DESC
 		LIMIT 1`,

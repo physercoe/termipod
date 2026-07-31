@@ -99,7 +99,7 @@ Detail: [`hub-agents.md`](hub-agents.md), [ADR-003](../decisions/003-a2a-relay-r
 |---|---|---|
 | POST | `/v1/teams/{team}/hosts` | Register a host (host-runner) |
 | GET | `/v1/teams/{team}/hosts` | List hosts |
-| GET / DELETE | `/v1/teams/{team}/hosts/{host}` | Get / delete host |
+| GET / DELETE | `/v1/teams/{team}/hosts/{host}` | Get / delete host (delete reaps orphaned agents when the host is offline; 409 when it is online with live agents) |
 | POST | `/v1/teams/{team}/hosts/{host}/heartbeat` | Heartbeat with build metadata + capabilities |
 | GET | `/v1/teams/{team}/hosts/{host}/commands` | Pull queued out-of-band commands |
 | PATCH | `/v1/teams/{team}/hosts/{host}/ssh_hint` | Update non-secret SSH hint |

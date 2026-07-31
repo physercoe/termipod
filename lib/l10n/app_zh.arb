@@ -2005,7 +2005,7 @@
   "unavailable": "—",
   "thisEntity": "此{entity}",
   "@thisEntity": { "placeholders": { "entity": { "type": "String" } } },
-  "hostDeleteBody": "从 hub 中移除此{host}行。如果 host-runner 仍在运行，它会在下次启动时注册新的行。如果此{host}上仍有任何存活的{agents}，hub 会拒绝删除。",
+  "hostDeleteBody": "从 hub 中移除此{host}行。如果 host-runner 仍在运行，它会在下次启动时注册新的行。如果此{host}在线且仍有存活的{agents}，hub 会拒绝删除——请先停止它们。如果此{host}离线，其余的{agents}已无法访问，将被标记为 crashed。",
   "@hostDeleteBody": { "placeholders": { "host": { "type": "String" }, "agents": { "type": "String" } } },
   "hostEntityId": "{host} ID",
   "@hostEntityId": { "placeholders": { "host": { "type": "String" } } },

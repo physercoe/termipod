@@ -151,7 +151,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	case live:
 		q += " AND status IN ('running','idle','paused')"
 	case !includeTerminated:
-		q += " AND status NOT IN ('terminated','failed','crashed')"
+		q += " AND " + sqlAgentNotTerminal
 	}
 	if pid := r.URL.Query().Get("project_id"); pid != "" {
 		q += " AND project_id = ?"
@@ -397,20 +397,7 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		s.applyAgentTerminationEffects(r.Context(), team, id, "agent stopped via PATCH", false)
 	} else if in.Status != nil &&
 		(*in.Status == "crashed" || *in.Status == "failed") {
-		_, _ = s.writeDB.ExecContext(r.Context(), `
-			UPDATE sessions
-			   SET status = 'paused', last_active_at = ?
-			 WHERE team_id = ?
-			   AND current_agent_id = ?
-			   AND status = 'active'`,
-			NowUTC(), team, id)
-		_, _ = auth.RevokeAgentTokens(r.Context(), s.writeDB, id, NowUTC())
-		// Fold + stamp the run digest now (#118 §4). The operator stop path
-		// finalizes via stopSessionInternal; a crash/failure flows through
-		// here instead, so without this the first Insight open after the crash
-		// pays the full O(n) backfill. finalizeDigestOutcome brings the digest
-		// current off the read path.
-		s.finalizeDigestOutcome(r.Context(), team, id)
+		s.applyAgentCrashEffects(r.Context(), team, id)
 	}
 	// ADR-029 D-3: auto-derive the linked task's status from the
 	// agent's terminal transition. Most-recent-spawn drives; older
@@ -464,6 +451,87 @@ func (s *Server) applyAgentTerminationEffects(ctx context.Context, team, id, rea
 	// Seal the run digest for the session-less terminate too (#118 §4) — the
 	// live-session branch above already finalizes via stopSessionInternal.
 	s.finalizeDigestOutcome(ctx, team, id)
+}
+
+// applyAgentCrashEffects runs the side-effects of an agent reaching a
+// terminal status it did NOT choose — 'crashed' or 'failed'. Unlike the
+// operator's stop (applyAgentTerminationEffects) there is no host command to
+// enqueue and no agent.terminate audit row: nobody asked for this, the
+// process simply ended. What remains is cleaning up after it — pause the
+// session that now points at nothing, revoke the bearer the dead process
+// held, and seal the run digest so the next Insight open doesn't pay an O(n)
+// backfill (#118 §4).
+//
+// Extracted from handlePatchAgent so the orphan reaper produces the identical
+// aftermath; a second copy would drift, and a crash whose tokens outlive it
+// is a security bug, not a cosmetic one. The caller owns flipping
+// agents.status and calling deriveTaskStatusFromAgent (ADR-029 D-3).
+func (s *Server) applyAgentCrashEffects(ctx context.Context, team, id string) {
+	_, _ = s.writeDB.ExecContext(ctx, `
+		UPDATE sessions
+		   SET status = 'paused', last_active_at = ?
+		 WHERE team_id = ?
+		   AND current_agent_id = ?
+		   AND status = 'active'`,
+		NowUTC(), team, id)
+	_, _ = auth.RevokeAgentTokens(ctx, s.writeDB, id, NowUTC())
+	s.finalizeDigestOutcome(ctx, team, id)
+}
+
+// liveAgent is the minimum an orphan sweep needs: who to reap, and what to
+// call them in the audit record.
+type liveAgent struct {
+	ID     string
+	Handle string
+}
+
+// liveAgentsOnHost lists the agents assigned to a host whose process has not
+// ended. Used by the host-delete guard to decide between refusing and
+// reaping.
+func (s *Server) liveAgentsOnHost(ctx context.Context, team, host string) ([]liveAgent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, handle FROM agents
+		 WHERE team_id = ? AND host_id = ?
+		   AND `+sqlAgentNotTerminal, team, host)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []liveAgent
+	for rows.Next() {
+		var a liveAgent
+		if err := rows.Scan(&a.ID, &a.Handle); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// reapOrphanedAgent flips one agent to 'crashed' and runs the crash
+// aftermath. Called when the host an agent lived on is being deleted while
+// offline: the process is unreachable by construction, so leaving the row
+// claiming 'running' would assert something the hub cannot possibly know.
+//
+// 'crashed' rather than 'terminated' on purpose — nobody stopped this agent,
+// its floor fell away. The distinction is load-bearing downstream: ADR-029
+// D-3 derives task.status='blocked' from a crash (work interrupted, worth
+// retrying) but 'cancelled' from a terminate with no result (work abandoned).
+func (s *Server) reapOrphanedAgent(ctx context.Context, team, id string) error {
+	res, err := s.writeDB.ExecContext(ctx, `
+		UPDATE agents SET status = 'crashed', terminated_at = ?
+		 WHERE team_id = ? AND id = ?
+		   AND `+sqlAgentNotTerminal, NowUTC(), team, id)
+	if err != nil {
+		return err
+	}
+	// Lost a race with a real termination — the aftermath already ran.
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
+	}
+	s.applyAgentCrashEffects(ctx, team, id)
+	_ = s.deriveTaskStatusFromAgent(ctx, team, id, "crashed")
+	return nil
 }
 
 // handleStopAgent is POST /v1/teams/{team}/agents/{agent}/stop — the
@@ -1484,7 +1552,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 			UPDATE agents
 			   SET status = 'terminated', terminated_at = ?
 			 WHERE team_id = ? AND id = ?
-			   AND status NOT IN ('terminated','failed','crashed')`,
+			   AND `+sqlAgentNotTerminal,
 			now, team, priorAgentID); err != nil {
 			return spawnOut{}, http.StatusInternalServerError, err
 		}

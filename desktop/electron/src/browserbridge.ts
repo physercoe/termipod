@@ -673,13 +673,34 @@ export function pruneSnapshotRefs(tabId: number): void {
   snapshotRefs.delete(tabId);
 }
 
-/// Register refs minted OUTSIDE a `browser_snapshot` call — D4's annotation
-/// pointer runs the same AX compaction on the user's gesture, and the `@eN`
-/// it hands the agent has to be one `browser_click` can resolve. Same
-/// per-tab, latest-wins semantics as a snapshot: whoever compacted the tree
-/// most recently owns the map.
-export function setSnapshotRefs(tabId: number, refs: Map<string, number>): void {
-  snapshotRefs.set(tabId, refs);
+/// Register ONE ref minted outside a `browser_snapshot` call — D4's
+/// annotation pointer names an element on the user's gesture, and the ref it
+/// hands the agent has to be one `browser_click` can resolve. Deliberately
+/// NOT latest-wins over the whole map: replacing the tab's map would renumber
+/// refs the agent still holds from its last snapshot, silently retargeting an
+/// agent-held `@e5` at a different element (no REF_STALE — the ref would
+/// still exist). Instead the pointer MERGES:
+///
+///   - if the agent's last snapshot already named this node, reuse that ref —
+///     the agent recognizes it;
+///   - otherwise mint an `@aN` (annotation namespace, monotonic across tabs,
+///     never colliding with `@eN` or a previous `@aN`) and add it alongside
+///     the existing entries.
+///
+/// A later browser_snapshot still replaces the whole map, so `@aN` dies with
+/// it — the ordinary REF_STALE contract.
+let annotationRefSeq = 0;
+
+export function registerAnnotationRef(tabId: number, backendNodeId: number): string {
+  const map = snapshotRefs.get(tabId) ?? new Map<string, number>();
+  for (const [ref, backend] of map) {
+    if (backend === backendNodeId) return ref;
+  }
+  annotationRefSeq += 1;
+  const ref = `@a${String(annotationRefSeq)}`;
+  map.set(ref, backendNodeId);
+  snapshotRefs.set(tabId, map);
+  return ref;
 }
 
 /// Resolve + validate a tabId argument against the live registry. Throws a

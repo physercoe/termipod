@@ -26,13 +26,10 @@ import {
   captureApprovalCard,
   captureDenialMessage,
   captureRefusal,
-  readCaptureDecision,
   surfaceForPartition,
   visibleSurfaces,
-  UI_CAPTURE_APPROVAL_TIMEOUT_MS,
-  UI_CAPTURE_POLL_MS,
-  type CaptureOutcome,
 } from './uicapture';
+import { approveViaCard, type HubLeg } from './uicapture_hub';
 import type { UiCaptureRequest, UiCaptureResult } from './browserbridge';
 
 // ── The shell window ─────────────────────────────────────────────────────────
@@ -61,93 +58,17 @@ function liveGuest(tabId: number): WebContents | null {
 
 // ── The hub approval round trip ──────────────────────────────────────────────
 
-interface HubLeg {
-  baseUrl: string;
-  teamId: string;
-  token: string;
-}
-
 /// The hub identity + bearer for the approval card, or null when the desktop
 /// is signed out. Same sourcing as the audit mirror: non-secret context pushed
 /// by the renderer, the token read from the main-process keychain at use time
-/// (never over IPC).
+/// (never over IPC). The round trip itself (raise → poll → dismiss) lives in
+/// uicapture_hub.ts, electron-free and test-pinned.
 async function hubLeg(): Promise<HubLeg | null> {
   const ctx = currentHubContext();
   if (ctx === null) return null;
   const token = await keychainGetLocal(`hub_token_${ctx.profileId}`);
   if (token === null || token === '') return null;
   return { baseUrl: ctx.baseUrl, teamId: ctx.teamId, token };
-}
-
-function teamUrl(leg: HubLeg, suffix: string): string {
-  return `${leg.baseUrl}/v1/teams/${encodeURIComponent(leg.teamId)}${suffix}`;
-}
-
-/// Raise the per-call card. Returns its id, or null when the hub refused it —
-/// which denies the capture (we never fall back to capturing unasked).
-async function raiseCard(leg: HubLeg, summary: string, payload: Record<string, unknown>, agentHandle: string): Promise<string | null> {
-  try {
-    const res = await fetch(teamUrl(leg, '/attention'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${leg.token}` },
-      body: JSON.stringify({
-        scope_kind: 'team',
-        scope_id: leg.teamId,
-        kind: 'desktop_action',
-        summary,
-        severity: 'minor',
-        actor_handle: agentHandle,
-        pending_payload: payload,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { id?: unknown };
-    return typeof body.id === 'string' && body.id !== '' ? body.id : null;
-  } catch {
-    return null;
-  }
-}
-
-/// Poll one card until it resolves or the window closes. A transport error is
-/// NOT a decision — it just costs one poll interval, and the deadline still
-/// governs.
-async function awaitCard(leg: HubLeg, id: string, deadline: number, now: () => number, sleep: (ms: number) => Promise<void>): Promise<CaptureOutcome> {
-  for (;;) {
-    if (now() >= deadline) return 'pending';
-    await sleep(UI_CAPTURE_POLL_MS);
-    let outcome: CaptureOutcome = 'pending';
-    try {
-      const res = await fetch(teamUrl(leg, `/attention/${encodeURIComponent(id)}`), {
-        headers: { authorization: `Bearer ${leg.token}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (res.ok) outcome = readCaptureDecision(await res.json());
-    } catch {
-      /* transport hiccup — try again inside the deadline */
-    }
-    if (outcome !== 'pending') return outcome;
-  }
-}
-
-/// Best-effort tidy-up so an unanswered card does not loiter in the inbox
-/// after the agent gave up. `desktop_action` owes no agent reply, so /resolve
-/// (the dismiss path) is the right verb.
-async function dismissCard(leg: HubLeg, id: string): Promise<void> {
-  try {
-    await fetch(teamUrl(leg, `/attention/${encodeURIComponent(id)}/resolve`), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${leg.token}` },
-      body: JSON.stringify({ resolved_by: 'desktop' }),
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch {
-    /* the row stays open; the director can dismiss it by hand */
-  }
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ── The capture ──────────────────────────────────────────────────────────────
@@ -202,14 +123,15 @@ async function capture(req: UiCaptureRequest): Promise<UiCaptureResult> {
       surfaces,
       url: req.url,
     });
-    const id = await raiseCard(leg, card.summary, card.payload, req.agentHandle);
-    if (id === null) {
-      return { ok: false, code: 'UI_APPROVAL_UNAVAILABLE', message: captureDenialMessage('unavailable') };
-    }
-    const outcome = await awaitCard(leg, id, Date.now() + UI_CAPTURE_APPROVAL_TIMEOUT_MS, () => Date.now(), sleepMs);
-    if (outcome !== 'approve') {
-      if (outcome === 'pending') void dismissCard(leg, id);
-      return { ok: false, code: 'CAPTURE_DENIED', message: captureDenialMessage(outcome === 'pending' ? 'timeout' : 'denied') };
+    const verdict = await approveViaCard(leg, card, req.agentHandle);
+    if (verdict !== 'approve') {
+      // A hub that refused the card is a different diagnosis than "signed
+      // out" (checked above) — don't tell the agent to sign in when the hub
+      // just errored.
+      if (verdict === 'raise_failed') {
+        return { ok: false, code: 'UI_APPROVAL_UNAVAILABLE', message: captureDenialMessage('raise_failed') };
+      }
+      return { ok: false, code: 'CAPTURE_DENIED', message: captureDenialMessage(verdict) };
     }
   }
 

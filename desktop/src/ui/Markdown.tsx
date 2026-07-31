@@ -1,4 +1,6 @@
 import { isValidElement, memo, useEffect, useState, type ReactNode } from 'react';
+import { linkifyUiRefs, parseUiRefUri } from '../state/uiRef';
+import { canFocusUiRef, focusUiRef } from '../state/uiRefFocus';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { Icon } from './Icon';
 import { useT } from '../i18n';
@@ -18,6 +20,10 @@ import rehypeHighlight from 'rehype-highlight';
 // `<img>` can only paint — it can't execute script — so this is XSS-safe.
 function urlTransform(url: string): string {
   if (/^data:image\//i.test(url) || url.startsWith(NOTE_ATT_SCHEME)) return url;
+  // D6 ref-chips: `ui://<surface>?…` is our own in-app reference scheme, and
+  // the default transform would strip it. Safe by construction — it never
+  // reaches the network; clicking one calls focusUiRef and nothing else.
+  if (url.startsWith('ui://')) return url;
   return defaultUrlTransform(url);
 }
 
@@ -201,6 +207,7 @@ export const Markdown = memo(function Markdown({
   text,
   singleDollarMath = false,
   headingIds = false,
+  uiRefs = false,
 }: {
   text: string;
   // Enable `$…$` inline math + `\(…\)`/`\[…\]` LaTeX-delimiter normalization.
@@ -210,9 +217,14 @@ export const Markdown = memo(function Markdown({
   singleDollarMath?: boolean;
   // Stamp `id` on headings so the MarkdownReader outline can scroll to them.
   headingIds?: boolean;
+  // D6: render agent-emitted `ui://…` references as clickable focus chips.
+  // ON for agent transcripts only — prose surfaces have no desktop to point
+  // at, and a chip in a document would be a dead control.
+  uiRefs?: boolean;
 }): JSX.Element {
   const openLink = useOpenLink();
-  const src = singleDollarMath ? normalizeMath(text) : text;
+  const withRefs = uiRefs ? linkifyUiRefs(text) : text;
+  const src = singleDollarMath ? normalizeMath(withRefs) : withRefs;
   const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'): Components[typeof Tag] =>
     function H({ node, children }): JSX.Element {
       const id = headingIds ? slugify(hastText(node as HastLike)) || undefined : undefined;
@@ -237,6 +249,27 @@ export const Markdown = memo(function Markdown({
           img: ({ src, alt }) => <AttachmentImage src={typeof src === 'string' ? src : undefined} alt={alt} />,
           pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
           a: ({ children, href }) => {
+            // D6: an agent-emitted UIRef renders as a chip that focuses that
+            // surface when the USER clicks it — the agent directs attention,
+            // the user actuates (ADR-062 D-5). A ref this build cannot focus
+            // still renders, just not as a control: the reference is worth
+            // reading even when the jump is not available.
+            if (typeof href === 'string' && href.startsWith('ui://')) {
+              const ref = parseUiRefUri(href);
+              if (ref === null) return <span className="md-uiref">{children}</span>;
+              const focusable = canFocusUiRef(ref);
+              return (
+                <button
+                  type="button"
+                  className="md-uiref"
+                  title={href}
+                  disabled={!focusable}
+                  onClick={focusable ? () => void focusUiRef(ref) : undefined}
+                >
+                  {children}
+                </button>
+              );
+            }
             const external = typeof href === 'string' && /^(https?:|mailto:)/.test(href);
             return (
               <button

@@ -1332,3 +1332,78 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* ── D6 agent pointing (ui/AgentHighlightOverlay.tsx) ────────────────────────
+   The agent's half of the pointing symmetry (ADR-062 D-5): an attributed,
+   expiring marker. Sits on the OVERLAY tier — deliberately BELOW `--z-menu`
+   (where the annotation layer lives) and below the toast tier, so an agent's
+   marker can never cover the Attention dock, a modal, or a consent dialog.
+   An agent must not be able to obscure the UI that governs it. */
+.agent-highlight-layer {
+  position: fixed;
+  right: var(--spacing-s16);
+  bottom: var(--spacing-s16);
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  align-items: flex-end;
+  pointer-events: none;
+  max-width: min(420px, calc(100vw - 48px));
+}
+.agent-highlight {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--sh-3);
+  font-size: var(--font-size-label);
+  pointer-events: auto;
+}
+/* The attribution is load-bearing, not decoration: it is what keeps an
+   agent's marker from reading as the app talking. */
+.agent-highlight-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.agent-highlight-ref {
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-highlight-note {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* D6 ref-chips: an agent-emitted `ui://…` rendered inline in the transcript.
+   Clicking focuses that surface — the agent directs attention, the user
+   actuates. A ref this build cannot focus renders disabled, still readable. */
+.md-uiref {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  cursor: pointer;
+}
+.md-uiref:disabled {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  cursor: default;
+}

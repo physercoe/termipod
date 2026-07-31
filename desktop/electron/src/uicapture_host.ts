@@ -48,6 +48,13 @@ export function setShellWindow(win: BrowserWindow | null): void {
   shellWindow = win;
 }
 
+/// The shell's webContents, for main→renderer pushes (D6's highlight orders).
+/// Null when the window is closed — a push with nowhere to land is a refusal,
+/// not a crash.
+export function shellWebContents(): WebContents | null {
+  return shellWindow !== null && !shellWindow.isDestroyed() ? shellWindow.webContents : null;
+}
+
 // ── Guest resolution ─────────────────────────────────────────────────────────
 
 /// The tabId was already validated against the bridge's live registry

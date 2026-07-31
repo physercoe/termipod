@@ -4,21 +4,22 @@
 > **Status:** In flight (2026-07-31) — wedges D1–D6 below; D1+D2 (the LOCAL
 > kimi-web loop) are the first priority, remote/hub-relayed delivery (D5)
 > is second. **D1 shipped (#476), D2 shipped (#477) + D2.1 (#480);
-> D3–D5 implemented — PRs pending.** Builds on the agent browser bridge
+> D3–D6 implemented — PRs pending; the plan is code-complete.** Builds on
+> the agent browser bridge
 > (W1–W3 shipped, `docs/plans/desktop-agent-browser-bridge.md`).
 > **Derives from
 > [ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)** —
 > verbs over a first-class UI entity: UIRef both directions, one
 > per-surface policy table, three representations, agent pointing (D6).
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** the D3–D5 wedges on origin/main `4f5d86c3`
+> **Last verified vs code:** the D3–D6 wedges on origin/main `4f5d86c3`
 > (rebased past the unified assistant dock #483): frontend + electron
-> typecheck green, 299 electron `node --test` pass (D3 +21, D4 +10, D5
-> +6), 409 frontend state/ssh tests pass, `go build ./...` +
-> `go test ./...` green, `lint-desktop-tokens.sh` clean at baseline 65.
-> The Electron halves (`capturePage`, the hub approval round trip, the
-> live CDP hit-test) and the live tunnel are **unexercised on this
-> machine** — no display, no Electron binary — and need the
+> typecheck green, 308 electron `node --test` pass (D3 +21, D4 +10, D5
+> +6, D6 +9), 415 frontend state/ssh tests pass, `go build ./...` +
+> `go test ./...` green, all 12 repo lints clean. Everything that needs
+> a SCREEN — `capturePage`, the live CDP hit-test, the overlays, the
+> chip click — is **unexercised on this machine** (no display, no
+> Electron binary), as is the live tunnel; they need the
 > Playwright/desktop pass
 
 **Review amendments (2026-07-30), folded into the body below.** The relay
@@ -705,6 +706,40 @@ they are pure rendering, no consent surface). `ui_highlight`: overlay
 renderer (attributed, TTL, never over Attention/modal UI), policy
 `highlight` bit enforcement, action-class audit; local first, remote
 rides D5's generalized dispatch unchanged.
+
+> **D6 as shipped.** The wedge needed one thing the plan left implicit: a
+> **written form for a UIRef an agent can type**. ADR-062 defines the JSON
+> shape, but a reply is prose, so the wire form is the URI spelling of the
+> same fields — `ui://replay?dataset_id=ds_1&cursor=1234` — on the scheme
+> already minted for `ui://focus`. One grammar (`state/uiRef.ts`), two
+> spellings: `ui_highlight` accepts either, and a chip and a tool call
+> therefore point at the same thing by construction.
+>
+> - **Chips are a string pre-pass, not a markdown plugin.** `linkifyUiRefs`
+>   rewrites bare tokens into markdown links so the transcript's existing
+>   link renderer paints them; that keeps it a pure function `node --test`
+>   can prove — including the one thing it must never do, which is touch
+>   code (an agent explaining a URI inside a fence is showing it, not
+>   pointing with it).
+> - **Focus dispatch is honest about its depth.** Switching surface always
+>   works; entity focus works where a store already exposes a setter
+>   (Replay's dataset/episode, an Inspect tab already open on that path)
+>   and stops at the surface where none does. A ref this build cannot
+>   focus still renders — a reference is worth reading — just not as a
+>   control.
+> - **`ui_highlight` raises no card, and the hub had to be told.** ADR-062
+>   D-5 says consent is the sharing toggle plus the policy bit, so the hub
+>   class list gained a third class (`annotate`) between read and action:
+>   routed immediately, but named distinctly so nobody later reads
+>   "routes without a card" as "is a read". Its safety lives where the
+>   risk section put it — the `highlight` column, a per-agent rate limit
+>   (6/minute), a TTL that is ours not the caller's, always-present
+>   attribution, and an audit entry per call.
+> - **The overlay sits BELOW the modal tier.** An agent must not be able
+>   to cover the Attention dock or a consent dialog with its own marker.
+>
+> Refusals deliberately do **not** consume rate budget: the limit exists to
+> stop a loop, not to punish an agent that mistyped a ref.
 
 ## 5. Testing
 

@@ -437,17 +437,42 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  // D6 (plan §3.4b, ADR-062 D-5): deixis is symmetric — the agent points back.
+  // NON-ACTUATING by construction: it draws a glow and expires. No approval
+  // card (it takes no action with the user's authority) but audited like one,
+  // because "an agent drew on my screen" is exactly what the audit view is for.
+  {
+    name: 'ui_highlight',
+    description:
+      'Point the TermiPod desktop user at something on their own screen: an ephemeral, visibly attributed glow over a surface, with an optional note. NON-ACTUATING — it never focuses, scrolls, clicks or types, and it expires on its own; the user\'s click is the only actuator. `ref` is a UIRef, either the JSON shape ui_get_focus returns ({"surface":"replay","entity":{"dataset_id":"ds_1"}}) or its URI spelling ("ui://replay?dataset_id=ds_1"). Use it when words alone would make the user hunt ("the failing pane", "that row"). Refused over surfaces the desktop marks non-annotatable. You can also write a ui:// reference inline in your reply — it renders as a chip the user can click.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: {
+          description: 'A UIRef: the JSON shape from ui_get_focus, or a "ui://<surface>?<ids>" string.',
+        },
+        note: { type: 'string', description: 'One short line shown with the highlight (<=140 chars).' },
+        ttl_ms: { type: 'integer', description: 'How long it stays up (default 8000, max 30000).' },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+  },
 ];
 
-/// The D1/D3 desktop-UI tools, which the sharing toggle gates as a set: off
-/// means neither appears in any catalog and both refuse on call.
-export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot']);
+/// The D1/D3/D6 desktop-UI tools, which the sharing toggle gates as a set: off
+/// means none appears in any catalog and all refuse on call.
+export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot', 'ui_highlight']);
 
 /// Desktop-UI tools that are ACTION class despite living in READ_TOOLS (the
 /// bearer scope they need and the consent they need are different questions —
 /// see the ui_screenshot definition). They audit + hub-mirror like an action
-/// on every leg, and their own handler owns the approval gate.
-export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot']);
+/// on every leg, and their own handler owns whatever gate it needs.
+///
+/// `ui_highlight` is here for the AUDIT, not for an approval: ADR-062 D-5 is
+/// explicit that a highlight needs no card (consent is the sharing toggle plus
+/// the policy bit) but is audited like an action.
+export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot', 'ui_highlight']);
 
 /// D1: the MCP resource uri mirroring ui_get_focus (ADR-062 D-6). list + read
 /// only — subscriptions are deliberately NOT implemented: the relay forwards
@@ -609,6 +634,10 @@ export interface McpServerDeps {
   /// provider owns the policy refusal AND the per-call approval — this module
   /// only resolves the target and shapes the result.
   captureUi?: (req: UiCaptureRequest) => Promise<UiCaptureResult>;
+  /// D6: the agent-pointing highlight (uihighlight_host.ts). The provider owns
+  /// the policy bit, the rate limit and the TTL; this module only shapes the
+  /// call and the answer.
+  highlightUi?: (req: UiHighlightRequest) => Promise<UiHighlightResult>;
 }
 
 /// One `ui_screenshot` request, with the target already resolved against the
@@ -631,6 +660,23 @@ export interface UiCaptureRequest {
 export type UiCaptureResult =
   | { ok: true; data_b64: string; width: number; height: number }
   | { ok: false; code: string; message: string };
+
+/// D6: one `ui_highlight` call, with the caller's identity attached — a
+/// highlight is ATTRIBUTED on screen ("kimi-1 points here"), which is half of
+/// why it needs no approval card.
+export interface UiHighlightRequest {
+  /// The raw `ref` argument, JSON or `ui://` string — parsed by the provider
+  /// through the shared grammar, so the tool and the transcript chip point at
+  /// the same thing by construction.
+  ref: unknown;
+  note: string;
+  ttlMs: number | null;
+  agentId: string;
+  agentHandle: string;
+  via: 'local' | 'hub';
+}
+
+export type UiHighlightResult = { ok: true; surface: string; ttl_ms: number } | { ok: false; code: string; message: string };
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -1131,10 +1177,44 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
       if (!res.ok) throw new BridgeError(res.code, res.message);
       return { content: [{ type: 'image', data: res.data_b64, mimeType: 'image/png' }] };
     }
+    case 'ui_highlight': {
+      if (deps.uiFocusAvailable?.() !== true) {
+        throw new BridgeError(
+          'UI_UNAVAILABLE',
+          'UI context sharing is off on the desktop (Settings → Assistant) — the desktop UI is not addressable',
+        );
+      }
+      if (deps.highlightUi === undefined) {
+        throw new BridgeError('UI_UNAVAILABLE', 'this desktop build cannot render agent highlights');
+      }
+      const note = typeof args.note === 'string' ? args.note.slice(0, HIGHLIGHT_NOTE_MAX) : '';
+      let ttlMs: number | null = null;
+      if (args.ttl_ms !== undefined) {
+        if (typeof args.ttl_ms !== 'number' || !Number.isInteger(args.ttl_ms) || args.ttl_ms <= 0) {
+          throw new BridgeError('INVALID_PARAMS', 'ttl_ms must be a positive integer (milliseconds)');
+        }
+        ttlMs = args.ttl_ms;
+      }
+      const res = await deps.highlightUi({
+        ref: args.ref,
+        note,
+        ttlMs,
+        agentId: ctx.agentId ?? '',
+        agentHandle: ctx.agentHandle ?? '',
+        via: ctx.via ?? 'local',
+      });
+      if (!res.ok) throw new BridgeError(res.code, res.message);
+      // The answer says what the user will SEE, so the agent can describe it
+      // ("I've highlighted the replay panel") rather than guess.
+      return textContent(`highlighted ${res.surface} for ${String(Math.round(res.ttl_ms / 1000))}s — the user sees an attributed marker; nothing was focused or clicked`);
+    }
     default:
       throw new BridgeError('UNKNOWN_TOOL', `unknown tool '${name}'`);
   }
 }
+
+/// A highlight note is a caption, not a message channel: one short line.
+const HIGHLIGHT_NOTE_MAX = 140;
 
 /// The focus answer as JSON text. Never blocks: before the renderer's first
 /// push the cache is null and the answer is an explicit empty snapshot —

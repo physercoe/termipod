@@ -65,6 +65,11 @@ async function boot(): Promise<void> {
   // when off — the default.
   const { syncUiContextToMain } = await import('./state/uiContext');
   syncUiContextToMain();
+  // D6: listen for agent-pointing orders. Independent of the toggle above —
+  // main only ever pushes one while sharing is on, and a listener with nothing
+  // to hear costs nothing.
+  const { initAgentHighlights } = await import('./state/agentHighlight');
+  initAgentHighlights();
 }
 
 void boot();

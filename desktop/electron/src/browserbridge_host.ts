@@ -66,6 +66,8 @@ import {
   type TunnelClass,
   type UiCaptureRequest,
   type UiCaptureResult,
+  type UiHighlightRequest,
+  type UiHighlightResult,
 } from './browserbridge';
 import { policyForGuest } from './webtab';
 import { keychainGetLocal } from './ipc/keychain';
@@ -288,6 +290,16 @@ export function setUiCaptureProvider(p: UiCaptureProvider): void {
   uiCaptureProvider = p;
 }
 
+/// D6: the agent-pointing provider (uihighlight_host.ts), registered the same
+/// way as D3's capture provider.
+type UiHighlightProvider = (req: UiHighlightRequest) => Promise<UiHighlightResult>;
+
+let uiHighlightProvider: UiHighlightProvider | null = null;
+
+export function setUiHighlightProvider(p: UiHighlightProvider): void {
+  uiHighlightProvider = p;
+}
+
 /// The hub identity the audit mirror and the D3 approval card both post as.
 /// Non-secret: the bearer is fetched from the keychain per use, never held
 /// here (and never handed across IPC).
@@ -326,6 +338,10 @@ async function enable(): Promise<void> {
       uiCaptureProvider !== null
         ? uiCaptureProvider(req)
         : Promise.resolve<UiCaptureResult>({ ok: false, code: 'UI_UNAVAILABLE', message: 'the capture provider is not wired' }),
+    highlightUi: (req) =>
+      uiHighlightProvider !== null
+        ? uiHighlightProvider(req)
+        : Promise.resolve<UiHighlightResult>({ ok: false, code: 'UI_UNAVAILABLE', message: 'the highlight provider is not wired' }),
   };
   server = await startBridgeServer({ ...mcpDeps, token, actionToken });
   writeBridgeDiscovery(os.homedir(), {

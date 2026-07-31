@@ -1711,6 +1711,10 @@ const en: Dict = {
   'annotate.failed': 'The annotation could not be captured.',
   // D4: the title on the resolved-element chip in the target row.
   'annotate.pointing': 'The element the agent will be pointed at',
+  // D6 — agent pointing. The attribution is not decoration: it is what keeps
+  // an agent's marker from reading as the app talking.
+  'highlight.points': '{agent} points here',
+  'highlight.goThere': 'Go there',
 
   'debug.lines_one': '{n} line',
   'debug.lines_other': '{n} lines',
@@ -3753,6 +3757,8 @@ const zh: Dict = {
   'annotate.clipboard': '已复制——在 kimi 输入框中粘贴（{key}）',
   'annotate.failed': '无法截取标注。',
   'annotate.pointing': '将指给智能体的元素',
+  'highlight.points': '{agent} 指向这里',
+  'highlight.goThere': '前往',
 
   'debug.lines': '{n} 行',
   'debug.placeholder': '粘贴代码、差异、堆栈或日志…',

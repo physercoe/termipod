@@ -370,7 +370,7 @@ function InputTextBody({ p }: { p: Entity }): JSX.Element {
     <div className="ev-input">
       <span className="ev-from">{label}</span>
       <InputImages p={p} />
-      <Markdown text={text} />
+      <Markdown text={text} uiRefs />
     </div>
   );
 }
@@ -528,7 +528,7 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
         return <ThoughtBody p={p} />;
       }
       const text = str(p, 'text');
-      if (text !== undefined) return <Markdown text={text} />;
+      if (text !== undefined) return <Markdown text={text} uiRefs />;
       return (
         <div className="ev-generic">
           <span className="ev-kind-label">{ev.kind}</span>

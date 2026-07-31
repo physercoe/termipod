@@ -367,3 +367,69 @@ func TestDesktopUIGrantable_ScreenshotIsTheExemption(t *testing.T) {
 		t.Error("the predicate should not refuse everything by default")
 	}
 }
+
+// ── Agent pointing routes without a card (ADR-062 D-5) ───────────────
+
+func TestDesktopUIHighlight_RoutesWithNoApprovalCard(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+	hostID := seedDesktopUIHost(t, s, defaultTeamID, `{"desktop_ui":true}`)
+	fake := startFakeBrowserDesktop(t, s, hostID, func(env *tunnelRequest) (int, string) {
+		return okBrowserEnvelope(`{"content":[{"type":"text","text":"highlighted replay for 8s"}]}`)
+	})
+
+	// A highlight is non-actuating annotation: it draws a glow that
+	// expires and takes no action with the user's authority. ADR-062 D-5
+	// puts its consent in the sharing toggle plus the policy bit — NOT in
+	// a card. Gating it would make a pointing conversation unusable, and
+	// would train the principal to click through approvals.
+	args, _ := json.Marshal(map[string]any{
+		"host_id": hostID,
+		"tool":    "ui_highlight",
+		"args":    map[string]any{"ref": "ui://replay?dataset_id=ds_1", "note": "this episode"},
+	})
+	out, jerr := s.mcpDesktopUIInvoke(context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("highlight: %+v", jerr)
+	}
+	if !strings.Contains(mcpResultTextBody(t, out), "highlighted") {
+		t.Errorf("unexpected result: %q", mcpResultTextBody(t, out))
+	}
+	if n := attentionRowCount(t, s, "desktop_action"); n != 0 {
+		t.Errorf("a highlight raised %d approval cards; want 0 (ADR-062 D-5)", n)
+	}
+	if len(fake.seen()) != 1 || fake.seen()[0].Kind != desktopTunnelKind {
+		t.Errorf("highlight must route on %s: %+v", desktopTunnelKind, fake.seen())
+	}
+	// …and it does not silently become a grant either.
+	if s.bridgeGrants.has(desktopGrantKind, defaultTeamID, hostID, agentID) {
+		t.Error("a card-free tool must not record a grant")
+	}
+}
+
+func TestDesktopUIToolClasses_AreExhaustiveAndDisjoint(t *testing.T) {
+	// The class decides whether a call is gated, so a tool that fell out
+	// of every list would route ungated by accident. Stated as a test:
+	// every catalog name classifies, and none classifies twice.
+	seen := map[string]int{}
+	for _, n := range desktopUIToolNames() {
+		seen[n]++
+		if desktopUIToolClass(n) == "" {
+			t.Errorf("%s is in the catalog but classifies as nothing", n)
+		}
+	}
+	for n, count := range seen {
+		if count != 1 {
+			t.Errorf("%s appears %d times across the class lists", n, count)
+		}
+	}
+	if desktopUIToolClass("ui_screenshot") != "action" {
+		t.Error("ui_screenshot must be the gated class")
+	}
+	if desktopUIToolClass("ui_highlight") != "annotate" {
+		t.Error("ui_highlight must be annotate — routed, but not a read")
+	}
+	if desktopUIToolClass("ui_get_focus") != "read" {
+		t.Error("ui_get_focus must be a read")
+	}
+}

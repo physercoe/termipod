@@ -83,6 +83,14 @@ engine cursor onto the hub session row at `session.init` time, so
 resume can splice `--resume <id>` and the principal's transcript
 stays continuous across paused→resumed lifecycle.
 
+### tier
+One of the four places TermiPod code runs: the **hub** (authority), the
+**hosts** (execution + bytes), the **desktop** (deep work), the
+**mobile app** (attention). Roles, placement rules, and degradation per
+tier: `docs/spine/system-tiers.md`. *Distinguish from:* the five
+governance **roles** (who acts — `docs/spine/governance-roles.md`) and
+the **orchestration layer** (a lens over the work, not a box).
+
 ---
 
 ## 2. Sessions

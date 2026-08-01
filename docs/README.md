@@ -96,12 +96,13 @@ Each directory holds exactly one type of doc. The contract is in
 
 ## Canonical docs (the spine)
 
-These four are the architectural foundation. Everything else cites
+These five are the architectural foundation. Everything else cites
 back to them.
 
 | Doc | Topic |
 |---|---|
 | [`spine/blueprint.md`](spine/blueprint.md) | Architecture, axioms, ontology, protocol layering |
+| [`spine/system-tiers.md`](spine/system-tiers.md) | The four tiers (hub · hosts · desktop · mobile): why each exists, ownership, placement rules, degradation |
 | [`spine/information-architecture.md`](spine/information-architecture.md) | Mobile IA — six axioms, role ontology, entity × surface matrix |
 | [`spine/agent-lifecycle.md`](spine/agent-lifecycle.md) | How an agent is born, lives, spawns, dies |
 | [`spine/sessions.md`](spine/sessions.md) | Session ontology — the conversational primitive that survives respawn |

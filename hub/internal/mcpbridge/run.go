@@ -25,6 +25,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/termipod/hub/internal/mcpwire"
 )
 
 // Run executes the bridge with `args` (typically os.Args[1:] from the
@@ -111,6 +113,7 @@ func forward(client *http.Client, endpoint string, line []byte) ([]byte, error) 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	stampMCPHeaders(req, line)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -127,6 +130,39 @@ func forward(client *http.Client, endpoint string, line []byte) ([]byte, error) 
 		return nil, nil
 	}
 	return body, nil
+}
+
+// stampMCPHeaders adds the standard MCP request headers (2026-07-28
+// SEP-2243) to this relay's HTTP leg: Mcp-Method for every frame, and
+// Mcp-Name for a tools/call.
+//
+// This relay is otherwise a byte pump — it never needed to know what it
+// was carrying. The headers change that on purpose: they let the hub
+// classify read-vs-action, meter, and ring-audit a call WITHOUT parsing
+// the body, which is the point of the spec's header routing. Parsing
+// here is cheap because the frame is a single JSON-RPC object we are
+// already holding.
+//
+// Failure is silent by design. A frame we cannot parse is still
+// forwarded verbatim, unstamped: the hub is the authority on whether it
+// is valid JSON-RPC, and a relay that started rejecting frames on its
+// own reading of them would be a second, weaker parser in the path
+// (plan §4 — the relays stay protocol-blind about everything except
+// this).
+func stampMCPHeaders(req *http.Request, line []byte) {
+	var frame struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(line, &frame); err != nil || frame.Method == "" {
+		return
+	}
+	req.Header.Set(mcpwire.HeaderMethod, frame.Method)
+	if frame.Method == "tools/call" && frame.Params.Name != "" {
+		req.Header.Set(mcpwire.HeaderName, frame.Params.Name)
+	}
 }
 
 func makeTransportError(reqLine []byte, cause error) []byte {

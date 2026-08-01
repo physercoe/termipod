@@ -1,11 +1,12 @@
 # 063. MCP version negotiation + adoption posture
 
 > **Type:** decision
-> **Status:** Proposed (2026-07-31) — extracted from
+> **Status:** Accepted (2026-08-01, director) — extracted from
 > [mcp-2026-07-28-adoption.md](../discussions/mcp-2026-07-28-adoption.md)
 > before the compat wedge ships, per the ADR-059 lesson: pin the
 > invariants at decision tier before there is an implementation to
-> drift from them
+> drift from them; accepted ahead of lane U so the compat wedge builds
+> against a settled contract
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`7ab1462a`)
 > (`hub/internal/server/mcp.go:64-95`, `hub/internal/hubmcpserver/run.go:56-78`,

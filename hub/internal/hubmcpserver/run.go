@@ -46,36 +46,19 @@ import (
 	"io"
 	"log"
 	"os"
+
+	"github.com/termipod/hub/internal/mcpver"
+	"github.com/termipod/hub/internal/mcpwire"
 )
 
 const (
 	serverName    = "hub-mcp-server"
 	serverVersion = "0.1.0"
-	// Default MCP protocol version we advertise when the client
-	// requested something we don't recognise. See negotiateProtocolVersion.
-	protocolVersion = "2024-11-05"
 )
 
-// supportedProtocolVersions — see hub/internal/server/mcp.go for the
-// rationale; same trick (echo the client's revision when we know it,
-// otherwise fall back) so strict MCP clients like agy 1.0.1 don't tear
-// the connection down on a "downgrade" they see in the initialize ack.
-var supportedProtocolVersions = map[string]struct{}{
-	"2024-11-05": {},
-	"2025-03-26": {},
-	"2025-06-18": {},
-	"2025-11-25": {},
-}
-
-func negotiateProtocolVersion(requested string) string {
-	if requested == "" {
-		return protocolVersion
-	}
-	if _, ok := supportedProtocolVersions[requested]; ok {
-		return requested
-	}
-	return protocolVersion
-}
+// The supported protocol-version set and the negotiation function moved
+// to internal/mcpver (ADR-063 D1); this file used to carry one of the
+// three copies, under a comment naming server/mcp.go as canon.
 
 // jsonrpcReq is the shape we care about from the client. `Params` stays raw
 // so each method can define its own schema without a pre-decode step that
@@ -213,18 +196,23 @@ func handleLine(c *hubClient, tools []toolDef, line []byte) ([]byte, bool) {
 // separate from handleLine lets the test suite exercise routing without
 // going through JSON framing.
 func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError) {
+	// Which revision is this exchange speaking? On stdio there is no
+	// header to read, so the two channels are the initialize ask and the
+	// 2026-07-28 per-request `_meta` envelope (SEP-2575).
+	var params struct {
+		ProtocolVersion string              `json:"protocolVersion"`
+		Meta            mcpwire.RequestMeta `json:"_meta"`
+	}
+	if len(req.Params) > 0 {
+		_ = json.Unmarshal(req.Params, &params)
+	}
+
 	switch req.Method {
 	case "initialize":
 		// MCP handshake. We return our tool list eagerly so clients that
 		// skip tools/list (some do) still see the surface area.
-		var initParams struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		if len(req.Params) > 0 {
-			_ = json.Unmarshal(req.Params, &initParams)
-		}
-		return map[string]any{
-			"protocolVersion": negotiateProtocolVersion(initParams.ProtocolVersion),
+		return identity(mcpwire.StampResult(map[string]any{
+			"protocolVersion": mcpver.NegotiateFirst(params.ProtocolVersion, params.Meta.ProtocolVersion),
 			"capabilities": map[string]any{
 				"tools": map[string]any{"listChanged": false},
 			},
@@ -232,11 +220,23 @@ func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError
 				"name":    serverName,
 				"version": serverVersion,
 			},
-		}, nil
+		})), nil
 
 	case "initialized", "notifications/initialized":
 		// Client acknowledgment of the handshake; nothing to do.
 		return nil, nil
+
+	case "server/discover":
+		// 2026-07-28 SEP-2575. On stdio this doubles as the blessed
+		// backwards-compat probe: a client that gets a method-not-found
+		// here knows it is talking to a pre-2026 server and falls back
+		// to the handshake.
+		return identity(mcpwire.StampCacheableList(map[string]any{
+			"protocolVersions": mcpver.Supported(),
+			"capabilities": map[string]any{
+				"tools": map[string]any{"listChanged": false},
+			},
+		})), nil
 
 	case "tools/list":
 		// ADR-033 W6.5: advertise the ToolSpec registry catalog so the
@@ -248,13 +248,21 @@ func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError
 		// if any entry violates `[A-Za-z0-9_-]+`. The dispatcher still
 		// resolves dot-named aliases on tools/call, so legacy callers
 		// don't break. Mirrors server/mcp.go's mcpToolListDefs.
-		return map[string]any{"tools": filterMCPCompliantNames(RegistryCatalogDefs())}, nil
+		return identity(mcpwire.StampCacheableList(map[string]any{
+			"tools": filterMCPCompliantNames(RegistryCatalogDefs()),
+		})), nil
 
 	case "tools/call":
-		return handleToolsCall(c, tools, req.Params)
+		res, jerr := handleToolsCall(c, tools, req.Params)
+		if m, ok := res.(map[string]any); ok {
+			res = identity(m)
+		}
+		return res, jerr
 
 	case "ping":
-		return map[string]any{}, nil
+		// Removed in 2026-07-28 (SEP-2575); still answered for the
+		// revisions that have it.
+		return identity(mcpwire.StampResult(map[string]any{})), nil
 
 	default:
 		return nil, &jsonrpcError{Code: errMethodNotFound, Message: "method not found: " + req.Method}
@@ -309,34 +317,53 @@ func handleToolsCall(c *hubClient, tools []toolDef, raw json.RawMessage) (any, *
 	// "host_id required" sentence and self-correct on the next turn,
 	// the same way it would for any other tool error.
 	if err := ValidateArgs(tool.InputSchema, p.Arguments); err != nil {
-		return map[string]any{
-			"isError": true,
-			"content": []any{
-				map[string]any{"type": "text", "text": err.Error()},
-			},
-		}, nil
+		return toolErrorResult(err.Error()), nil
 	}
 	out, err := tool.call(c, p.Arguments)
 	if err != nil {
 		// Per MCP convention, tool-level failures come back as an
 		// isError=true content block rather than a JSON-RPC error, so
 		// clients can still render the message in-line with the call.
-		return map[string]any{
-			"isError": true,
-			"content": []any{
-				map[string]any{"type": "text", "text": err.Error()},
-			},
-		}, nil
+		return toolErrorResult(err.Error()), nil
 	}
 	text, mErr := json.Marshal(out)
 	if mErr != nil {
 		return nil, &jsonrpcError{Code: errInternal, Message: "marshal tool result", Data: mErr.Error()}
 	}
-	return map[string]any{
+	// Both representations (ADR-063 D3): the text block every client can
+	// render, and the parsed copy for those that prefer structured data.
+	res := mcpwire.StampResult(map[string]any{
 		"content": []any{
 			map[string]any{"type": "text", "text": string(text)},
 		},
-	}, nil
+	})
+	if out != nil {
+		res["structuredContent"] = out
+	}
+	return res, nil
+}
+
+// toolErrorResult is the isError content block used for recoverable,
+// agent-visible failures — the agent reads the sentence and self-corrects
+// on the next turn, as opposed to a *jsonrpcError protocol fault.
+//
+// Note it is still resultType "complete": the call finished and produced
+// an answer. "input_required" means the opposite — the call has NOT
+// finished and the client must supply more input — so an errored result
+// carrying it would tell a 2026-07-28 client to retry forever.
+func toolErrorResult(text string) map[string]any {
+	return mcpwire.StampResult(map[string]any{
+		"isError": true,
+		"content": []any{
+			map[string]any{"type": "text", "text": text},
+		},
+	})
+}
+
+// identity attaches this server's name/version to a result's `_meta`,
+// where 2026-07-28 moved it from the initialize response (SEP-2575).
+func identity(m map[string]any) map[string]any {
+	return mcpwire.WithServerInfo(m, serverName, serverVersion)
 }
 
 // marshalResp is a tiny wrapper that turns a jsonrpcResp into its wire form,

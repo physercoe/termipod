@@ -1,9 +1,11 @@
 # Hub MCP tool surface
 
 > **Type:** reference
-> **Status:** Current (2026-06-09)
+> **Status:** Current (2026-08-01) — §1 re-verified against the four
+> servers for the ADR-063 compat wedge; §3's catalog still spells tools
+> the retired dotted way and is stale (see the note there)
 > **Audience:** agent authors, steward template authors, integrators
-> **Last verified vs code:** v1.0.809
+> **Last verified vs code:** §1–§2 at 2026-08-01 (lane U); §3 at v1.0.809
 
 **TL;DR.** Single canonical entry for "what MCP tools does the
 hub expose, and what does each one do?" Every tool is a thin
@@ -25,20 +27,59 @@ This doc lags one release behind tagging by design — re-grep
 
 ## 1. Discovery + dispatch
 
-The hub speaks MCP over stdio (`hub-mcp` binary) and over HTTP
-(reverse-tunnelled from host-runner). Both expose the same tool
-catalog. Three protocol methods carry the surface:
+The hub's own MCP endpoint is **HTTP**: `POST /mcp/{token}`, where the
+path segment *is* the agent's bearer token
+([`../../hub/internal/server/mcp.go`](../../hub/internal/server/mcp.go)).
+Agents reach it through `hub-mcp-bridge`, a stdio ⇆ HTTP relay that
+host-runner writes into every spawned agent's `.mcp.json`. There is no
+`hub-mcp` binary; the standalone `hub-mcp-server` stdio daemon exists
+and serves the authority catalog, but is on no live spawn path.
 
 | Method | Purpose |
 |---|---|
-| `initialize` | Handshake; hub returns server capabilities + tool count. |
-| `tools/list` | Returns the tool catalog: name, description, JSON-Schema for `arguments`. |
+| `initialize` | Handshake. Returns the negotiated `protocolVersion`, capabilities, and `serverInfo`. **Not** a tool count. |
+| `server/discover` | 2026-07-28's stateless replacement for the handshake: the full supported-version list + capabilities, callable before anything else. Also the backwards-compat probe. |
+| `tools/list` | The tool catalog: name, description, JSON-Schema for `arguments`, and `annotations`. Cacheable (`ttlMs`, `cacheScope: private`). |
 | `tools/call` | Run one tool; payload is `{name, arguments}`. |
+| `ping` | Liveness. Removed by the 2026-07-28 revision; still answered for the revisions that have it. |
+
+Notifications (a request with no `id`) get **no** reply, per JSON-RPC
+2.0 §4.1 — including `notifications/roots/list_changed`, which the hub
+deliberately drops rather than answering (a strict client treats an
+unsolicited frame as a protocol violation). A JSON-RPC **batch** is
+refused with `-32600`: it is a well-formed envelope we have never
+implemented, so the honest answer points at the envelope, not at the
+bytes.
+
+**Protocol versions (ADR-063).** The supported set is declared once, in
+[`../../hub/internal/mcpver`](../../hub/internal/mcpver), and shared by
+all three Go servers; the desktop browser bridge mirrors it and the two
+are pinned together by `versions.json`. Today:
+`2024-11-05` · `2025-03-26` · `2025-06-18` · `2025-11-25` ·
+`2026-07-28`, floor `2024-11-05`.
+
+Negotiation is **echo-if-known, floor otherwise** — never a blind echo
+of an unlisted version, because claiming a revision promises its
+request-side semantics. A client may declare its revision three ways:
+the `initialize` params, the `MCP-Protocol-Version` header, or the
+per-request `_meta` envelope
+(`io.modelcontextprotocol/protocolVersion`); the first one we implement
+wins, and a request that declares nothing gets no version claimed back
+at it.
+
+Every result carries the additive 2026-07-28 fields regardless of the
+negotiated version (ADR-063 D3): `resultType: "complete"`, the server's
+identity under `_meta["io.modelcontextprotocol/serverInfo"]`, and — on
+lists — `ttlMs` + `cacheScope`.
 
 Each tool result is JSON — typically the raw REST response body,
 sometimes a small wrapper like `{ok: true, ...}` for endpoints
-that return 204 No Content. Errors surface as MCP protocol
-errors with the REST status code in the message.
+that return 204 No Content. It ships **both** as a `text` content block
+(what an LLM actually reads when a client renders the result) and as
+`structuredContent` (for clients that parse). Recoverable, agent-visible
+failures come back as an `isError` content block so the agent can
+self-correct; protocol faults are JSON-RPC errors with the REST status
+code in the message.
 
 ---
 
@@ -69,6 +110,16 @@ their parent steward (`mcp_authority_roles.go::authorizeA2ATarget`).
 ---
 
 ## 3. Tool catalog
+
+> **Stale — names only.** Every tool below is spelled the retired
+> dotted way (`projects.list`). Those spellings **404 today**: §4 "One
+> spelling, every layer" is the current rule, and the callable name is
+> the snake_case one (`projects_list`). The *behaviour* each row
+> describes is still accurate; only the names are wrong. Re-grep
+> `spec("` in
+> [`../../hub/internal/hubmcpserver/toolspec.go`](../../hub/internal/hubmcpserver/toolspec.go)
+> for the callable set, or call `tools/list`. Rewriting this section is
+> its own change, not a side effect of the ADR-063 wedge.
 
 Grouped by resource. Required `arguments` are bolded; optional
 fields read straight from the JSON-Schema embedded in

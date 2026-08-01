@@ -1,12 +1,13 @@
 # MCP 2026-07-28 compat + borrows
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-31) — for principal review, then fleet
-> implementation; lane U is one small PR-pair, lane B folds into
-> owning lanes
+> **Status:** In progress (2026-08-01) — **lane U shipped** (U1–U10) with
+> **B2**; lanes B1/B3/B4/B5 stay with their owning lanes. See §6 for the
+> three places the spec text disagreed with this plan's reading and what
+> was built instead
 > **Audience:** principal · contributors · maintainers
-> **Last verified vs code:** 2026.730.1231-alpha (`7ab1462a`) — anchors
-> re-verified by the authoring audit
+> **Last verified vs code:** 2026-08-01 — lane U implemented against the
+> published 2026-07-28 changelog (SEP-2575 / 2322 / 2549 / 2243 / 2106)
 > **Freshness:** contract
 
 **TL;DR.** Execute
@@ -134,7 +135,44 @@ sampling / logging (ADR-063 D4).
   (`node --test src/state/*.test.ts src/ssh/*.test.ts` plus the
   electron suite) per wedge.
 
-## 5. Acceptance
+## 5. Deltas found while building (2026-08-01)
+
+Three places where the published 2026-07-28 text disagreed with this
+plan's reading. All three were resolved toward the spec.
+
+- **Server identity moved.** The revision took `serverInfo` *out* of
+  the handshake body and into every result's
+  `_meta["io.modelcontextprotocol/serverInfo"]` (SEP-2575) — a
+  stateless client never sees an initialize response to read it from.
+  U6 as written ("serverInfo, capabilities, and the supported version
+  list") could not be satisfied without it, so all four servers now
+  stamp identity on every result. The handshake keeps its body copy
+  for 2024/2025-era clients.
+- **`resources/read` is cacheable too.** U5 named `tools/list` and the
+  bridge's `resources/list`; SEP-2549's `CacheableResult` covers
+  `resources/read` as well (and `prompts/list` /
+  `resources/templates/list`, which we do not serve). The bridge's
+  `ui://focus` read carries `ttlMs`/`cacheScope` accordingly.
+- **`ping` is gone in 2026-07-28** (SEP-2575), which U10's doc note
+  did not say. We keep serving it — the revisions our engines actually
+  speak have it, and a 2026-era client simply never calls it.
+
+One deliberate divergence, flagged rather than taken: the revision
+answers an unsupported client-declared version with
+`UnsupportedProtocolVersionError` (`-32022`), where
+[ADR-063](../decisions/063-mcp-version-negotiation-and-adoption.md) D2
+says serve at the floor. D2 is the accepted contract and its reasoning
+holds — our responses are additive, so a floor-served answer is *also*
+a valid 2026-07-28-shaped one, and serving beats refusing. Erroring
+instead would be an ADR-063 amendment, not an implementation choice.
+
+Also noted, not fixed: the desktop bridge answers a sharing-toggle
+refusal on `resources/read` with `-32002`. The revision renumbered
+*resource-not-found* from `-32002` to `-32602`, which this is not — it
+is a policy refusal, and `-32000`–`-32019` stays implementation-defined
+and grandfathered. Left alone deliberately.
+
+## 6. Acceptance
 
 A 2025-11-25 client (agy fixture) and a 2024-11-05 client negotiate
 exactly as today (regression corpus green); a synthetic 2026-07-28

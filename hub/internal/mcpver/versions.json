@@ -1,0 +1,11 @@
+{
+  "_readme": "Cross-language parity corpus for the MCP protocol-version set (ADR-063 D1). Go reads it from hub/internal/mcpver/mcpver_test.go; TypeScript reads it from desktop/electron/src/browserbridge.test.ts. Neither language owns it — it is the referee both are checked against, because a shared constant is impossible across the language boundary and a copied list drifts. Adding a revision means editing three places: mcpver.go, browserbridge.ts, and this file.",
+  "floor": "2024-11-05",
+  "supported": [
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+    "2025-11-25",
+    "2026-07-28"
+  ]
+}

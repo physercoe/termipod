@@ -781,9 +781,19 @@ paths:
       tags: [Hosts]
       operationId: deleteHost
       summary: Delete a host (admin)
+      description: >-
+        Deletes the host row. Agents still assigned to it are handled by
+        whether the host is reachable: if the host is `online` with live
+        agents the delete is refused with 409 (its host-runner can stop them
+        properly first); if the host is `offline` those agents are orphaned by
+        definition, so they are reaped to `crashed` — sessions paused, bearer
+        tokens revoked — and the delete proceeds. Agents already in a terminal
+        status (`terminated`, `crashed`, `failed`) never block a delete.
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Host is online and still has live agents
 
   /v1/teams/{team}/hosts/{host}/heartbeat:
     parameters:

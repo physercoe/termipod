@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -261,30 +262,70 @@ func (s *Server) handleHostHeartbeat(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleDeleteHost removes a host row. Refuses if any agents on this host
-// are still alive (status not in terminated/failed) — otherwise those rows
-// would silently lose their host_id via the ON DELETE SET NULL edge and
-// confuse the org chart. host_commands cascade-delete.
+// handleDeleteHost removes a host row, and answers the question "what
+// happens to the agents that were on it?" differently depending on whether
+// anyone is still home:
+//
+//   - host ONLINE with live agents → 409. The host-runner is right there and
+//     can stop them properly; deleting underneath it would strand real
+//     processes and null out their host_id via the ON DELETE SET NULL edge,
+//     leaving running agents that claim to live nowhere.
+//
+//   - host OFFLINE with live agents → the agents are ORPHANED, so reap them
+//     to 'crashed' and proceed. Nothing can reach them: the hub only ever
+//     talks to an agent through its host-runner, and the queued host_commands
+//     that a stop would enqueue cascade-delete with this row anyway. Refusing
+//     here used to be a dead end — the fleet view showed agents "running" on
+//     a machine that no longer exists, and the only way to clear them was to
+//     stop each one by hand first. The director's DELETE *is* the judgement
+//     that the machine is gone; a status of 'running' on a host we are about
+//     to erase is a lie either way, and 'crashed' is the honest reading.
+//
+// Deliberately NOT a background timer: an offline host is not proof of a dead
+// agent. M4 agents live in tmux panes that outlive a host-runner restart
+// (tmux is a separate server — see hostrunner/reconcile.go), so an agent can
+// be perfectly healthy while its runner is being upgraded. A reaper on a
+// clock would kill those, and irreversibly: tickReconcile skips agents in a
+// terminal status, so a wrong 'crashed' verdict never heals back to running
+// and takes the driver down with it. Reaping only on an explicit delete keeps
+// the call where the evidence is — with the human who knows the box is gone.
 func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := chi.URLParam(r, "host")
-	var alive int
-	err := s.db.QueryRowContext(r.Context(), `
-		SELECT COUNT(*) FROM agents
-		WHERE team_id = ? AND host_id = ?
-		  AND status NOT IN ('terminated','failed')`, team, host).Scan(&alive)
+
+	var name, status string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT name, status FROM hosts WHERE team_id = ? AND id = ?`,
+		team, host).Scan(&name, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "host not found")
+		return
+	}
 	if err != nil {
 		s.writeDBErr(w, err)
 		return
 	}
-	if alive > 0 {
+
+	live, err := s.liveAgentsOnHost(r.Context(), team, host)
+	if err != nil {
+		s.writeDBErr(w, err)
+		return
+	}
+	if len(live) > 0 && status == "online" {
 		writeErr(w, http.StatusConflict,
 			"host still has active agents — terminate them first")
 		return
 	}
-	var name string
-	_ = s.db.QueryRowContext(r.Context(),
-		`SELECT name FROM hosts WHERE team_id = ? AND id = ?`, team, host).Scan(&name)
+	reaped := make([]string, 0, len(live))
+	for _, ag := range live {
+		if err := s.reapOrphanedAgent(r.Context(), team, ag.ID); err != nil {
+			s.log.Warn("reap orphaned agent failed",
+				"agent", ag.ID, "host", host, "err", err)
+			continue
+		}
+		reaped = append(reaped, ag.Handle)
+	}
+
 	res, err := s.writeDB.ExecContext(r.Context(),
 		`DELETE FROM hosts WHERE team_id = ? AND id = ?`, team, host)
 	if err != nil {
@@ -300,8 +341,11 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	if name != "" {
 		summary = "delete host " + name
 	}
-	s.recordAudit(r.Context(), team, "host.delete", "host", host,
-		summary, map[string]any{"name": name})
+	if len(reaped) > 0 {
+		summary += " (orphaned " + strconv.Itoa(len(reaped)) + " agent(s))"
+	}
+	s.recordAudit(r.Context(), team, "host.delete", "host", host, summary,
+		map[string]any{"name": name, "status": status, "orphaned_agents": reaped})
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -206,7 +206,7 @@ func (s *Server) findRunningProjectSteward(ctx context.Context, team, project st
 		 WHERE team_id   = ?
 		   AND project_id = ?
 		   AND kind LIKE 'steward.%'
-		   AND status NOT IN ('terminated','crashed','failed')
+		   AND `+sqlAgentNotTerminal+`
 		   AND archived_at IS NULL
 		 ORDER BY created_at DESC
 		 LIMIT 1`,

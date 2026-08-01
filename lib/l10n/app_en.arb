@@ -2200,7 +2200,7 @@
   "unavailable": "—",
   "thisEntity": "this {entity}",
   "@thisEntity": { "placeholders": { "entity": { "type": "String" } } },
-  "hostDeleteBody": "Removes the {host} row from the hub. The host-runner, if still running, will register a fresh row on its next boot. The hub refuses the delete if any {agents} are still alive on this {host}.",
+  "hostDeleteBody": "Removes the {host} row from the hub. The host-runner, if still running, will register a fresh row on its next boot. If this {host} is online and still has live {agents}, the hub refuses the delete — stop them first. If it is offline, its remaining {agents} are unreachable and are marked crashed.",
   "@hostDeleteBody": { "placeholders": { "host": { "type": "String" }, "agents": { "type": "String" } } },
   "hostEntityId": "{host} ID",
   "@hostEntityId": { "placeholders": { "host": { "type": "String" } } },

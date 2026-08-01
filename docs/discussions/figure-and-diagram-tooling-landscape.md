@@ -264,7 +264,11 @@ artifacts to hub blobs and `ArtifactViewer.tsx` already fetches
 (`GET /v1/blobs/{sha}`) and kind-dispatches them to renderers (image / pdf /
 html / …). What Phase E actually adds is the **"figure job" contract** on the
 producing side (a first-class way to ask an agent for a figure and get typed
-SVG/PNG/PDF back) — the embed side needs at most SVG-specific polish.
+SVG/PNG/PDF back) — the embed side needs at most SVG-specific polish. The
+complementary **live co-editing** leg (an agent editing the *open* Author
+document — diagram/canvas/sketch/figure/table — like a user) is designed
+separately in
+[agent-desktop-coworking.md](agent-desktop-coworking.md) / ADR-064.
 
 ---
 

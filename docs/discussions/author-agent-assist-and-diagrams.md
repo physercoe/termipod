@@ -11,6 +11,8 @@
 > `draw.war` download into app-data, served offline via a `drawio://` scheme)
 > rather than the bundle-locally option discussed below. Still live here: the
 > concrete analysis of **how the POSIX-only host-runner could support Windows**.
+> **2026-08-01:** §3.3's "AI (later)" bullet + decision-1's open fork are now
+> designed in [agent-desktop-coworking.md](agent-desktop-coworking.md) / ADR-064.
 > Feeds [desktop-workbench-jobs.md](../plans/desktop-workbench-jobs.md); relates to
 > [research-tooling-landscape.md](research-tooling-landscape.md) (embed vs build)
 > and the host-runner in [../spine/agent-lifecycle.md](../spine/agent-lifecycle.md).

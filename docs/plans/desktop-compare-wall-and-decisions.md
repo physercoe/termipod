@@ -6,7 +6,9 @@
 > independent; A1 and B1 can start in parallel. Executes the strategic call in
 > `desktop-design-review.md` §4.1 ("cap reader investment, put the next big
 > block into J5/J6") now that the data substrate those surfaces were waiting
-> on has shipped.
+> on has shipped. **2026-08-01:** adopted as the Compare/Record leg (lane K)
+> of [agent-desktop-coworking.md](agent-desktop-coworking.md) / ADR-064 —
+> agent verbs here now carry that contract's consent + attribution posture.
 > **Audience:** principal · contributors
 > **Last verified vs code:** 2026.727.206-alpha (origin/main `de201ca9`)
 

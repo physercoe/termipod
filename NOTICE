@@ -16,3 +16,18 @@ raw PTY mode, custom keyboard, key overlay, help/onboarding, deep linking,
 auto-extend scrollback, and other features.
 
 For a list of changes, see the git history of this repository.
+
+---
+
+This product includes software developed by Dayuan Jiang.
+Original project: next-ai-draw-io
+(https://github.com/DayuanJiang/next-ai-draw-io)
+Copyright 2025 Dayuan Jiang
+Licensed under the Apache License, Version 2.0.
+
+`desktop/src/state/drawioXml.ts` is derived from that project's
+`lib/utils.ts`. The draw.io XML validator, its helper checks and
+`wrapWithMxFile` were ported and adapted; the diagnostic message text is
+kept verbatim because those strings are read by an agent. The upstream
+`autoFixXml` repair pass was deliberately NOT ported — see that file's
+header for why.

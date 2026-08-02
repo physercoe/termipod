@@ -18,6 +18,18 @@ export interface ChartPoint {
 export interface ChartSeries {
   name?: string;
   points: ChartPoint[];
+  /// Explicit stroke, overriding the palette-by-index default.
+  ///
+  /// The compare wall colours a run by its position in the SELECTION, while
+  /// this renderer would colour by position in the series array — and those
+  /// diverge the moment one selected run has no points for a metric and drops
+  /// out. Then a run's swatch and its curve are different colours, which is
+  /// exactly what #322 set out to make impossible.
+  color?: string;
+  /// Dashed stroke — the wall's baseline curve (compare plan §3.2 "baseline
+  /// gets distinct curve styling"), so the run everything is measured against
+  /// is identifiable without reading the legend.
+  dashed?: boolean;
 }
 export interface ChartData {
   series: ChartSeries[];
@@ -294,14 +306,21 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
           })
         ) : (
           series.map((s, si) => {
-            const color = CHART_PALETTE[si % CHART_PALETTE.length];
+            const color = s.color ?? CHART_PALETTE[si % CHART_PALETTE.length];
             const pts = s.points
               .map((p, i) => `${xToPx(xOf(p, i)).toFixed(1)},${yToPx(p.y).toFixed(1)}`)
               .join(' ');
             const last = s.points[s.points.length - 1];
             return (
               <g key={`s${si}`}>
-                <polyline points={pts} fill="none" stroke={color} strokeWidth={1.75} className="chart-line" />
+                <polyline
+                  points={pts}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={1.75}
+                  strokeDasharray={s.dashed === true ? '6 4' : undefined}
+                  className="chart-line"
+                />
                 {last !== undefined && (
                   <circle cx={xToPx(xOf(last, s.points.length - 1))} cy={yToPx(last.y)} r={2.5} fill={color} />
                 )}
@@ -329,7 +348,7 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
         <div className="chart-legend">
           {chart.series.map((s, si) => (
             <span key={`l${si}`} className="chart-legend-item">
-              <span className="chart-swatch" style={{ background: CHART_PALETTE[si % CHART_PALETTE.length] }} />
+              <span className="chart-swatch" style={{ background: s.color ?? CHART_PALETTE[si % CHART_PALETTE.length] }} />
               {s.name ?? `series ${si + 1}`}
             </span>
           ))}

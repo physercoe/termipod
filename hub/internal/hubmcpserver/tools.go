@@ -243,6 +243,31 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			// The comparison wall's own query, given to agents with the UI
+			// (compare-wall plan §3.5, ADR-062 D-2: a UIRef is only a join key
+			// if the entity behind it is agent-addressable). Without it an
+			// agent could see WHICH runs a director is comparing and nothing
+			// about what the curves say.
+			Name: "run_metrics",
+			Description: "Fetch one run's metric curves — the digest the desktop's comparison wall overlays. Required: `run`.\n\n" +
+				"Returns one row per metric: `name`, `points` (step-indexed, `{step,value}`), `sample_count`, `last_step`, `last_value`, `updated_at`. " +
+				"Use `last_value` for a headline number and `points` for a curve.\n\n" +
+				"These are the DIGEST, not the training log: the host-runner downsamples what it reads (tfevents/trackio) and pushes a bounded curve per metric, so point counts are comparable across runs but not exhaustive. " +
+				"Empty list = the run logged nothing the hub has seen yet (check `runs_get` for `trackio_run_uri`).",
+			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["run"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("run is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/runs/"+url.PathEscape(id)+"/metrics"), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "runs_update",
 			Description: "Update mutable fields of an EXISTING run without recreating it — fix a typo, set status, or link/re-link training metrics. Required: `run`. Optional (only the fields you pass change; pass \"\" to clear a nullable one): `status` (pending|running|completed|failed|cancelled), `config_json` (object), `seed`, `agent_id`, `started_at`, `finished_at`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`, `dataset_id` (a dataset in the run's OWN project), `env_ref` (the environment this run ran in — opaque `family:env_id@version`, unvalidated; NOT inferred from `dataset_id`, whose env is where the data was collected).\n\n=== Make a run's training curves show on mobile ===\nSet `trackio_run_uri` (and usually nothing else):\n  - `trackio_run_uri` — canonical form `trackio://<project>/<run_name>`.\n      • `<project>` = the trackio project name. Trackio stores one SQLite file per project at `<TRACKIO_DIR>/<project>.db` (default TRACKIO_DIR is `~/.cache/huggingface/trackio`). It's the `project=` you pass to `trackio.init(...)`.\n      • `<run_name>` = the run's name within that project — the `name=` in `trackio.init(project=..., name=...)`, stored in the trackio `metrics` table's `run_name` column.\n      (wandb runs use `wandb://...`; TensorBoard uses `tb://<run-path>`.)\n  - `trackio_host_id` — the hub host id of the machine where the worker logged (its trackio DB is on that host's disk). OPTIONAL: if you omit it and the run has an `agent_id`, the hub auto-fills it from that agent's host. So an agent normally only needs `trackio_run_uri`.\nThe host-runner on that host then reads the trackio SQLite and pushes downsampled curves to the run; mobile renders inline sparklines. (See `runs_create` to set these at creation time instead.)",
 			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"},"status":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"agent_id":{"type":"string"},"started_at":{"type":"string"},"finished_at":{"type":"string"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"},"dataset_id":{"type":"string"},"env_ref":{"type":"string"}}}`),

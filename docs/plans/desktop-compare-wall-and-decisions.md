@@ -1,16 +1,18 @@
 # Compare wall + run-linked decisions — building the moat surfaces (J5/J6)
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-30) — two lanes: Lane A (comparison wall,
+> **Status:** In flight (2026-08-02) — two lanes: Lane A (comparison wall,
 > wedges A1–A6) and Lane B (decision records, wedges B1–B3). Lanes are
-> independent; A1 and B1 can start in parallel. Executes the strategic call in
+> independent; A1 and B1 can start in parallel. **A1 shipped 2026-08-02**
+> (wall state + runs table + `run_metrics`); A2/A3 next, lane B unstarted.
+> Executes the strategic call in
 > `desktop-design-review.md` §4.1 ("cap reader investment, put the next big
 > block into J5/J6") now that the data substrate those surfaces were waiting
 > on has shipped. **2026-08-01:** adopted as the Compare/Record leg (lane K)
 > of [agent-desktop-coworking.md](agent-desktop-coworking.md) / ADR-064 —
 > agent verbs here now carry that contract's consent + attribution posture.
 > **Audience:** principal · contributors
-> **Last verified vs code:** 2026.727.206-alpha (origin/main `de201ca9`)
+> **Last verified vs code:** 2026.730.1242 (origin/main `2bc604cc`)
 
 **TL;DR.** The two surfaces both landscape docs identify as the moat — the
 run-comparison wall (J5, "the headline BUILD — no embeddable OSS component
@@ -95,6 +97,21 @@ Persisted per project. All panels subscribe to this store — the §5.2 rule
 ("one visible-runs state drives all panels") is an architecture constraint,
 not a feature.
 
+- *As built (A1):* `projectId` sits BESIDE the view rather than inside it —
+  it is the persistence key, and a project id nested in the thing it keys
+  can disagree with it. The blob is `{projectId, byProject}`, capped at 20
+  projects (a wall view is tiny, but the map would otherwise be
+  append-only for the life of the install).
+- *As built (A1):* `CompareSurface` no longer computes an "effective
+  project" of its own; it resolves one INTO the store. The two-state
+  version would have rendered project A's remembered runs beside project
+  B's run list, each half correct and the screen wrong.
+- *As built (A1):* every setter routes through one `edit()` that re-heals
+  the cross-field invariants (a baseline is always a member of `selected`;
+  smoothing is clamped; an unknown `xAxis` falls back) and returns its
+  INPUT object on a no-op, so identity is the store's "nothing changed"
+  signal and a keystroke that changes nothing writes nothing.
+
 ### 3.2 Panels (A1–A3)
 
 - **Runs table** (A1): today's checkbox list grows filter-as-you-type over
@@ -102,6 +119,26 @@ not a feature.
   distinct curve styling), and Δ-vs-baseline columns for each summary metric
   (`last_value` deltas, colored by sign; W&B's biggest 2025–26 comparison
   investment, per the landscape).
+  - *As built:* the filter narrows the **rail, never the wall** — a run you
+    selected and then typed past keeps its curve, because hiding a
+    comparison as a side effect of searching for something else is a
+    silent edit to the thing being compared. `config_json` already rides
+    the run list, so config filtering costs no extra request.
+  - *As built:* pinning a run that is not selected SELECTS it. The
+    alternative is a star click that appears to do nothing (the invariant
+    would drop a baseline that is off the wall).
+  - *As built:* Δ cells are coloured by **direction, not valence** — new
+    `--delta-up`/`--delta-down` semantic tokens rather than `--ok`/
+    `--danger`. Whether up is good depends on the metric (loss down,
+    reward up) and nothing on this surface knows which, so green/red would
+    render a guess as a fact. A metric a run never logged shows `—`, never
+    a zero delta: those read identically and mean opposite things.
+  - *As built:* `ChartView` gained per-series `color` + `dashed`. The
+    baseline's curve is the dashed one; the explicit colour also closes a
+    latent hole in #322's single-palette promise — the renderer coloured
+    by position in the SERIES array, the wall by position in the
+    SELECTION, and the two diverge the moment a selected run has no points
+    for one metric.
 - **Extremes table** (A2): per metric × run, `last/min/max` with
   best-per-row highlighting (ClearML). Min/max come from the points already
   shipped; no hub change.
@@ -154,6 +191,26 @@ wall's queries are also agent queries: `runs_list(project, filter)`,
 row model), `run_provenance(run)`. Purpose-built beats generic (landscape
 §7.1); the comparer's pure functions are reused server-side or client-side —
 one row model, two consumers.
+
+- *As built (A1):* the audit found `runs_list` and `runs_get` in the
+  authority registry and **no** `run_metrics` in either registry, so A1
+  ships `run_metrics` (catalog + spec + `toolMeta` row; `runs_get` now
+  points at it). `run_config_diff` and `run_provenance` stay with A2 —
+  one needs the comparer's row model, the other needs the host-runner's
+  `_provenance` capture, and neither exists yet.
+- *As built (A1):* `runs_list` was NOT given a free-text `filter`. It
+  already takes `project`, and its rows already carry `status` +
+  `config_json` — the wall's filter is a view over exactly those rows, so
+  an agent filters what it already has. A server-side text filter would be
+  a second, drifting definition of "matches".
+- *Found while auditing:* `run.metrics.read` is named in two agent prompts,
+  two bundled templates, `roles.yaml worker.allow` and ADR-016's scope
+  manifest — a capability with no tool behind it (already flagged in
+  `agent-tool-ergonomics-rollout.md`). The prompts and templates now name
+  `run_metrics`, which exists. `roles.yaml`'s dead entry and the ADR are
+  left alone: registry tools never reach the manifest (`authorizeMCPCall`
+  consults the spec's `WorkerEligible` first), and an Accepted ADR is
+  immutable.
 
 ## 4. Design — Lane B: decision records
 

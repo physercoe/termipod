@@ -2077,6 +2077,11 @@ const en: Dict = {
   'compare.hint': 'Select runs on the left to overlay their metrics.',
   'compare.metric': 'Metric',
   'compare.noMetrics': 'No scalar metrics for the selected runs.',
+  'compare.filter': 'Filter by id, status, config…',
+  'compare.noMatch': 'No runs match this filter.',
+  'compare.baseline': 'baseline',
+  'compare.pinBaseline': 'Pin as baseline',
+  'compare.unpinBaseline': 'Unpin baseline',
 
   'chart.downsampled': 'showing {m} of {n} points',
 
@@ -4119,6 +4124,11 @@ const zh: Dict = {
   'compare.hint': '在左侧选择运行以叠加其指标。',
   'compare.metric': '指标',
   'compare.noMetrics': '所选运行没有标量指标。',
+  'compare.filter': '按 id、状态、配置筛选…',
+  'compare.noMatch': '没有运行匹配该筛选条件。',
+  'compare.baseline': '基准',
+  'compare.pinBaseline': '设为基准',
+  'compare.unpinBaseline': '取消基准',
 
   'chart.downsampled': '显示 {n} 点中的 {m} 点',
 

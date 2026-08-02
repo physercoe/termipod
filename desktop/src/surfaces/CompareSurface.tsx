@@ -1,27 +1,37 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useProjects } from '../hub/queries';
-import { num, str, type Entity } from '../hub/types';
+import { num, str } from '../hub/types';
 import { useT } from '../i18n';
+import { deltaOf, deltaSign, flattenConfig, formatDelta, runMatchesFilter, type RunFacts } from '../state/compareRuns';
+import { useCompareWall } from '../state/compareWall';
 import { useSession } from '../state/session';
 import { parsePoints } from '../ui/Sparkline';
 import { ChartView, CHART_PALETTE, type ChartSeries } from '../ui/ChartView';
+import { Icon } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
 /// J5 — Compare many runs. The headline BUILD from `research-tooling-landscape.md`
 /// §3.3: no open tool exports a reusable run-comparison component, but the data
-/// already lives in the hub (run digest + `/metrics`). This is the first cut of
-/// the comparison wall — pick a project, multi-select its runs, and overlay each
-/// metric's curve across the selected runs with a final-value summary table. It
-/// is intrinsically wide-screen (the job the phone can't do). Next rounds add the
-/// config-diff panel and the optuna-dashboard sweep EMBED.
+/// already lives in the hub (run digest + `/metrics`). Pick a project,
+/// multi-select its runs, and overlay each metric's curve across them with a
+/// summary table. It is intrinsically wide-screen (the job the phone can't do).
+///
+/// A1 of `plans/desktop-compare-wall-and-decisions.md` moves the wall's state
+/// out of this component and into `state/compareWall.ts` — one state, every
+/// panel (§5.2), remembered per project — and adds the three §3.2 affordances
+/// the first cut lacked: filter-as-you-type over id/status/config, a baseline
+/// pin, and Δ-vs-baseline in every summary cell. A2 adds the extremes table and
+/// the diff-only config comparer over the same state.
 
 // Run swatches share the chart renderer's palette (single source, #322) so a
-// run's swatch always matches its overlay curve.
+// run's swatch always matches its overlay curve — which is why the curve is now
+// handed its colour EXPLICITLY (see `colorOf`): a run with no points for one
+// metric drops out of that chart's series array, and colour-by-array-index
+// would then shift every later run's curve onto someone else's swatch.
 const SWATCHES = CHART_PALETTE;
 
-function runLabel(r: Entity): string {
-  const id = str(r, 'id') ?? '';
+function runLabel(id: string): string {
   return id.length > 10 ? `${id.slice(0, 8)}…` : id || '—';
 }
 
@@ -30,16 +40,33 @@ export function CompareSurface(): JSX.Element {
   const client = useSession((s) => s.client);
   const projectsQ = useProjects();
   const projects = projectsQ.data ?? [];
-  const [projectId, setProjectId] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
 
-  const effectiveProject = projectId !== '' ? projectId : str(projects[0] ?? {}, 'id') ?? '';
+  const projectId = useCompareWall((s) => s.projectId);
+  const view = useCompareWall((s) => s.view);
+  const setProject = useCompareWall((s) => s.setProject);
+  const toggleRun = useCompareWall((s) => s.toggleRun);
+  const toggleBaseline = useCompareWall((s) => s.toggleBaseline);
+  const setFilter = useCompareWall((s) => s.setFilter);
+  const { selected, baseline, filter } = view;
+
+  // ONE project id, not a store id plus a locally-computed fallback. The wall's
+  // remembered view is filed UNDER this id, so a surface-local "effective
+  // project" would render project A's remembered runs beside project B's run
+  // list — each half correct, the screen wrong. Resolving into the store keeps
+  // a single answer to "which project is the wall reading".
+  const firstProject = str(projects[0] ?? {}, 'id') ?? '';
+  useEffect(() => {
+    if (projects.length === 0) return;
+    if (projects.some((p) => str(p, 'id') === projectId)) return;
+    // Either nothing chosen yet, or the remembered project is gone from the team.
+    setProject(firstProject);
+  }, [projects, projectId, firstProject, setProject]);
 
   const runsQ = useQuery({
-    queryKey: ['runs', effectiveProject],
-    enabled: client !== null && effectiveProject !== '',
+    queryKey: ['runs', projectId],
+    enabled: client !== null && projectId !== '',
     refetchInterval: 10000,
-    queryFn: () => client!.listRuns(effectiveProject),
+    queryFn: () => client!.listRuns(projectId),
   });
   const runs = runsQ.data ?? [];
 
@@ -54,9 +81,27 @@ export function CompareSurface(): JSX.Element {
     })),
   });
 
-  function toggle(id: string): void {
-    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
-  }
+  // The rail's rows, narrowed to what the filter searches. `config_json` rides
+  // the run list already, so filtering by a config key costs no extra request.
+  const facts: RunFacts[] = useMemo(
+    () =>
+      runs.map((r) => ({
+        id: str(r, 'id') ?? '',
+        status: str(r, 'status') ?? '',
+        config: flattenConfig(r['config_json']),
+      })),
+    [runs],
+  );
+  // The filter narrows the RAIL, never the wall: a run you selected and then
+  // typed past stays on the wall, because hiding a curve as a side effect of
+  // searching for another one would silently change the comparison.
+  const shown = useMemo(() => facts.filter((f) => runMatchesFilter(f, filter)), [facts, filter]);
+
+  // A run's colour comes from its place in the SELECTION, everywhere.
+  const colorOf = (id: string): string => {
+    const i = selected.indexOf(id);
+    return SWATCHES[(i < 0 ? 0 : i) % SWATCHES.length];
+  };
 
   // Build: metricName -> (runId -> { last, series }). The union of metric names
   // across the selected runs drives one overlay chart each.
@@ -72,12 +117,12 @@ export function CompareSurface(): JSX.Element {
         if (!map.has(name)) map.set(name, new Map());
         map.get(name)!.set(runId, {
           last: num(row, 'last_value'),
-          series: { name: runLabel(runs.find((r) => str(r, 'id') === runId) ?? {}), points: pts },
+          series: { name: runLabel(runId), points: pts },
         });
       }
     });
     return map;
-  }, [selected, metricQs, runs]);
+  }, [selected, metricQs]);
 
   const metricNames = [...byMetric.keys()].sort();
   const anyLoading = metricQs.some((q) => q.isLoading);
@@ -87,14 +132,7 @@ export function CompareSurface(): JSX.Element {
       job="compare"
       actions={
         <>
-          <select
-            className="surface-select"
-            value={effectiveProject}
-            onChange={(e) => {
-              setProjectId(e.target.value);
-              setSelected([]);
-            }}
-          >
+          <select className="surface-select" value={projectId} onChange={(e) => setProject(e.target.value)}>
             <option value="">{t('compare.pickProject')}</option>
             {projects.map((p) => {
               const id = str(p, 'id') ?? '';
@@ -114,19 +152,46 @@ export function CompareSurface(): JSX.Element {
       <div className="compare-layout">
         <aside className="compare-runs">
           <div className="notes-head muted small">{t('compare.runs')}</div>
+          {/* Reuses the Inspect tree's filter-input styling (generic token-based
+              input) rather than duplicating a near-identical rule. */}
+          <input
+            className="inspect-tree-filter"
+            placeholder={t('compare.filter')}
+            aria-label={t('compare.filter')}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
           {runsQ.isLoading && <div className="muted region-pad">{t('common.loading')}</div>}
           {!runsQ.isLoading && runs.length === 0 && <div className="muted region-pad">{t('compare.noRuns')}</div>}
-          {runs.map((r, i) => {
-            const id = str(r, 'id') ?? '';
-            const on = selected.includes(id);
-            const idx = selected.indexOf(id);
+          {!runsQ.isLoading && runs.length > 0 && shown.length === 0 && (
+            <div className="muted region-pad">{t('compare.noMatch')}</div>
+          )}
+          {shown.map((f, i) => {
+            const on = selected.includes(f.id);
+            const isBaseline = baseline === f.id;
             return (
-              <label key={id || i} className={`compare-run${on ? ' on' : ''}`}>
-                <input type="checkbox" checked={on} onChange={() => toggle(id)} />
-                {on && <span className="compare-swatch" style={{ background: SWATCHES[idx % SWATCHES.length] }} />}
-                <span className="compare-run-id mono">{runLabel(r)}</span>
+              <label key={f.id || i} className={`compare-run${on ? ' on' : ''}`}>
+                <input type="checkbox" checked={on} onChange={() => toggleRun(f.id)} />
+                {on && <span className="compare-swatch" style={{ background: colorOf(f.id) }} />}
+                <span className="compare-run-id mono">{runLabel(f.id)}</span>
                 <span className="spacer" />
-                <span className="muted small">{str(r, 'status') ?? ''}</span>
+                <span className="muted small">{f.status}</span>
+                {/* A button inside the label: per HTML, a click on interactive
+                    content does not activate the label's control, so pinning a
+                    baseline never toggles the checkbox underneath it. */}
+                <button
+                  type="button"
+                  className={`compare-star${isBaseline ? ' on' : ''}`}
+                  aria-pressed={isBaseline}
+                  aria-label={isBaseline ? t('compare.unpinBaseline') : t('compare.pinBaseline')}
+                  title={isBaseline ? t('compare.unpinBaseline') : t('compare.pinBaseline')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleBaseline(f.id);
+                  }}
+                >
+                  <Icon name="star" size={13} />
+                </button>
               </label>
             );
           })}
@@ -141,28 +206,37 @@ export function CompareSurface(): JSX.Element {
                 <thead>
                   <tr>
                     <th>{t('compare.metric')}</th>
-                    {selected.map((id, i) => (
+                    {selected.map((id) => (
                       <th key={id}>
-                        <span className="compare-swatch" style={{ background: SWATCHES[i % SWATCHES.length] }} />
-                        {runLabel(runs.find((r) => str(r, 'id') === id) ?? {})}
+                        <span className="compare-swatch" style={{ background: colorOf(id) }} />
+                        {runLabel(id)}
+                        {baseline === id && <span className="compare-baseline-tag">{t('compare.baseline')}</span>}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {metricNames.map((name) => (
-                    <tr key={name}>
-                      <td className="compare-metric-name">{name}</td>
-                      {selected.map((id) => {
-                        const cell = byMetric.get(name)?.get(id);
-                        return (
-                          <td key={id} className="mono">
-                            {cell?.last !== undefined ? cell.last : '—'}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {metricNames.map((name) => {
+                    const row = byMetric.get(name);
+                    const base = baseline !== null ? row?.get(baseline)?.last : undefined;
+                    return (
+                      <tr key={name}>
+                        <td className="compare-metric-name">{name}</td>
+                        {selected.map((id) => {
+                          const cell = row?.get(id);
+                          const delta = id === baseline ? null : deltaOf(cell?.last, base);
+                          return (
+                            <td key={id} className="mono">
+                              {cell?.last !== undefined ? cell.last : '—'}
+                              {delta !== null && (
+                                <span className={`compare-delta ${deltaSign(delta)}`}>{formatDelta(delta)}</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                   {metricNames.length === 0 && (
                     <tr>
                       <td className="muted" colSpan={selected.length + 1}>
@@ -175,8 +249,13 @@ export function CompareSurface(): JSX.Element {
 
               <div className="compare-charts">
                 {metricNames.map((name) => {
+                  const row = byMetric.get(name);
                   const series = selected
-                    .map((id) => byMetric.get(name)?.get(id)?.series)
+                    .map((id): ChartSeries | undefined => {
+                      const cell = row?.get(id);
+                      if (cell === undefined) return undefined;
+                      return { ...cell.series, color: colorOf(id), dashed: id === baseline };
+                    })
                     .filter((s): s is ChartSeries => s !== undefined);
                   if (series.length === 0) return null;
                   return (

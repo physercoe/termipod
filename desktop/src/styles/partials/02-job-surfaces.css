@@ -846,6 +846,50 @@ button > .ui-icon:not(:only-child):first-child,
   vertical-align: middle;
   margin-right: 4px;
 }
+/* Baseline pin (A1). Hidden until the row is hovered/focused so the rail stays
+   a list of runs, not a wall of stars — except on the pinned row, where the
+   star IS the state and must always be visible. */
+.compare-star {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0 var(--spacing-s2);
+  cursor: pointer;
+  opacity: 0;
+}
+.compare-run:hover .compare-star,
+.compare-star:focus-visible,
+.compare-star.on {
+  opacity: 1;
+}
+.compare-star.on {
+  color: var(--accent-text);
+}
+.compare-baseline-tag {
+  margin-left: var(--spacing-s6);
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-text);
+}
+/* Δ vs the pinned baseline — see --delta-up/--delta-down in 01-base-shell.css
+   for why this is coloured by direction and not by good/bad. */
+.compare-delta {
+  margin-left: var(--spacing-s6);
+  font-size: var(--font-size-label);
+}
+.compare-delta.up {
+  color: var(--delta-up);
+}
+.compare-delta.down {
+  color: var(--delta-down);
+}
+.compare-delta.flat {
+  color: var(--text-muted);
+}
 .compare-wall {
   background: var(--bg);
   padding: var(--spacing-s16);

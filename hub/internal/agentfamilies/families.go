@@ -287,6 +287,33 @@ type Emit struct {
 	Producer    string            `yaml:"producer,omitempty" json:"producer,omitempty"`
 	Payload     map[string]string `yaml:"payload,omitempty" json:"payload,omitempty"`
 	PayloadExpr string            `yaml:"payload_expr,omitempty" json:"payload_expr,omitempty"`
+	// PayloadMaps adds payload fields whose value is an OBJECT KEYED BY
+	// DATA rather than by a field name — claude's `modelUsage`, keyed by
+	// model id, is the motivating case. Merged into Payload's result;
+	// the two never name the same field in practice, and if they did,
+	// Payload wins (it is the simpler declaration).
+	PayloadMaps map[string]MapProjection `yaml:"payload_maps,omitempty" json:"payload_maps,omitempty"`
+}
+
+// MapProjection re-shapes every VALUE of a source map through one field
+// expression map, preserving the source's keys.
+//
+// It is the map twin of Rule.ForEach + SubRules: for_each walks an
+// array and dispatches per element, MapProjection walks a map and
+// projects each value. Without it a profile can only pass such an
+// object through verbatim, which means shipping the engine's own field
+// names (claude's `inputTokens`) where the typed vocabulary promises
+// ours (`input`) — a shape difference no consumer can see until its
+// per-model numbers silently read as zero.
+//
+// Values that aren't objects are skipped, matching the hand-written
+// translator's `continue`, so one malformed entry can't void the map.
+type MapProjection struct {
+	// Source is an expression resolving to the map to walk.
+	Source string `yaml:"source" json:"source"`
+	// Fields is evaluated once per value, with that value as the inner
+	// scope and the rule's own scope as the outer scope (`$$.`).
+	Fields map[string]string `yaml:"fields" json:"fields"`
 }
 
 // Source tags whether a returned Family came from the embedded default,

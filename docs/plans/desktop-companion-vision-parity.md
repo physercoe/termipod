@@ -1,8 +1,8 @@
 # Desktop Companion vision parity — kimi-web's bar on our data scheme
 
 > **Type:** plan
-> **Status:** Proposed (2026-07-31) — for principal review, then fleet
-> implementation in wedge order §4
+> **Status:** In flight (2026-08-02) — W1 landing in wedge order §4;
+> principal review done
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -373,9 +373,10 @@ service (LAN/mobile clients are a recorded follow-up, not this plan).
   `ensureAgentDigest` refolds sealed rows on schema bump (no
   migration).
 - **CI blind spot:** desktop frontend state tests don't run in CI —
-  run `node --test src/state/*.test.ts src/ssh/*.test.ts` manually per
-  wedge. Screen-bound work (R1 cards, R2 ring, R4 media, D3 motion)
-  accrues to the owed Playwright/device pass.
+  run `node --test src/state/*.test.ts src/ssh/*.test.ts
+  src/terminal/*.test.ts` manually per wedge. Screen-bound work (R1
+  cards, R2 ring, R4 media, D3 motion) accrues to the owed
+  Playwright/device pass.
 - **Frame-profile discipline:** E1/E2 profile edits need corpus
   fixtures per `docs/reference/frame-profiles.md`; the fallback rule
   (unmatched → `raw`) means a mis-written rule fails silent — pin with

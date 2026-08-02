@@ -232,7 +232,16 @@ func buildEmit(emit agentfamilies.Emit, inner, outer map[string]any) EmittedEven
 			payload = map[string]any{}
 		}
 	} else {
-		payload = make(map[string]any, len(emit.Payload))
+		payload = make(map[string]any, len(emit.Payload)+len(emit.PayloadMaps))
+		for name, proj := range emit.PayloadMaps {
+			if v := projectMap(proj, inner, outer); v != nil {
+				payload[name] = v
+			}
+		}
+		// Payload last so a plain field wins a name collision — it is
+		// the simpler declaration, and a profile that declares both for
+		// one field has a bug we shouldn't resolve in the projection's
+		// favour.
 		for k, expr := range emit.Payload {
 			payload[k] = profile_eval.Eval(expr, inner, outer)
 		}
@@ -242,6 +251,36 @@ func buildEmit(emit agentfamilies.Emit, inner, outer map[string]any) EmittedEven
 		Producer: producer,
 		Payload:  payload,
 	}
+}
+
+// projectMap resolves a MapProjection: walk the source map, re-shape
+// each value through the projection's field expressions, keep the
+// source's keys. Returns nil when the source is absent or isn't a map,
+// so the caller omits the field entirely rather than emitting an empty
+// object — absent and "present but empty" are different claims, and the
+// hand-written translator omits it too.
+//
+// Non-object values are skipped rather than passed through: a projection
+// declares the shape it produces, and a value that can't take that shape
+// has no honest representation in it.
+func projectMap(proj agentfamilies.MapProjection, inner, outer map[string]any) map[string]any {
+	src, ok := profile_eval.Eval(proj.Source, inner, outer).(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for key, raw := range src {
+		val, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		fields := make(map[string]any, len(proj.Fields))
+		for f, expr := range proj.Fields {
+			fields[f] = profile_eval.Eval(expr, val, inner)
+		}
+		out[key] = fields
+	}
+	return out
 }
 
 // rawFallback is the no-rule-matched event. Identical to

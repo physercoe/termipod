@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"github.com/termipod/hub/internal/agentfamilies"
+	claudecode "github.com/termipod/hub/internal/drivers/local_log_tail/claude_code"
+	"github.com/termipod/hub/internal/hostrunner/profile_eval"
 )
 
 // StdioDriver implements M2. It owns a reader against the child's stdout;
@@ -66,6 +68,13 @@ type StdioDriver struct {
 	// guarded by inputMu (only Input touches it). claude M2 has no native
 	// turn marker, so the driver emits one at prompt dispatch.
 	turnSeq int64
+	// cwByModel caches the per-model context window this session's own
+	// turn.result frames reported (`by_model[model].context_window`) —
+	// the engine's own number, which outranks our static table. Its own
+	// mutex because emit() runs on the readLoop goroutine AND on any
+	// caller of Input (which emits turn.start).
+	cwMu      sync.Mutex
+	cwByModel map[string]int
 }
 
 // Start emits lifecycle.started and launches the reader goroutine. Returns
@@ -154,7 +163,7 @@ func (d *StdioDriver) readLoop(ctx context.Context) {
 		if err := json.Unmarshal(line, &frame); err != nil {
 			// Non-JSON line: pass through as raw so the app sees *something*
 			// instead of silently dropping bytes.
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent",
+			_ = d.emit(ctx, "raw", "agent",
 				map[string]any{"text": string(line)})
 			continue
 		}
@@ -238,7 +247,7 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 			}
 		}
 		for _, e := range profileEvents {
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
+			_ = d.emit(ctx, e.Kind, e.Producer, e.Payload)
 		}
 	default:
 		d.legacyTranslate(ctx, frame)
@@ -314,7 +323,7 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 				"output_style":    firstNonNil(frame["output_style"], frame["outputStyle"]),
 				"fast_mode_state": firstNonNil(frame["fast_mode_state"], frame["fastModeState"]),
 			}
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "session.init", "agent", payload)
+			_ = d.emit(ctx, "session.init", "agent", payload)
 			return
 		}
 		if sub == "task_progress" {
@@ -333,10 +342,10 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 				"last_tool_name": frame["last_tool_name"],
 				"text":           frame["description"],
 			}
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", payload)
+			_ = d.emit(ctx, "system", "agent", payload)
 			return
 		}
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", frame)
+		_ = d.emit(ctx, "system", "agent", frame)
 
 	case "assistant":
 		// Walk content blocks, then surface the per-message usage as
@@ -359,16 +368,48 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 				if messageID != "" {
 					out["message_id"] = messageID
 				}
-				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "text", "agent", out)
+				_ = d.emit(ctx, "text", "agent", out)
+			case "thinking":
+				// Extended reasoning. claude-code 2.1.x signs the block
+				// for API-side verification and ships `thinking` empty,
+				// so the typed event is normally a MARKER — enough for a
+				// "Thinking…" chip, with no content to leak. A build that
+				// does populate the field gets its text forwarded rather
+				// than discarded. Shape matches the M4 tap's mapper
+				// (drivers/local_log_tail/claude_code/mapper.go), which
+				// has emitted `thought` since ADR-027; until now an M2
+				// session dropped the block to kind=raw, so the same
+				// session showed reasoning on one rung and a JSON dump on
+				// the other.
+				// profile_eval.IsPresent, not a local `!= ""`: the YAML
+				// rule spells these `absent($.thinking)` /
+				// `present($.signature)`, and two definitions of
+				// "present" would be a divergence the parity test can't
+				// see — it diffs outputs, not rules, so both paths would
+				// simply agree on the corpus and disagree in the field.
+				thinking := block["thinking"]
+				var text any = "Thinking…"
+				if profile_eval.IsPresent(thinking) {
+					text = thinking
+				}
+				out := map[string]any{
+					"text":              text,
+					"marker_only":       !profile_eval.IsPresent(thinking),
+					"signature_present": profile_eval.IsPresent(block["signature"]),
+				}
+				if messageID != "" {
+					out["message_id"] = messageID
+				}
+				_ = d.emit(ctx, "thought", "agent", out)
 			case "tool_use":
-				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
+				_ = d.emit(ctx, "tool_call", "agent",
 					map[string]any{
 						"id":    block["id"],
 						"name":  block["name"],
 						"input": block["input"],
 					})
 			default:
-				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", block)
+				_ = d.emit(ctx, "raw", "agent", block)
 			}
 		}
 		if usage, ok := msg["usage"].(map[string]any); ok {
@@ -385,7 +426,7 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			if model, ok := msg["model"].(string); ok && model != "" {
 				out["model"] = model
 			}
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "usage", "agent", out)
+			_ = d.emit(ctx, "usage", "agent", out)
 		}
 
 	case "user":
@@ -400,7 +441,7 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			if bt != "tool_result" {
 				continue
 			}
-			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_result", "agent",
+			_ = d.emit(ctx, "tool_result", "agent",
 				map[string]any{
 					"tool_use_id": block["tool_use_id"],
 					"content":     block["content"],
@@ -416,16 +457,16 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 		// with the whole frame for one release so older mobile builds
 		// keep working — drop the alias once telemetry shows no caller
 		// depends on it.
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
+		_ = d.emit(ctx, "turn.result", "agent",
 			normalizeTurnResult(frame))
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "completion", "agent", frame)
+		_ = d.emit(ctx, "completion", "agent", frame)
 
 	case "error":
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "error", "agent", frame)
+		_ = d.emit(ctx, "error", "agent", frame)
 
 	default:
 		// Unknown frame type — forward verbatim so the app can decide.
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", frame)
+		_ = d.emit(ctx, "raw", "agent", frame)
 	}
 }
 
@@ -449,7 +490,7 @@ func (d *StdioDriver) translateRateLimit(ctx context.Context, frame map[string]a
 		src = nested
 	}
 	win, _ := firstNonNil(src["rateLimitType"], src["rate_limit_type"]).(string)
-	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "rate_limit", "agent",
+	_ = d.emit(ctx, "rate_limit", "agent",
 		map[string]any{
 			"window":           win,
 			"status":           src["status"],
@@ -459,6 +500,111 @@ func (d *StdioDriver) translateRateLimit(ctx context.Context, frame map[string]a
 			"is_using_overage": firstNonNil(src["isUsingOverage"], src["is_using_overage"]),
 			"reason":           firstNonNil(src["overageDisabledReason"], src["overage_disabled_reason"]),
 		})
+}
+
+// emit is the single exit every translated event leaves through —
+// hand-written and profile-driven alike (translate() posts the
+// profile's events here too). One choke point below both translators
+// is what lets a cross-frame enrichment like context_window apply to a
+// session regardless of which translator produced its rows; doing it
+// inside each translator would mean writing it twice and watching the
+// two copies drift.
+//
+// Note for the parity test: it compares the two translators ABOVE this
+// layer, so a field stamped here appears on the hand-written side
+// only. That is a measurement artifact, not a divergence — see the
+// context_window entry in ParityIgnoreFields.
+func (d *StdioDriver) emit(ctx context.Context, kind, producer string, payload map[string]any) error {
+	switch kind {
+	case "turn.result":
+		d.learnContextWindows(payload)
+	case "usage":
+		d.stampContextWindow(payload)
+	}
+	return d.Poster.PostAgentEvent(ctx, d.AgentID, kind, producer, payload)
+}
+
+// learnContextWindows records the per-model context window claude
+// reported in a turn's `by_model` block. This is the AUTHORITATIVE
+// number — it comes from the engine rather than from our table — but it
+// only arrives at the END of a turn, so it serves the turns after it.
+func (d *StdioDriver) learnContextWindows(payload map[string]any) {
+	byModel, ok := payload["by_model"].(map[string]any)
+	if !ok {
+		return
+	}
+	d.cwMu.Lock()
+	defer d.cwMu.Unlock()
+	for model, raw := range byModel {
+		inner, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if n := asPositiveInt(inner["context_window"]); n > 0 {
+			if d.cwByModel == nil {
+				d.cwByModel = map[string]int{}
+			}
+			d.cwByModel[model] = n
+		}
+	}
+}
+
+// stampContextWindow adds `context_window` to a usage payload so the
+// desktop/mobile context-fill chip has a denominator. stream-json's
+// per-message usage block carries token counts and no window at all,
+// which is why the chip has never lit up on claude M2 while the M4 tap
+// has shown it since v1.0.667.
+//
+// Resolution, in order:
+//
+//  1. Whatever the frame already carried (never overwrite the engine).
+//  2. The window this session's own turn.result reported for the model.
+//  3. claude_code.ModelContextWindow — the same table the M4 tap uses,
+//     imported rather than copied so the two rungs of one engine can't
+//     disagree about the same session.
+//
+// Unresolvable → the field is omitted, not zeroed: the clients suppress
+// the chip on a missing window and would render a wrong percentage on a
+// zero one ("blank > wrong", D-4 degrade honestly).
+func (d *StdioDriver) stampContextWindow(payload map[string]any) {
+	if profile_eval.IsPresent(payload["context_window"]) {
+		return
+	}
+	model, _ := payload["model"].(string)
+	if model == "" {
+		return
+	}
+	d.cwMu.Lock()
+	learned := d.cwByModel[model]
+	d.cwMu.Unlock()
+	if learned > 0 {
+		payload["context_window"] = learned
+		return
+	}
+	if cw := claudecode.ModelContextWindow(model); cw > 0 {
+		payload["context_window"] = cw
+	}
+}
+
+// asPositiveInt reads a JSON number (float64 off the wire, int from a
+// Go-constructed payload) as a positive int. Anything else → 0, which
+// every caller treats as "no value".
+func asPositiveInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		if n > 0 {
+			return int(n)
+		}
+	case int:
+		if n > 0 {
+			return n
+		}
+	case int64:
+		if n > 0 {
+			return int(n)
+		}
+	}
+	return 0
 }
 
 // normalizeTurnResult lifts claude's `result` frame into the canonical
@@ -543,7 +689,7 @@ func (d *StdioDriver) Input(ctx context.Context, kind string, payload map[string
 	// don't open one. Posted before the write so it precedes the agent's reply.
 	if kind == "text" && d.Poster != nil {
 		d.turnSeq++
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.start", "agent",
+		_ = d.emit(ctx, "turn.start", "agent",
 			map[string]any{
 				"turn_id": fmt.Sprintf("t-%d", d.turnSeq),
 				"ts":      time.Now().UTC().Format(time.RFC3339Nano),

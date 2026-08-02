@@ -16,6 +16,7 @@ import { episodeVideoSftpUrl, episodeVideoUrl, fileTimeOf, isPastEnd } from '../
 import { liveConnIds, liveSessionFor } from '../state/replayRemote';
 import { remoteMediaConn, setRemoteMediaConn } from '../state/replayRemoteStore';
 import { listConnections } from '../state/connections';
+import { useReplay } from '../state/replay';
 import { useTerminals } from '../terminal/store';
 import { pickPoseFeature } from '../state/robotManifest';
 import { ReplayPose3D } from './ReplayPose3D';
@@ -59,6 +60,7 @@ export function EpisodePlayer({
 }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
+  const setViewing = useReplay((s) => s.setViewing);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState<number | null>(null);
   const [showPose, setShowPose] = useState(true);
@@ -86,6 +88,16 @@ export function EpisodePlayer({
   useEffect(() => {
     setCursor(null);
   }, [episode.index]);
+
+  // G3: mirror what the player is showing into `useReplay`, so the focus
+  // publisher can answer "which episode, and where in it". Removal rides its
+  // OWN effect — React reruns a cleanup on every dep change, so clearing from
+  // the mirror effect would blank the field on every scrub and republish it a
+  // tick later (the AgentCompanion registerCompanion precedent).
+  useEffect(() => {
+    setViewing({ episodeId: String(episode.index), cursor });
+  }, [episode.index, cursor, setViewing]);
+  useEffect(() => () => setViewing(null), [setViewing]);
 
   const envRef = episodeEnvRef(episode, summary);
   const shown = view.features.filter((f) => !hidden.has(f.key));

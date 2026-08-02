@@ -44,6 +44,29 @@ export interface ReplayTarget {
   episode?: number;
 }
 
+/// What the episode player is showing right now (coworking **G3**).
+///
+/// `ui_policy.ts` has reserved `replay.episode_id` and `replay.cursor` on the
+/// `replay` row since D1, but both were unpopulated: an agent could learn which
+/// dataset was open and nothing about where in it the user was. The open
+/// episode and the scrub cursor live in `EpisodePlayer`'s `useState`, and the
+/// focus publisher reads stores synchronously — so the player mirrors them
+/// here on change and clears them on unmount.
+///
+/// Mirror, not authority: the player still owns the values. Making the store
+/// authoritative would put a 60 Hz scrub through a global subscription for the
+/// sake of a field that is throttled to one publish per 500 ms.
+export interface ReplayViewing {
+  /// The episode's `index`, stringified — LeRobot episodes have no id but
+  /// their index, and that is what `getEpisodeSeries` and the `ui://replay`
+  /// ref both address them by.
+  episodeId: string;
+  /// The scrub position on the episode clock, or null when the user has not
+  /// placed one. Null publishes as absence, never as 0 — "at the start" and
+  /// "nowhere" are different answers.
+  cursor: number | null;
+}
+
 interface ReplayState {
   /// '' means "no explicit choice yet"; the surface falls back to the first
   /// dataset in the library rather than showing nothing.
@@ -62,6 +85,9 @@ interface ReplayState {
   /// episode. Used by RunDetail's Episodes view.
   openRegistered: (t: ReplayTarget) => void;
   clearTarget: () => void;
+  /// The open episode + cursor, or null when no player is on screen.
+  viewing: ReplayViewing | null;
+  setViewing: (v: ReplayViewing | null) => void;
 }
 
 export const useReplay = create<ReplayState>((set) => ({
@@ -77,6 +103,8 @@ export const useReplay = create<ReplayState>((set) => ({
   // pending location handoff is stale the moment one arrives.
   openRegistered: (target) => set({ target, handoff: null }),
   clearTarget: () => set({ target: null }),
+  viewing: null,
+  setViewing: (viewing) => set({ viewing }),
 }));
 
 /// The page offset that contains an episode index.

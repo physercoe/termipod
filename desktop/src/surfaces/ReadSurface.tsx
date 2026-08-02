@@ -25,6 +25,7 @@ import {
 import { syncLibrary } from '../state/librarySync';
 import { useDiscoverySearch } from '../state/discoverySearch';
 import { syncAnnotations } from '../state/annotationSync';
+import { useReadTabs } from '../state/readTabs';
 import { useSession } from '../state/session';
 import {
   detectIdentifier,
@@ -92,19 +93,8 @@ const ALL = '__all__';
 
 // An open tab in the reader region: a PDF reader (a library item) or an in-app
 // browser (an arbitrary URL). `activeTab === null` shows the library instead.
-interface ReadTab {
-  id: string;
-  kind: 'pdf' | 'web' | 'note';
-  refId?: string;
-  attId?: string; // which attachment of the reference this tab opened
-  url?: string;
-  title: string;
-}
-let tabSeq = 0;
-function nextTabId(): string {
-  tabSeq += 1;
-  return `tab${Date.now().toString(36)}${tabSeq}`;
-}
+// The tab set itself lives in `state/readTabs.ts` — the focus publisher reads
+// stores synchronously, so surface-local state could never be published (G1).
 
 // Sortable columns for the Zotero-style library table.
 type SortKey = 'title' | 'creator' | 'year' | 'venue' | 'type';
@@ -1789,8 +1779,11 @@ export function ReadSurface(): JSX.Element {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   // Open reader / browser tabs (director: PDFs open in several tabs at once, and
   // links open in a dedicated in-app browser tab). `activeTab === null` = library.
-  const [tabs, setTabs] = useState<ReadTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  // Store-owned since G1 so the focus publisher can see them.
+  const tabs = useReadTabs((s) => s.tabs);
+  const activeTab = useReadTabs((s) => s.activeId);
+  const setActiveTab = useReadTabs((s) => s.setActive);
+  const openTab = useReadTabs((s) => s.open);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   // W2b: a download started inside a web tab, awaiting the user's chooser
@@ -1848,13 +1841,11 @@ export function ReadSurface(): JSX.Element {
       setActiveTab(existing.id);
       return;
     }
-    const id = nextTabId();
     const baseTitle = r !== undefined && r.title !== '' ? r.title : t('read.untitled');
     // Disambiguate the tab by filename when the item has more than one attachment.
     const attFile = r?.attachments?.find((a) => a.id === targetAtt)?.file;
     const title = (r?.attachments?.length ?? 0) > 1 && attFile !== undefined ? `${baseTitle} · ${attFile}` : baseTitle;
-    setTabs((ts) => [...ts, { id, kind: 'pdf', refId, attId: targetAtt, title }]);
-    setActiveTab(id);
+    openTab({ kind: 'pdf', refId, attId: targetAtt, title });
   }
 
   // useCallback: this is the OpenLinkContext value — a fresh identity per render
@@ -1862,18 +1853,17 @@ export function ReadSurface(): JSX.Element {
   // An empty URL opens a blank web tab (the "+"/"Open link" affordances): its
   // BrowserView renders the start state (autofocused address bar). A tab titled
   // "New tab" re-titles itself from the first `page-title-updated`.
+  // `getState()` rather than the bound actions so the dep list stays literally
+  // empty — the identity guarantee above must not rest on zustand's.
   const openWebTab = useCallback((url: string): void => {
-    const id = nextTabId();
     const title = url === '' ? tStatic('read.newTab') : hostOf(url);
-    setTabs((ts) => [...ts, { id, kind: 'web', url, title }]);
-    setActiveTab(id);
+    useReadTabs.getState().open({ kind: 'web', url, title });
   }, []);
 
   // Re-title a tab in place — the web tab's BrowserView calls this from the
   // guest's `page-title-updated` so the strip reflects the real page title.
   const setTabTitle = useCallback((id: string, title: string): void => {
-    if (title === '') return;
-    setTabs((ts) => ts.map((tb) => (tb.id === id ? { ...tb, title } : tb)));
+    useReadTabs.getState().setTitle(id, title);
   }, []);
 
   // Track the guest's real navigation on the tab — the web tab is mounted only
@@ -1881,8 +1871,7 @@ export function ReadSurface(): JSX.Element {
   // away tab would snap back to the URL it was OPENED with (or, for a "+" new
   // tab, all the way to the empty start state).
   const setTabUrl = useCallback((id: string, url: string): void => {
-    if (url === '') return;
-    setTabs((ts) => ts.map((tb) => (tb.id === id && tb.url !== url ? { ...tb, url } : tb)));
+    useReadTabs.getState().setUrl(id, url);
   }, []);
 
   function openNoteTab(refId: string): void {
@@ -1893,14 +1882,11 @@ export function ReadSurface(): JSX.Element {
     }
     const r = useLibrary.getState().references.find((x) => x.id === refId);
     const baseTitle = r !== undefined && r.title !== '' ? r.title : t('read.untitled');
-    const id = nextTabId();
-    setTabs((ts) => [...ts, { id, kind: 'note', refId, title: `${baseTitle} · ${t('read.noteTabSuffix')}` }]);
-    setActiveTab(id);
+    openTab({ kind: 'note', refId, title: `${baseTitle} · ${t('read.noteTabSuffix')}` });
   }
 
   function closeTab(id: string): void {
-    setTabs((ts) => ts.filter((tb) => tb.id !== id));
-    setActiveTab((a) => (a === id ? null : a));
+    useReadTabs.getState().close(id);
   }
 
   // Dismiss any open context menu (row / collection / tag) on an outside click,

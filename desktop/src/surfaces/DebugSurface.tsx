@@ -212,6 +212,7 @@ function CodeTab({
   const setError = useInspect((s) => s.setError);
   const setLang = useInspect((s) => s.setLang);
   const setKind = useInspect((s) => s.setKind);
+  const setSelection = useInspect((s) => s.setSelection);
   const openTab = useInspect((s) => s.open);
   const folder = useWorkspace((s) => s.folder);
   const codeRef = useRef<CodeViewHandle>(null);
@@ -412,6 +413,10 @@ function CodeTab({
               ref={codeRef}
               value={body}
               onChange={(v) => setContent(tab.id, v)}
+              // G2: the selected lines are what makes `inspect.selection`
+              // truthful — an agent asked about "this bit" needs to know which
+              // bit. The store dedupes; the focus sender throttles.
+              onSelection={(sel) => setSelection(tab.id, sel)}
               filename={tab.path !== undefined ? baseName(tab.path) : undefined}
               lang={langId}
               editable={tab.source === 'paste'}

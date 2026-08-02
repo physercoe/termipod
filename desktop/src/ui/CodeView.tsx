@@ -23,22 +23,44 @@ export interface CodeViewHandle {
   revealLine: (line: number) => void;
 }
 
+/// The main selection as 1-based `[fromLine, toLine]`, or null when the user
+/// has selected nothing (coworking G2).
+///
+/// A bare caret is deliberately NOT a selection. `ui_policy` publishes this to
+/// an agent as "the lines the user has picked out"; reporting the caret's line
+/// would tell it the user pointed at something when all they did was click, and
+/// D5's honesty rule says absence beats a plausible wrong answer. Only the main
+/// range is read — a multi-cursor selection has no single span, and the field's
+/// type is one.
+export function selectedLines(state: EditorState): [number, number] | null {
+  const r = state.selection.main;
+  if (r.empty) return null;
+  return [state.doc.lineAt(r.from).number, state.doc.lineAt(r.to).number];
+}
+
 export const CodeView = forwardRef<
   CodeViewHandle,
   {
     value: string;
     onChange?: (v: string) => void;
+    /// The user's line selection, or null when there is none. Fires on every
+    /// selection change — the caller decides what to do with the churn.
+    onSelection?: (sel: [number, number] | null) => void;
     filename?: string;
     lang?: string;
     /// Start in edit mode (default: read-only).
     editable?: boolean;
   }
->(function CodeView({ value, onChange, filename, lang, editable = false }, ref) {
+>(function CodeView({ value, onChange, onSelection, filename, lang, editable = false }, ref) {
   const t = useT();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // Ref, not a dep: the editor is built once (the parent remounts per tab) and
+  // a changed callback identity must not tear it down.
+  const onSelectionRef = useRef(onSelection);
+  onSelectionRef.current = onSelection;
 
   const langComp = useRef(new Compartment()).current;
   const editComp = useRef(new Compartment()).current;
@@ -92,6 +114,10 @@ export const CodeView = forwardRef<
           codeTheme,
           EditorView.updateListener.of((u) => {
             if (u.docChanged && !u.state.readOnly) onChangeRef.current?.(u.state.doc.toString());
+            // A doc change moves the caret without `selectionSet`, and it can
+            // also shift which lines a live selection spans — so recompute on
+            // either. (G2: this is what makes `inspect.selection` truthful.)
+            if (u.selectionSet || u.docChanged) onSelectionRef.current?.(selectedLines(u.state));
           }),
         ],
       }),

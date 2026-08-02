@@ -944,6 +944,22 @@ the hub stores digests, never bulk curves (blueprint §4).
   instance; a run is what it executed. A run may carry `agent_id`.
 - *Canonical:* migration `0006_runs.up.sql`.
 
+### record (decision record)
+A **decision** or **finding**, project-scoped, carrying typed evidence
+links to the runs / episodes / datasets / references / documents that
+justify it (compare-wall plan §4.1). Status is history: `proposed →
+accepted`, and an accepted record is retired only by a SUCCESSOR that
+points back at it (`supersedes_id`) — never by an edit, never by a
+delete. Provenance (`created_by_kind`, `created_by_id`,
+`origin_session_id`) is derived from the authenticated caller, never
+from the request body.
+- *Distinguish from:* the desktop's Record job — the activity-bar
+  surface that renders this log. One is the entity, the other the
+  screen that shows it; the job's name predates the entity.
+- *Distinguish from:* **engine record** — an engine's own on-disk
+  transcript file. Unrelated, despite the word.
+- *Canonical:* migration `0074_records.up.sql`.
+
 ### project spec (config_yaml)
 A project's full definition, carried **inline** in its own
 `config_yaml` (ADR-046): `phases:` (≥1; a one-off job is a 1-phase
@@ -1468,6 +1484,8 @@ A flat list of the high-traffic confusion points, for grep:
   `engine session id` is the engine's cursor.
 - **transcript** vs **engine record** — hub's `agent_events` vs
   engine's native file.
+- **record** (a decision/finding entity) vs **engine record** (an
+  engine's transcript file) — same word, unrelated things.
 - **resume** (handler) vs **resume** (CLI flag) — same word, two
   layers.
 - **fork** vs **resume** — fork = new hub session, cold engine;

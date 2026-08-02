@@ -784,6 +784,22 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				})
 			})
 		})
+		// Decision records (compare-wall/decisions plan §4.1) — decisions and
+		// findings with typed evidence links to the runs/episodes/references
+		// that justify them. Team-scoped THROUGH their project; the record_*
+		// MCP verbs (B3) bind to the same store methods.
+		r.Route("/records", func(r chi.Router) {
+			r.Get("/", s.handleListRecords)
+			r.Post("/", s.handleCreateRecord)
+			r.Route("/{record}", func(r chi.Router) {
+				r.Get("/", s.handleGetRecord)
+				r.Patch("/", s.handleUpdateRecord)
+				r.Delete("/", s.handleDeleteRecord)
+				// A record is retired by a SUCCESSOR, never by an edit — the
+				// successor and the edge are created in one call.
+				r.Post("/supersede", s.handleSupersedeRecord)
+			})
+		})
 		// Environment profiles (plan env-profiles-and-session-teleport, E1) —
 		// team-scoped reusable {setup script + env vars + secret refs + net
 		// policy} a spawn attaches. Metadata only; secret values stay in the

@@ -5,8 +5,8 @@
 > wedges A1–A6) and Lane B (decision records, wedges B1–B3). Lanes are
 > independent; A1 and B1 can start in parallel. **A1–A3 shipped 2026-08-02**
 > (wall state, runs table, extremes, config comparer, smoothing, group-by +
-> seed aggregation, `run_metrics`, `run_config_diff`); A4–A6 and lane B
-> unstarted.
+> seed aggregation, `run_metrics`, `run_config_diff`) **and B1** (the
+> `records` entity); A4–A6, B2 and B3 unstarted.
 > Executes the strategic call in
 > `desktop-design-review.md` §4.1 ("cap reader investment, put the next big
 > block into J5/J6") now that the data substrate those surfaces were waiting
@@ -308,6 +308,39 @@ created_at, updated_at   -- UTC, as everything
 REST + store follow the reference_items pattern (ADR-053). Evidence links are
 **typed ids, not URLs** — the same shape as UIRef entity fields, so a link
 renders as a jump-chip and an agent dereferences it with its existing tools.
+
+- *As built (B1):* migration `0074_records`, five REST routes, the typed
+  client methods, and an OpenAPI + glossary entry. Three rules carry the
+  entity and each of them is a refusal:
+  - **Provenance comes from the token.** `created_by_kind` /
+    `created_by_id` / `origin_session_id` are derived from the
+    authenticated caller and ignored if a body sends them; an agent's
+    record is created `proposed` even when the body claims `accepted`
+    (the propose-verb posture, §4.3, enforced at the entity rather than
+    left to the tool). An agent whose handle no longer resolves is still
+    recorded as an AGENT — falling back to "user" would misattribute the
+    write to the director.
+  - **Status is history.** `proposed → accepted` is the only patchable
+    transition; `superseded` is not a setting but a consequence.
+    `POST /records/{id}/supersede` creates the successor and the edge,
+    and the predecessor is retired **only when that successor is
+    accepted** — a proposal must not retire the decision it hopes to
+    replace. A superseded record is closed for edits.
+  - **Evidence is a closed vocabulary.** `{kind,id,note}` with kind ∈
+    {run, episode, dataset, reference, doc}, and the test for adding one
+    is that the hub can already dereference it: a link kind with no
+    dereference is a dead chip. An empty `id` is refused — evidence is a
+    typed id, not a note.
+- *As built (B1):* deletion is allowed only while a record is `proposed`
+  (dismissing a proposal); accepted and superseded records answer 409 and
+  name the supersede route. The plan's "delete only device-local drafts"
+  reads the same way once the drafts are hub proposals.
+- *Deferred to G4, deliberately:* `record.dataset_id` in the desktop's
+  focus policy still names a dataset. It becomes `record.record_id` in the
+  same change that populates `compare.*`, because both live in
+  `ui_policy.ts` and in a bidirectional CI-run test that an unmerged
+  branch also edits — splitting the rename across two PRs would break one
+  of them.
 
 ### 4.2 Surface (B2)
 

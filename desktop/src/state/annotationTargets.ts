@@ -47,51 +47,57 @@ export interface CompanionTarget {
   agentLabel: string;
 }
 
-/// What the target row offers, in display order: **"Attach to kimi web"
-/// first when the kimi panel is open**, then the companion's "Send to
-/// <agent>" row; both null/false → the `annotate.noTarget` hint (plan §3.4
-/// step 4).
-export interface AnnotationTargets {
-  kimi: boolean;
-  companion: CompanionTarget | null;
-}
+/// One row in the target list. The kimi-web injection target and each bound
+/// Companion mount are the same kind of thing — a place this crop can go — so
+/// they are one union, not a boolean beside an object (vision-parity F2). The
+/// previous `{kimi: boolean, companion: CompanionTarget | null}` could express
+/// at most one companion and gave the two targets different shapes, so the
+/// target row had to special-case each; N companion mounts, or a third target
+/// kind, had nowhere to live.
+export type AnnotationTarget = { kind: 'kimi' } | ({ kind: 'companion' } & CompanionTarget);
 
-/// Resolve the target row for the current arm.
+/// Resolve the target row for the current arm, **in display order**: the kimi
+/// row leads when its panel is open (D2.2), then the companions. An empty list
+/// is the `annotate.noTarget` hint (plan §3.4 step 4).
 ///
 /// - A companion arm offers ONLY that companion, and only when bound (D2
 ///   semantics, unchanged): one companion's gesture never leaks into another
 ///   mount's compose box.
-/// - A global arm (no storageKey — D2.1) offers the first registered bound
-///   companion; registration order is mount order, so the longest-lived bound
-///   companion wins. Unbound registrations are skipped.
+/// - A global arm (no storageKey — D2.1) offers every bound companion in
+///   registration order, which is mount order — so the longest-lived bound
+///   companion leads. Unbound registrations are skipped. Exactly one companion
+///   mount is registered today (the dock's; the per-surface mounts are
+///   retired), so this renders identically to the old first-bound pick.
 export function resolveTargets(opts: {
   kimiOpen: boolean;
   origin: AnnotationOrigin | null;
   companions: readonly CompanionTarget[];
-}): AnnotationTargets {
+}): AnnotationTarget[] {
   const { kimiOpen, origin, companions } = opts;
+  const rows: AnnotationTarget[] = kimiOpen ? [{ kind: 'kimi' }] : [];
   if (origin !== null && origin.storageKey !== undefined) {
-    const bound = (origin.agentId ?? '') !== '';
-    return {
-      kimi: kimiOpen,
-      companion: bound
-        ? {
-            storageKey: origin.storageKey,
-            agentId: origin.agentId ?? '',
-            agentLabel: origin.agentLabel ?? '',
-          }
-        : null,
-    };
+    if ((origin.agentId ?? '') !== '') {
+      rows.push({
+        kind: 'companion',
+        storageKey: origin.storageKey,
+        agentId: origin.agentId ?? '',
+        agentLabel: origin.agentLabel ?? '',
+      });
+    }
+    return rows;
   }
-  return { kimi: kimiOpen, companion: companions.find((c) => c.agentId !== '') ?? null };
+  for (const c of companions) {
+    if (c.agentId !== '') rows.push({ kind: 'companion', ...c });
+  }
+  return rows;
 }
 
 /// Registry reducers (the store keeps the array; these keep it honest).
 /// `upsertCompanion` replaces IN PLACE by storageKey — a companion
 /// re-registers when its binding or the agents list changes, so the label
-/// stays fresh without duplicates and without disturbing mount order (which
-/// is what `resolveTargets`' first-bound pick reads). `removeCompanion` is
-/// the unmount / unbind path.
+/// stays fresh without duplicates and without disturbing mount order — which
+/// is the order `resolveTargets` renders the companion rows in.
+/// `removeCompanion` is the unmount / unbind path.
 export function upsertCompanion(list: readonly CompanionTarget[], c: CompanionTarget): CompanionTarget[] {
   const i = list.findIndex((x) => x.storageKey === c.storageKey);
   if (i === -1) return [...list, c];

@@ -181,10 +181,13 @@ export interface BridgeRequestContext {
   /// W3: the remote agent's display handle (hub payload), recorded on hub
   /// action entries so Settings → Remote driving can name the session.
   agentHandle?: string;
-  /// ADR-063 D2: the revision this exchange declared, from the
-  /// MCP-Protocol-Version request header. Absent when the caller sent none —
-  /// this transport is stateless, so "we were not told" is a real state and
-  /// must not be guessed into a claim on the response.
+  /// ADR-063 D2: the revision this exchange is served at — the first
+  /// DECLARED revision we implement (header, `_meta`, or initialize ask), or
+  /// the floor when the caller declared only revisions we don't (D2
+  /// amendment: declared-but-unknown is served and stamped at the floor,
+  /// never refused with the spec's -32022). Absent only when the caller
+  /// declared nothing at all — this transport is stateless, so "we were not
+  /// told" is a real state and must not be guessed into a claim.
   protocolVersion?: string;
   /// ADR-063: the client's self-reported `_meta` clientInfo, as
   /// "name/version". Audit line only, and RING-ONLY at that — postBridgeAudit
@@ -1510,6 +1513,19 @@ const MCP_CACHE_SCOPE = 'private';
 /// same way.
 const CACHEABLE_METHODS: ReadonlySet<string> = new Set(['tools/list', 'resources/list', 'resources/read', 'server/discover']);
 
+/// One warning per distinct declared set per process — the observability half
+/// of the ADR-063 D2 amendment (mirrors mcpver.WarnIfUnsupported on the Go
+/// side). A client re-declares on every request; one line is the signal that
+/// an engine shipped a revision this build lacks, thousands are the noise
+/// that buries it.
+const warnedVersionSets = new Set<string>();
+function warnUnsupportedVersions(declared: readonly string[]): void {
+  const label = declared.map((v) => (v.length > 40 ? `${v.slice(0, 40)}…` : v)).join(',');
+  if (warnedVersionSets.has(label)) return;
+  warnedVersionSets.add(label);
+  console.warn(`browser-bridge: client declared unsupported MCP protocol version(s) [${label}]; serving floor ${MCP_PROTOCOL_FLOOR}`);
+}
+
 /// The per-request `_meta` envelope a 2026-07-28 client sends instead of
 /// handshaking. Every field is optional — a 2025-era client sends none.
 interface McpRequestMeta {
@@ -1772,14 +1788,10 @@ export function startBridgeServer(deps: McpServerDeps & { token: string; actionT
         scope,
         agentId: typeof agentHeader === 'string' && agentHeader !== '' ? agentHeader : null,
       };
-      // U3: the transport-level revision declaration (SEP-2243). Validated
-      // against the set here rather than trusted — an unknown value is left
-      // absent so the body's `_meta` still gets its turn, and a request that
-      // declares nothing anywhere stays honestly undeclared.
+      // U3: the transport-level revision declaration (SEP-2243). Captured
+      // here, resolved after the body is parsed — `_meta` and an initialize
+      // ask are the other declaration channels.
       const versionHeader = req.headers[MCP_HEADER_PROTOCOL_VERSION];
-      if (typeof versionHeader === 'string' && MCP_PROTOCOL_VERSIONS.includes(versionHeader)) {
-        ctx.protocolVersion = versionHeader;
-      }
       let raw = '';
       let tooBig = false;
       req.on('data', (d: Buffer) => {
@@ -1818,13 +1830,25 @@ export function startBridgeServer(deps: McpServerDeps & { token: string; actionT
         return;
       }
       const msg = parsed as JsonRpcRequest;
-      // U7: a 2026-07-28 client carries its revision and identity per request
-      // instead of handshaking. The header (already validated above) wins; the
-      // envelope answers for a caller that sent no header.
+      // U7 + ADR-063 D2 amendment: rank the declared channels — header, the
+      // stateless `_meta` envelope, an initialize ask — and serve the first
+      // revision we implement. A client that declared ONLY revisions we don't
+      // is still served, at the floor, stamped as the floor, and logged once
+      // per process (the spec's -32022 refusal is deliberately not adopted —
+      // availability first; see the ADR). True silence still stamps nothing.
       const meta = readRequestMeta(msg.params);
       if (meta.client !== null) ctx.client = meta.client;
-      if (ctx.protocolVersion === undefined && meta.protocolVersion !== null && MCP_PROTOCOL_VERSIONS.includes(meta.protocolVersion)) {
-        ctx.protocolVersion = meta.protocolVersion;
+      const initAsk = msg.method === 'initialize' ? (msg.params as { protocolVersion?: unknown } | undefined)?.protocolVersion : undefined;
+      const declared: string[] = [];
+      for (const v of [versionHeader, meta.protocolVersion, initAsk]) {
+        if (typeof v === 'string' && v !== '') declared.push(v);
+      }
+      const known = declared.find((v) => MCP_PROTOCOL_VERSIONS.includes(v));
+      if (known !== undefined) {
+        ctx.protocolVersion = known;
+      } else if (declared.length > 0) {
+        ctx.protocolVersion = MCP_PROTOCOL_FLOOR;
+        warnUnsupportedVersions(declared);
       }
       const out = await handleMcpMessage(msg, deps, ctx);
       if (out === null) {

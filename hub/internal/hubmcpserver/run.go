@@ -206,6 +206,10 @@ func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError
 	if len(req.Params) > 0 {
 		_ = json.Unmarshal(req.Params, &params)
 	}
+	// ADR-063 D2 amendment: declared-but-unsupported is served at the
+	// floor and logged once per process (slog's default handler writes
+	// stderr, which is this daemon's one log channel).
+	mcpver.WarnIfUnsupported(serverName, params.ProtocolVersion, params.Meta.ProtocolVersion)
 
 	switch req.Method {
 	case "initialize":

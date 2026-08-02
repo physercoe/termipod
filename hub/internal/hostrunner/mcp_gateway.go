@@ -323,6 +323,9 @@ func (g *McpGateway) handleLine(line []byte) []byte {
 	if len(req.Params) > 0 {
 		_ = json.Unmarshal(req.Params, &params)
 	}
+	// ADR-063 D2 amendment: declared-but-unsupported is served at the
+	// floor and logged once per process.
+	mcpver.WarnIfUnsupported(gwServerName, params.ProtocolVersion, params.Meta.ProtocolVersion)
 
 	switch req.Method {
 	case "initialize":

@@ -59,13 +59,17 @@ are pinned together by `versions.json`. Today:
 `2026-07-28`, floor `2024-11-05`.
 
 Negotiation is **echo-if-known, floor otherwise** — never a blind echo
-of an unlisted version, because claiming a revision promises its
-request-side semantics. A client may declare its revision three ways:
-the `initialize` params, the `MCP-Protocol-Version` header, or the
-per-request `_meta` envelope
-(`io.modelcontextprotocol/protocolVersion`); the first one we implement
-wins, and a request that declares nothing gets no version claimed back
-at it.
+of an unlisted version (claiming a revision promises its request-side
+semantics) and never the spec's `-32022` refusal (ADR-063 D2
+amendment: availability first). A client may declare its revision
+three ways: the `initialize` params, the `MCP-Protocol-Version`
+header, or the per-request `_meta` envelope
+(`io.modelcontextprotocol/protocolVersion`); the first one we
+implement wins. A client that declared **only** unknown revisions is
+still served — at the floor, with the floor stamped on the response
+header and a once-per-process warning in the server log (the early
+signal that an engine outran the supported set). A request that
+declares nothing gets no version claimed back at it.
 
 Every result carries the additive 2026-07-28 fields regardless of the
 negotiated version (ADR-063 D3): `resultType: "complete"`, the server's

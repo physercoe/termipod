@@ -1,8 +1,11 @@
 package mcpver
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +101,38 @@ func TestSupportedMatchesFixture(t *testing.T) {
 func TestSupports2026Revision(t *testing.T) {
 	if !IsSupported("2026-07-28") {
 		t.Fatal("2026-07-28 must stay in the set — lane U implements its response side")
+	}
+}
+
+func TestAnySupported(t *testing.T) {
+	if !AnySupported("nonsense", "2025-11-25") {
+		t.Error("one known ask among unknowns should count")
+	}
+	if AnySupported("2027-01-01", "", "banana") {
+		t.Error("no known ask should be false")
+	}
+	if AnySupported() {
+		t.Error("no asks at all should be false")
+	}
+}
+
+// The observability half of the D2 amendment: declared-but-unsupported
+// logs exactly once per (server, declared set) — one line is the signal,
+// a line per request is the noise that buries it. Nothing is logged for
+// silence (no declaration) or for a set containing a known revision.
+func TestWarnIfUnsupported_OncePerServerAndSet(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	WarnIfUnsupported("warntest-a", "2027-01-01")
+	WarnIfUnsupported("warntest-a", "2027-01-01") // dup — suppressed
+	WarnIfUnsupported("warntest-a")               // silence — no warning
+	WarnIfUnsupported("warntest-a", "2025-11-25") // known — no warning
+	WarnIfUnsupported("warntest-b", "2027-01-01") // other server — its own line
+
+	if got := strings.Count(buf.String(), "unsupported protocol version"); got != 2 {
+		t.Fatalf("expected exactly 2 warnings (one per server), got %d:\n%s", got, buf.String())
 	}
 }

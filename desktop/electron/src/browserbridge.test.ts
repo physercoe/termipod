@@ -1014,13 +1014,25 @@ test('U3/U7/U10 over HTTP: version header, _meta identity, batch rejection', asy
     const known = await post(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { 'mcp-protocol-version': '2026-07-28' });
     assert.equal(known.headers.get('mcp-protocol-version'), '2026-07-28');
 
-    // Validated against the set, not trusted: an unlisted revision on the
-    // header cannot make us claim it.
+    // ADR-063 D2 amendment: declared-but-unknown is SERVED, at the floor,
+    // stamped as the floor — never the client's unlisted string (a blind echo
+    // claims semantics we lack) and never the spec's -32022 refusal (an
+    // outage for a tolerant client). Hub and bridge now answer identically.
     const unknown = await post(token, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, { 'mcp-protocol-version': '2027-01-01' });
-    assert.equal(unknown.headers.get('mcp-protocol-version'), null, 'an unknown header value declares nothing');
+    assert.equal(unknown.headers.get('mcp-protocol-version'), MCP_PROTOCOL_FLOOR, 'declared-but-unknown serves and stamps the floor');
+    assert.equal((((await unknown.json()) as { result: { tools: unknown[] } }).result.tools.length > 0), true, 'the request is still served');
+
+    // …including when the only declaration channel is the `_meta` envelope.
+    const metaUnknown = await post(token, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/list',
+      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2027-01-01' } },
+    });
+    assert.equal(metaUnknown.headers.get('mcp-protocol-version'), MCP_PROTOCOL_FLOOR);
 
     // The honesty rule: a caller that declared no revision is told none.
-    const silent = await post(token, { jsonrpc: '2.0', id: 3, method: 'tools/list' });
+    const silent = await post(token, { jsonrpc: '2.0', id: 4, method: 'tools/list' });
     assert.equal(silent.headers.get('mcp-protocol-version'), null);
 
     // A handshake always answers, and the header agrees with the body.

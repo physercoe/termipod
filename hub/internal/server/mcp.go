@@ -107,6 +107,11 @@ func mcpExchangeVersion(r *http.Request, p mcpCommonParams) string {
 	if !declared {
 		return ""
 	}
+	// ADR-063 D2 amendment: a declared-but-unsupported version is still
+	// SERVED (at the floor, below) — never the spec's -32022 — but it is
+	// logged once per process as the early warning that an engine shipped
+	// a revision this build has not added yet.
+	mcpver.WarnIfUnsupported(mcpServerName, asks...)
 	return mcpver.NegotiateFirst(asks...)
 }
 

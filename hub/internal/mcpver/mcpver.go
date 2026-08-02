@@ -19,6 +19,12 @@
 // fails CI on both sides.
 package mcpver
 
+import (
+	"log/slog"
+	"strings"
+	"sync"
+)
+
 // Floor is the revision we answer with when the client's ask is one we
 // do not implement — the oldest revision every MCP client understands.
 //
@@ -86,6 +92,57 @@ func IsSupported(v string) bool {
 // semantic of a revision the server has never heard of.
 func Negotiate(clientAsk string) string {
 	return NegotiateFirst(clientAsk)
+}
+
+// AnySupported reports whether any of the asks is a revision we
+// implement. Empty strings are not asks.
+func AnySupported(asks ...string) bool {
+	for _, a := range asks {
+		if IsSupported(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// warned dedupes the unsupported-version warning per (server, declared
+// set): a client re-declares its revision on every request, and one
+// line per process is the signal — thousands are the noise that buries
+// it.
+var warned sync.Map
+
+// WarnIfUnsupported logs one warning per (server, declared set) when a
+// client declared at least one protocol version and none of them is in
+// the supported set (ADR-063 D2 amendment, 2026-08-02).
+//
+// This is the observability half of rejecting the spec's -32022
+// UnsupportedProtocolVersionError: callers still SERVE the request at
+// the floor — availability first — and this line is the early warning
+// that an engine shipped a revision this build has not added yet, so
+// the set gets bumped before the gap becomes an incident. Control flow
+// never depends on it.
+func WarnIfUnsupported(server string, asks ...string) {
+	if AnySupported(asks...) {
+		return
+	}
+	declared := make([]string, 0, len(asks))
+	for _, a := range asks {
+		if a != "" {
+			if len(a) > 40 {
+				a = a[:40] + "…"
+			}
+			declared = append(declared, a)
+		}
+	}
+	if len(declared) == 0 {
+		return
+	}
+	key := server + "|" + strings.Join(declared, ",")
+	if _, dup := warned.LoadOrStore(key, struct{}{}); dup {
+		return
+	}
+	slog.Default().Warn("mcp: client declared unsupported protocol version(s); serving floor",
+		"server", server, "declared", declared, "floor", Floor)
 }
 
 // NegotiateFirst is Negotiate over an ordered preference list: the first

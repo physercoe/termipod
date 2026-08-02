@@ -170,10 +170,15 @@ One deliberate divergence, flagged rather than taken: the revision
 answers an unsupported client-declared version with
 `UnsupportedProtocolVersionError` (`-32022`), where
 [ADR-063](../decisions/063-mcp-version-negotiation-and-adoption.md) D2
-says serve at the floor. D2 is the accepted contract and its reasoning
-holds — our responses are additive, so a floor-served answer is *also*
-a valid 2026-07-28-shaped one, and serving beats refusing. Erroring
-instead would be an ADR-063 amendment, not an implementation choice.
+says serve at the floor. **Resolved 2026-08-02 (director): floor-serve
+stands, `-32022` rejected — codified as the D2 amendment in ADR-063.**
+The rejection came with two obligations, both shipped in this wedge:
+declared-but-unsupported versions are logged once per (server,
+declared set) per process (`mcpver.WarnIfUnsupported` + the bridge
+twin), and both HTTP transports stamp the floor on the
+`MCP-Protocol-Version` response header whenever a version *was*
+declared but unknown — hub and desktop now answer identically, with
+no-header reserved for true silence.
 
 Also noted, not fixed: the desktop bridge answers a sharing-toggle
 refusal on `resources/read` with `-32002`. The revision renumbered

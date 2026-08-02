@@ -34,6 +34,12 @@ export interface WallView {
   xAxis: CompareXAxis;
   /// A3's grouping config key, or null for "one curve per run".
   groupBy: string | null;
+  /// A2's comparer: show the config rows every run agrees on. Off by default —
+  /// a Hydra config flattens to hundreds of keys and the two that differ are
+  /// the answer (plan §3.2, "identical rows hidden by default"). Not in the
+  /// plan's §3.1 field list, but it is wall state by the same argument as the
+  /// rest: the comparer is a panel, and panels read one store.
+  showIdentical: boolean;
 }
 
 /// TensorBoard's slider tops out below 1.0 — at 1 the EMA never moves off its
@@ -47,6 +53,7 @@ export const EMPTY_VIEW: WallView = Object.freeze({
   smoothing: 0,
   xAxis: 'step' as CompareXAxis,
   groupBy: null,
+  showIdentical: false,
 });
 
 // ── Pure reducers (the whole algebra; the store below only persists) ─────────
@@ -64,7 +71,8 @@ function sameView(a: WallView, b: WallView): boolean {
     a.filter === b.filter &&
     a.smoothing === b.smoothing &&
     a.xAxis === b.xAxis &&
-    a.groupBy === b.groupBy
+    a.groupBy === b.groupBy &&
+    a.showIdentical === b.showIdentical
   );
 }
 
@@ -79,6 +87,7 @@ export function healView(v: WallView): WallView {
     smoothing: Number.isFinite(v.smoothing) ? Math.min(MAX_SMOOTHING, Math.max(0, v.smoothing)) : 0,
     xAxis: v.xAxis === 'relative' ? 'relative' : 'step',
     groupBy: v.groupBy === null || v.groupBy === '' ? null : v.groupBy,
+    showIdentical: v.showIdentical === true,
   };
   return sameView(next, v) ? v : next;
 }
@@ -135,6 +144,10 @@ export function applySetGroupBy(v: WallView, groupBy: string | null): WallView {
   return edit(v, { groupBy });
 }
 
+export function applySetShowIdentical(v: WallView, showIdentical: boolean): WallView {
+  return edit(v, { showIdentical });
+}
+
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 const LS_KEY = 'termipod.compare.wall.v1';
@@ -160,6 +173,7 @@ function viewFrom(raw: unknown): WallView | null {
     smoothing: typeof o.smoothing === 'number' ? o.smoothing : 0,
     xAxis: o.xAxis === 'relative' ? 'relative' : 'step',
     groupBy: typeof o.groupBy === 'string' && o.groupBy !== '' ? o.groupBy : null,
+    showIdentical: o.showIdentical === true,
   });
 }
 
@@ -235,6 +249,7 @@ interface CompareWallState {
   setSmoothing: (smoothing: number) => void;
   setXAxis: (xAxis: CompareXAxis) => void;
   setGroupBy: (groupBy: string | null) => void;
+  setShowIdentical: (showIdentical: boolean) => void;
 }
 
 export const useCompareWall = create<CompareWallState>((set, get) => {
@@ -278,5 +293,6 @@ export const useCompareWall = create<CompareWallState>((set, get) => {
     setSmoothing: (smoothing) => commit(applySetSmoothing(get().view, smoothing)),
     setXAxis: (xAxis) => commit(applySetXAxis(get().view, xAxis)),
     setGroupBy: (groupBy) => commit(applySetGroupBy(get().view, groupBy)),
+    setShowIdentical: (showIdentical) => commit(applySetShowIdentical(get().view, showIdentical)),
   };
 });

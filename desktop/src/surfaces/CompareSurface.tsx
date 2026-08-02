@@ -3,8 +3,21 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { useProjects } from '../hub/queries';
 import { num, str } from '../hub/types';
 import { useT } from '../i18n';
-import { deltaOf, deltaSign, flattenConfig, formatDelta, runMatchesFilter, type RunFacts } from '../state/compareRuns';
-import { useCompareWall } from '../state/compareWall';
+import {
+  configDiffRows,
+  deltaOf,
+  deltaSign,
+  emaSmooth,
+  extremesOf,
+  flattenConfig,
+  formatDelta,
+  mergeConfigSources,
+  runMatchesFilter,
+  toRelativeX,
+  type CurvePoint,
+  type RunFacts,
+} from '../state/compareRuns';
+import { MAX_SMOOTHING, useCompareWall } from '../state/compareWall';
 import { useSession } from '../state/session';
 import { parsePoints } from '../ui/Sparkline';
 import { ChartView, CHART_PALETTE, type ChartSeries } from '../ui/ChartView';
@@ -17,12 +30,13 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 /// multi-select its runs, and overlay each metric's curve across them with a
 /// summary table. It is intrinsically wide-screen (the job the phone can't do).
 ///
-/// A1 of `plans/desktop-compare-wall-and-decisions.md` moves the wall's state
-/// out of this component and into `state/compareWall.ts` — one state, every
-/// panel (§5.2), remembered per project — and adds the three §3.2 affordances
-/// the first cut lacked: filter-as-you-type over id/status/config, a baseline
-/// pin, and Δ-vs-baseline in every summary cell. A2 adds the extremes table and
-/// the diff-only config comparer over the same state.
+/// A1 of `plans/desktop-compare-wall-and-decisions.md` moved the wall's state
+/// into `state/compareWall.ts` — one state, every panel (§5.2), remembered per
+/// project — and added filter / baseline pin / Δ columns. A2 adds the rest of
+/// §3.2: per-run extremes in every cell, the diff-only config comparer, and
+/// EMA smoothing with a step/relative x-switch. Every derivation is a pure
+/// function in `state/compareRuns.ts`, because a comparison wall that quietly
+/// mis-computes does not look broken — it looks like a result.
 
 // Run swatches share the chart renderer's palette (single source, #322) so a
 // run's swatch always matches its overlay curve — which is why the curve is now
@@ -31,8 +45,22 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 // would then shift every later run's curve onto someone else's swatch.
 const SWATCHES = CHART_PALETTE;
 
+/// How faint the raw curve sits behind its smoothed line (§3.2's ghost).
+const RAW_GHOST_OPACITY = 0.28;
+
 function runLabel(id: string): string {
   return id.length > 10 ? `${id.slice(0, 8)}…` : id || '—';
+}
+
+function fmtValue(v: number | undefined): string {
+  return v === undefined ? '—' : String(v);
+}
+
+interface MetricCell {
+  last: number | undefined;
+  min: number | undefined;
+  max: number | undefined;
+  points: CurvePoint[];
 }
 
 export function CompareSurface(): JSX.Element {
@@ -47,7 +75,10 @@ export function CompareSurface(): JSX.Element {
   const toggleRun = useCompareWall((s) => s.toggleRun);
   const toggleBaseline = useCompareWall((s) => s.toggleBaseline);
   const setFilter = useCompareWall((s) => s.setFilter);
-  const { selected, baseline, filter } = view;
+  const setSmoothing = useCompareWall((s) => s.setSmoothing);
+  const setXAxis = useCompareWall((s) => s.setXAxis);
+  const setShowIdentical = useCompareWall((s) => s.setShowIdentical);
+  const { selected, baseline, filter, smoothing, xAxis, showIdentical } = view;
 
   // ONE project id, not a store id plus a locally-computed fallback. The wall's
   // remembered view is filed UNDER this id, so a surface-local "effective
@@ -81,6 +112,18 @@ export function CompareSurface(): JSX.Element {
     })),
   });
 
+  // …and one for the LOGGED config digest, which the comparer unions with the
+  // config registered at creation. Polled slowly: a config is written once
+  // near the start of a run, but "once" can be after the wall is already open.
+  const configQs = useQueries({
+    queries: selected.map((id) => ({
+      queryKey: ['run-config', id],
+      enabled: client !== null,
+      refetchInterval: 60000,
+      queryFn: () => client!.getRunConfig(id),
+    })),
+  });
+
   // The rail's rows, narrowed to what the filter searches. `config_json` rides
   // the run list already, so filtering by a config key costs no extra request.
   const facts: RunFacts[] = useMemo(
@@ -103,10 +146,12 @@ export function CompareSurface(): JSX.Element {
     return SWATCHES[(i < 0 ? 0 : i) % SWATCHES.length];
   };
 
-  // Build: metricName -> (runId -> { last, series }). The union of metric names
-  // across the selected runs drives one overlay chart each.
+  // Build: metricName -> (runId -> cell). The union of metric names across the
+  // selected runs drives one overlay chart each. `last` prefers the hub's own
+  // `last_value` (authoritative even when the points were downsampled); min/max
+  // come from the points that shipped.
   const byMetric = useMemo(() => {
-    const map = new Map<string, Map<string, { last: number | undefined; series: ChartSeries }>>();
+    const map = new Map<string, Map<string, MetricCell>>();
     selected.forEach((runId, i) => {
       const rows = metricQs[i]?.data ?? [];
       for (const row of rows) {
@@ -114,15 +159,32 @@ export function CompareSurface(): JSX.Element {
         if (name === undefined) continue;
         const pts = parsePoints(row['points']).map((p, idx) => ({ x: p.step ?? idx, y: p.value ?? 0 }));
         if (pts.length === 0) continue;
+        const ext = extremesOf(pts);
         if (!map.has(name)) map.set(name, new Map());
         map.get(name)!.set(runId, {
-          last: num(row, 'last_value'),
-          series: { name: runLabel(runId), points: pts },
+          last: num(row, 'last_value') ?? ext.last,
+          min: ext.min,
+          max: ext.max,
+          points: pts,
         });
       }
     });
     return map;
   }, [selected, metricQs]);
+
+  // The comparer's row model — the same shape `run_config_diff` returns to
+  // agents (plan §3.5). Registered config ∪ logged digest, logged winning.
+  const configs = useMemo(() => {
+    const registeredById = new Map(facts.map((f) => [f.id, f.config]));
+    return selected.map((id, i) => {
+      const logged = flattenConfig((configQs[i]?.data ?? {})['config']);
+      const merged = mergeConfigSources(registeredById.get(id) ?? [], logged);
+      return { id, entries: merged.entries, conflicts: merged.conflicts };
+    });
+  }, [selected, facts, configQs]);
+  const diffRows = useMemo(() => configDiffRows(configs), [configs]);
+  const visibleRows = showIdentical ? diffRows : diffRows.filter((r) => !r.identical);
+  const conflictCount = configs.reduce((n, c) => n + c.conflicts.length, 0);
 
   const metricNames = [...byMetric.keys()].sort();
   const anyLoading = metricQs.some((q) => q.isLoading);
@@ -225,11 +287,19 @@ export function CompareSurface(): JSX.Element {
                         {selected.map((id) => {
                           const cell = row?.get(id);
                           const delta = id === baseline ? null : deltaOf(cell?.last, base);
+                          // min === max means a flat (or single-point) curve —
+                          // the extremes add nothing there, so they stay off.
+                          const spread = cell !== undefined && cell.min !== undefined && cell.min !== cell.max;
                           return (
                             <td key={id} className="mono">
-                              {cell?.last !== undefined ? cell.last : '—'}
+                              {fmtValue(cell?.last)}
                               {delta !== null && (
                                 <span className={`compare-delta ${deltaSign(delta)}`}>{formatDelta(delta)}</span>
+                              )}
+                              {spread && (
+                                <div className="compare-extremes muted">
+                                  {t('compare.min')} {fmtValue(cell.min)} · {t('compare.max')} {fmtValue(cell.max)}
+                                </div>
                               )}
                             </td>
                           );
@@ -247,16 +317,116 @@ export function CompareSurface(): JSX.Element {
                 </tbody>
               </table>
 
+              {selected.length >= 2 && (
+                <div className="compare-diff">
+                  <div className="compare-diff-head">
+                    <span className="notes-head muted small">{t('compare.configDiff')}</span>
+                    <span className="spacer" />
+                    {conflictCount > 0 && (
+                      <span className="compare-conflict small" title={t('compare.conflictHint')}>
+                        {t('compare.conflicts').replace('{n}', String(conflictCount))}
+                      </span>
+                    )}
+                    <label className="muted small">
+                      <input
+                        type="checkbox"
+                        checked={showIdentical}
+                        onChange={(e) => setShowIdentical(e.target.checked)}
+                      />
+                      {t('compare.showIdentical')}
+                    </label>
+                  </div>
+                  <table className="compare-table">
+                    <thead>
+                      <tr>
+                        <th>{t('compare.key')}</th>
+                        {selected.map((id) => (
+                          <th key={id}>
+                            <span className="compare-swatch" style={{ background: colorOf(id) }} />
+                            {runLabel(id)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.map((r) => (
+                        <tr key={r.key} className={r.identical ? 'compare-row-same' : ''}>
+                          <td className="compare-metric-name mono">{r.key}</td>
+                          {r.values.map((v, i) => (
+                            <td key={selected[i]} className="mono">
+                              {v ?? '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      {visibleRows.length === 0 && (
+                        <tr>
+                          <td className="muted" colSpan={selected.length + 1}>
+                            {diffRows.length === 0 ? t('compare.noConfig') : t('compare.allIdentical')}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="compare-chart-controls">
+                <label className="muted small">
+                  {t('compare.smoothing')}
+                  <input
+                    type="range"
+                    min={0}
+                    max={MAX_SMOOTHING}
+                    step={0.05}
+                    value={smoothing}
+                    aria-label={t('compare.smoothing')}
+                    onChange={(e) => setSmoothing(Number(e.target.value))}
+                  />
+                  <span className="mono">{smoothing.toFixed(2)}</span>
+                </label>
+                <span className="spacer" />
+                <span className="muted small">{t('compare.xAxis')}</span>
+                <div className="compare-xaxis">
+                  <button
+                    type="button"
+                    className={xAxis === 'step' ? 'on' : ''}
+                    aria-pressed={xAxis === 'step'}
+                    onClick={() => setXAxis('step')}
+                  >
+                    {t('compare.xStep')}
+                  </button>
+                  <button
+                    type="button"
+                    className={xAxis === 'relative' ? 'on' : ''}
+                    aria-pressed={xAxis === 'relative'}
+                    title={t('compare.xRelativeHint')}
+                    onClick={() => setXAxis('relative')}
+                  >
+                    {t('compare.xRelative')}
+                  </button>
+                </div>
+              </div>
+
               <div className="compare-charts">
                 {metricNames.map((name) => {
                   const row = byMetric.get(name);
-                  const series = selected
-                    .map((id): ChartSeries | undefined => {
-                      const cell = row?.get(id);
-                      if (cell === undefined) return undefined;
-                      return { ...cell.series, color: colorOf(id), dashed: id === baseline };
-                    })
-                    .filter((s): s is ChartSeries => s !== undefined);
+                  const series: ChartSeries[] = [];
+                  for (const id of selected) {
+                    const cell = row?.get(id);
+                    if (cell === undefined) continue;
+                    const points = xAxis === 'relative' ? toRelativeX(cell.points) : cell.points;
+                    const color = colorOf(id);
+                    const dashed = id === baseline;
+                    if (smoothing > 0) {
+                      // Raw behind, smoothed in front: the smoothing is visibly
+                      // an overlay on the data, not a replacement for it.
+                      series.push({ name: runLabel(id), points, color, dashed, opacity: RAW_GHOST_OPACITY, legendHidden: true });
+                      series.push({ name: runLabel(id), points: emaSmooth(points, smoothing), color, dashed });
+                    } else {
+                      series.push({ name: runLabel(id), points, color, dashed });
+                    }
+                  }
                   if (series.length === 0) return null;
                   return (
                     <div key={name} className="compare-chart-card">

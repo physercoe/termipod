@@ -12,6 +12,7 @@ import {
   applySetFilter,
   applySetGroupBy,
   applySetSelected,
+  applySetShowIdentical,
   applySetSmoothing,
   applySetXAxis,
   applyToggleBaseline,
@@ -73,6 +74,7 @@ test('healView dedupes, drops empties, clamps smoothing and the enums', () => {
     smoothing: 4,
     xAxis: 'wall-clock' as unknown as WallView['xAxis'],
     groupBy: '',
+    showIdentical: false,
   });
   assert.deepEqual(v.selected, ['a', 'b']);
   assert.equal(v.baseline, null, 'a baseline outside the selection is not a baseline');
@@ -82,6 +84,8 @@ test('healView dedupes, drops empties, clamps smoothing and the enums', () => {
   assert.equal(v.xAxis, 'step', 'an unknown x-axis falls back, it does not ship');
   assert.equal(v.groupBy, null);
   assert.equal(v.filter, 'x', 'untouched fields survive');
+  // A blob from a build that never had the field reads as the safe default.
+  assert.equal(healView({ ...view(), showIdentical: undefined as unknown as boolean }).showIdentical, false);
 });
 
 test('every reducer returns its INPUT on a no-op', () => {
@@ -97,6 +101,7 @@ test('every reducer returns its INPUT on a no-op', () => {
   assert.equal(applySetSmoothing(v, 0.5), v);
   assert.equal(applySetXAxis(v, 'step'), v);
   assert.equal(applySetGroupBy(v, 'seed'), v);
+  assert.equal(applySetShowIdentical(v, false), v);
   // …and a real change does allocate.
   assert.notEqual(applySetFilter(v, 'r'), v);
 });
@@ -133,7 +138,15 @@ test('parseWall heals each project independently', () => {
 });
 
 test('a wall view survives the JSON round-trip unchanged', () => {
-  const v = view({ selected: ['a', 'b'], baseline: 'b', filter: 'lr=3e-4', smoothing: 0.6, xAxis: 'relative', groupBy: 'seed' });
+  const v = view({
+    selected: ['a', 'b'],
+    baseline: 'b',
+    filter: 'lr=3e-4',
+    smoothing: 0.6,
+    xAxis: 'relative',
+    groupBy: 'seed',
+    showIdentical: true,
+  });
   const raw = JSON.stringify({ projectId: 'p1', byProject: { p1: v } });
   assert.deepEqual(parseWall(raw).byProject.p1, v);
 });

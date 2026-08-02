@@ -268,6 +268,69 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			// The wall's "what changed?" panel, given to agents under the same
+			// row model (compare-wall plan §3.2/§3.5). The comparison is done
+			// here rather than handed over as two raw configs because the
+			// FLATTENING is the contract: dotted paths, absent ≠ empty, and
+			// JS-identical number formatting (see run_config_diff.go).
+			Name: "run_config_diff",
+			Description: "Compare the configs of 2-8 runs and return only what differs. Required: `runs` (array of run ids, in the order you want the columns).\n\n" +
+				"Each row is `{key, values, identical}`: `key` is a dotted path into the flattened config (`optimizer.lr`, `layers[0].width`), `values` has one cell per run in the order you passed them, and a cell is `null` when that run does NOT have the key — which is a difference, not a blank. `identical` is true when every run agrees.\n\n" +
+				"Two sources are unioned per run: the config registered at `runs_create` and the `/config` digest the training script logged. The LOGGED value wins on a collision (it is what ran) and the key is listed in `conflicts[run_id]` so the disagreement is visible. `differing` counts the non-identical rows — the headline answer to \"what changed between these runs?\".",
+			InputSchema: schema(`{"type":"object","required":["runs"],"properties":{"runs":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":8}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				raw, _ := args["runs"].([]any)
+				ids := make([]string, 0, len(raw))
+				for _, v := range raw {
+					if s, ok := v.(string); ok && s != "" {
+						ids = append(ids, s)
+					}
+				}
+				if len(ids) < 2 {
+					return nil, fmt.Errorf("runs must name at least two run ids")
+				}
+				// Bounded because each id costs two hub round-trips, and a wall
+				// nobody can read is not a comparison anyway.
+				if len(ids) > 8 {
+					return nil, fmt.Errorf("runs names %d runs; compare at most 8 at a time", len(ids))
+				}
+				flat := make([]cfgRun, 0, len(ids))
+				conflicts := map[string][]string{}
+				for _, id := range ids {
+					var run struct {
+						ConfigJSON string `json:"config_json"`
+					}
+					if err := c.do("GET", c.teamPath("/runs/"+url.PathEscape(id)), nil, nil, &run); err != nil {
+						return nil, fmt.Errorf("run %s: %w", id, err)
+					}
+					var digest struct {
+						Config json.RawMessage `json:"config"`
+					}
+					if err := c.do("GET", c.teamPath("/runs/"+url.PathEscape(id)+"/config"), nil, nil, &digest); err != nil {
+						return nil, fmt.Errorf("run %s config digest: %w", id, err)
+					}
+					entries, conflicted := cfgMerge(cfgFlattenText(run.ConfigJSON), cfgFlattenRaw(digest.Config))
+					if len(conflicted) > 0 {
+						conflicts[id] = conflicted
+					}
+					flat = append(flat, cfgRun{ID: id, Entries: entries})
+				}
+				rows := cfgDiffRows(flat)
+				differing := 0
+				for _, r := range rows {
+					if !r.Identical {
+						differing++
+					}
+				}
+				return map[string]any{
+					"runs":      ids,
+					"rows":      rows,
+					"differing": differing,
+					"conflicts": conflicts,
+				}, nil
+			},
+		},
+		{
 			Name:        "runs_update",
 			Description: "Update mutable fields of an EXISTING run without recreating it — fix a typo, set status, or link/re-link training metrics. Required: `run`. Optional (only the fields you pass change; pass \"\" to clear a nullable one): `status` (pending|running|completed|failed|cancelled), `config_json` (object), `seed`, `agent_id`, `started_at`, `finished_at`, `parent_run_id`, `trackio_host_id`, `trackio_run_uri`, `dataset_id` (a dataset in the run's OWN project), `env_ref` (the environment this run ran in — opaque `family:env_id@version`, unvalidated; NOT inferred from `dataset_id`, whose env is where the data was collected).\n\n=== Make a run's training curves show on mobile ===\nSet `trackio_run_uri` (and usually nothing else):\n  - `trackio_run_uri` — canonical form `trackio://<project>/<run_name>`.\n      • `<project>` = the trackio project name. Trackio stores one SQLite file per project at `<TRACKIO_DIR>/<project>.db` (default TRACKIO_DIR is `~/.cache/huggingface/trackio`). It's the `project=` you pass to `trackio.init(...)`.\n      • `<run_name>` = the run's name within that project — the `name=` in `trackio.init(project=..., name=...)`, stored in the trackio `metrics` table's `run_name` column.\n      (wandb runs use `wandb://...`; TensorBoard uses `tb://<run-path>`.)\n  - `trackio_host_id` — the hub host id of the machine where the worker logged (its trackio DB is on that host's disk). OPTIONAL: if you omit it and the run has an `agent_id`, the hub auto-fills it from that agent's host. So an agent normally only needs `trackio_run_uri`.\nThe host-runner on that host then reads the trackio SQLite and pushes downsampled curves to the run; mobile renders inline sparklines. (See `runs_create` to set these at creation time instead.)",
 			InputSchema: schema(`{"type":"object","required":["run"],"properties":{"run":{"type":"string"},"status":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"agent_id":{"type":"string"},"started_at":{"type":"string"},"finished_at":{"type":"string"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"},"dataset_id":{"type":"string"},"env_ref":{"type":"string"}}}`),

@@ -30,6 +30,14 @@ export interface ChartSeries {
   /// gets distinct curve styling"), so the run everything is measured against
   /// is identifiable without reading the legend.
   dashed?: boolean;
+  /// Stroke opacity. The wall draws the RAW curve behind its smoothed one at
+  /// low opacity (§3.2, the TensorBoard/W&B grammar) — the smoothing is then
+  /// visibly an overlay on the data rather than a replacement for it.
+  opacity?: number;
+  /// Keep this series out of the legend. The raw ghost is the same run as the
+  /// curve above it; two legend entries per run would double the legend and
+  /// imply two runs.
+  legendHidden?: boolean;
 }
 export interface ChartData {
   series: ChartSeries[];
@@ -319,9 +327,10 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
                   stroke={color}
                   strokeWidth={1.75}
                   strokeDasharray={s.dashed === true ? '6 4' : undefined}
+                  strokeOpacity={s.opacity}
                   className="chart-line"
                 />
-                {last !== undefined && (
+                {last !== undefined && s.opacity === undefined && (
                   <circle cx={xToPx(xOf(last, s.points.length - 1))} cy={yToPx(last.y)} r={2.5} fill={color} />
                 )}
               </g>
@@ -346,12 +355,17 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
 
       {multi && (
         <div className="chart-legend">
-          {chart.series.map((s, si) => (
-            <span key={`l${si}`} className="chart-legend-item">
-              <span className="chart-swatch" style={{ background: s.color ?? CHART_PALETTE[si % CHART_PALETTE.length] }} />
-              {s.name ?? `series ${si + 1}`}
-            </span>
-          ))}
+          {chart.series.map((s, si) =>
+            s.legendHidden === true ? null : (
+              <span key={`l${si}`} className="chart-legend-item">
+                <span
+                  className="chart-swatch"
+                  style={{ background: s.color ?? CHART_PALETTE[si % CHART_PALETTE.length] }}
+                />
+                {s.name ?? `series ${si + 1}`}
+              </span>
+            ),
+          )}
         </div>
       )}
     </div>

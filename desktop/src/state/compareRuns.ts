@@ -137,3 +137,153 @@ export function formatDelta(delta: number): string {
   const body = a >= 1000 || a < 0.01 ? a.toExponential(1) : a < 1 ? a.toFixed(3) : a.toFixed(2);
   return `${delta > 0 ? '+' : '-'}${body}`;
 }
+
+// ── A2: curve math ──────────────────────────────────────────────────────────
+
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+
+export interface MetricExtremes {
+  last: number | undefined;
+  min: number | undefined;
+  max: number | undefined;
+}
+
+/// The min/max/last of one curve (plan §3.2, ClearML's extremes table).
+///
+/// Computed from the points the hub already shipped — no request. Non-finite
+/// samples are skipped rather than poisoning the pair: one NaN in a long run
+/// would otherwise make every extreme NaN, which reads as "no data" for a run
+/// that has plenty.
+export function extremesOf(points: readonly CurvePoint[]): MetricExtremes {
+  let min: number | undefined;
+  let max: number | undefined;
+  let last: number | undefined;
+  for (const p of points) {
+    if (!Number.isFinite(p.y)) continue;
+    if (min === undefined || p.y < min) min = p.y;
+    if (max === undefined || p.y > max) max = p.y;
+    last = p.y;
+  }
+  return { last, min, max };
+}
+
+/// TensorBoard's debiased exponential moving average — the smoothing every
+/// researcher's hand already knows (plan §3.2: "the TensorBoard/W&B muscle
+/// memory").
+///
+/// The debias term is the part people re-derive wrong: a plain EMA seeded at 0
+/// drags the first points toward zero, so a loss curve appears to start far
+/// below where it did. Dividing by `1 - weight^n` removes that bias, which is
+/// what TensorBoard does. `weight` is the slider's 0..1 value; 0 returns the
+/// input untouched (identity, so the caller can always smooth).
+export function emaSmooth(points: readonly CurvePoint[], weight: number): CurvePoint[] {
+  if (!Number.isFinite(weight) || weight <= 0) return [...points];
+  const w = Math.min(weight, 0.999);
+  const out: CurvePoint[] = [];
+  let acc = 0;
+  let n = 0;
+  for (const p of points) {
+    if (!Number.isFinite(p.y)) {
+      // Keep the sample's x so the curve does not silently shorten, but do not
+      // let a non-finite value into the accumulator.
+      out.push(p);
+      continue;
+    }
+    acc = acc * w + (1 - w) * p.y;
+    n += 1;
+    const debias = 1 - Math.pow(w, n);
+    out.push({ x: p.x, y: debias === 0 ? p.y : acc / debias });
+  }
+  return out;
+}
+
+/// Re-base each curve on its own first step (the wall's `relative` x-axis).
+///
+/// Deliberately NOT wall-clock: metric points carry `step` only, and adding
+/// per-point timestamps is a tbreader/digest change to make on purpose (plan
+/// §3.2). What this DOES answer is the fork case — a run resumed at step 5000
+/// and a run started from scratch are comparable by progress-since-start, and
+/// on an absolute axis they sit in different halves of the chart.
+export function toRelativeX(points: readonly CurvePoint[]): CurvePoint[] {
+  const first = points[0];
+  if (first === undefined) return [];
+  const base = first.x;
+  return points.map((p) => ({ x: p.x - base, y: p.y }));
+}
+
+// ── A2: the diff-only config comparer ───────────────────────────────────────
+
+/// One run's flattened config, from whichever sources it has.
+export interface RunConfig {
+  id: string;
+  entries: readonly ConfigEntry[];
+}
+
+/// One row of the comparer: a key, one cell per run in the given order, and
+/// whether every run agrees.
+export interface ConfigDiffRow {
+  key: string;
+  /// `undefined` = the key is ABSENT for that run, which is not the same as
+  /// present-and-empty (`{}` / `[]` / `null` all render as themselves).
+  values: (string | undefined)[];
+  identical: boolean;
+}
+
+/// Union two flattened configs, the LOGGED one winning on a collision.
+///
+/// A run has two config sources: `runs.config_json`, registered when the run
+/// was created, and the `/config` digest the host-runner pushes from what the
+/// training script actually loaded. When they disagree, the logged one is what
+/// ran — so it wins — but the disagreement is itself a finding, so the keys
+/// that differ are returned rather than swallowed. (Reconciling them properly
+/// is A4's provenance triad; this is the honest interim: prefer the truth,
+/// name the conflict.)
+export function mergeConfigSources(
+  registered: readonly ConfigEntry[],
+  logged: readonly ConfigEntry[],
+): { entries: ConfigEntry[]; conflicts: string[] } {
+  const byKey = new Map<string, string>();
+  for (const e of registered) byKey.set(e.key, e.value);
+  const conflicts: string[] = [];
+  for (const e of logged) {
+    const prev = byKey.get(e.key);
+    if (prev !== undefined && prev !== e.value) conflicts.push(e.key);
+    byKey.set(e.key, e.value);
+  }
+  const entries = [...byKey.entries()].map(([key, value]) => ({ key, value }));
+  entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  conflicts.sort();
+  return { entries, conflicts };
+}
+
+/// The comparer's row model: the sorted union of every run's config keys, one
+/// cell per run, with the "every run agrees" bit precomputed.
+///
+/// `identical` is what the "show identical" toggle hides, and it counts an
+/// absent key as a value: two runs where only one sets `resume_from` DIFFER,
+/// even though only one of them has anything to show. Hiding that row would
+/// hide the actual difference between the runs.
+///
+/// This is the shape `run_config_diff` returns to agents (plan §3.5) — one row
+/// model, two consumers.
+export function configDiffRows(runs: readonly RunConfig[]): ConfigDiffRow[] {
+  const keys = new Set<string>();
+  const maps = runs.map((r) => {
+    const m = new Map<string, string>();
+    for (const e of r.entries) {
+      m.set(e.key, e.value);
+      keys.add(e.key);
+    }
+    return m;
+  });
+  const rows: ConfigDiffRow[] = [];
+  for (const key of [...keys].sort()) {
+    const values = maps.map((m) => m.get(key));
+    const identical = values.every((v) => v === values[0]);
+    rows.push({ key, values, identical });
+  }
+  return rows;
+}

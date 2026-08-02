@@ -3,8 +3,9 @@
 > **Type:** plan
 > **Status:** In flight (2026-08-02) — two lanes: Lane A (comparison wall,
 > wedges A1–A6) and Lane B (decision records, wedges B1–B3). Lanes are
-> independent; A1 and B1 can start in parallel. **A1 shipped 2026-08-02**
-> (wall state + runs table + `run_metrics`); A2/A3 next, lane B unstarted.
+> independent; A1 and B1 can start in parallel. **A1 + A2 shipped
+> 2026-08-02** (wall state, runs table, extremes, config comparer, smoothing
+> + `run_metrics`, `run_config_diff`); A3 next, lane B unstarted.
 > Executes the strategic call in
 > `desktop-design-review.md` §4.1 ("cap reader investment, put the next big
 > block into J5/J6") now that the data substrate those surfaces were waiting
@@ -142,14 +143,55 @@ not a feature.
 - **Extremes table** (A2): per metric × run, `last/min/max` with
   best-per-row highlighting (ClearML). Min/max come from the points already
   shipped; no hub change.
+  - *As built:* min/max render as a sub-line inside the summary cell, not as
+    a separate table — N runs × 3 numbers as columns is unreadable past
+    three runs, and the extremes belong beside the value they qualify. The
+    line is suppressed when `min === max` (a flat or single-point curve),
+    where it would only add noise.
+  - *As built:* there is **no best-per-row highlighting**, deliberately.
+    "Best" needs a direction and nothing on this surface knows whether a
+    metric wants to go up or down — the same reason Δ is coloured by sign
+    rather than by goodness. Declaring `eval/success = 0.2` the winner of
+    its row because it is the largest would be a confident lie. A6's
+    eval-metric convention (or `_provenance.eval_metrics`, §7 Q1) is what
+    would make direction knowable; until then the row shows the numbers and
+    lets the reader rank them.
+  - *As built:* `last` prefers the hub's own `last_value` (authoritative
+    even when the shipped points were downsampled) and falls back to the
+    last point; min/max come from the points, so they describe the curve
+    that is actually drawn.
 - **Diff-only run comparer** (A2): pick 2–N runs → flattened `config_json` ∪
   `/config` digest keys, identical rows hidden by default ("show identical"
   toggle), next-diff navigation. Pure function over data the desktop already
   fetches — and the reason it must be a pure function is testability (§5).
+  - *As built:* the two sources are **unioned with the logged digest
+    winning**, and the keys where they disagree are surfaced as a count
+    rather than silently resolved. "What we said we would run" vs "what
+    ran" is a provenance finding, and A4's triad is where it gets a proper
+    home; swallowing it here would have hidden the more interesting half.
+  - *As built:* an **absent** key counts as a difference. Two runs where
+    only one sets `resume_from` differ, even though only one has anything
+    to show — hiding that row would hide the actual difference between the
+    runs.
+  - *As built:* **no next-diff navigation.** It exists to skip over
+    identical rows, and the diff-only default already removes them; adding
+    a jump control for a list that is by default all-diffs would be a
+    button for a problem the default solved. If "show identical" over a
+    Hydra config proves unreadable in practice, that is when it earns its
+    place.
 - **Smoothing + x-axis** (A2): EMA ghost line (raw at low opacity — the
   TensorBoard/W&B muscle memory) and step/relative x-switch. Wall-clock
   x-axis is **deferred**: metric points carry `step` only; adding per-point
   timestamps is a tbreader/digest change to make deliberately, not en passant.
+  - *As built:* the EMA is **debiased** (`acc / (1 - weight^n)`), which is
+    the part a re-derivation gets wrong: a plain EMA seeded at zero drags
+    the head of the curve down, so a loss appears to start far below where
+    it did. `ChartView` gained `opacity` + `legendHidden` so the raw ghost
+    rides under its smoothed line as the same run, not a second one.
+  - *As built:* `relative` means **steps since each run's own first point**
+    — the honest reading of the data we have, and the one that makes a run
+    resumed at step 5000 comparable with one started from scratch. Wall-clock
+    stays deferred exactly as written above.
 - **Group-by + seed aggregation** (A3): group runs by a chosen config key →
   one color per group, member curves thin, group mean bold with a ±band; the
   `seed` column exists precisely for this. Facet-per-group is a stretch goal
@@ -203,6 +245,21 @@ one row model, two consumers.
   `config_json` — the wall's filter is a view over exactly those rows, so
   an agent filters what it already has. A server-side text filter would be
   a second, drifting definition of "matches".
+- *As built (A2):* `run_config_diff` ships with the comparer, returning
+  `{runs, rows:[{key, values, identical}], differing, conflicts}` — the row
+  model the panel renders, with `null` where the desktop has `undefined`.
+  The promise that these are ONE row model is enforced by a **shared
+  fixture**: `hub/internal/hubmcpserver/testdata/config_diff_fixture.json`
+  is read by the Go test AND by `compareRuns.test.ts`, so changing a
+  flattening rule in either language fails the other's suite. That is the
+  only thing that keeps two implementations of one contract honest — and
+  the rules it pins are finer than they look: dotted paths, absent ≠ empty,
+  and **JavaScript's** number→string (decimal in `[1e-6, 1e21)`, exponent
+  without leading zeros), because a row model that disagrees on `1e-7` vs
+  `1e-07` is not one row model.
+- *As built (A2):* the tool is capped at 8 runs — each id costs two hub
+  round-trips, and the cap is stated in the schema (`maxItems`) so an agent
+  is refused by the contract rather than by a surprise.
 - *Found while auditing:* `run.metrics.read` is named in two agent prompts,
   two bundled templates, `roles.yaml worker.allow` and ADR-016's scope
   manifest — a capability with no tool behind it (already flagged in

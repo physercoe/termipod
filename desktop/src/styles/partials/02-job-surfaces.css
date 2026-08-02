@@ -890,6 +890,65 @@ button > .ui-icon:not(:only-child):first-child,
 .compare-delta.flat {
   color: var(--text-muted);
 }
+/* Per-run min/max under the last value (A2's extremes). A sub-line rather
+   than columns: N runs x 3 numbers as columns is unreadable past three runs. */
+.compare-extremes {
+  font-size: var(--font-size-label);
+}
+/* Diff-only config comparer (A2). */
+.compare-diff {
+  margin-bottom: var(--spacing-s24);
+}
+.compare-diff-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s4);
+}
+.compare-diff-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.compare-conflict {
+  color: var(--warn);
+  cursor: help;
+}
+/* An identical row is only ever visible when the user asked for it, so it
+   recedes rather than competing with the differences beside it. */
+.compare-row-same td {
+  color: var(--text-muted);
+}
+.compare-chart-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s8);
+}
+.compare-chart-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.compare-xaxis {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+.compare-xaxis button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-label);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  cursor: pointer;
+}
+.compare-xaxis button.on {
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
 .compare-wall {
   background: var(--bg);
   padding: var(--spacing-s16);

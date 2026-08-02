@@ -5,13 +5,21 @@
 /// (CI does NOT run the desktop frontend unit tests).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  configDiffRows,
   deltaOf,
   deltaSign,
+  emaSmooth,
+  extremesOf,
   flattenConfig,
   formatDelta,
+  mergeConfigSources,
   runHaystack,
   runMatchesFilter,
+  toRelativeX,
   type ConfigEntry,
 } from './compareRuns.ts';
 
@@ -115,4 +123,155 @@ test('formatDelta signs every value and stays compact', () => {
   assert.equal(formatDelta(-12345), '-1.2e+4');
   assert.equal(formatDelta(0.000004), '+4.0e-6');
   assert.equal(formatDelta(Number.NaN), '');
+});
+
+// ── A2: curve math ──────────────────────────────────────────────────────────
+
+test('extremesOf skips non-finite samples instead of poisoning the pair', () => {
+  const pts = [
+    { x: 0, y: 3 },
+    { x: 1, y: Number.NaN },
+    { x: 2, y: 1 },
+    { x: 3, y: 5 },
+  ];
+  // One NaN in a long run would otherwise make every extreme NaN — which
+  // renders as "no data" for a run that has plenty.
+  assert.deepEqual(extremesOf(pts), { last: 5, min: 1, max: 5 });
+  assert.deepEqual(extremesOf([]), { last: undefined, min: undefined, max: undefined });
+  assert.deepEqual(extremesOf([{ x: 0, y: Number.POSITIVE_INFINITY }]), {
+    last: undefined,
+    min: undefined,
+    max: undefined,
+  });
+});
+
+test('emaSmooth is debiased — the head is not dragged toward zero', () => {
+  const flat = [0, 1, 2, 3, 4, 5].map((x) => ({ x, y: 10 }));
+  const smoothed = emaSmooth(flat, 0.9);
+  // A constant series must smooth to itself. A plain (un-debiased) EMA seeded
+  // at 0 would start near 1 and creep up — a loss curve that appears to begin
+  // far below where it did.
+  for (const p of smoothed) assert.ok(Math.abs(p.y - 10) < 1e-9, `got ${p.y}`);
+  // Weight 0 is identity, so a caller can always smooth.
+  assert.deepEqual(emaSmooth(flat, 0), flat);
+  assert.deepEqual(emaSmooth(flat, Number.NaN), flat);
+  // Smoothing pulls a spike down without moving x.
+  const spike = [
+    { x: 0, y: 1 },
+    { x: 1, y: 100 },
+  ];
+  const out = emaSmooth(spike, 0.8);
+  assert.equal(out[1].x, 1);
+  assert.ok(out[1].y < 100 && out[1].y > 1, `spike smoothed to ${out[1].y}`);
+  assert.equal(out.length, spike.length, 'smoothing never shortens a curve');
+});
+
+test('toRelativeX re-bases each curve on its own first step', () => {
+  // A run resumed at step 5000 and a run started from scratch are comparable
+  // by progress-since-start; on an absolute axis they sit in different halves.
+  const resumed = [
+    { x: 5000, y: 1 },
+    { x: 5100, y: 2 },
+  ];
+  assert.deepEqual(toRelativeX(resumed), [
+    { x: 0, y: 1 },
+    { x: 100, y: 2 },
+  ]);
+  assert.deepEqual(toRelativeX([]), []);
+});
+
+// ── A2: the diff-only comparer ──────────────────────────────────────────────
+
+test('mergeConfigSources prefers what RAN and names the conflict', () => {
+  const registered = flattenConfig('{"lr":0.001,"epochs":10}');
+  const logged = flattenConfig('{"lr":0.0003,"seed":7}');
+  const { entries, conflicts } = mergeConfigSources(registered, logged);
+  const byKey = new Map(entries.map((e) => [e.key, e.value]));
+  assert.equal(byKey.get('lr'), '0.0003', 'the logged value is what actually ran');
+  assert.equal(byKey.get('epochs'), '10', 'registered-only keys survive');
+  assert.equal(byKey.get('seed'), '7', 'logged-only keys survive');
+  // The disagreement is a finding, not something to swallow.
+  assert.deepEqual(conflicts, ['lr']);
+  assert.deepEqual(mergeConfigSources(registered, registered).conflicts, []);
+  // Sorted, so the comparer's rows are stable.
+  assert.deepEqual(
+    entries.map((e) => e.key),
+    ['epochs', 'lr', 'seed'],
+  );
+});
+
+test('configDiffRows treats an ABSENT key as a difference', () => {
+  const rows = configDiffRows([
+    { id: 'a', entries: flattenConfig('{"lr":0.1,"resume_from":"ckpt"}') },
+    { id: 'b', entries: flattenConfig('{"lr":0.1}') },
+  ]);
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  assert.deepEqual(byKey.get('lr')?.values, ['0.1', '0.1']);
+  assert.equal(byKey.get('lr')?.identical, true);
+  // Only one run sets resume_from — that IS the difference between them, and
+  // hiding the row would hide it.
+  assert.deepEqual(byKey.get('resume_from')?.values, ['ckpt', undefined]);
+  assert.equal(byKey.get('resume_from')?.identical, false);
+});
+
+test('configDiffRows returns the sorted key union, one cell per run in order', () => {
+  const rows = configDiffRows([
+    { id: 'a', entries: flattenConfig('{"z":1}') },
+    { id: 'b', entries: flattenConfig('{"a":2}') },
+    { id: 'c', entries: flattenConfig('{"m":3}') },
+  ]);
+  assert.deepEqual(
+    rows.map((r) => r.key),
+    ['a', 'm', 'z'],
+  );
+  for (const r of rows) assert.equal(r.values.length, 3, 'every row has a cell per run');
+  assert.deepEqual(rows[0].values, [undefined, '2', undefined]);
+  assert.equal(rows.every((r) => !r.identical), true);
+});
+
+test('configDiffRows over one run marks everything identical', () => {
+  // Trivially true, and the surface refuses to render the comparer under two
+  // runs — but a caller that asks anyway must not get "everything differs".
+  const rows = configDiffRows([{ id: 'a', entries: flattenConfig('{"lr":0.1}') }]);
+  assert.equal(rows[0].identical, true);
+  assert.deepEqual(configDiffRows([]), []);
+});
+
+// ── The shared fixture: one row model, two implementations ───────────────────
+// `run_config_diff` (hub/internal/hubmcpserver/run_config_diff.go) answers the
+// same question for agents that this module answers for the wall, and the plan
+// promises they return the SAME row model. Two implementations of one contract
+// drift unless something pins them together — this file is that pin, read by
+// both suites. If a flattening rule changes here, the Go test fails, and vice
+// versa.
+
+test('the comparer reproduces the shared Go/TS fixture exactly', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const fixture = JSON.parse(
+    readFileSync(path.join(here, '../../../hub/internal/hubmcpserver/testdata/config_diff_fixture.json'), 'utf8'),
+  ) as {
+    runs: { id: string; registered: unknown; logged: unknown }[];
+    expect_conflicts: Record<string, string[]>;
+    expect_differing: number;
+    expect_rows: { key: string; values: (string | null)[]; identical: boolean }[];
+  };
+
+  const conflicts: Record<string, string[]> = {};
+  const runs = fixture.runs.map((r) => {
+    const merged = mergeConfigSources(flattenConfig(r.registered), flattenConfig(r.logged));
+    if (merged.conflicts.length > 0) conflicts[r.id] = merged.conflicts;
+    return { id: r.id, entries: merged.entries };
+  });
+  const rows = configDiffRows(runs);
+
+  // `null` on the wire is `undefined` in the row model — same meaning (the key
+  // is absent for that run), different spelling in the two languages.
+  const asWire = rows.map((r) => ({
+    key: r.key,
+    values: r.values.map((v) => v ?? null),
+    identical: r.identical,
+  }));
+  assert.deepEqual(asWire, fixture.expect_rows);
+  assert.deepEqual(conflicts, fixture.expect_conflicts);
+  assert.equal(rows.filter((r) => !r.identical).length, fixture.expect_differing);
 });

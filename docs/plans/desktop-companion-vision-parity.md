@@ -373,7 +373,7 @@ service (LAN/mobile clients are a recorded follow-up, not this plan).
   `ensureAgentDigest` refolds sealed rows on schema bump (no
   migration).
 - **CI blind spot:** desktop frontend state tests don't run in CI —
-  run `node --test src/state/*.test.ts src/ssh/*.test.ts
+  run `node --test src/state/*.test.ts src/ui/*.test.ts src/ssh/*.test.ts
   src/terminal/*.test.ts` manually per wedge. Screen-bound work (R1
   cards, R2 ring, R4 media, D3 motion) accrues to the owed
   Playwright/device pass.

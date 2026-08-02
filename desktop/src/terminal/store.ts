@@ -54,8 +54,17 @@ interface TerminalState {
   /** Close a tab and tear its session down. */
   closeTab: (id: string) => void;
   /** Point a tab at a freshly-opened backend session (reconnect, #319) — keeps the
-   *  tab's UI id + position so its <Screen> stays mounted and just rebinds. */
-  replaceSession: (id: string, sessionId: string, shell?: string) => void;
+   *  tab's UI id + position so its <Screen> stays mounted and just rebinds.
+   *  `patch` carries what a re-auth can legitimately change: an SSH reconnect may
+   *  land on a different host (new title / saved connection), a respawned local
+   *  shell may be a different binary. Omitted fields keep their old value — in
+   *  particular an ad-hoc reconnect must not erase a `connId`, or the tab loses
+   *  the one-click affordance it was just used through. */
+  replaceSession: (
+    id: string,
+    sessionId: string,
+    patch?: { shell?: string; title?: string; connId?: string },
+  ) => void;
   setActive: (id: string) => void;
   /** Flag a background tab as having new output (no-op for the active tab). */
   markActivity: (id: string) => void;
@@ -96,9 +105,22 @@ export const useTerminals = create<TerminalState>((set, get) => ({
       return { tabs, activeId };
     });
   },
-  replaceSession: (id, sessionId, shell) =>
+  replaceSession: (id, sessionId, patch) =>
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, sessionId, shell: shell ?? t.shell } : t)),
+      tabs: s.tabs.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              sessionId,
+              shell: patch?.shell ?? t.shell,
+              title: patch?.title ?? t.title,
+              connId: patch?.connId ?? t.connId,
+              // A rebound tab is the one the user is looking at; a stale unread
+              // dot from the session that just died would outlive its session.
+              unread: false,
+            }
+          : t,
+      ),
     })),
   // Focusing a tab clears its unread flag.
   setActive: (id) =>

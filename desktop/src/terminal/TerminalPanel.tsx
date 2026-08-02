@@ -23,6 +23,7 @@ import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ConnectForm } from './ConnectForm';
+import { reconcilePanes } from './panes';
 import { ptyOpen } from './pty';
 import { SessionView } from './SessionView';
 import { useTerminals, type TermTab } from './store';
@@ -88,6 +89,9 @@ export function TerminalPanel(): JSX.Element {
   const tauri = isShell();
   const [connecting, setConnecting] = useState(false);
   const [initialConnId, setInitialConnId] = useState<string | null>(null);
+  /** The tab a pending connect attempt should REBIND rather than sit beside —
+   *  set by the Reconnect button, cleared by any other way of opening the form. */
+  const [reconnectFor, setReconnectFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const cfgRef = useRef<HTMLInputElement>(null);
@@ -248,15 +252,12 @@ export function TerminalPanel(): JSX.Element {
     }
   }
 
-  // Seed / prune the split against the live session list. When nothing is tiled
-  // yet, fall back to the active session so the surface is never blank with open
-  // tabs; drop ids whose session has closed.
+  // Seed / prune / adopt the split against the live session list — see
+  // reconcilePanes for the three rules. In surface mode this set, not activeId,
+  // is what renders, so a session missing from it is invisible however active it
+  // is.
   useEffect(() => {
-    setPanes((prev) => {
-      const live = prev.filter((id) => tabs.some((tb) => tb.id === id));
-      if (live.length > 0) return live.length === prev.length ? prev : live;
-      return activeId !== null ? [activeId] : [];
-    });
+    setPanes((prev) => reconcilePanes(prev, tabs.map((tb) => tb.id), activeId));
   }, [tabs, activeId]);
 
   const paneShown = (id: string): boolean =>
@@ -276,8 +277,13 @@ export function TerminalPanel(): JSX.Element {
     }
   }
 
-  function openConnect(connId?: string): void {
+  // `reconnectTabId` marks this attempt as a rebind of an existing tab. Every
+  // other caller passes nothing and so CLEARS a pending rebind — opening a
+  // different host from the nav while a reconnect form is up must not silently
+  // hijack the dead tab.
+  function openConnect(connId?: string, reconnectTabId?: string): void {
     setInitialConnId(connId ?? null);
+    setReconnectFor(reconnectTabId ?? null);
     setConnecting(true);
     setAddMenu(false);
   }
@@ -329,26 +335,41 @@ export function TerminalPanel(): JSX.Element {
   }
 
   function onConnected(sessionId: string, title: string, connId?: string): void {
-    addTab({ kind: 'ssh', sessionId, title, connId });
+    // A reconnect rebinds the tab that asked for it instead of opening a second
+    // one: same UI id, same pane slot, same scrollback position on screen — and
+    // <Screen> keys on sessionId, so it re-streams and clears its dead banner by
+    // itself. Adding a fresh tab here was the reconnect bug: the dead tab stayed
+    // tiled, the new session landed on a tab nothing was showing, and a
+    // successful reconnect looked like a no-op.
+    if (reconnectFor !== null && tabs.some((tb) => tb.id === reconnectFor)) {
+      replaceSession(reconnectFor, sessionId, { title, connId });
+      setActive(reconnectFor);
+    } else {
+      addTab({ kind: 'ssh', sessionId, title, connId });
+    }
+    setReconnectFor(null);
     setConnecting(false);
   }
 
   // Reconnect a dead session (#319). A local shell rebinds in place (a fresh PTY
-  // into the same tab, so its <Screen> stays mounted and just re-streams). An SSH
-  // tab re-opens the connect flow for its saved connection (credentials may need
-  // re-entry), producing a fresh tab.
+  // into the same tab). An SSH tab re-opens the connect flow for its saved
+  // connection — credentials may need re-entry — and onConnected rebinds THAT
+  // tab when the attempt lands.
   async function reconnect(tab: TermTab): Promise<void> {
     if (tab.kind === 'local') {
       try {
         const { id, shell } = await ptyOpen({ cols: 80, rows: 24 });
-        replaceSession(tab.id, id, shell);
+        replaceSession(tab.id, id, { shell });
       } catch (e) {
         setError(msg(e));
       }
       return;
     }
-    focusSession(tab.id);
-    openConnect(tab.connId);
+    // setActive, not focusSession: the dead tab is already tiled, and
+    // focusSession would collapse a split down to it just because one half
+    // needed reconnecting.
+    setActive(tab.id);
+    openConnect(tab.connId, tab.id);
   }
 
   // Split the current view (#319): an SSH tab duplicates onto a FRESH channel
@@ -698,7 +719,10 @@ export function TerminalPanel(): JSX.Element {
                     key={initialConnId ?? '__new__'}
                     initialConnId={initialConnId ?? undefined}
                     onConnected={onConnected}
-                    onCancel={() => setConnecting(false)}
+                    onCancel={() => {
+                      setReconnectFor(null);
+                      setConnecting(false);
+                    }}
                   />
                 </div>
               )}

@@ -118,3 +118,52 @@ func TestRequestMeta_ClientLabel(t *testing.T) {
 		t.Errorf("ClientLabel() = %q", got)
 	}
 }
+
+// The additive-safety boundary: `structuredContent` is a key the 2025
+// revisions know AS AN OBJECT ({ [key: string]: unknown } in their
+// schemas); SEP-2106's any-JSON widening is 2026-07-28-only. Since our
+// responses are version-blind, only the shape legal in every revision
+// that knows the key may be stamped — an array on a 2025-11-25 exchange
+// is exactly the strict-validator teardown food this lane exists to
+// stop serving.
+func TestAttachStructuredContent_ObjectsOnly(t *testing.T) {
+	obj := AttachStructuredContent(map[string]any{}, map[string]any{"id": "x"}, []byte(`{"id":"x"}`))
+	if _, ok := obj["structuredContent"]; !ok {
+		t.Error("an object value must be attached")
+	}
+	for name, tc := range map[string]struct {
+		v any
+		b string
+	}{
+		"array":  {[]any{map[string]any{"id": "x"}}, `[{"id":"x"}]`},
+		"string": {"hi", `"hi"`},
+		"number": {2, `2`},
+		"null":   {nil, `null`},
+	} {
+		got := AttachStructuredContent(map[string]any{}, tc.v, []byte(tc.b))
+		if _, ok := got["structuredContent"]; ok {
+			t.Errorf("%s: a non-object value must stay text-only", name)
+		}
+	}
+	if AttachStructuredContent(nil, map[string]any{}, []byte(`{}`)) != nil {
+		t.Error("AttachStructuredContent(nil, …) should stay nil")
+	}
+}
+
+// The relays consult this before stamping a client-held string into an
+// HTTP header: both Go's and Node's clients reject control bytes at
+// send time, so an unchecked stamp turns a parseable-but-hostile frame
+// into a relay-side transport error instead of a server-side JSON-RPC
+// answer.
+func TestValidHeaderValue(t *testing.T) {
+	for _, ok := range []string{"tools/call", "documents_list", "host.ping", "a b\tc"} {
+		if !ValidHeaderValue(ok) {
+			t.Errorf("%q should be stampable", ok)
+		}
+	}
+	for _, bad := range []string{"", "evil\r\nX-Inject: 1", "nul\x00", "höst.ping"} {
+		if ValidHeaderValue(bad) {
+			t.Errorf("%q must not be stampable", bad)
+		}
+	}
+}

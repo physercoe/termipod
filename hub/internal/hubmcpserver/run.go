@@ -331,16 +331,15 @@ func handleToolsCall(c *hubClient, tools []toolDef, raw json.RawMessage) (any, *
 		return nil, &jsonrpcError{Code: errInternal, Message: "marshal tool result", Data: mErr.Error()}
 	}
 	// Both representations (ADR-063 D3): the text block every client can
-	// render, and the parsed copy for those that prefer structured data.
+	// render, and — for object-shaped values — the parsed copy for those
+	// that prefer structured data (see mcpwire.AttachStructuredContent on
+	// why arrays stay text-only).
 	res := mcpwire.StampResult(map[string]any{
 		"content": []any{
 			map[string]any{"type": "text", "text": string(text)},
 		},
 	})
-	if out != nil {
-		res["structuredContent"] = out
-	}
-	return res, nil
+	return mcpwire.AttachStructuredContent(res, out, text), nil
 }
 
 // toolErrorResult is the isError content block used for recoverable,

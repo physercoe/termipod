@@ -79,13 +79,23 @@ if (!URL_ || !TOKEN) {
 /// A frame we cannot parse is forwarded verbatim and unstamped. The desktop is
 /// the authority on what is valid JSON-RPC; a relay that rejected frames on its
 /// own reading of them would be a second, weaker parser in the path.
+///
+/// The same rule covers a value we cannot STAMP: Node's HTTP client throws on
+/// a header value with control bytes, so stamping a hostile method/tool name
+/// verbatim would kill a parseable frame at the relay with a transport error
+/// instead of letting the desktop answer it with a proper JSON-RPC error.
+/// Unstampable values are skipped; the frame still goes through.
+function headerSafe(v) {
+  return typeof v === 'string' && v !== '' && /^[\t\x20-\x7e]+$/.test(v);
+}
+
 function mcpHeaders(line) {
   try {
     const frame = JSON.parse(line);
-    if (frame === null || typeof frame !== 'object' || typeof frame.method !== 'string' || frame.method === '') return {};
+    if (frame === null || typeof frame !== 'object' || !headerSafe(frame.method)) return {};
     const out = { 'mcp-method': frame.method };
     const name = frame.params?.name;
-    if (frame.method === 'tools/call' && typeof name === 'string' && name !== '') out['mcp-name'] = name;
+    if (frame.method === 'tools/call' && headerSafe(name)) out['mcp-name'] = name;
     return out;
   } catch {
     return {};

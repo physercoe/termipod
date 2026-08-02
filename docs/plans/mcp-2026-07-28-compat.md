@@ -2,7 +2,7 @@
 
 > **Type:** plan
 > **Status:** In progress (2026-08-01) — **lane U shipped** (U1–U10) with
-> **B2**; lanes B1/B3/B4/B5 stay with their owning lanes. See §6 for the
+> **B2**; lanes B1/B3/B4/B5 stay with their owning lanes. See §5 for the
 > three places the spec text disagreed with this plan's reading and what
 > was built instead
 > **Audience:** principal · contributors · maintainers
@@ -156,6 +156,15 @@ plan's reading. All three were resolved toward the spec.
 - **`ping` is gone in 2026-07-28** (SEP-2575), which U10's doc note
   did not say. We keep serving it — the revisions our engines actually
   speak have it, and a 2026-era client simply never calls it.
+
+- **`structuredContent` is object-only on our wire** (review
+  amendment, 2026-08-02). The 2025 revisions already know the key —
+  typed as an object (`{ [key: string]: unknown }`); SEP-2106's
+  any-JSON widening is 2026-07-28-only. Additive-first covers unknown
+  keys, not known keys with a widened type, so version-blind responses
+  attach `structuredContent` only for object-shaped results; the list
+  tools' arrays stay text-only (`mcpwire.AttachStructuredContent`)
+  until responses version-branch.
 
 One deliberate divergence, flagged rather than taken: the revision
 answers an unsupported client-declared version with

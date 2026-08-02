@@ -354,6 +354,25 @@ func TestMCPResultJSON_CarriesTextAndStructuredContent(t *testing.T) {
 	}
 }
 
+// The list tools hand mcpResultJSON a SLICE (events, channels, the
+// authority pass-through). `structuredContent` is object-typed in every
+// 2025 revision's schema, and our responses are version-blind — so an
+// array value must stay text-only or a strict 2025-era validator is
+// handed a shape its schema rejects (the v1.0.649 client class).
+func TestMCPResultJSON_ArrayStaysTextOnly(t *testing.T) {
+	r := mcpResultJSON([]map[string]any{{"id": "abc"}})
+	if _, ok := r["structuredContent"]; ok {
+		t.Error("an array-valued result must not carry structuredContent while responses are version-blind")
+	}
+	content, ok := r["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("the text block must survive: %v", r)
+	}
+	if block := content[0].(map[string]any); block["text"] == "" {
+		t.Errorf("text block lost the payload: %v", block)
+	}
+}
+
 func TestMCPResultError_IsCompleteNotInputRequired(t *testing.T) {
 	// An errored tool call HAS finished. "input_required" would tell a
 	// 2026-07-28 client to retry with more input, forever.

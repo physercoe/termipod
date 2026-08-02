@@ -517,9 +517,10 @@ func mcpResultText(text string) map[string]any {
 }
 
 // mcpResultJSON renders a value as the portable text block every MCP
-// client can read, AND as `structuredContent` for those that prefer
-// parsed data (ADR-063 D3 / 2026-07-28 SEP-2106, which widened
-// structuredContent to any JSON value).
+// client can read, AND — for object-shaped values — as
+// `structuredContent` for those that prefer parsed data (ADR-063 D3;
+// see mcpwire.AttachStructuredContent for why arrays stay text-only
+// until responses stop being version-blind).
 //
 // Both, not either. The text block is not a leftover to be retired: it
 // is what an LLM actually reads when a client renders the result into
@@ -528,11 +529,7 @@ func mcpResultText(text string) map[string]any {
 // The structured copy costs one extra marshal of data we already have.
 func mcpResultJSON(v any) map[string]any {
 	b, _ := json.MarshalIndent(v, "", "  ")
-	r := mcpResultText(string(b))
-	if v != nil {
-		r["structuredContent"] = v
-	}
-	return r
+	return mcpwire.AttachStructuredContent(mcpResultText(string(b)), v, b)
 }
 
 // mcpResultError builds a tool result flagged isError. Used for

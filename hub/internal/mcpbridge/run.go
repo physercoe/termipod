@@ -156,11 +156,11 @@ func stampMCPHeaders(req *http.Request, line []byte) {
 			Name string `json:"name"`
 		} `json:"params"`
 	}
-	if err := json.Unmarshal(line, &frame); err != nil || frame.Method == "" {
+	if err := json.Unmarshal(line, &frame); err != nil || !mcpwire.ValidHeaderValue(frame.Method) {
 		return
 	}
 	req.Header.Set(mcpwire.HeaderMethod, frame.Method)
-	if frame.Method == "tools/call" && frame.Params.Name != "" {
+	if frame.Method == "tools/call" && mcpwire.ValidHeaderValue(frame.Params.Name) {
 		req.Header.Set(mcpwire.HeaderName, frame.Params.Name)
 	}
 }

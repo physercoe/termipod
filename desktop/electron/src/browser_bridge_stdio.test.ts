@@ -240,3 +240,23 @@ test('relay: an unparseable frame is forwarded verbatim and unstamped', async ()
     await server.close();
   }
 });
+
+// A PARSEABLE frame whose tool name cannot live in an HTTP header value must
+// still reach the desktop: Node's client throws on control bytes at send
+// time, so stamping such a name verbatim would kill the frame at the relay
+// with a transport error, when the desktop would have answered it with a
+// proper JSON-RPC error. The valid method is still stamped; only the
+// unstampable name is skipped.
+test('relay: a header-hostile tool name is skipped, not fatal', async () => {
+  const server = await fakeMcp();
+  try {
+    const frame = `${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'evil\r\nX-Inject: 1', arguments: {} } })}\n`;
+    const run = await runRelay({ TP_BROWSER_URL: server.url, TP_BROWSER_TOKEN: 'tok' }, { ping: true, frame });
+    assert.equal(run.code, 0, run.stderr);
+    assert.equal(server.requests[0]?.headers['mcp-method'], 'tools/call');
+    assert.equal(server.requests[0]?.headers['mcp-name'], undefined);
+    assert.match(run.stdout, /"id":3/, 'the frame must be answered by the server, not die at the relay');
+  } finally {
+    await server.close();
+  }
+});

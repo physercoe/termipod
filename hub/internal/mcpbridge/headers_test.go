@@ -91,3 +91,19 @@ func TestForward_StampsNotificationsToo(t *testing.T) {
 		t.Errorf("%s = %q", mcpwire.HeaderMethod, h)
 	}
 }
+
+// A PARSEABLE frame whose tool name cannot live in an HTTP header value
+// (control bytes) must still reach the hub: Go's client rejects such a
+// header at send time, so stamping it verbatim would kill the frame at
+// the relay with a transport error, when the hub would have answered it
+// with a proper JSON-RPC error. The method is stampable here, so the
+// method still is stamped; only the hostile name is skipped.
+func TestForward_HostileToolNameIsSkippedNotFatal(t *testing.T) {
+	got := captureHeaders(t, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evil\r\nX-Inject: 1","arguments":{}}}`)
+	if h := got.Get(mcpwire.HeaderMethod); h != "tools/call" {
+		t.Errorf("%s = %q; a valid method is still worth labelling", mcpwire.HeaderMethod, h)
+	}
+	if h := got.Get(mcpwire.HeaderName); h != "" {
+		t.Errorf("%s = %q; an unstampable name must be skipped", mcpwire.HeaderName, h)
+	}
+}

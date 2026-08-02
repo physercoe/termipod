@@ -877,12 +877,10 @@ func mcpGWResultText(s string) map[string]any {
 }
 
 // mcpGWResultJSON renders a value both ways (ADR-063 D3): the portable
-// text block, and `structuredContent` for clients that parse.
+// text block, and — for object-shaped values — `structuredContent` for
+// clients that parse (see mcpwire.AttachStructuredContent on why
+// arrays stay text-only).
 func mcpGWResultJSON(v any) map[string]any {
 	b, _ := json.MarshalIndent(v, "", "  ")
-	r := mcpGWResultText(string(b))
-	if v != nil {
-		r["structuredContent"] = v
-	}
-	return r
+	return mcpwire.AttachStructuredContent(mcpGWResultText(string(b)), v, b)
 }

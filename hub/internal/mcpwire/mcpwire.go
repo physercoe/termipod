@@ -137,6 +137,55 @@ func WithServerInfo(m map[string]any, name, version string) map[string]any {
 	return m
 }
 
+// AttachStructuredContent adds `structuredContent` to a tool result when
+// — and only when — the marshaled value is a JSON object.
+//
+// The restriction is the point, not a shortcut. Our responses are
+// version-blind (additive-first, D3), and `structuredContent` is a key
+// the 2025 revisions already KNOW — as an object type
+// (`{ [key: string]: unknown }` in the 2025-06-18/2025-11-25 schemas).
+// SEP-2106 widening it to any JSON value is 2026-07-28-only, so an
+// array-valued list result stamped onto a 2025-11-25 exchange is a
+// shape that revision's schema rejects — handed to the one client class
+// (strict validators, agy 1.0.1) whose teardown this whole lane exists
+// to prevent. Unknown keys are safely ignored; known keys with a
+// widened type are not. Objects were legal from the key's first
+// appearance, so they are the additive-safe subset; everything else
+// keeps the text block only.
+func AttachStructuredContent(m map[string]any, v any, marshaled []byte) map[string]any {
+	if m == nil || v == nil {
+		return m
+	}
+	if len(marshaled) > 0 && marshaled[0] == '{' {
+		m["structuredContent"] = v
+	}
+	return m
+}
+
+// ValidHeaderValue reports whether s is safe to send as an HTTP header
+// value: non-empty printable ASCII (plus space and tab), which covers
+// every JSON-RPC method and canonical tool name we ever stamp.
+//
+// The relays check this before stamping Mcp-Method/Mcp-Name from a
+// client-held frame. Both Go's and Node's HTTP clients reject a header
+// value carrying control bytes at send time — so without this check a
+// PARSEABLE frame whose method or tool name embeds `\r\n` dies at the
+// relay with a transport error instead of reaching the server that
+// would have answered it with a proper JSON-RPC error. The relay's
+// contract is byte pump first, labeller second: an unstampable value is
+// simply not stamped, and the frame still goes through.
+func ValidHeaderValue(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if b := s[i]; (b < 0x20 && b != '\t') || b == 0x7f || b > 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // ToolAnnotations renders the MCP-standard `annotations` object for one
 // tool catalog entry (ADR-063 D5 — our registry's truth, dual-published).
 //

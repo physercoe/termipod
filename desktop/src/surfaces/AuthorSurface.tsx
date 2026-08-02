@@ -676,7 +676,12 @@ export function AuthorSurface(): JSX.Element {
             <DiagramEditor key={active.id} doc={active} />
           ) : active.kind === 'canvas' ? (
             <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>
-              <CanvasEditor key={active.id} value={active.body} onChange={(v) => update(active.id, { body: v })} />
+              <CanvasEditor
+                key={active.id}
+                docId={active.id}
+                value={active.body}
+                onChange={(v) => update(active.id, { body: v })}
+              />
             </Suspense>
           ) : active.kind === 'table' ? (
             <Suspense fallback={<div className="muted region-pad">{t('author.loadingEditor')}</div>}>

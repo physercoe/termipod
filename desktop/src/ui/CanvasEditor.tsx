@@ -44,6 +44,7 @@ import {
   type Side,
 } from '../state/canvas';
 import { useLibrary, type Reference } from '../state/library';
+import { registerLiveApply } from '../state/liveApply';
 import { ConfirmButton } from './ConfirmButton';
 import { Icon } from './Icon';
 
@@ -332,7 +333,7 @@ function TypedEdge(props: EdgeProps<RFEdge>): JSX.Element {
 const EDGE_TYPES_MAP = { typed: TypedEdge };
 
 // ── The board (inside a ReactFlowProvider) ───────────────────────────────────
-function Board({ value, onChange }: { value: string; onChange: (next: string) => void }): JSX.Element {
+function Board({ value, onChange, docId }: { value: string; onChange: (next: string) => void; docId?: string }): JSX.Element {
   const t = useT();
   const references = useLibrary((s) => s.references);
   const rf = useReactFlow();
@@ -608,6 +609,30 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
     },
     [emit],
   );
+  // B2: the live-apply target. Three rules, each of them the difference
+  // between a co-worker and a vandal:
+  //
+  //   1. `pushHistory()` BEFORE the apply, so Cmd+Z undoes the agent. Without
+  //      it the agent's write becomes the board's origin and the user's own
+  //      prior state is unreachable.
+  //   2. Refuse when the parse yields `readOnly` — `parseCanvas` sets that for
+  //      a body it could not fully understand, and canvas.ts's own rule is
+  //      that such a board is never serialized back. Applying into one would
+  //      write through a document we admitted we cannot read.
+  //   3. Refuse when the board itself is read-only. A user who cannot edit it
+  //      by hand must not have an agent edit it for them.
+  useEffect(() => {
+    if (docId === undefined) return;
+    return registerLiveApply(docId, (body) => {
+      if (readOnly) return 'rejected';
+      const parsed = parseCanvas(body);
+      if (parsed.readOnly === true) return 'rejected';
+      pushHistory();
+      applyBoardString(body);
+      return 'applied_live';
+    });
+  }, [docId, readOnly, pushHistory, applyBoardString]);
+
   const undo = useCallback((): void => {
     const prev = history.current.undo(snapshot());
     if (prev !== null) applyBoardString(prev);
@@ -754,10 +779,22 @@ function Board({ value, onChange }: { value: string; onChange: (next: string) =>
   );
 }
 
-export function CanvasEditor({ value, onChange }: { value: string; onChange: (next: string) => void }): JSX.Element {
+export function CanvasEditor({
+  value,
+  onChange,
+  docId,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  /// When given, the board registers as the live-apply target for this
+  /// document (coworking B2) so an agent's `author_apply` lands on screen
+  /// rather than only in the store. Optional: a board mounted outside the
+  /// Author surface has no document to be a target for.
+  docId?: string;
+}): JSX.Element {
   return (
     <ReactFlowProvider>
-      <Board value={value} onChange={onChange} />
+      <Board value={value} onChange={onChange} docId={docId} />
     </ReactFlowProvider>
   );
 }

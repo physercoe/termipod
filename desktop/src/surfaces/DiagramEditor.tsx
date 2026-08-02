@@ -3,6 +3,7 @@ import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
+import { registerLiveApply } from '../state/liveApply';
 import { proxyForConnection } from '../state/proxy';
 
 /// The J2 Author **diagram** editor — an offline draw.io embed. draw.io is
@@ -21,8 +22,15 @@ interface DrawioStatus {
 // Electron resolves the custom `drawio://` scheme itself on every OS (the
 // main process registers it as a privileged scheme), so the iframe loads the
 // offline draw.io webapp directly from it.
+//
+// This is a real tuple origin, not `"null"`, because the scheme is registered
+// with `standard: true` (electron/src/schemes.ts:27-29) — which is what makes
+// it safe to pin below. A non-standard scheme would report `"null"` and the
+// pin would deadlock the embed protocol.
+const DRAWIO_ORIGIN = 'drawio://localhost';
+
 function drawioBase(): string {
-  return 'drawio://localhost/';
+  return `${DRAWIO_ORIGIN}/`;
 }
 
 export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
@@ -75,9 +83,15 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
   // then draw.io owns the live state and streams changes back via autosave.
   useEffect(() => {
     if (status?.installed !== true) return;
+    let unregister: (() => void) | null = null;
     function onMessage(ev: MessageEvent): void {
       const frame = iframeRef.current;
-      if (frame === null || ev.source !== frame.contentWindow) return;
+      // Both halves are required. `ev.source` proves the message came from THIS
+      // iframe; `ev.origin` proves the document inside it is still the draw.io
+      // app and not something it navigated to. Without the origin check a page
+      // the embed reached could drive `load` — which, once B1's write path
+      // exists, means rewriting the user's diagram.
+      if (frame === null || ev.source !== frame.contentWindow || ev.origin !== DRAWIO_ORIGIN) return;
       let msg: { event?: string; xml?: string };
       try {
         msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : (ev.data as typeof msg);
@@ -86,16 +100,37 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
       }
       if (msg.event === 'init') {
         const cur = useDocuments.getState().docs.find((d) => d.id === doc.id);
-        frame.contentWindow?.postMessage(
-          JSON.stringify({ action: 'load', autosave: 1, xml: cur?.body ?? '' }),
-          '*',
-        );
+        post({ action: 'load', autosave: 1, xml: cur?.body ?? '' });
+        // B1: the write path opens only AFTER `init`. draw.io drops anything
+        // sent before it announces itself, so registering at mount would give
+        // lane A a target that silently swallows the first apply.
+        unregister?.();
+        unregister = registerLiveApply(doc.id, (body) => {
+          if (iframeRef.current === null) return 'rejected';
+          // `load` replaces the sheet wholesale, which is what `mode:'replace'`
+          // means. `merge` is draw.io's additive action and belongs to lane D's
+          // `mode:'ops'` — offering it here without the op grammar would let an
+          // agent append to a diagram while believing it replaced one.
+          post({ action: 'load', autosave: 1, xml: body });
+          // draw.io answers a `load` with an autosave, which is what writes the
+          // store — so the outcome is "the live editor took it", not "the
+          // document now equals `body`".
+          return 'applied_live';
+        });
       } else if ((msg.event === 'save' || msg.event === 'autosave') && typeof msg.xml === 'string') {
         update(doc.id, { body: msg.xml });
       }
     }
+    // Targeted at the draw.io origin, never `'*'`: a wildcard hands the message
+    // (and the document body in it) to whatever the frame has navigated to.
+    function post(payload: Record<string, unknown>): void {
+      iframeRef.current?.contentWindow?.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+    }
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      unregister?.();
+    };
   }, [status?.installed, doc.id, update]);
 
   if (status === null) return <div className="muted region-pad">{t('author.diagramChecking')}</div>;

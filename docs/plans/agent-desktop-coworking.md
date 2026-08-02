@@ -141,6 +141,16 @@ the same registry, not new plumbing.
   over strings); agent-edit chip on the doc tab (attribution per
   `AgentHighlightOverlay.tsx:38-42`) with one-click revert; the ring
   also covers vendor-undo kinds (diagram, excalidraw).
+  - *As built* (`state/agentEdits.ts`): **not** `createHistory`. That
+    primitive carries a `future` stack and a `redo`, and redo is wrong
+    here — after a user reverts an agent's write, redo would re-apply
+    the change they just rejected, one keystroke from the button that
+    rejected it. What is shared with the canvas is the shape, not the
+    implementation.
+  - Revert writes the store **and** replays through `liveApply`: the
+    store alone is enough for kinds that re-render from `body`, but a
+    vendor editor owns its state once mounted and would keep showing
+    the agent's version over a store that no longer holds it.
 
 ## 3. Lane C — vendored knowledge (Apache-2.0, NOTICE)
 

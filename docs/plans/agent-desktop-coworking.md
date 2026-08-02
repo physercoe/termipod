@@ -78,6 +78,26 @@ excluded. Investigation record:
   this right already: an unrecognized body opens **read-only and is
   never serialized back**. That is the shape every kind's parse path
   should have.
+  - *As built:* the `canvas.ts:87` shape, ported — `TableData` gains
+    `readOnly`, `parseTable` sets it on any body it could not read, and
+    `TableEditor` refuses every write while it is set (with a banner
+    saying why). `isTableBody` was NOT pulled forward: it answers "is
+    this a table?", which is the open-time sniff, not "did this body
+    survive parsing", which is what the write path needs.
+  - **The wave-tight framing was wrong, and so was "harmless".** This
+    is not a hole `author_apply` would open — it is live today with no
+    agent involved. `TableEditor.mutate` serializes on EVERY change, so
+    ONE click on a table document whose body failed to parse wrote the
+    blank grid over it and the original was gone. The grid is not
+    read-only, so "a human sees the blank grid and re-opens the file"
+    does not hold.
+  - **A second mouth of the same hole**, found while fixing the first:
+    `bodyToFile` lowers a table through `parseTable` on the CSV path,
+    so an unreadable body silently exported a zero-row file over
+    whatever the user picked in the save dialog. Now refuses
+    (`tableBodyToCsv`). The `.json` path stays byte-verbatim — it is
+    the one operation that can still round-trip the user's bytes back
+    out of the app.
 
 ## 2. Lane B — Author per-editor adapters + safety net
 

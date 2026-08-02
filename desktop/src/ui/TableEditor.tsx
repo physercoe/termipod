@@ -35,7 +35,12 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
   // the input's own native undo while typing; this covers the structural ops the
   // browser can't undo.
   const [past, setPast] = useState<TableData[]>([]);
+  // A5: the body did not parse, so what the grid shows is a placeholder and not
+  // the document. Every write is refused — `mutate` serializes on EVERY change,
+  // so without this one click replaces the user's rows with a blank grid.
+  const readOnly = data.readOnly === true;
   function mutate(fn: (d: TableData) => TableData): void {
+    if (readOnly) return;
     const prev = dataRef.current;
     const next = fn(prev);
     setPast((p) => [...p, prev].slice(-UNDO_CAP));
@@ -44,6 +49,7 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
     onChange(serializeTable(next));
   }
   function undo(): void {
+    if (readOnly) return;
     setPast((p) => {
       if (p.length === 0) return p;
       const prev = p[p.length - 1];
@@ -190,14 +196,22 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
       }
     >
       {menu.node}
+      {/* Say plainly that this is not the document. A blank grid with no
+          explanation reads as "my table is gone" — which is what the old
+          behaviour then made true on the next click. */}
+      {readOnly && (
+        <div className="table-unreadable">
+          <Icon name="alert" size={13} /> {t('table.unreadable')}
+        </div>
+      )}
       <div className="author-doc-bar table-toolbar">
-        <button className="import-btn" onClick={addRow}>
+        <button className="import-btn" onClick={addRow} disabled={readOnly}>
           <Icon name="plus" size={13} /> {t('table.addRow')}
         </button>
-        <button className="import-btn" onClick={addColumn}>
+        <button className="import-btn" onClick={addColumn} disabled={readOnly}>
           <Icon name="plus" size={13} /> {t('table.addColumn')}
         </button>
-        <button className="import-btn" onClick={undo} disabled={past.length === 0} title={t('table.undo')}>
+        <button className="import-btn" onClick={undo} disabled={readOnly || past.length === 0} title={t('table.undo')}>
           <Icon name="undo" size={13} /> {t('table.undo')}
         </button>
         <span className="spacer" />

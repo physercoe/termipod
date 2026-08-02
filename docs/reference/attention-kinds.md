@@ -89,9 +89,13 @@ route immediately.
 
 | Kind | Answer space | Raised by | Rendering |
 |---|---|---|---|
-| `desktop_action` | binary {approve, reject} — **no session option** | the desktop itself (local calls) or the hub's `desktop_ui_invoke` handler (remote), for `ui_screenshot` | Allow once / Reject |
+| `desktop_action` | binary {approve, reject}, plus a per-tool session option | the desktop itself (local calls) or the hub's `desktop_ui_invoke` handler (remote), for `ui_screenshot` and `author_apply` | Allow once / Reject, plus the option the payload declares |
 
-The same machinery as `browser_action`, one rule apart: **a screenshot
+Two tools raise this kind, and they answer the standing-grant question
+differently — so **read `pending_payload.session_grant`, never the kind**.
+
+**`ui_screenshot` — no standing grant, ever.** The same machinery as
+`browser_action`, one rule apart: **a screenshot
 of the desktop never gets a standing grant**
 ([ADR-062](../decisions/062-desktop-ui-as-agent-addressable-entity.md)
 D-4, `plans/desktop-ui-context-and-pointing.md` §3.3). A frame of
@@ -121,7 +125,33 @@ because that leg holds an MCP call open over stdio), a hub-relayed call by
 the hub before it routes. A call already carded by the hub is marked so the
 desktop does not raise a second one.
 
-`ui_get_focus` never raises a row — it is a read.
+**`author_apply` — one document, one session.** An agent writing into a
+document the user is authoring
+([ADR-064](../decisions/064-agent-desktop-coworking-contract.md),
+`plans/agent-desktop-coworking.md` §1) raises the same kind with
+`session_grant: true` and `session_grant_scope: "document"`, so the card
+offers a second answer: *allow this document for this session*. The
+payload names what is about to happen — `{tool, document_id, title, kind,
+mode, bytes, reason, agent_id}` — because the grant is scoped to that
+document and a card that did not name it would be asking about nothing.
+
+The two legs differ, and the difference is deliberate:
+
+- **Desktop-raised (local calls):** an approve carrying
+  `option_id: "session"` mints a lease held by the DESKTOP, keyed (agent,
+  document). It is dropped when the sharing toggle goes off, when the
+  agent is revoked from Settings → Remote driving, and when the app exits.
+  Never persisted.
+- **Hub-raised (remote, `desktop_ui_invoke`):** carded on EVERY call.
+  `desktopUIGrantable` refuses `author_apply` a hub session grant, because
+  the hub's grant store keys by (kind, team, host, agent) and has no
+  document in it — a grant minted from "allow this document" would silence
+  the card for every other document the user opens. The document is named
+  in the card's `args` instead.
+
+`ui_get_focus` and `author_read` never raise a row — they are reads. (An
+`author_read` is audited on every leg all the same: it returns the text of
+the user's documents, not just ids.)
 
 ### The answerless sibling — `notice`
 

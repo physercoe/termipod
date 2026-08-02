@@ -38,9 +38,23 @@ export interface ChartSeries {
   /// curve above it; two legend entries per run would double the legend and
   /// imply two runs.
   legendHidden?: boolean;
+  /// Stroke width, defaulting to the renderer's own. The wall draws a group's
+  /// MEMBER runs thin under a bold group mean (compare plan §3.2).
+  width?: number;
+}
+
+/// A shaded envelope behind the lines — the compare wall's ±band around a
+/// group mean. Separate from `series` because it is an area, not a curve: it
+/// has two y values per x and no last-point dot.
+export interface ChartBand {
+  name?: string;
+  color?: string;
+  points: { x: number; lo: number; hi: number }[];
 }
 export interface ChartData {
   series: ChartSeries[];
+  /** Shaded envelopes drawn behind every series (compare wall A3). */
+  bands?: ChartBand[];
   /** Categorical single-series data renders as bars; everything else as lines. */
   categorical: boolean;
 }
@@ -225,6 +239,19 @@ function downsample(points: ChartPoint[]): ChartPoint[] {
   return out;
 }
 
+/// Cap a band's point count. Unlike a curve (whose envelope `downsample`
+/// protects), a filled area reads fine under uniform decimation — but the
+/// LAST point must survive or the shading stops short of the curves it
+/// belongs to.
+function thinBand(points: ChartBand['points']): ChartBand['points'] {
+  if (points.length <= MAX_POINTS) return points;
+  const step = Math.ceil(points.length / MAX_POINTS);
+  const out = points.filter((_, i) => i % step === 0);
+  const last = points[points.length - 1];
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
+}
+
 export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   const t = useT();
   // The aria summary reports the true point count; the RENDERED series are
@@ -232,7 +259,10 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   // the y-domain below is identical to the uncapped one.
   const nPts = Math.max(...chart.series.map((s) => s.points.length));
   const series = chart.series.map((s) => ({ ...s, points: downsample(s.points) }));
-  const allY = series.flatMap((s) => s.points.map((p) => p.y));
+  const bands = (chart.bands ?? []).map((b) => ({ ...b, points: thinBand(b.points) }));
+  // A band can reach past every curve (mean ± sd), so the domain has to see it
+  // — otherwise the shading is silently clipped at the axis.
+  const allY = series.flatMap((s) => s.points.map((p) => p.y)).concat(bands.flatMap((b) => b.points.flatMap((p) => [p.lo, p.hi])));
   const rawMin = Math.min(...allY);
   const rawMax = Math.max(...allY);
   // Bars are read against a zero baseline; lines get a little headroom.
@@ -248,7 +278,7 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
   // (or no x at all) this reproduces the old per-series index spacing exactly;
   // the difference only shows for non-uniform x and after downsampling, where
   // index spacing would place kept points at the wrong x.
-  const allX = series.flatMap((s) => s.points.map((p, i) => xOf(p, i)));
+  const allX = series.flatMap((s) => s.points.map((p, i) => xOf(p, i))).concat(bands.flatMap((b) => b.points.map((p) => p.x)));
   const xMin = Math.min(...allX);
   const xMax = Math.max(...allX);
   const spanX = xMax - xMin;
@@ -293,6 +323,23 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
           );
         })}
 
+        {/* Bands first: they are the backdrop for the curves, not an overlay. */}
+        {!chart.categorical &&
+          bands.map((b, bi) => {
+            if (b.points.length < 2) return null;
+            const up = b.points.map((p) => `${xToPx(p.x).toFixed(1)},${yToPx(p.hi).toFixed(1)}`);
+            const down = [...b.points].reverse().map((p) => `${xToPx(p.x).toFixed(1)},${yToPx(p.lo).toFixed(1)}`);
+            return (
+              <polygon
+                key={`band${bi}`}
+                points={[...up, ...down].join(' ')}
+                fill={b.color ?? CHART_PALETTE[bi % CHART_PALETTE.length]}
+                fillOpacity={0.14}
+                stroke="none"
+              />
+            );
+          })}
+
         {chart.categorical ? (
           // Single categorical series → bars.
           chart.series[0].points.map((p, i) => {
@@ -325,7 +372,7 @@ export function ChartView({ chart }: { chart: ChartData }): JSX.Element {
                   points={pts}
                   fill="none"
                   stroke={color}
-                  strokeWidth={1.75}
+                  strokeWidth={s.width ?? 1.75}
                   strokeDasharray={s.dashed === true ? '6 4' : undefined}
                   strokeOpacity={s.opacity}
                   className="chart-line"

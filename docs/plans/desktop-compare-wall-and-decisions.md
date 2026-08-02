@@ -3,9 +3,10 @@
 > **Type:** plan
 > **Status:** In flight (2026-08-02) — two lanes: Lane A (comparison wall,
 > wedges A1–A6) and Lane B (decision records, wedges B1–B3). Lanes are
-> independent; A1 and B1 can start in parallel. **A1 + A2 shipped
-> 2026-08-02** (wall state, runs table, extremes, config comparer, smoothing
-> + `run_metrics`, `run_config_diff`); A3 next, lane B unstarted.
+> independent; A1 and B1 can start in parallel. **A1–A3 shipped 2026-08-02**
+> (wall state, runs table, extremes, config comparer, smoothing, group-by +
+> seed aggregation, `run_metrics`, `run_config_diff`); A4–A6 and lane B
+> unstarted.
 > Executes the strategic call in
 > `desktop-design-review.md` §4.1 ("cap reader investment, put the next big
 > block into J5/J6") now that the data substrate those surfaces were waiting
@@ -196,6 +197,27 @@ not a feature.
   one color per group, member curves thin, group mean bold with a ±band; the
   `seed` column exists precisely for this. Facet-per-group is a stretch goal
   within A3.
+  - *As built:* the picker offers only the keys that actually **vary** across
+    the selection (it reads A2's row model), because grouping by a key every
+    run shares is the ungrouped chart with extra steps. `seed` — a run
+    column, not a config leaf — rides the same namespace under `#seed`, a
+    spelling no flattened config can produce.
+  - *As built:* the mean is taken on the **union of the members' steps**,
+    with each member linearly interpolated onto it and **never
+    extrapolated**. Members of a group log at different steps (every 100 vs
+    every 128 is enough), so a mean taken only where samples coincide would
+    be an interleaving of raw curves wearing the word "mean"; a member that
+    stopped early simply drops out, and each aggregated point carries `n`.
+  - *As built:* the band is mean ∓ one **sample** standard deviation, and a
+    single-member group draws **no band at all** — a zero-width ribbon would
+    suggest a spread that was never measured.
+  - *As built:* under grouping, smoothing is applied to each member
+    **before** aggregating. Smoothing only the mean would draw a bold line
+    that wanders outside its own band, since the two would then describe
+    different data.
+  - *As built:* `ChartView` gained `bands` (a filled envelope, with the
+    y-domain widened to contain it) and per-series `width`. Facet-per-group
+    was NOT built — the stretch goal stays a stretch goal.
 
 ### 3.3 "What changed?" triad (A4) and lineage (A5)
 

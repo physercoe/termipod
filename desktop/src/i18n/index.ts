@@ -2097,6 +2097,9 @@ const en: Dict = {
   'compare.xStep': 'Step',
   'compare.xRelative': 'Relative',
   'compare.xRelativeHint': "Steps since each run's own first point, so a resumed run lines up with one started from scratch.",
+  'compare.groupBy': 'Group by',
+  'compare.noGrouping': 'No grouping',
+  'compare.seedKey': 'seed',
 
   'chart.downsampled': 'showing {m} of {n} points',
 
@@ -4158,6 +4161,9 @@ const zh: Dict = {
   'compare.xStep': '步数',
   'compare.xRelative': '相对',
   'compare.xRelativeHint': '相对于每个运行自身的首个数据点计步，因此续训的运行可与从头开始的运行对齐。',
+  'compare.groupBy': '分组依据',
+  'compare.noGrouping': '不分组',
+  'compare.seedKey': '随机种子',
 
   'chart.downsampled': '显示 {n} 点中的 {m} 点',
 

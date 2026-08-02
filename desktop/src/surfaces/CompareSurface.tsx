@@ -4,6 +4,7 @@ import { useProjects } from '../hub/queries';
 import { num, str } from '../hub/types';
 import { useT } from '../i18n';
 import {
+  aggregateCurves,
   configDiffRows,
   deltaOf,
   deltaSign,
@@ -11,8 +12,10 @@ import {
   extremesOf,
   flattenConfig,
   formatDelta,
+  groupRunsBy,
   mergeConfigSources,
   runMatchesFilter,
+  SEED_GROUP_KEY,
   toRelativeX,
   type CurvePoint,
   type RunFacts,
@@ -20,7 +23,7 @@ import {
 import { MAX_SMOOTHING, useCompareWall } from '../state/compareWall';
 import { useSession } from '../state/session';
 import { parsePoints } from '../ui/Sparkline';
-import { ChartView, CHART_PALETTE, type ChartSeries } from '../ui/ChartView';
+import { ChartView, CHART_PALETTE, type ChartBand, type ChartSeries } from '../ui/ChartView';
 import { Icon } from '../ui/Icon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 
@@ -34,7 +37,8 @@ import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 /// into `state/compareWall.ts` — one state, every panel (§5.2), remembered per
 /// project — and added filter / baseline pin / Δ columns. A2 adds the rest of
 /// §3.2: per-run extremes in every cell, the diff-only config comparer, and
-/// EMA smoothing with a step/relative x-switch. Every derivation is a pure
+/// EMA smoothing with a step/relative x-switch; A3 groups runs by a config key
+/// (or by seed) into one mean curve with a ±band. Every derivation is a pure
 /// function in `state/compareRuns.ts`, because a comparison wall that quietly
 /// mis-computes does not look broken — it looks like a result.
 
@@ -47,6 +51,10 @@ const SWATCHES = CHART_PALETTE;
 
 /// How faint the raw curve sits behind its smoothed line (§3.2's ghost).
 const RAW_GHOST_OPACITY = 0.28;
+/// A group's member runs draw thin and faint under its bold mean (§3.2).
+const MEMBER_WIDTH = 0.9;
+const MEMBER_OPACITY = 0.45;
+const GROUP_MEAN_WIDTH = 2.4;
 
 function runLabel(id: string): string {
   return id.length > 10 ? `${id.slice(0, 8)}…` : id || '—';
@@ -78,7 +86,8 @@ export function CompareSurface(): JSX.Element {
   const setSmoothing = useCompareWall((s) => s.setSmoothing);
   const setXAxis = useCompareWall((s) => s.setXAxis);
   const setShowIdentical = useCompareWall((s) => s.setShowIdentical);
-  const { selected, baseline, filter, smoothing, xAxis, showIdentical } = view;
+  const setGroupBy = useCompareWall((s) => s.setGroupBy);
+  const { selected, baseline, filter, smoothing, xAxis, showIdentical, groupBy } = view;
 
   // ONE project id, not a store id plus a locally-computed fallback. The wall's
   // remembered view is filed UNDER this id, so a surface-local "effective
@@ -135,6 +144,18 @@ export function CompareSurface(): JSX.Element {
       })),
     [runs],
   );
+  // `seed` is a run COLUMN, not a config leaf, and it is the first thing anyone
+  // groups by ("same config, five seeds") — so it rides the group-key namespace
+  // under SEED_GROUP_KEY, which no flattened config can produce.
+  const seedById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of runs) {
+      const id = str(r, 'id') ?? '';
+      const seed = num(r, 'seed');
+      if (id !== '' && seed !== undefined) m.set(id, String(seed));
+    }
+    return m;
+  }, [runs]);
   // The filter narrows the RAIL, never the wall: a run you selected and then
   // typed past stays on the wall, because hiding a curve as a side effect of
   // searching for another one would silently change the comparison.
@@ -185,6 +206,30 @@ export function CompareSurface(): JSX.Element {
   const diffRows = useMemo(() => configDiffRows(configs), [configs]);
   const visibleRows = showIdentical ? diffRows : diffRows.filter((r) => !r.identical);
   const conflictCount = configs.reduce((n, c) => n + c.conflicts.length, 0);
+
+  // Grouping (A3). The pickable keys are the ones that actually VARY across the
+  // selection — grouping by a key every run shares yields one group, which is
+  // the ungrouped chart with extra steps. `seed` is offered on the same terms.
+  const groupInputs = useMemo(
+    () =>
+      configs.map((c) => {
+        const values = new Map(c.entries.map((e) => [e.key, e.value]));
+        const seed = seedById.get(c.id);
+        if (seed !== undefined) values.set(SEED_GROUP_KEY, seed);
+        return { id: c.id, values };
+      }),
+    [configs, seedById],
+  );
+  const groupKeys = useMemo(() => {
+    const keys = diffRows.filter((r) => !r.identical).map((r) => r.key);
+    const seeds = new Set(groupInputs.map((g) => g.values.get(SEED_GROUP_KEY)));
+    if (seeds.size > 1) keys.unshift(SEED_GROUP_KEY);
+    return keys;
+  }, [diffRows, groupInputs]);
+  const groups = useMemo(
+    () => (groupBy === null ? null : groupRunsBy(groupInputs, groupBy)),
+    [groupBy, groupInputs],
+  );
 
   const metricNames = [...byMetric.keys()].sort();
   const anyLoading = metricQs.some((q) => q.isLoading);
@@ -386,6 +431,23 @@ export function CompareSurface(): JSX.Element {
                   <span className="mono">{smoothing.toFixed(2)}</span>
                 </label>
                 <span className="spacer" />
+                {groupKeys.length > 0 && (
+                  <label className="muted small">
+                    {t('compare.groupBy')}
+                    <select
+                      className="surface-select"
+                      value={groupBy ?? ''}
+                      onChange={(e) => setGroupBy(e.target.value === '' ? null : e.target.value)}
+                    >
+                      <option value="">{t('compare.noGrouping')}</option>
+                      {groupKeys.map((k) => (
+                        <option key={k} value={k}>
+                          {k === SEED_GROUP_KEY ? t('compare.seedKey') : k}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <span className="muted small">{t('compare.xAxis')}</span>
                 <div className="compare-xaxis">
                   <button
@@ -412,26 +474,64 @@ export function CompareSurface(): JSX.Element {
                 {metricNames.map((name) => {
                   const row = byMetric.get(name);
                   const series: ChartSeries[] = [];
-                  for (const id of selected) {
+                  const bands: ChartBand[] = [];
+                  // A run's points, on the chosen x-axis and smoothed if asked.
+                  const curveOf = (id: string): CurvePoint[] | null => {
                     const cell = row?.get(id);
-                    if (cell === undefined) continue;
-                    const points = xAxis === 'relative' ? toRelativeX(cell.points) : cell.points;
-                    const color = colorOf(id);
-                    const dashed = id === baseline;
-                    if (smoothing > 0) {
-                      // Raw behind, smoothed in front: the smoothing is visibly
-                      // an overlay on the data, not a replacement for it.
-                      series.push({ name: runLabel(id), points, color, dashed, opacity: RAW_GHOST_OPACITY, legendHidden: true });
-                      series.push({ name: runLabel(id), points: emaSmooth(points, smoothing), color, dashed });
-                    } else {
-                      series.push({ name: runLabel(id), points, color, dashed });
+                    if (cell === undefined) return null;
+                    return xAxis === 'relative' ? toRelativeX(cell.points) : cell.points;
+                  };
+                  if (groups !== null) {
+                    // Grouped: thin members under a bold mean with a ±band. The
+                    // members are smoothed BEFORE aggregating, so the mean and
+                    // its band describe the same data — smoothing only the mean
+                    // would draw a bold line that wanders outside its own band.
+                    groups.forEach((g, gi) => {
+                      const color = SWATCHES[gi % SWATCHES.length];
+                      const curves = g.runIds
+                        .map(curveOf)
+                        .filter((c): c is CurvePoint[] => c !== null)
+                        .map((c) => (smoothing > 0 ? emaSmooth(c, smoothing) : c));
+                      if (curves.length === 0) return;
+                      for (const points of curves) {
+                        series.push({ points, color, width: MEMBER_WIDTH, opacity: MEMBER_OPACITY, legendHidden: true });
+                      }
+                      const agg = aggregateCurves(curves);
+                      series.push({
+                        name: `${g.label} (${curves.length})`,
+                        points: agg.map((p) => ({ x: p.x, y: p.mean })),
+                        color,
+                        width: GROUP_MEAN_WIDTH,
+                      });
+                      // A single-member group has a zero-width band; drawing it
+                      // would suggest a spread that was never measured.
+                      if (curves.length > 1) {
+                        bands.push({ name: g.label, color, points: agg.map((p) => ({ x: p.x, lo: p.lo, hi: p.hi })) });
+                      }
+                    });
+                  } else {
+                    for (const id of selected) {
+                      const points = curveOf(id);
+                      if (points === null) continue;
+                      const color = colorOf(id);
+                      // The baseline is a RUN, so its dashing has no meaning
+                      // under grouping — a group is not a baseline.
+                      const dashed = id === baseline;
+                      if (smoothing > 0) {
+                        // Raw behind, smoothed in front: the smoothing is visibly
+                        // an overlay on the data, not a replacement for it.
+                        series.push({ name: runLabel(id), points, color, dashed, opacity: RAW_GHOST_OPACITY, legendHidden: true });
+                        series.push({ name: runLabel(id), points: emaSmooth(points, smoothing), color, dashed });
+                      } else {
+                        series.push({ name: runLabel(id), points, color, dashed });
+                      }
                     }
                   }
                   if (series.length === 0) return null;
                   return (
                     <div key={name} className="compare-chart-card">
                       <div className="compare-chart-title">{name}</div>
-                      <ChartView chart={{ series, categorical: false }} />
+                      <ChartView chart={{ series, bands, categorical: false }} />
                     </div>
                   );
                 })}

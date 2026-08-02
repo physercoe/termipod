@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  aggregateCurves,
   configDiffRows,
   deltaOf,
   deltaSign,
@@ -16,6 +17,8 @@ import {
   extremesOf,
   flattenConfig,
   formatDelta,
+  groupRunsBy,
+  interpolateAt,
   mergeConfigSources,
   runHaystack,
   runMatchesFilter,
@@ -274,4 +277,84 @@ test('the comparer reproduces the shared Go/TS fixture exactly', () => {
   assert.deepEqual(asWire, fixture.expect_rows);
   assert.deepEqual(conflicts, fixture.expect_conflicts);
   assert.equal(rows.filter((r) => !r.identical).length, fixture.expect_differing);
+});
+
+// ── A3: grouping + seed aggregation ─────────────────────────────────────────
+
+test('groupRunsBy keeps the runs that lack the key as their own group', () => {
+  const runs = [
+    { id: 'a', values: new Map([['#seed', '1']]) },
+    { id: 'b', values: new Map([['#seed', '1']]) },
+    { id: 'c', values: new Map([['#seed', '2']]) },
+    { id: 'd', values: new Map<string, string>() },
+  ];
+  const groups = groupRunsBy(runs, '#seed');
+  assert.deepEqual(
+    groups.map((g) => g.runIds),
+    [['a', 'b'], ['c'], ['d']],
+  );
+  // A run with no seed must not vanish from a chart it was selected for.
+  assert.equal(groups[2].value, undefined);
+  assert.equal(groups[2].label, '—');
+  assert.equal(groups[0].label, '#seed=1');
+});
+
+test('interpolateAt reads between samples and refuses to extrapolate', () => {
+  const c = [
+    { x: 0, y: 0 },
+    { x: 10, y: 10 },
+    { x: 20, y: 30 },
+  ];
+  assert.equal(interpolateAt(c, 0), 0);
+  assert.equal(interpolateAt(c, 10), 10);
+  assert.equal(interpolateAt(c, 5), 5);
+  assert.equal(interpolateAt(c, 15), 20);
+  // A run that stopped at step 20 must not contribute an invented value at 25.
+  assert.equal(interpolateAt(c, 25), undefined);
+  assert.equal(interpolateAt(c, -1), undefined);
+  assert.equal(interpolateAt([], 1), undefined);
+});
+
+test('aggregateCurves averages on the union grid, not only where samples coincide', () => {
+  // Two members logging at different steps — the case that makes a
+  // coincidence-only mean an interleaving of raw curves wearing the word
+  // "mean". At x=10 the second member is interpolated to 20.
+  const a = [
+    { x: 0, y: 0 },
+    { x: 10, y: 10 },
+    { x: 20, y: 20 },
+  ];
+  const b = [
+    { x: 0, y: 10 },
+    { x: 20, y: 30 },
+  ];
+  const agg = aggregateCurves([a, b]);
+  assert.deepEqual(
+    agg.map((p) => p.x),
+    [0, 10, 20],
+  );
+  assert.equal(agg[1].mean, 15);
+  assert.equal(agg[1].n, 2);
+  // ±1 sample std: values 10 and 20 → sd = 7.0710678…
+  assert.ok(Math.abs(agg[1].hi - agg[1].lo - 2 * 7.0710678) < 1e-5);
+});
+
+test('aggregateCurves drops a member outside its own range and says so', () => {
+  const long = [
+    { x: 0, y: 1 },
+    { x: 100, y: 2 },
+  ];
+  const short = [
+    { x: 0, y: 3 },
+    { x: 10, y: 4 },
+  ];
+  const agg = aggregateCurves([long, short]);
+  const at100 = agg.find((p) => p.x === 100);
+  assert.equal(at100?.n, 1, 'the short run contributes nothing past its last step');
+  assert.equal(at100?.mean, 2);
+  // With one member there is no spread to estimate — a zero-width band, not a
+  // band invented from a single sample.
+  assert.equal(at100?.lo, 2);
+  assert.equal(at100?.hi, 2);
+  assert.deepEqual(aggregateCurves([]), []);
 });

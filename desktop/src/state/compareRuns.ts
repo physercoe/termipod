@@ -259,6 +259,121 @@ export function mergeConfigSources(
   return { entries, conflicts };
 }
 
+// ── A3: grouping and seed aggregation ───────────────────────────────────────
+
+/// The pseudo-key for grouping by the run's `seed` column.
+///
+/// A seed is not a config leaf — it is a run field — but it is the FIRST thing
+/// anyone groups by ("same config, five seeds"), and the plan says the column
+/// exists precisely for this. It rides the group-key namespace under a name no
+/// flattened config can produce (a leading `#`), so a config that happens to
+/// contain `seed` stays a separate, selectable key.
+export const SEED_GROUP_KEY = '#seed';
+
+/// One group of runs that share a value for the grouping key.
+export interface RunGroup {
+  key: string;
+  /// The shared value, or undefined for the runs that lack the key entirely —
+  /// which is its own group, not a silent omission.
+  value: string | undefined;
+  label: string;
+  runIds: string[];
+}
+
+/// Split runs into groups by one key. `values` is per-run (config leaves plus
+/// the seed pseudo-key); a run missing the key lands in its own "—" group
+/// rather than vanishing from the chart it was selected for.
+export function groupRunsBy(
+  runs: readonly { id: string; values: ReadonlyMap<string, string> }[],
+  key: string,
+): RunGroup[] {
+  const groups = new Map<string, RunGroup>();
+  for (const r of runs) {
+    const value = r.values.get(key);
+    const bucket = value ?? '';
+    let g = groups.get(bucket);
+    if (g === undefined) {
+      g = { key, value, label: value === undefined ? '—' : `${key}=${value}`, runIds: [] };
+      groups.set(bucket, g);
+    }
+    g.runIds.push(r.id);
+  }
+  // Insertion order = the selection's order, so a group's colour is stable
+  // while the user toggles runs on and off.
+  return [...groups.values()];
+}
+
+/// One x of an aggregated group curve.
+export interface AggregatePoint {
+  x: number;
+  mean: number;
+  /// mean ∓ one standard deviation. With a single member the band is
+  /// zero-width, which is the honest picture: one seed has no spread.
+  lo: number;
+  hi: number;
+  /// How many member runs contributed. A band drawn from n=1 means something
+  /// different from one drawn from n=5, and the caller can say so.
+  n: number;
+}
+
+/// The value of a curve at `x`, linearly interpolated between its neighbours,
+/// or undefined outside the curve's own range.
+///
+/// Interpolation rather than nearest-sample because members of a group log at
+/// different steps (every 100 vs every 128 is enough), and a mean taken only
+/// where samples coincide would be an interleaving of raw curves wearing the
+/// word "mean". NO extrapolation: a run that stopped at step 3000 must not
+/// contribute an invented value at 5000 — it drops out and `n` says so.
+///
+/// Assumes ascending `x` (the hub stores metric points step-ordered).
+export function interpolateAt(points: readonly CurvePoint[], x: number): number | undefined {
+  const n = points.length;
+  if (n === 0) return undefined;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].x === x) return points[mid].y;
+    if (points[mid].x < x) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  // `lo` is the first index past x and `hi` the one before it, so an x outside
+  // the curve's range leaves one of them off the ends — which IS the
+  // no-extrapolation rule. (An explicit range check here would be a second
+  // spelling of the same guard; a mutation test proved it could be deleted
+  // without changing a single answer.)
+  const a = points[hi];
+  const b = points[lo];
+  if (a === undefined || b === undefined) return undefined;
+  const span = b.x - a.x;
+  if (span === 0) return a.y;
+  return a.y + ((x - a.x) / span) * (b.y - a.y);
+}
+
+/// Mean ± std of several curves on the union of their steps (plan §3.2's
+/// "group mean bold with a ±band"; §5's "mean/band with missing steps").
+export function aggregateCurves(curves: readonly (readonly CurvePoint[])[]): AggregatePoint[] {
+  const xs = new Set<number>();
+  for (const c of curves) for (const p of c) if (Number.isFinite(p.x)) xs.add(p.x);
+  const grid = [...xs].sort((a, b) => a - b);
+  const out: AggregatePoint[] = [];
+  for (const x of grid) {
+    const ys: number[] = [];
+    for (const c of curves) {
+      const y = interpolateAt(c, x);
+      if (y !== undefined && Number.isFinite(y)) ys.push(y);
+    }
+    if (ys.length === 0) continue;
+    const mean = ys.reduce((s, y) => s + y, 0) / ys.length;
+    // Sample standard deviation (n-1): with one member there is no spread to
+    // estimate, and dividing by zero members would print a band from nothing.
+    const variance = ys.length > 1 ? ys.reduce((s, y) => s + (y - mean) ** 2, 0) / (ys.length - 1) : 0;
+    const sd = Math.sqrt(variance);
+    out.push({ x, mean, lo: mean - sd, hi: mean + sd, n: ys.length });
+  }
+  return out;
+}
+
 /// The comparer's row model: the sorted union of every run's config keys, one
 /// cell per run, with the "every run agrees" bit precomputed.
 ///

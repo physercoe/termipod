@@ -1,10 +1,14 @@
 # 064. Agent desktop co-working contract
 
 > **Type:** decision
-> **Status:** Proposed (2026-08-01) — extracted from
+> **Status:** Accepted (2026-08-02, director) — extracted from
 > [agent-desktop-coworking.md](../discussions/agent-desktop-coworking.md)
 > before implementation, per the ADR-059/063 lesson: pin the invariants
-> at decision tier before there is code to drift from them
+> at decision tier before there is code to drift from them. Accepted
+> ahead of the fleet start (issue #494) so workers build against a
+> settled consent posture; D5's native-format clause was rewritten at
+> acceptance after it read as banning TermiPod's own formats, which it
+> never did
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`)
 > (`desktop/src/state/ui_policy.ts:155-176`,
@@ -127,13 +131,22 @@ the store is touched — atomic: committed or refused-with-diagnosis,
 never a degraded document (the table silent-empty class is the banned
 anti-pattern); refusals return the validator's message plus current
 state so the engine's own tool-error loop self-corrects; automatic
-repair is limited to mechanical fixes, each reported. Agents write the
-entities' **native formats** (mxGraph XML, JSON Canvas 1.0, Excalidraw
-scene JSON, figure registry sources, `TableData`, CSL-shaped reference
-fields) — no TermiPod-invented DSL; guides serve grammars and
-vocabularies. Third-party logic and data (next-ai-draw-io validators,
-op engine, shape libraries — Apache-2.0) are vendored with license
-headers and a NOTICE entry.
+repair is limited to mechanical fixes, each reported. Agents write each
+entity's **existing** format — the same bytes the human editor reads
+and writes (mxGraph XML, JSON Canvas 1.0, Excalidraw scene JSON, figure
+registry sources, `TableData`, CSL-shaped reference fields). Formats
+TermiPod itself defines are native formats too: `TableData`
+(`desktop/src/state/table.ts`) and the figure registry sources are ours
+and are written directly. What is forbidden is a **second, agent-only
+dialect** layered over the real one — it doubles the parsers, and the
+two drift the first time the editor gains a field the translator does
+not. Data of ours that belongs inside a third-party container rides as
+**namespaced extension fields** (`x-termipod.*` in JSON Canvas —
+`desktop/src/state/canvas.ts`), never as a fork of the container's
+grammar. Guides serve those grammars and vocabularies. Third-party
+logic and data (next-ai-draw-io validators, op engine, shape
+libraries — Apache-2.0) are vendored with license headers and a NOTICE
+entry.
 
 ## 3. Consequences
 

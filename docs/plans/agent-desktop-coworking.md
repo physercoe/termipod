@@ -1,8 +1,9 @@
 # Agent desktop co-working — surfaces, adapters, transport
 
 > **Type:** plan
-> **Status:** Proposed (2026-08-01) — for principal review, then fleet
-> implementation in four waves
+> **Status:** Proposed (2026-08-02) — ADR-064 accepted 2026-08-02, so
+> the contract is settled and principal review is done; fleet
+> implementation in four waves, W1 next per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
 > the authoring audits
@@ -57,6 +58,26 @@ excluded. Investigation record:
 - **A4 — degrade honestly.** Result states `applied_live` |
   `applied_store_only` | `applied_via_remount` (interim until the
   kind's B-lane adapter ships).
+- **A5 — the table silent-empty guard ships WITH `author_apply`, not
+  with B4.** `parseTable` (`table.ts:40-50`) catches a JSON parse
+  failure and returns `emptyTable()` — unparseable input silently
+  becomes a blank table. That is exactly the class
+  [ADR-064](../decisions/064-agent-desktop-coworking-contract.md) D5
+  bans, and it is live in the code today. Harmless while it is
+  read-only (a human sees the blank grid and re-opens the file), fatal
+  the moment an agent's malformed commit routes through it: the write
+  reports success and the user's rows are gone, with no error anywhere.
+  B4 already names the fix — `isTableBody` (`table.ts:57-64`) before
+  commit — but B4 is **W2** and `author_apply` is **W1**, so as
+  sequenced there is one wave in which the verb exists and the guard
+  does not. Close it in W1: either pull the `isTableBody` check forward
+  (two lines, the predicate already exists) or have `author_apply`
+  refuse `kind === 'table'` until B4 lands. Refusing is the safer
+  default if the wave is tight — a refused write costs a retry, a
+  silent one costs the document. Compare `canvas.ts:87`, which gets
+  this right already: an unrecognized body opens **read-only and is
+  never serialized back**. That is the shape every kind's parse path
+  should have.
 
 ## 2. Lane B — Author per-editor adapters + safety net
 
@@ -219,9 +240,10 @@ applies) after the store exists.
 
 ## 11. Sequencing
 
-**W1** = A1–A4 + B1 + B2 + B6 + C1 + **G1–G3** → Author
+**W1** = A1–A5 + B1 + B2 + B6 + C1 + **G1–G3** → Author
 diagram/canvas co-authoring end-to-end, agents no longer blind on
-Read/Inspect/Replay.
+Read/Inspect/Replay. A5 is in W1 by necessity, not by size: it is the
+one item here that closes a data-loss window the wave itself opens.
 **W2** = B3–B5 + D1 + C2 + C3 + `author_render` + **H1–H3** + **J1–J2**
 → all Author kinds; navigation; Replay agent-reachable.
 **W3** = **I1–I4** + J3 + K (as its own plan's waves) + D2 + E1–E3.

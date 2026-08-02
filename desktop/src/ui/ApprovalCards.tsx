@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { obj, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
-import { useSession } from '../state/session';
+import { useAgentSource } from '../state/useAgentSource';
 import { useWorkbench } from '../state/workbench';
 import { Icon } from './Icon';
 import {
@@ -110,8 +110,8 @@ function CardShell({
 
 function PermissionCard({ spec, agentId }: { spec: PermissionSpec; agentId?: string }): JSX.Element {
   const t = useT();
-  const client = useSession((s) => s.client);
-  const ready = client !== null && agentId !== undefined && agentId !== '';
+  const source = useAgentSource();
+  const ready = source !== null && agentId !== undefined && agentId !== '';
   return (
     <CardShell
       kindLabel={t('approval.permission')}
@@ -120,12 +120,7 @@ function PermissionCard({ spec, agentId }: { spec: PermissionSpec; agentId?: str
         ready
           ? async (o) => {
               const wire = approvalWire(spec, o);
-              await client.approveAgentInput(
-                agentId,
-                spec.requestId,
-                wire.decision as 'approve' | 'allow' | 'deny' | 'cancel',
-                wire.optionId,
-              );
+              await source.approve(agentId, spec.requestId, wire.decision, wire.optionId);
             }
           : undefined
       }
@@ -144,8 +139,8 @@ function PermissionCard({ spec, agentId }: { spec: PermissionSpec; agentId?: str
 
 function QuestionCard({ spec, agentId }: { spec: QuestionSpec; agentId?: string }): JSX.Element {
   const t = useT();
-  const client = useSession((s) => s.client);
-  const ready = client !== null && agentId !== undefined && agentId !== '';
+  const source = useAgentSource();
+  const ready = source !== null && agentId !== undefined && agentId !== '';
   return (
     <CardShell
       kindLabel={spec.header ?? t('approval.question')}
@@ -156,7 +151,7 @@ function QuestionCard({ spec, agentId }: { spec: QuestionSpec; agentId?: string 
               // The body is the option LABEL: the hub carved `answer` off from
               // `approval` precisely so the agent receives the option text
               // rather than "allow: Red".
-              await client.answerAgentInput(agentId, spec.requestId, o.label);
+              await source.answer(agentId, spec.requestId, o.label);
             }
           : undefined
       }
@@ -238,15 +233,22 @@ export function ApprovalRequestBody({ p, agentId }: { p: Entity; agentId?: strin
 /// resolved through the same `POST /attention/{id}/decide`. Invalidating the
 /// shared `['attention']` key is what keeps a decision made in one surface
 /// from leaving a live button in the other.
+///
+/// The attention TABLE is a hub capability, so these cards render only when
+/// the bound source has one (L1 / D-4). A local driver parks nothing: its
+/// approvals arrive as `approval_request` events and are answered by the two
+/// cards above (plan L4). Gating on the capability rather than on
+/// `kind === 'hub'` is deliberate — any future source that keeps a queue gets
+/// these rows without a second condition here.
 export function InlineAttentionCards({
   items,
 }: {
   items: readonly Entity[];
 }): JSX.Element | null {
   const t = useT();
-  const client = useSession((s) => s.client);
+  const attention = useAgentSource()?.attention;
   const qc = useQueryClient();
-  if (items.length === 0) return null;
+  if (items.length === 0 || attention === undefined) return null;
   return (
     <>
       {items.map((item) => {
@@ -264,9 +266,9 @@ export function InlineAttentionCards({
               { id: 'reject', label: t('att.reject') },
             ]}
             onPick={
-              client !== null && id !== ''
+              id !== ''
                 ? async (o) => {
-                    await client.decideAttention(id, o.id);
+                    await attention.resolve(id, o.id);
                     await qc.invalidateQueries({ queryKey: ['attention'] });
                   }
                 : undefined

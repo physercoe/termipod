@@ -18,6 +18,8 @@ import (
 	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/events"
 	"github.com/termipod/hub/internal/hubmcpserver"
+	"github.com/termipod/hub/internal/mcpver"
+	"github.com/termipod/hub/internal/mcpwire"
 )
 
 // mcp.go implements a minimal MCP-over-HTTP server mounted at
@@ -57,41 +59,60 @@ type jrpcError struct {
 	Message string `json:"message"`
 }
 
-const (
-	// Default MCP protocol version we advertise when the client
-	// requested something we don't recognise. Kept at 2024-11-05 for
-	// back-compat with the older clients that haven't bumped yet.
-	mcpProtocolVersion = "2024-11-05"
-)
+// The supported protocol-version set and the negotiation function live
+// in internal/mcpver (ADR-063 D1) — this file used to carry one of the
+// three byte-identical copies, and the agy downgrade-fatal rationale
+// moved there with it. The response-shape vocabulary of the revisions
+// we speak lives in internal/mcpwire (ADR-063 D3).
 
-// supportedMCPProtocolVersions is the set of MCP wire revisions our
-// server is compatible with — we only do tools/list + tools/call +
-// `_meta` pass-through, so the differences between these revisions are
-// no-ops for us. Echoing back the client's requested version (when it's
-// in this set) avoids the strict-client teardown we saw on the W11
-// smoke: agy 1.0.1 sends `protocolVersion: 2025-11-25` and treats a
-// downgrade to 2024-11-05 in the initialize response as a fatal
-// protocol error → "client is closing: invalid request" → MCP transport
-// dies → agy falls back to direct filesystem and starts crawling the
-// repo. Add new revisions here as they ship.
-var supportedMCPProtocolVersions = map[string]struct{}{
-	"2024-11-05": {},
-	"2025-03-26": {},
-	"2025-06-18": {},
-	"2025-11-25": {},
+// mcpCommonParams is the slice of a request's params every method shares
+// — the initialize negotiation ask and the 2026-07-28 per-request `_meta`
+// envelope. Decoded once, before the method switch, because both feed
+// the same question: which revision is this exchange speaking?
+type mcpCommonParams struct {
+	ProtocolVersion string              `json:"protocolVersion"`
+	Meta            mcpwire.RequestMeta `json:"_meta"`
 }
 
-// negotiateMCPProtocolVersion returns the version we should advertise
-// in the initialize response. Permissive: echo the client's request if
-// we know it; fall back to our default otherwise. Empty input → default.
-func negotiateMCPProtocolVersion(requested string) string {
-	if requested == "" {
-		return mcpProtocolVersion
+// mcpExchangeVersion resolves the revision one request is speaking, or
+// "" when the client declared nothing at all.
+//
+// Three channels can carry the declaration and they are ranked, not
+// merged: the initialize params (the client's explicit ask, and the only
+// signal a 2024/2025-era handshake has), then the MCP-Protocol-Version
+// header (SEP-2243 — a 2025-06-18+ client MUST send it on every request
+// after initialization), then the `_meta` envelope (SEP-2575 — how a
+// stateless 2026-07-28 request identifies itself with no handshake at
+// all). Unknown values in one channel fall through to the next, and the
+// floor answers when no channel names a revision we implement.
+//
+// The empty return is load-bearing. This transport is stateless — every
+// POST arrives with a fresh token and no memory of an earlier
+// initialize — so when a client declares nothing we genuinely do not
+// know what it speaks. Stamping a guessed version on the response would
+// be a claim we cannot support; the caller omits the header instead.
+func mcpExchangeVersion(r *http.Request, p mcpCommonParams) string {
+	asks := []string{
+		p.ProtocolVersion,
+		r.Header.Get(mcpwire.HeaderProtocolVersion),
+		p.Meta.ProtocolVersion,
 	}
-	if _, ok := supportedMCPProtocolVersions[requested]; ok {
-		return requested
+	declared := false
+	for _, a := range asks {
+		if a != "" {
+			declared = true
+			break
+		}
 	}
-	return mcpProtocolVersion
+	if !declared {
+		return ""
+	}
+	// ADR-063 D2 amendment: a declared-but-unsupported version is still
+	// SERVED (at the floor, below) — never the spec's -32022 — but it is
+	// logged once per process as the early warning that an engine shipped
+	// a revision this build has not added yet.
+	mcpver.WarnIfUnsupported(mcpServerName, asks...)
+	return mcpver.NegotiateFirst(asks...)
 }
 
 // handleMCP is the single HTTP entry point for the bridge. It routes on
@@ -110,11 +131,31 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	var req jrpcReq
 	if err := json.Unmarshal(body, &req); err != nil {
+		// Distinguish "your bytes were not JSON" from "your JSON was
+		// not a request object". The second case is almost always a
+		// JSON-RPC batch — a well-formed array we have never
+		// implemented — and answering -32700 parse error told that
+		// client its transport was corrupt, which is the one diagnosis
+		// that leads nowhere. -32600 invalid request points at the
+		// envelope, and the message names the fix.
+		code, msg := -32700, "parse error"
+		if json.Valid(body) {
+			code, msg = -32600, "invalid request: send one JSON-RPC request object per POST (batches are not supported)"
+		}
 		writeJRPC(w, jrpcResp{
 			JSONRPC: "2.0",
-			Error:   &jrpcError{Code: -32700, Message: "parse error"},
+			Error:   &jrpcError{Code: code, Message: msg},
 		})
 		return
+	}
+
+	var params mcpCommonParams
+	if len(req.Params) > 0 {
+		_ = json.Unmarshal(req.Params, &params)
+	}
+	ver := mcpExchangeVersion(r, params)
+	if ver != "" {
+		w.Header().Set(mcpwire.HeaderProtocolVersion, ver)
 	}
 
 	// JSON-RPC 2.0 §4.1: a request without an `id` is a Notification —
@@ -140,32 +181,50 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		// Parse the client-requested protocolVersion out of params so we
-		// can echo it back when we know it — strict clients (agy 1.0.1
-		// observed) treat a downgrade as a fatal protocol error.
-		var initParams struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		if len(req.Params) > 0 {
-			_ = json.Unmarshal(req.Params, &initParams)
+		// Echo the client's requested revision when we know it — strict
+		// clients (agy 1.0.1 observed) treat a downgrade as a fatal
+		// protocol error. mcpExchangeVersion already ranked the
+		// channels; a handshake that named nothing negotiates the floor.
+		negotiated := ver
+		if negotiated == "" {
+			negotiated = mcpver.Floor
+			w.Header().Set(mcpwire.HeaderProtocolVersion, negotiated)
 		}
 		writeJRPC(w, jrpcResp{
 			JSONRPC: "2.0", ID: req.ID,
-			Result: map[string]any{
-				"protocolVersion": negotiateMCPProtocolVersion(initParams.ProtocolVersion),
+			Result: mcpIdentity(mcpwire.StampResult(map[string]any{
+				"protocolVersion": negotiated,
 				"capabilities":    map[string]any{"tools": map[string]any{}},
+				// 2026-07-28 moved server identity into every result's
+				// `_meta` (SEP-2575); the body copy stays for the
+				// 2024/2025-era clients that read it here.
 				"serverInfo": map[string]any{
-					"name":    "termipod-hub",
+					"name":    mcpServerName,
 					"version": ServerVersion,
 				},
-			},
+			})),
 		})
 	case "notifications/initialized":
 		w.WriteHeader(http.StatusNoContent)
+	case "server/discover":
+		// 2026-07-28 SEP-2575: the stateless replacement for the
+		// initialize handshake, and the blessed backwards-compat probe
+		// on stdio. A client MAY call it before anything else to pick a
+		// revision up front — so unlike initialize it answers with the
+		// whole set rather than one negotiated choice.
+		writeJRPC(w, jrpcResp{
+			JSONRPC: "2.0", ID: req.ID,
+			Result: mcpIdentity(mcpwire.StampCacheableList(map[string]any{
+				"protocolVersions": mcpver.Supported(),
+				"capabilities":     map[string]any{"tools": map[string]any{}},
+			})),
+		})
 	case "tools/list":
 		writeJRPC(w, jrpcResp{
 			JSONRPC: "2.0", ID: req.ID,
-			Result: map[string]any{"tools": mcpToolListDefs()},
+			Result: mcpIdentity(mcpwire.StampCacheableList(map[string]any{
+				"tools": mcpToolListDefs(),
+			})),
 		})
 	case "tools/call":
 		// Pass the path token through to dispatchTool so the
@@ -178,11 +237,23 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		if jerr != nil {
 			resp.Error = jerr
 		} else {
+			// Tool results are already resultType-stamped by the
+			// mcpResult* builders — every dispatch path goes through
+			// one. Identity rides on the envelope regardless of which.
+			if m, ok := res.(map[string]any); ok {
+				res = mcpIdentity(m)
+			}
 			resp.Result = res
 		}
 		writeJRPC(w, resp)
 	case "ping":
-		writeJRPC(w, jrpcResp{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
+		// Removed in 2026-07-28 (SEP-2575). Still served: the revisions
+		// that have it are the ones our engines actually speak, and a
+		// 2026-era client simply never calls it.
+		writeJRPC(w, jrpcResp{
+			JSONRPC: "2.0", ID: req.ID,
+			Result: mcpIdentity(mcpwire.StampResult(map[string]any{})),
+		})
 	default:
 		writeJRPC(w, jrpcResp{
 			JSONRPC: "2.0", ID: req.ID,
@@ -287,6 +358,14 @@ func mcpToolListDefs() []map[string]any {
 		}
 		if tier, ok := def["tier"]; ok {
 			entry["tier"] = tier
+		}
+		// The spec's own metadata survives the slim projection (ADR-063
+		// D5): `annotations.readOnlyHint` is what drives a spec-aware
+		// client's auto-approve UX, and tools/list is the only place
+		// most clients ever look. Dropping it here would leave the
+		// dual-publish visible only to whoever calls tools_get.
+		if ann, ok := def["annotations"]; ok {
+			entry["annotations"] = ann
 		}
 		out = append(out, entry)
 	}
@@ -423,15 +502,39 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 }
 
-func mcpResultText(text string) map[string]any {
-	return map[string]any{
-		"content": []any{map[string]any{"type": "text", "text": text}},
-	}
+// mcpServerName is what this server calls itself on the wire — the
+// `.mcp.json` key every spawned agent gets, so it is effectively frozen
+// (ADR-033 D-5: wire-visible names do not change for spec reasons).
+const mcpServerName = "termipod-hub"
+
+// mcpIdentity attaches this server's identity to a result's `_meta`,
+// where 2026-07-28 moved it from the initialize response. Applied on the
+// way out for every method, so a stateless client that never handshakes
+// still learns who answered.
+func mcpIdentity(m map[string]any) map[string]any {
+	return mcpwire.WithServerInfo(m, mcpServerName, ServerVersion)
 }
 
+func mcpResultText(text string) map[string]any {
+	return mcpwire.StampResult(map[string]any{
+		"content": []any{map[string]any{"type": "text", "text": text}},
+	})
+}
+
+// mcpResultJSON renders a value as the portable text block every MCP
+// client can read, AND — for object-shaped values — as
+// `structuredContent` for those that prefer parsed data (ADR-063 D3;
+// see mcpwire.AttachStructuredContent for why arrays stay text-only
+// until responses stop being version-blind).
+//
+// Both, not either. The text block is not a leftover to be retired: it
+// is what an LLM actually reads when a client renders the result into
+// the model's context, and dropping it would leave older clients — and
+// any client that renders content blocks only — with an empty answer.
+// The structured copy costs one extra marshal of data we already have.
 func mcpResultJSON(v any) map[string]any {
 	b, _ := json.MarshalIndent(v, "", "  ")
-	return mcpResultText(string(b))
+	return mcpwire.AttachStructuredContent(mcpResultText(string(b)), v, b)
 }
 
 // mcpResultError builds a tool result flagged isError. Used for

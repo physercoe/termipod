@@ -78,6 +78,12 @@ safe as the least-tolerant client; and the dotted delimiter, though
 spec-legal since MCP rev. 2025-11-25, is still filtered
 inconsistently by real clients.
 
+[ADR-063](063-mcp-version-negotiation-and-adoption.md) D5 makes the
+converse binding: wire-visible tool names never change *for spec
+reasons*. A later revision legalizing more characters is not an
+argument to rename anything — the gateway's dot-named tools and the
+hub's dot-filter both stay.
+
 Anthropic's guidance notes the namespacing scheme has measurable,
 model-dependent effects on tool-use evaluations. A tool-use eval
 *could* therefore revisit the delimiter — but it does **not gate
@@ -231,6 +237,9 @@ converting a domain to `ToolSpec` *is* doing W2 for that domain.
   — the make-bad-states-unrepresentable principle behind D-3.
 - [`../reference/hub-mcp.md`](../reference/hub-mcp.md) — §3 domain
   grouping, §5 the relay rule weighed in D-5.
+- [ADR-063](063-mcp-version-negotiation-and-adoption.md) — D5 freezes
+  wire names against spec-driven renames and dual-publishes this
+  registry's `ReadOnly` as the spec's `annotations.readOnlyHint`.
 - [MCP specification — Tools (rev. 2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
   and [Anthropic — Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents)
   — the practice D-1 is grounded in.

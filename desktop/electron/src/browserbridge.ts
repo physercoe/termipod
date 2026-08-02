@@ -181,6 +181,19 @@ export interface BridgeRequestContext {
   /// W3: the remote agent's display handle (hub payload), recorded on hub
   /// action entries so Settings → Remote driving can name the session.
   agentHandle?: string;
+  /// ADR-063 D2: the revision this exchange is served at — the first
+  /// DECLARED revision we implement (header, `_meta`, or initialize ask), or
+  /// the floor when the caller declared only revisions we don't (D2
+  /// amendment: declared-but-unknown is served and stamped at the floor,
+  /// never refused with the spec's -32022). Absent only when the caller
+  /// declared nothing at all — this transport is stateless, so "we were not
+  /// told" is a real state and must not be guessed into a claim.
+  protocolVersion?: string;
+  /// ADR-063: the client's self-reported `_meta` clientInfo, as
+  /// "name/version". Audit line only, and RING-ONLY at that — postBridgeAudit
+  /// picks the hub payload's fields explicitly, so an unverified label never
+  /// becomes a hub record.
+  client?: string;
 }
 
 export const READ_CTX: BridgeRequestContext = { scope: 'read', agentId: null };
@@ -211,6 +224,9 @@ export interface BridgeAuditEntry {
   /// (the ring holds the reference): skipped (no hub context / no agent id),
   /// ok, or failed. Local-only field, not part of the hub payload.
   hub?: 'ok' | 'failed' | 'skipped';
+  /// The caller's self-reported `_meta` clientInfo ("kimi-cli/2.1"), when it
+  /// sent one. Local-only like `hub`: unverified, display-and-debug only.
+  client?: string;
 }
 
 /// Redact one tool's args for the audit trail. `browser_type`'s text is the
@@ -1284,6 +1300,7 @@ async function callTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: st
     error: null,
   };
   if (ctx.agentHandle !== undefined) entry.agent_handle = ctx.agentHandle;
+  if (ctx.client !== undefined) entry.client = ctx.client;
   try {
     const out = await runTool(deps, ctx, name, args);
     entry.ok = true;
@@ -1433,6 +1450,160 @@ export function foldRemoteSessions(entries: BridgeAuditEntry[], revoked: Readonl
   return out;
 }
 
+// ── Protocol version + wire shape (ADR-063) ──────────────────────────────────
+
+/// The MCP wire revisions this bridge speaks — the TypeScript mirror of
+/// hub/internal/mcpver (ADR-063 D1). The two languages cannot share a
+/// constant, so they share a fixture instead: hub/internal/mcpver/versions.json,
+/// which both test suites read. Adding a revision means editing three places,
+/// and doing fewer than three fails CI on both sides.
+export const MCP_PROTOCOL_VERSIONS: readonly string[] = ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25', '2026-07-28'];
+
+/// The revision we answer with when the client's ask is one we do not
+/// implement. Not "our newest" — see negotiateMcpProtocolVersion.
+export const MCP_PROTOCOL_FLOOR = '2024-11-05';
+
+/// Echo the first ask we implement; the floor when none of them is known.
+///
+/// This replaced a blind echo of whatever the client sent, which was the
+/// anti-pattern ADR-063 D2 names outright: claiming a revision PROMISES its
+/// request-side semantics. A client told "yes, 2026-07-28" may send MRTR
+/// `inputResponses` into a server that has never heard of them, and the
+/// failure is silent mishandling rather than an honest downgrade. Answering
+/// the floor is visible, debuggable, and fixed by adding one string above.
+export function negotiateMcpProtocolVersion(...asks: Array<unknown>): string {
+  for (const a of asks) {
+    if (typeof a === 'string' && MCP_PROTOCOL_VERSIONS.includes(a)) return a;
+  }
+  return MCP_PROTOCOL_FLOOR;
+}
+
+/// Standard MCP HTTP headers (2026-07-28 SEP-2243). Lower-case because Node
+/// normalizes incoming header names; the response side uses these too, which
+/// is fine — HTTP header names are case-insensitive on the wire.
+export const MCP_HEADER_PROTOCOL_VERSION = 'mcp-protocol-version';
+export const MCP_HEADER_METHOD = 'mcp-method';
+export const MCP_HEADER_NAME = 'mcp-name';
+
+/// Reserved `_meta` keys (2026-07-28 SEP-2575) — the stateless core's
+/// replacement for the initialize handshake.
+const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
+const META_CLIENT_INFO = 'io.modelcontextprotocol/clientInfo';
+const META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
+
+/// `resultType` on an ordinary result (SEP-2322). We never return the other
+/// value, "input_required" — that is MRTR, plan lane B1, gated on the first
+/// engine that negotiates 2026-07-28.
+const MCP_RESULT_COMPLETE = 'complete';
+
+/// Freshness hint on cacheable results (SEP-2549). Five minutes: this catalog
+/// changes only when the user flips the sharing toggle, and `listChanged` is
+/// honestly false here, so the TTL is the only thing that ever corrects a
+/// stale list.
+const MCP_LIST_TTL_MS = 300000;
+
+/// Never 'public'. A read-scoped session and an action-scoped one get
+/// different tool lists off the same URL, so a shared intermediary caching
+/// one and serving it to the other would hand out a surface the second caller
+/// is not entitled to.
+const MCP_CACHE_SCOPE = 'private';
+
+/// The methods whose results are CacheableResult (SEP-2549), plus
+/// server/discover, whose result a client's response-cache layer reads the
+/// same way.
+const CACHEABLE_METHODS: ReadonlySet<string> = new Set(['tools/list', 'resources/list', 'resources/read', 'server/discover']);
+
+/// One warning per distinct declared set per process — the observability half
+/// of the ADR-063 D2 amendment (mirrors mcpver.WarnIfUnsupported on the Go
+/// side). A client re-declares on every request; one line is the signal that
+/// an engine shipped a revision this build lacks, thousands are the noise
+/// that buries it.
+const warnedVersionSets = new Set<string>();
+function warnUnsupportedVersions(declared: readonly string[]): void {
+  const label = declared.map((v) => (v.length > 40 ? `${v.slice(0, 40)}…` : v)).join(',');
+  if (warnedVersionSets.has(label)) return;
+  warnedVersionSets.add(label);
+  console.warn(`browser-bridge: client declared unsupported MCP protocol version(s) [${label}]; serving floor ${MCP_PROTOCOL_FLOOR}`);
+}
+
+/// The per-request `_meta` envelope a 2026-07-28 client sends instead of
+/// handshaking. Every field is optional — a 2025-era client sends none.
+interface McpRequestMeta {
+  protocolVersion: string | null;
+  /// "name/version", for the audit line only. Self-reported and unverified:
+  /// the spec is explicit that clientInfo is for display and debugging, never
+  /// for behaviour or security decisions. Our authorization is the bearer.
+  client: string | null;
+}
+
+function readRequestMeta(params: unknown): McpRequestMeta {
+  const empty: McpRequestMeta = { protocolVersion: null, client: null };
+  if (params === null || typeof params !== 'object') return empty;
+  const meta = (params as { _meta?: unknown })._meta;
+  if (meta === null || typeof meta !== 'object') return empty;
+  const m = meta as Record<string, unknown>;
+  const version = m[META_PROTOCOL_VERSION];
+  const info = m[META_CLIENT_INFO];
+  let client: string | null = null;
+  if (info !== null && typeof info === 'object') {
+    const { name, version: v } = info as { name?: unknown; version?: unknown };
+    if (typeof name === 'string' && name !== '') client = typeof v === 'string' && v !== '' ? `${name}/${v}` : name;
+  }
+  return { protocolVersion: typeof version === 'string' ? version : null, client };
+}
+
+/// Stamp the additive 2026-07-28 response fields onto one result (ADR-063 D3).
+///
+/// Unconditional, on every negotiated version: old clients ignore JSON keys
+/// they do not know, and the spec tells 2026-era clients to treat a MISSING
+/// `resultType` as "complete" — so stamping early can never be misread in
+/// either direction. One code path for responses; version branching stays
+/// confined to request-side semantics, where meaning actually differs.
+function stampMcpResult(result: unknown, method: string, serverInfo: { name: string; version: string }): void {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return;
+  const r = result as Record<string, unknown>;
+  r.resultType = MCP_RESULT_COMPLETE;
+  if (CACHEABLE_METHODS.has(method)) {
+    r.ttlMs = MCP_LIST_TTL_MS;
+    r.cacheScope = MCP_CACHE_SCOPE;
+  }
+  // 2026-07-28 moved server identity out of the initialize response and into
+  // every result's `_meta`, so a stateless client that never handshakes still
+  // learns who answered.
+  const existing = r._meta;
+  const meta = (existing !== null && typeof existing === 'object' ? existing : {}) as Record<string, unknown>;
+  meta[META_SERVER_INFO] = { name: serverInfo.name, version: serverInfo.version };
+  r._meta = meta;
+}
+
+/// ADR-063 D5: the spec's tool annotations, rendered from what this module
+/// already knows. `readOnlyHint` is fail-closed — true only for a tool that is
+/// in READ_TOOLS *and* is not one of the desktop-action tools, which live in
+/// the read catalog but photograph or draw on the user's screen. Getting this
+/// backwards would invite a client to auto-approve them, so the default is no.
+///
+/// `destructiveHint` is deliberately absent: nothing here distinguishes
+/// destructive from merely mutating, the spec already defaults it to true for
+/// a non-readOnly tool (the fail-safe reading), and asserting it FALSE is the
+/// only direction that can cause harm.
+function withMcpAnnotations(t: McpToolDef): McpToolDef & { annotations: Record<string, unknown> } {
+  return {
+    ...t,
+    annotations: {
+      title: mcpToolTitle(t.name),
+      readOnlyHint: READ_TOOL_NAMES.has(t.name) && !DESKTOP_ACTION_TOOL_NAMES.has(t.name),
+    },
+  };
+}
+
+/// `browser_list_tabs` → `Browser list tabs`. Mirrors mcpwire.ToolTitle on the
+/// Go side: derived, not authored, so it cannot drift from the name.
+function mcpToolTitle(name: string): string {
+  if (name === '') return '';
+  const spaced = name.replace(/[_\-.]/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /// Handle one JSON-RPC message. Returns the response object, or null for
 /// notifications (the HTTP layer answers 202 with an empty body). `ctx` is
 /// the request's scope/provenance, resolved at the HTTP layer from the
@@ -1442,6 +1613,14 @@ export async function handleMcpMessage(
   deps: McpServerDeps,
   ctx: BridgeRequestContext = READ_CTX,
 ): Promise<JsonRpcResponse | null> {
+  const out = await routeMcpMessage(msg, deps, ctx);
+  // One choke point for the additive response fields, so a method added later
+  // is stamped by construction rather than by remembering to.
+  if (out !== null && out.result !== undefined) stampMcpResult(out.result, typeof msg.method === 'string' ? msg.method : '', deps.serverInfo);
+  return out;
+}
+
+async function routeMcpMessage(msg: JsonRpcRequest, deps: McpServerDeps, ctx: BridgeRequestContext): Promise<JsonRpcResponse | null> {
   const id = msg.id ?? null;
   const isNotification = msg.id === undefined;
   const method = msg.method;
@@ -1453,9 +1632,10 @@ export async function handleMcpMessage(
   switch (method) {
     case 'initialize': {
       const params = (msg.params ?? {}) as { protocolVersion?: unknown };
-      // Echo the client's protocol version when offered (the MCP convention —
-      // the server speaks the stable tool surface regardless), else pin ours.
-      const protocolVersion = typeof params.protocolVersion === 'string' ? params.protocolVersion : '2025-06-18';
+      // Rank the three channels a client can declare its revision on: the
+      // handshake ask, the transport header the HTTP layer resolved, and the
+      // stateless `_meta` envelope.
+      const protocolVersion = negotiateMcpProtocolVersion(params.protocolVersion, ctx.protocolVersion, readRequestMeta(msg.params).protocolVersion);
       return rpcResult(id, {
         protocolVersion,
         capabilities: {
@@ -1467,7 +1647,21 @@ export async function handleMcpMessage(
         serverInfo: deps.serverInfo,
       });
     }
+    case 'server/discover':
+      // 2026-07-28 SEP-2575: the stateless replacement for the handshake, and
+      // the blessed backwards-compat probe. Unlike initialize it answers with
+      // the whole set — the client picks, up front, before any other call.
+      return rpcResult(id, {
+        protocolVersions: [...MCP_PROTOCOL_VERSIONS],
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { subscribe: false, listChanged: false },
+        },
+        serverInfo: deps.serverInfo,
+      });
     case 'ping':
+      // Removed in 2026-07-28 (SEP-2575); still answered for the revisions
+      // that have it.
       return rpcResult(id, {});
     case 'tools/list': {
       // Scope gate #1: a read-scoped session never SEES the action tools.
@@ -1475,7 +1669,8 @@ export async function handleMcpMessage(
       // while the sharing toggle is on — off means no publisher and no tool
       // in any catalog.
       const reads = deps.uiFocusAvailable?.() === true ? READ_TOOLS : READ_TOOLS.filter((t) => !UI_TOOL_NAMES.has(t.name));
-      return rpcResult(id, { tools: ctx.scope === 'full' ? [...reads, ...ACTION_TOOLS] : reads });
+      const tools = ctx.scope === 'full' ? [...reads, ...ACTION_TOOLS] : reads;
+      return rpcResult(id, { tools: tools.map(withMcpAnnotations) });
     }
     case 'resources/list': {
       const resources =
@@ -1566,9 +1761,9 @@ export function startBridgeServer(deps: McpServerDeps & { token: string; actionT
   }
   const server = http.createServer((req, res) => {
     void (async () => {
-      const send = (status: number, body: unknown): void => {
+      const send = (status: number, body: unknown, headers: Record<string, string> = {}): void => {
         const text = body === null ? '' : JSON.stringify(body);
-        res.writeHead(status, { 'content-type': 'application/json' });
+        res.writeHead(status, { 'content-type': 'application/json', ...headers });
         res.end(text);
       };
       if (req.url !== '/mcp' || req.method !== 'POST') {
@@ -1593,6 +1788,10 @@ export function startBridgeServer(deps: McpServerDeps & { token: string; actionT
         scope,
         agentId: typeof agentHeader === 'string' && agentHeader !== '' ? agentHeader : null,
       };
+      // U3: the transport-level revision declaration (SEP-2243). Captured
+      // here, resolved after the body is parsed — `_meta` and an initialize
+      // ask are the other declaration channels.
+      const versionHeader = req.headers[MCP_HEADER_PROTOCOL_VERSION];
       let raw = '';
       let tooBig = false;
       req.on('data', (d: Buffer) => {
@@ -1610,14 +1809,46 @@ export function startBridgeServer(deps: McpServerDeps & { token: string; actionT
         send(413, { error: 'body too large' });
         return;
       }
-      let msg: JsonRpcRequest;
+      let parsed: unknown;
       try {
-        const parsed: unknown = JSON.parse(raw);
-        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a single JSON-RPC object');
-        msg = parsed as JsonRpcRequest;
+        parsed = JSON.parse(raw);
       } catch {
         send(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } });
         return;
+      }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        // Well-formed JSON that is not a request object — almost always a
+        // JSON-RPC batch, which this bridge has never implemented. That is
+        // -32600 invalid request, not -32700: telling a client its bytes
+        // failed to parse when they parsed fine sends it debugging its
+        // transport instead of its envelope.
+        send(400, {
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32600, message: 'invalid request: send one JSON-RPC request object per POST (batches are not supported)' },
+        });
+        return;
+      }
+      const msg = parsed as JsonRpcRequest;
+      // U7 + ADR-063 D2 amendment: rank the declared channels — header, the
+      // stateless `_meta` envelope, an initialize ask — and serve the first
+      // revision we implement. A client that declared ONLY revisions we don't
+      // is still served, at the floor, stamped as the floor, and logged once
+      // per process (the spec's -32022 refusal is deliberately not adopted —
+      // availability first; see the ADR). True silence still stamps nothing.
+      const meta = readRequestMeta(msg.params);
+      if (meta.client !== null) ctx.client = meta.client;
+      const initAsk = msg.method === 'initialize' ? (msg.params as { protocolVersion?: unknown } | undefined)?.protocolVersion : undefined;
+      const declared: string[] = [];
+      for (const v of [versionHeader, meta.protocolVersion, initAsk]) {
+        if (typeof v === 'string' && v !== '') declared.push(v);
+      }
+      const known = declared.find((v) => MCP_PROTOCOL_VERSIONS.includes(v));
+      if (known !== undefined) {
+        ctx.protocolVersion = known;
+      } else if (declared.length > 0) {
+        ctx.protocolVersion = MCP_PROTOCOL_FLOOR;
+        warnUnsupportedVersions(declared);
       }
       const out = await handleMcpMessage(msg, deps, ctx);
       if (out === null) {
@@ -1625,7 +1856,17 @@ export function startBridgeServer(deps: McpServerDeps & { token: string; actionT
         res.end();
         return;
       }
-      send(200, out);
+      // Echo the revision we actually served. For a handshake that is whatever
+      // the body just negotiated — read back off the result rather than
+      // recomputed, so the header and the body cannot disagree. Otherwise it
+      // is what the caller declared, and omitted entirely when it declared
+      // nothing: a guess stamped here would be a claim we cannot stand behind.
+      let served = ctx.protocolVersion;
+      if (msg.method === 'initialize' && out.result !== null && typeof out.result === 'object') {
+        const negotiated = (out.result as Record<string, unknown>).protocolVersion;
+        if (typeof negotiated === 'string') served = negotiated;
+      }
+      send(200, out, served === undefined ? {} : { [MCP_HEADER_PROTOCOL_VERSION]: served });
     })().catch(() => {
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });

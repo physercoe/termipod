@@ -12,7 +12,11 @@
 // and the remaining domains.
 package hubmcpserver
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/termipod/hub/internal/mcpwire"
+)
 
 // Tier vocabulary (mirrors server/tiers.go). A registry tool carries
 // its tier here; tierFor() reads it instead of the toolTiers table.
@@ -543,6 +547,7 @@ func CatalogEntry(name, short, description string, schema any, s ToolSpec) map[s
 		// not safe to batch.
 		"concurrency_safe": s.ReadOnly,
 		"side_effecting":   !s.ReadOnly,
+		"annotations":      mcpwire.ToolAnnotations(name, s.ReadOnly),
 	}
 	if len(s.SeeAlso) > 0 {
 		e["see_also"] = s.SeeAlso

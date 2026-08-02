@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ACTION_TOOLS,
   BridgeAuditRing,
@@ -20,7 +21,10 @@ import {
   foldRemoteSessions,
   shouldMirrorAudit,
   handleMcpMessage,
+  MCP_PROTOCOL_FLOOR,
+  MCP_PROTOCOL_VERSIONS,
   mintToken,
+  negotiateMcpProtocolVersion,
   pruneSnapshotRefs,
   READ_TOOLS,
   bridgeDiscoveryPath,
@@ -162,7 +166,13 @@ test('notifications produce no response; ping answers', async () => {
   const deps = { ...DEPS, backend: fakeBackend() };
   assert.equal(await handleMcpMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }, deps), null);
   const pong = await handleMcpMessage({ jsonrpc: '2.0', id: 'p', method: 'ping' }, deps);
-  assert.deepEqual(pong?.result, {});
+  // ADR-063 D3: every result carries the additive 2026-07-28 fields, even the
+  // empty one. `ping` itself was removed in that revision — we still answer it
+  // for the revisions that have it.
+  assert.deepEqual(pong?.result, {
+    resultType: 'complete',
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'termipod-browser', version: DEPS.serverInfo.version } },
+  });
 });
 
 test('tools/list is exactly the four W1 read tools', async () => {
@@ -905,4 +915,167 @@ test('W3 foldRemoteSessions: hub entries fold per-agent, newest first, revoke fl
     { agent_id: 'agent-b', last_tool: 'browser_click', last_ts: '2026-07-29T10:01:00Z', revoked: true },
   ]);
   assert.deepEqual(foldRemoteSessions([], new Set()), []);
+});
+
+// ── Lane U: MCP 2026-07-28 compat (ADR-063) ──────────────────────────────────
+
+// D1's parity pin. The bridge cannot import hub/internal/mcpver, so both
+// languages are checked against one fixture instead. If this fails, the two
+// version sets have drifted and one of the four servers is answering a
+// revision the others refuse.
+test('U1/U2 parity: the bridge version set matches the Go fixture exactly', () => {
+  const fixturePath = fileURLToPath(new URL('../../../hub/internal/mcpver/versions.json', import.meta.url));
+  const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as { floor: string; supported: string[] };
+  assert.deepEqual([...MCP_PROTOCOL_VERSIONS], fixture.supported, 'add the revision here AND in mcpver.go AND in versions.json');
+  assert.equal(MCP_PROTOCOL_FLOOR, fixture.floor);
+  assert.ok(MCP_PROTOCOL_VERSIONS.includes(MCP_PROTOCOL_FLOOR), 'the floor must be a revision we actually speak');
+  assert.equal(MCP_PROTOCOL_VERSIONS[0], MCP_PROTOCOL_FLOOR, 'the floor is the oldest revision');
+});
+
+// The bug U2 exists to kill: this bridge used to echo ANY version string a
+// client sent, promising semantics it had never implemented.
+test('U2: an unknown revision gets the floor, never a blind echo', async () => {
+  const deps = { ...DEPS, backend: fakeBackend() };
+  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2027-01-01' } }, deps);
+  const result = res?.result as { protocolVersion: string };
+  assert.equal(result.protocolVersion, MCP_PROTOCOL_FLOOR);
+
+  // Every revision we DO implement still round-trips — the v1.0.649 lesson:
+  // a strict client treats a downgrade it did not ask for as fatal.
+  for (const v of MCP_PROTOCOL_VERSIONS) {
+    const ok = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: v } }, deps);
+    assert.equal((ok?.result as { protocolVersion: string }).protocolVersion, v);
+  }
+  assert.equal(negotiateMcpProtocolVersion(undefined, null, 'nonsense'), MCP_PROTOCOL_FLOOR);
+  assert.equal(negotiateMcpProtocolVersion('nope', '2025-11-25'), '2025-11-25', 'the first KNOWN ask wins, not the first present one');
+});
+
+test('U6: server/discover advertises the whole set, cacheable', async () => {
+  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'server/discover' }, { ...DEPS, backend: fakeBackend() });
+  const result = res?.result as { protocolVersions: string[]; ttlMs: number; cacheScope: string; resultType: string };
+  assert.deepEqual(result.protocolVersions, [...MCP_PROTOCOL_VERSIONS]);
+  assert.equal(result.resultType, 'complete');
+  assert.equal(result.ttlMs, 300000);
+  // Never 'public': a read-scoped and an action-scoped session get different
+  // tool lists off this same URL.
+  assert.equal(result.cacheScope, 'private');
+});
+
+test('U4/U5/U8: tools/list is stamped, cacheable, and annotated', async () => {
+  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { ...DEPS, backend: fakeBackend() });
+  const result = res?.result as {
+    tools: Array<{ name: string; annotations?: { title?: string; readOnlyHint?: boolean; destructiveHint?: unknown } }>;
+    resultType: string;
+    ttlMs: number;
+    cacheScope: string;
+  };
+  assert.equal(result.resultType, 'complete');
+  assert.equal(result.ttlMs, 300000);
+  assert.equal(result.cacheScope, 'private');
+  for (const t of result.tools) {
+    assert.equal(typeof t.annotations?.readOnlyHint, 'boolean', `${t.name} has no readOnlyHint`);
+    assert.equal(typeof t.annotations?.title, 'string');
+    // Asserting destructiveHint FALSE is the one direction that can invite a
+    // client to auto-approve a mutating call — we never publish it at all.
+    assert.equal('destructiveHint' in (t.annotations ?? {}), false, `${t.name} publishes destructiveHint`);
+  }
+  assert.equal(result.tools.find((t) => t.name === 'browser_snapshot')?.annotations?.readOnlyHint, true);
+  assert.equal(result.tools.find((t) => t.name === 'browser_list_tabs')?.annotations?.title, 'Browser list tabs');
+});
+
+// ui_screenshot and ui_highlight live in the READ catalog but photograph and
+// draw on the user's screen. readOnlyHint must be fail-closed for them, or a
+// spec-aware client will auto-approve exactly the calls that need consent.
+test('U8: the desktop-action tools are never marked read-only', async () => {
+  const deps = { ...DEPS, backend: fakeBackend(), uiFocusAvailable: () => true };
+  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, deps);
+  const { tools } = res?.result as { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> };
+  assert.equal(tools.find((t) => t.name === 'ui_screenshot')?.annotations.readOnlyHint, false);
+  assert.equal(tools.find((t) => t.name === 'ui_highlight')?.annotations.readOnlyHint, false);
+  // ui_get_focus really does only observe.
+  assert.equal(tools.find((t) => t.name === 'ui_get_focus')?.annotations.readOnlyHint, true);
+});
+
+test('U3/U7/U10 over HTTP: version header, _meta identity, batch rejection', async () => {
+  const token = mintToken();
+  const actionToken = mintToken();
+  const entries: BridgeAuditEntry[] = [];
+  const server = await startBridgeServer({ ...DEPS, backend: actionBackend(), token, actionToken, onAction: (e) => entries.push(e) });
+  try {
+    const base = `http://127.0.0.1:${String(server.port)}`;
+    const post = (bearer: string, body: unknown, headers: Record<string, string> = {}): Promise<Response> =>
+      fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}`, ...headers },
+        body: JSON.stringify(body),
+      });
+
+    // U3: a known revision on the header is honoured and echoed back.
+    const known = await post(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { 'mcp-protocol-version': '2026-07-28' });
+    assert.equal(known.headers.get('mcp-protocol-version'), '2026-07-28');
+
+    // ADR-063 D2 amendment: declared-but-unknown is SERVED, at the floor,
+    // stamped as the floor — never the client's unlisted string (a blind echo
+    // claims semantics we lack) and never the spec's -32022 refusal (an
+    // outage for a tolerant client). Hub and bridge now answer identically.
+    const unknown = await post(token, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, { 'mcp-protocol-version': '2027-01-01' });
+    assert.equal(unknown.headers.get('mcp-protocol-version'), MCP_PROTOCOL_FLOOR, 'declared-but-unknown serves and stamps the floor');
+    assert.equal((((await unknown.json()) as { result: { tools: unknown[] } }).result.tools.length > 0), true, 'the request is still served');
+
+    // …including when the only declaration channel is the `_meta` envelope.
+    const metaUnknown = await post(token, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/list',
+      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2027-01-01' } },
+    });
+    assert.equal(metaUnknown.headers.get('mcp-protocol-version'), MCP_PROTOCOL_FLOOR);
+
+    // The honesty rule: a caller that declared no revision is told none.
+    const silent = await post(token, { jsonrpc: '2.0', id: 4, method: 'tools/list' });
+    assert.equal(silent.headers.get('mcp-protocol-version'), null);
+
+    // A handshake always answers, and the header agrees with the body.
+    const handshake = await post(token, { jsonrpc: '2.0', id: 4, method: 'initialize', params: { protocolVersion: '2025-11-25' } });
+    const hsBody = (await handshake.json()) as { result: { protocolVersion: string } };
+    assert.equal(hsBody.result.protocolVersion, '2025-11-25');
+    assert.equal(handshake.headers.get('mcp-protocol-version'), '2025-11-25');
+
+    // U10: a JSON-RPC batch is a well-formed envelope we do not implement —
+    // -32600, not the -32700 that sends a client debugging its transport.
+    const batch = await post(token, [{ jsonrpc: '2.0', id: 5, method: 'ping' }]);
+    const batchBody = (await batch.json()) as { error: { code: number; message: string } };
+    assert.equal(batchBody.error.code, -32600);
+    assert.match(batchBody.error.message, /batches are not supported/);
+
+    // Truly malformed bytes stay a parse error.
+    const junk = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: '{not json',
+    });
+    assert.equal(((await junk.json()) as { error: { code: number } }).error.code, -32700);
+
+    // U7: a stateless client identifies itself per request. The label lands
+    // on the audit ring — and NOWHERE else: postBridgeAudit picks the hub
+    // payload's fields explicitly, so an unverified self-report never
+    // becomes a hub record.
+    await post(
+      actionToken,
+      {
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: {
+          name: 'browser_click',
+          arguments: { tabId: 7, selector: '#go' },
+          _meta: { 'io.modelcontextprotocol/clientInfo': { name: 'synthetic', version: '9.9' } },
+        },
+      },
+      { 'x-tp-agent-id': 'agent-9' },
+    );
+    assert.equal(entries.at(-1)?.client, 'synthetic/9.9');
+  } finally {
+    await server.close();
+  }
 });

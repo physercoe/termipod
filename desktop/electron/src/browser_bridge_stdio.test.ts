@@ -24,6 +24,9 @@ const PING = '{"jsonrpc":"2.0","id":1,"method":"ping"}\n';
 interface Captured {
   authorization: string | null;
   body: string;
+  /// Plan lane B2: the relay stamps Mcp-Method/Mcp-Name so the desktop can
+  /// classify and meter a call without parsing the body.
+  headers: http.IncomingHttpHeaders;
 }
 
 /// A fake MCP endpoint: captures requests, answers every POST with a pong.
@@ -35,7 +38,7 @@ function fakeMcp(): Promise<{ url: string; requests: Captured[]; close: () => Pr
       body += d.toString('utf8');
     });
     req.on('end', () => {
-      requests.push({ authorization: req.headers.authorization ?? null, body });
+      requests.push({ authorization: req.headers.authorization ?? null, body, headers: req.headers });
       let id: unknown = null;
       try {
         id = (JSON.parse(body) as { id?: unknown }).id ?? null;
@@ -71,7 +74,7 @@ interface RelayRun {
 /// `ping` is set, one ping frame is written and stdin stays open until the
 /// relayed answer arrives on stdout (ending stdin earlier would exit the
 /// relay mid-request — rl close is process exit by design).
-function runRelay(env: Record<string, string>, opts: { ping?: boolean; timeoutMs?: number } = {}): Promise<RelayRun> {
+function runRelay(env: Record<string, string>, opts: { ping?: boolean; timeoutMs?: number; frame?: string } = {}): Promise<RelayRun> {
   const timeoutMs = opts.timeoutMs ?? 8000;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [RELAY], {
@@ -107,7 +110,7 @@ function runRelay(env: Record<string, string>, opts: { ping?: boolean; timeoutMs
       }
     });
     if (opts.ping === true) {
-      child.stdin.write(PING);
+      child.stdin.write(opts.frame ?? PING);
     } else {
       child.stdin.end();
     }
@@ -197,4 +200,63 @@ test('relay: partial env (URL without token) keeps the loud exit-2', async () =>
   const run = await runRelay({ TP_BROWSER_URL: 'http://127.0.0.1:1/mcp' });
   assert.equal(run.code, 2);
   assert.match(run.stderr, /TP_BROWSER_URL and TP_BROWSER_TOKEN are required/);
+});
+
+// ── Lane B2: standard MCP request headers on the relay's HTTP leg ────────────
+
+test('relay: stamps Mcp-Method, and Mcp-Name only on a tools/call', async () => {
+  const server = await fakeMcp();
+  try {
+    // A method that names no tool must not carry Mcp-Name — a classifier
+    // reading it would attribute the frame to some unrelated tool.
+    const pinged = await runRelay({ TP_BROWSER_URL: server.url, TP_BROWSER_TOKEN: 'tok' }, { ping: true });
+    assert.equal(pinged.code, 0, pinged.stderr);
+    assert.equal(server.requests[0]?.headers['mcp-method'], 'ping');
+    assert.equal(server.requests[0]?.headers['mcp-name'], undefined);
+
+    const called = await runRelay(
+      { TP_BROWSER_URL: server.url, TP_BROWSER_TOKEN: 'tok' },
+      { ping: true, frame: `${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'browser_click', arguments: {} } })}\n` },
+    );
+    assert.equal(called.code, 0, called.stderr);
+    assert.equal(server.requests[1]?.headers['mcp-method'], 'tools/call');
+    assert.equal(server.requests[1]?.headers['mcp-name'], 'browser_click');
+  } finally {
+    await server.close();
+  }
+});
+
+// The relay is a byte pump, not a validator: the desktop is the authority on
+// what is valid JSON-RPC. A frame we cannot parse still goes through, just
+// unlabelled — rejecting it here would put a second, weaker parser in the path.
+test('relay: an unparseable frame is forwarded verbatim and unstamped', async () => {
+  const server = await fakeMcp();
+  try {
+    const run = await runRelay({ TP_BROWSER_URL: server.url, TP_BROWSER_TOKEN: 'tok' }, { ping: true, frame: '{not json\n' });
+    assert.equal(run.code, 0, run.stderr);
+    assert.equal(server.requests[0]?.body, '{not json');
+    assert.equal(server.requests[0]?.headers['mcp-method'], undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+// A PARSEABLE frame whose tool name cannot live in an HTTP header value must
+// still reach the desktop: Node's client throws on control bytes at send
+// time, so stamping such a name verbatim would kill the frame at the relay
+// with a transport error, when the desktop would have answered it with a
+// proper JSON-RPC error. The valid method is still stamped; only the
+// unstampable name is skipped.
+test('relay: a header-hostile tool name is skipped, not fatal', async () => {
+  const server = await fakeMcp();
+  try {
+    const frame = `${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'evil\r\nX-Inject: 1', arguments: {} } })}\n`;
+    const run = await runRelay({ TP_BROWSER_URL: server.url, TP_BROWSER_TOKEN: 'tok' }, { ping: true, frame });
+    assert.equal(run.code, 0, run.stderr);
+    assert.equal(server.requests[0]?.headers['mcp-method'], 'tools/call');
+    assert.equal(server.requests[0]?.headers['mcp-name'], undefined);
+    assert.match(run.stdout, /"id":3/, 'the frame must be answered by the server, not die at the relay');
+  } finally {
+    await server.close();
+  }
 });

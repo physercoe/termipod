@@ -71,6 +71,37 @@ if (!URL_ || !TOKEN) {
   process.exit(2);
 }
 
+/// Standard MCP request headers (2026-07-28 SEP-2243) for one JSON-RPC frame:
+/// Mcp-Method always, Mcp-Name for a tools/call. They let the desktop classify
+/// read-vs-action, meter, and ring-audit a call WITHOUT parsing the body — the
+/// point of the spec's header routing.
+///
+/// A frame we cannot parse is forwarded verbatim and unstamped. The desktop is
+/// the authority on what is valid JSON-RPC; a relay that rejected frames on its
+/// own reading of them would be a second, weaker parser in the path.
+///
+/// The same rule covers a value we cannot STAMP: Node's HTTP client throws on
+/// a header value with control bytes, so stamping a hostile method/tool name
+/// verbatim would kill a parseable frame at the relay with a transport error
+/// instead of letting the desktop answer it with a proper JSON-RPC error.
+/// Unstampable values are skipped; the frame still goes through.
+function headerSafe(v) {
+  return typeof v === 'string' && v !== '' && /^[\t\x20-\x7e]+$/.test(v);
+}
+
+function mcpHeaders(line) {
+  try {
+    const frame = JSON.parse(line);
+    if (frame === null || typeof frame !== 'object' || !headerSafe(frame.method)) return {};
+    const out = { 'mcp-method': frame.method };
+    const name = frame.params?.name;
+    if (frame.method === 'tools/call' && headerSafe(name)) out['mcp-name'] = name;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 /// POST one JSON-RPC frame; resolve with the response body (null for 202/empty
 /// — a notification answer) or reject on transport/HTTP failure.
 function forward(line) {
@@ -84,6 +115,7 @@ function forward(line) {
           authorization: `Bearer ${TOKEN}`,
           'x-tp-browser-scope': SCOPE,
           ...(AGENT_ID !== '' ? { 'x-tp-agent-id': AGENT_ID } : {}),
+          ...mcpHeaders(line),
         },
         timeout: TIMEOUT_MS,
       },

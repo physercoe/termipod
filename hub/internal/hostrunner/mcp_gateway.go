@@ -40,6 +40,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/termipod/hub/internal/mcpver"
+	"github.com/termipod/hub/internal/mcpwire"
 )
 
 // socketPath returns the UDS path for a given agent. We keep this in
@@ -279,28 +282,22 @@ type gwRespError struct {
 	Message string `json:"message"`
 }
 
-const gwProtocolVersion = "2024-11-05"
+// gwServerName is the wire-visible name of this server — the key
+// host-runner writes into a spawned agent's `.mcp.json`, so it is frozen
+// (ADR-033 D-5).
+const gwServerName = "termipod-host-runner-gateway"
 
-// gwSupportedProtocolVersions — echo the client's revision when we
-// know it so strict clients (agy 1.0.1 saw "client is closing: invalid
-// request" on the W11 smoke when we downgraded their 2025-11-25 to
-// 2024-11-05). Same set as hub/internal/server/mcp.go.
-var gwSupportedProtocolVersions = map[string]struct{}{
-	"2024-11-05": {},
-	"2025-03-26": {},
-	"2025-06-18": {},
-	"2025-11-25": {},
+// The supported protocol-version set and the negotiation function moved
+// to internal/mcpver (ADR-063 D1); this file used to carry the third of
+// the three copies.
+
+// gwIdentity attaches this server's identity to a result's `_meta`,
+// where 2026-07-28 moved it from the initialize response (SEP-2575).
+func gwIdentity(m map[string]any) map[string]any {
+	return mcpwire.WithServerInfo(m, gwServerName, gwServerVersion)
 }
 
-func gwNegotiateProtocolVersion(requested string) string {
-	if requested == "" {
-		return gwProtocolVersion
-	}
-	if _, ok := gwSupportedProtocolVersions[requested]; ok {
-		return requested
-	}
-	return gwProtocolVersion
-}
+const gwServerVersion = "0.1"
 
 func (g *McpGateway) handleLine(line []byte) []byte {
 	if len(line) == 0 {
@@ -316,37 +313,60 @@ func (g *McpGateway) handleLine(line []byte) []byte {
 	// Notifications (no id) get no response by JSON-RPC 2.0 rules.
 	isNotification := len(req.ID) == 0
 
+	// Which revision is this exchange speaking? UDS carries no headers,
+	// so the channels are the initialize ask and the 2026-07-28
+	// per-request `_meta` envelope (SEP-2575).
+	var params struct {
+		ProtocolVersion string              `json:"protocolVersion"`
+		Meta            mcpwire.RequestMeta `json:"_meta"`
+	}
+	if len(req.Params) > 0 {
+		_ = json.Unmarshal(req.Params, &params)
+	}
+	// ADR-063 D2 amendment: declared-but-unsupported is served at the
+	// floor and logged once per process.
+	mcpver.WarnIfUnsupported(gwServerName, params.ProtocolVersion, params.Meta.ProtocolVersion)
+
 	switch req.Method {
 	case "initialize":
 		if isNotification {
 			return nil
 		}
-		var initParams struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		if len(req.Params) > 0 {
-			_ = json.Unmarshal(req.Params, &initParams)
-		}
 		return encodeResp(gwResp{
 			JSONRPC: "2.0", ID: req.ID,
-			Result: map[string]any{
-				"protocolVersion": gwNegotiateProtocolVersion(initParams.ProtocolVersion),
+			Result: gwIdentity(mcpwire.StampResult(map[string]any{
+				"protocolVersion": mcpver.NegotiateFirst(params.ProtocolVersion, params.Meta.ProtocolVersion),
 				"capabilities":    map[string]any{"tools": map[string]any{}},
 				"serverInfo": map[string]any{
-					"name":    "termipod-host-runner-gateway",
-					"version": "0.1",
+					"name":    gwServerName,
+					"version": gwServerVersion,
 				},
-			},
+			})),
 		})
 	case "notifications/initialized":
 		return nil
+	case "server/discover":
+		// 2026-07-28 SEP-2575 — also the backwards-compat probe a stdio
+		// client uses before committing to a handshake.
+		if isNotification {
+			return nil
+		}
+		return encodeResp(gwResp{
+			JSONRPC: "2.0", ID: req.ID,
+			Result: gwIdentity(mcpwire.StampCacheableList(map[string]any{
+				"protocolVersions": mcpver.Supported(),
+				"capabilities":     map[string]any{"tools": map[string]any{}},
+			})),
+		})
 	case "tools/list":
 		if isNotification {
 			return nil
 		}
 		return encodeResp(gwResp{
 			JSONRPC: "2.0", ID: req.ID,
-			Result: map[string]any{"tools": gatewayToolDefs()},
+			Result: gwIdentity(mcpwire.StampCacheableList(map[string]any{
+				"tools": gatewayToolDefs(),
+			})),
 		})
 	case "tools/call":
 		result, jerr := g.dispatchTool(req.Params)
@@ -357,14 +377,22 @@ func (g *McpGateway) handleLine(line []byte) []byte {
 		if jerr != nil {
 			resp.Error = jerr
 		} else {
+			if m, ok := result.(map[string]any); ok {
+				result = gwIdentity(m)
+			}
 			resp.Result = result
 		}
 		return encodeResp(resp)
 	case "ping":
+		// Removed in 2026-07-28 (SEP-2575); still answered for the
+		// revisions that have it.
 		if isNotification {
 			return nil
 		}
-		return encodeResp(gwResp{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
+		return encodeResp(gwResp{
+			JSONRPC: "2.0", ID: req.ID,
+			Result: gwIdentity(mcpwire.StampResult(map[string]any{})),
+		})
 	default:
 		if isNotification {
 			return nil
@@ -500,7 +528,24 @@ func gatewayToolDefs() []map[string]any {
 			"additionalProperties": true,
 		},
 	})
+	// ADR-063 D5: publish the spec's annotations alongside the catalog.
+	// This catalog is hand-written — there is no ToolSpec.ReadOnly to
+	// read — so the read-only claim comes from an explicit allow-list
+	// and everything else is fail-closed. That is the right default
+	// here: every other tool on this gateway writes to the hub (posts
+	// an event, creates a document or review, records a hook
+	// observation or a status snapshot), so an omission is never a
+	// wrong `readOnlyHint: true`.
+	for _, d := range defs {
+		name, _ := d["name"].(string)
+		d["annotations"] = mcpwire.ToolAnnotations(name, gwReadOnlyTools[name])
+	}
 	return defs
+}
+
+// gwReadOnlyTools names the gateway tools that observe without mutating.
+var gwReadOnlyTools = map[string]bool{
+	"host.ping": true,
 }
 
 type gwToolCallIn struct {
@@ -829,12 +874,16 @@ func (g *McpGateway) teamID() string {
 // --- result formatters (MCP convention: content=[{type:"text",text:...}]) ---
 
 func mcpGWResultText(s string) map[string]any {
-	return map[string]any{
+	return mcpwire.StampResult(map[string]any{
 		"content": []any{map[string]any{"type": "text", "text": s}},
-	}
+	})
 }
 
+// mcpGWResultJSON renders a value both ways (ADR-063 D3): the portable
+// text block, and — for object-shaped values — `structuredContent` for
+// clients that parse (see mcpwire.AttachStructuredContent on why
+// arrays stay text-only).
 func mcpGWResultJSON(v any) map[string]any {
 	b, _ := json.MarshalIndent(v, "", "  ")
-	return mcpGWResultText(string(b))
+	return mcpwire.AttachStructuredContent(mcpGWResultText(string(b)), v, b)
 }

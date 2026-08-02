@@ -160,7 +160,7 @@ test('D2: drag → target row → companion chip → postAgentInput carries the 
   await expect(connect).toHaveCount(0, { timeout: 20_000 });
 
   // Author surface: a fresh markdown doc (into the tmp workspace). The unified
-  // assistant dock opens from the status-bar chip; its Companion tab hosts the
+  // assistant dock opens from the status-bar chip; its Companion hosts the
   // one AgentCompanion (the per-surface mounts are retired) — it auto-selects
   // the mock agent.
   await page.locator('[data-job="author"]').click();
@@ -168,7 +168,12 @@ test('D2: drag → target row → companion chip → postAgentInput carries the 
   await page.locator('.statusbar .statusbar-term').first().click();
   const dock = page.locator('.assistant-dock');
   await expect(dock).toBeVisible({ timeout: 20_000 });
-  await dock.getByRole('tab', { name: 'Companion' }).click();
+  // kimi-code is NOT installed on a CI runner, so this run exercises exactly
+  // the case vision-parity F1 exists for: the dock opens, the Companion is
+  // there, and the tab strip collapses to a plain label because one tab is not
+  // a choice. Before F1 the dock returned null outright on this machine.
+  await expect(dock.locator('.assistant-dock-tabs')).toHaveCount(0);
+  await expect(dock.locator('.assistant-dock-title')).toHaveText('Companion');
   const composer = page.locator('.companion .composer textarea');
   await expect(composer).toBeVisible({ timeout: 20_000 });
 
@@ -197,7 +202,9 @@ test('D2: drag → target row → companion chip → postAgentInput carries the 
   // The handoff reveals the dock on the Companion tab; the crop is a
   // delete-able chip in the compose box; the note is the draft.
   await expect(dock).toBeVisible();
-  await expect(dock.getByRole('tab', { name: 'Companion' })).toHaveClass(/active/);
+  // With kimi absent the Companion pane is the only one mounted; the reveal's
+  // job here is to un-hide the dock, which stepped aside for the overlay.
+  await expect(dock.locator('.assistant-dock-pane')).toHaveCount(1);
   const chip = page.locator('.companion .att-chip');
   await expect(chip).toBeVisible();
   await expect(chip.locator('.att-thumb')).toBeVisible();

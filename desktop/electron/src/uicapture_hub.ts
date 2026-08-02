@@ -5,7 +5,7 @@
 /// stays in uicapture.ts; the Electron halves (capturePage, the keychain
 /// token) stay in uicapture_host.ts.
 import {
-  readCaptureDecision,
+  readCardDecision,
   UI_CAPTURE_APPROVAL_TIMEOUT_MS,
   UI_CAPTURE_POLL_MS,
   type CaptureOutcome,
@@ -66,6 +66,10 @@ export async function raiseCard(
 /// Poll one card until it resolves or the window closes. A transport error is
 /// NOT a decision — it just costs one poll interval, and the deadline still
 /// governs.
+///
+/// Returns the option the user picked alongside the outcome (empty for a card
+/// that offered none, and for every non-approve). Only `approveViaCard*` calls
+/// this; both wrappers below are the supported entry points.
 export async function awaitCard(
   leg: HubLeg,
   id: string,
@@ -73,21 +77,21 @@ export async function awaitCard(
   now: () => number,
   sleep: (ms: number) => Promise<void>,
   fetchFn: FetchLike = fetch,
-): Promise<CaptureOutcome> {
+): Promise<{ outcome: CaptureOutcome; optionId: string }> {
   for (;;) {
-    if (now() >= deadline) return 'pending';
+    if (now() >= deadline) return { outcome: 'pending', optionId: '' };
     await sleep(UI_CAPTURE_POLL_MS);
-    let outcome: CaptureOutcome = 'pending';
+    let decision: { outcome: CaptureOutcome; optionId: string } = { outcome: 'pending', optionId: '' };
     try {
       const res = await fetchFn(teamUrl(leg, `/attention/${encodeURIComponent(id)}`), {
         headers: { authorization: `Bearer ${leg.token}` },
         signal: AbortSignal.timeout(10_000),
       });
-      if (res.ok) outcome = readCaptureDecision(await res.json());
+      if (res.ok) decision = readCardDecision(await res.json());
     } catch {
       /* transport hiccup — try again inside the deadline */
     }
-    if (outcome !== 'pending') return outcome;
+    if (decision.outcome !== 'pending') return decision;
   }
 }
 
@@ -137,16 +141,31 @@ export async function approveViaCard(
   agentHandle: string,
   deps: ApprovalDeps = {},
 ): Promise<ApprovalVerdict> {
+  return (await approveViaCardWithOption(leg, card, agentHandle, deps)).verdict;
+}
+
+/// The same leg, reporting which button the user pressed. A card whose payload
+/// sets `session_grant` offers a second approve ("…for this session"), and the
+/// caller cannot tell the two apart from the verdict alone.
+///
+/// `optionId` is meaningful ONLY when the verdict is `approve` — every other
+/// path returns it empty, so a caller cannot read a grant out of a denial.
+export async function approveViaCardWithOption(
+  leg: HubLeg,
+  card: { summary: string; payload: Record<string, unknown> },
+  agentHandle: string,
+  deps: ApprovalDeps = {},
+): Promise<{ verdict: ApprovalVerdict; optionId: string }> {
   const now = deps.now ?? (() => Date.now());
   const sleep = deps.sleep ?? defaultSleep;
   const fetchFn = deps.fetchFn ?? fetch;
   const id = await raiseCard(leg, card.summary, card.payload, agentHandle, fetchFn);
-  if (id === null) return 'raise_failed';
-  const outcome = await awaitCard(leg, id, now() + (deps.timeoutMs ?? UI_CAPTURE_APPROVAL_TIMEOUT_MS), now, sleep, fetchFn);
-  if (outcome === 'approve') return 'approve';
-  if (outcome === 'pending') {
+  if (id === null) return { verdict: 'raise_failed', optionId: '' };
+  const decision = await awaitCard(leg, id, now() + (deps.timeoutMs ?? UI_CAPTURE_APPROVAL_TIMEOUT_MS), now, sleep, fetchFn);
+  if (decision.outcome === 'approve') return { verdict: 'approve', optionId: decision.optionId };
+  if (decision.outcome === 'pending') {
     void dismissCard(leg, id, fetchFn);
-    return 'timeout';
+    return { verdict: 'timeout', optionId: '' };
   }
-  return 'denied';
+  return { verdict: 'denied', optionId: '' };
 }

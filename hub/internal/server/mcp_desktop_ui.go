@@ -28,7 +28,13 @@
 //     it draws an attributed glow that expires and takes no action with
 //     the user's authority — so ADR-062 D-5 puts its consent in the
 //     sharing toggle plus the policy table's `highlight` bit, and its
-//     safety in the desktop's rate limit and the audit trail.
+//     safety in the desktop's rate limit and the audit trail;
+//   - `author_read` / `author_apply` (ADR-064, coworking lane A) join the
+//     class: the Author surface's documents, read and written through the
+//     same tunnel. `author_apply` is an ACTION and is carded per call
+//     here, because the consent the desktop offers locally is per
+//     DOCUMENT and this grant store's key has no document in it — see
+//     desktopUIGrantable.
 //
 // The hub relays and never stores: no focus snapshot, no capture, ever
 // lands in a table (ADR-062 D-7). What crosses is audited by the
@@ -51,8 +57,9 @@ import (
 const desktopTunnelKind = "desktop.invoke"
 
 // desktopGrantKind namespaces this class's session grants. Present for
-// symmetry and for the class's future action tools; `ui_screenshot`
-// itself never consults it (see desktopUIGrantable).
+// symmetry and for the class's future action tools; neither
+// `ui_screenshot` nor `author_apply` consults it (see
+// desktopUIGrantable).
 const desktopGrantKind = "desktop_ui"
 
 // desktopUICapability is the hosts.capabilities key the desktop sets
@@ -65,6 +72,10 @@ const desktopUICapability = "desktop_ui"
 // never which the desktop permits.
 var desktopUIReadTools = []string{
 	"ui_get_focus",
+	// ADR-064 lane A. A read of the user's own documents: it discloses
+	// bytes rather than ids, so the desktop audits it on every leg, but
+	// it changes nothing and takes no card.
+	"author_read",
 }
 
 // desktopUIAnnotateTools route immediately like a read, but WRITE
@@ -86,6 +97,8 @@ var desktopUIAnnotateTools = []string{
 
 var desktopUIActionTools = []string{
 	"ui_screenshot",
+	// ADR-064 lane A: a write into a document the user is authoring.
+	"author_apply",
 }
 
 func desktopUIToolClass(tool string) string {
@@ -116,18 +129,36 @@ func desktopUIToolNames() []string {
 }
 
 // desktopUIGrantable reports whether an action tool of this class may
-// EVER ride a session grant. `ui_screenshot` may not: a frame of
-// everything the user can see is the most sensitive artifact the app
-// can emit, so consent is per call, forever (plan §3.3).
+// EVER ride a session grant. Both of today's action tools say no, for
+// two different reasons — which is why this is a switch and not a
+// negation:
 //
-// Today that makes the predicate constantly false, because ui_screenshot
-// is the class's only ACTION tool. It is written as a predicate anyway,
-// and desktopGrantKind reserved, because the grant path is shared with a
-// class that DOES offer session grants — a future grantable desktop
-// action must land in its own namespace rather than borrowing the
-// browser one (the §3.6 review amendment).
+//   - `ui_screenshot`: a frame of everything the user can see is the
+//     most sensitive artifact the app can emit, so consent is per call,
+//     forever (plan §3.3).
+//   - `author_apply`: a grant here would be the WRONG SHAPE, not merely
+//     too broad. This store keys grants by (kind, team, host, agent) —
+//     there is no document in the key. The consent the desktop offers is
+//     "allow this document for this session", so a grant minted from
+//     that answer would silence the card for every OTHER document too:
+//     the user would have said "edit my draft" and been taken to mean
+//     "edit anything I open". Until the grant key carries a subject, a
+//     relayed apply is carded per call, and the card's args name the
+//     document. The desktop holds the per-document lease for its own
+//     local agents, where it is the sole consent authority (ADR-064,
+//     coworking A3).
+//
+// desktopGrantKind stays reserved: the grant path is shared with a class
+// that DOES offer session grants, and a future grantable desktop action
+// must land in its own namespace rather than borrowing the browser one
+// (the §3.6 review amendment).
 func desktopUIGrantable(tool string) bool {
-	return tool != "ui_screenshot"
+	switch tool {
+	case "ui_screenshot", "author_apply":
+		return false
+	default:
+		return true
+	}
 }
 
 // ---------------------------------------------------------------------

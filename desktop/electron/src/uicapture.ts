@@ -169,16 +169,30 @@ export type CaptureOutcome = 'approve' | 'deny' | 'pending';
 /// approves — a row dismissed through /resolve (no decision at all), a reject,
 /// or a shape we cannot parse all deny.
 export function readCaptureDecision(row: unknown): CaptureOutcome {
-  if (row === null || typeof row !== 'object' || Array.isArray(row)) return 'pending';
+  return readCardDecision(row).outcome;
+}
+
+/// The same reading, plus the OPTION the user picked (the hub's
+/// `option_id`) — which is how a card that offers more than "yes/no" says
+/// which yes it got. `ui_screenshot` never asks for one; `author_apply`'s
+/// second button is "allow this document for this session" and rides here.
+///
+/// The option is reported ONLY alongside an approve. A denied card carrying a
+/// stale option_id must never be readable as a grant, so the field is cleared
+/// on every non-approve outcome rather than passed through.
+export function readCardDecision(row: unknown): { outcome: CaptureOutcome; optionId: string } {
+  const none = { outcome: 'pending' as CaptureOutcome, optionId: '' };
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) return none;
   const r = row as Record<string, unknown>;
   const status = typeof r.status === 'string' ? r.status : 'open';
-  if (status === 'open') return 'pending';
+  if (status === 'open') return none;
   const decisions = r.decisions;
-  if (!Array.isArray(decisions) || decisions.length === 0) return 'deny';
+  if (!Array.isArray(decisions) || decisions.length === 0) return { outcome: 'deny', optionId: '' };
   const last = decisions[decisions.length - 1];
-  if (last === null || typeof last !== 'object') return 'deny';
-  const decision = (last as Record<string, unknown>).decision;
-  return decision === 'approve' ? 'approve' : 'deny';
+  if (last === null || typeof last !== 'object') return { outcome: 'deny', optionId: '' };
+  const l = last as Record<string, unknown>;
+  if (l.decision !== 'approve') return { outcome: 'deny', optionId: '' };
+  return { outcome: 'approve', optionId: typeof l.option_id === 'string' ? l.option_id : '' };
 }
 
 /// The denial sentence an agent sees, by cause. Kept here (not in the host) so

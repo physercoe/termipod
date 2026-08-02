@@ -70,6 +70,12 @@ async function boot(): Promise<void> {
   // to hear costs nothing.
   const { initAgentHighlights } = await import('./state/agentHighlight');
   initAgentHighlights();
+  // Coworking A2: answer main's author-bridge requests (author_read /
+  // author_apply). Same posture as the highlight listener — main only pushes
+  // while sharing is on, and the subscription is also the signal main checks
+  // before parking on a reply, so it is registered unconditionally.
+  const { initAuthorBridge } = await import('./state/authorBridgeHost');
+  initAuthorBridge();
 }
 
 void boot();

@@ -21,6 +21,7 @@
 /// `hosts_list` answers truthfully — the tunnel routing itself lives in
 /// browserbridge_host.ts.
 import os from 'node:os';
+import { authorLeases } from './author';
 import { installStableRelay, mergeSharingEntry, removeSharingEntry, type KimiMcpWrite } from './kimimcp';
 import { refreshHostCapabilities, setUiFocusProvider, stdioBridgePath } from './browserbridge_host';
 import type { Handler } from './ipc/dispatch';
@@ -84,6 +85,11 @@ export const desktopuiHandlers: Record<string, Handler> = {
   desktopui_set_enabled: async (args): Promise<{ enabled: boolean; mcp: KimiMcpWrite | 'failed' }> => {
     sharingEnabled = args.enabled === true;
     if (!sharingEnabled) focusCache = null;
+    // Coworking A3: toggle-off revokes every standing author lease. The toggle
+    // is the consent the whole desktop-UI capability set hangs from, so it must
+    // not leave "allow this document for this session" grants behind for the
+    // next time it goes on — the user turned the capability off, not paused it.
+    if (!sharingEnabled) authorLeases.clear();
     const mcp = reconcileSharing(sharingEnabled);
     // D5: `desktop_ui` in the hub host row tracks this toggle, so a remote
     // agent's hosts_list answer says truthfully whether this desktop will

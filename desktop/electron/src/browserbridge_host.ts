@@ -63,12 +63,15 @@ import {
   type HubInvokePayload,
   type HubInvokeResult,
   type McpServerDeps,
+  type AuthorBridgeRequest,
+  type AuthorBridgeResult,
   type TunnelClass,
   type UiCaptureRequest,
   type UiCaptureResult,
   type UiHighlightRequest,
   type UiHighlightResult,
 } from './browserbridge';
+import { authorLeases } from './author';
 import { policyForGuest } from './webtab';
 import { keychainGetLocal } from './ipc/keychain';
 import type { Handler } from './ipc/dispatch';
@@ -300,6 +303,18 @@ export function setUiHighlightProvider(p: UiHighlightProvider): void {
   uiHighlightProvider = p;
 }
 
+/// Coworking A2: the Author co-authoring provider (author_host.ts), registered
+/// the same way and for the same reason — it needs this module's hub context
+/// and desktopui.ts's sharing gate, so it plugs itself in instead of being
+/// imported.
+type AuthorBridgeProvider = (req: AuthorBridgeRequest) => Promise<AuthorBridgeResult>;
+
+let authorBridgeProvider: AuthorBridgeProvider | null = null;
+
+export function setAuthorBridgeProvider(p: AuthorBridgeProvider): void {
+  authorBridgeProvider = p;
+}
+
 /// The hub identity the audit mirror and the D3 approval card both post as.
 /// Non-secret: the bearer is fetched from the keychain per use, never held
 /// here (and never handed across IPC).
@@ -342,6 +357,14 @@ async function enable(): Promise<void> {
       uiHighlightProvider !== null
         ? uiHighlightProvider(req)
         : Promise.resolve<UiHighlightResult>({ ok: false, code: 'UI_UNAVAILABLE', message: 'the highlight provider is not wired' }),
+    authorBridge: (req) =>
+      authorBridgeProvider !== null
+        ? authorBridgeProvider(req)
+        : Promise.resolve<AuthorBridgeResult>({
+            ok: false,
+            code: 'AUTHOR_UNAVAILABLE',
+            message: 'the Author bridge provider is not wired',
+          }),
   };
   server = await startBridgeServer({ ...mcpDeps, token, actionToken });
   writeBridgeDiscovery(os.homedir(), {
@@ -702,6 +725,12 @@ export const browserBridgeHandlers: Record<string, Handler> = {
     const agentId = typeof args.agent_id === 'string' && args.agent_id !== '' ? args.agent_id : null;
     if (agentId === null) return { ok: false, hub: 'skipped' };
     revokedAgents.add(agentId);
+    // Coworking A3: the desktop's own per-document author leases go with it.
+    // The revoked set already refuses this agent's next call, so the lease is
+    // unreachable either way — but leaving it standing would mean an
+    // un-revoke (if one is ever added) silently restores write access the user
+    // last saw granted to a single document.
+    authorLeases.revokeAgent(agentId);
     const ctx = hubContext;
     const hostId = hubRelay?.hostId ?? null;
     if (ctx === null || hostId === null) return { ok: true, hub: 'skipped' };

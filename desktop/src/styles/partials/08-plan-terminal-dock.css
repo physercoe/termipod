@@ -1170,6 +1170,14 @@
 .assistant-dock-tabs {
   flex: 0 0 auto;
 }
+/* …and where kimi-code isn't installed there is no strip to lead with (F1):
+   the header carries a plain label instead of a one-segment control. */
+.assistant-dock-title {
+  flex: 0 0 auto;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  padding-inline: var(--spacing-s4);
+}
 .assistant-dock-close:hover {
   color: var(--danger);
 }

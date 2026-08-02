@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { extractServerUrl, kimiBinaryPath, resolveKimiBinary, findKimiOnPath, sanitizeTail, pickFreePort, expandWinVars, mergePathDirs } from './kimiweb.ts';
+import { extractServerUrl, kimiBinaryPath, locateKimiLauncher, findKimiOnPath, sanitizeTail, pickFreePort, expandWinVars, mergePathDirs } from './kimiweb.ts';
 
 // The banner as actually printed by `kimi web --no-open --port 17331`
 // (kimi-code 0.28.1), captured 2026-07-23.
@@ -51,17 +51,34 @@ test('kimiBinaryPath: honours KIMI_CODE_HOME, else ~/.kimi-code', () => {
   assert.equal(kimiBinaryPath({}, '/home/u'), path.join('/home/u', '.kimi-code', 'bin', process.platform === 'win32' ? 'kimi.cmd' : 'kimi'));
 });
 
-test('resolveKimiBinary: the well-known path when it exists, PATH fallback otherwise', () => {
+test('locateKimiLauncher: well-known path, else PATH, else null (the F1 gate)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kimiweb-test-'));
   try {
     const binDir = path.join(home, '.kimi-code', 'bin');
     fs.mkdirSync(binDir, { recursive: true });
     const bin = path.join(binDir, process.platform === 'win32' ? 'kimi.cmd' : 'kimi');
     fs.writeFileSync(bin, '');
-    assert.equal(resolveKimiBinary({}, home), bin);
-    // Missing binary → the bare name, so a PATH install still resolves (and a
-    // truly absent one fails the spawn with a clear ENOENT error).
-    assert.equal(resolveKimiBinary({}, home, () => false), process.platform === 'win32' ? 'kimi.cmd' : 'kimi');
+    assert.equal(locateKimiLauncher({}, home), bin);
+
+    // Not at the well-known path but on PATH → the absolute path there. Never a
+    // bare name: handing cmd.exe a bare `kimi.cmd` is the Windows
+    // "not recognized" failure this resolution exists to avoid.
+    const alt = fs.mkdtempSync(path.join(os.tmpdir(), 'kimiweb-path-'));
+    try {
+      const onPath = path.join(alt, process.platform === 'win32' ? 'kimi.cmd' : 'kimi');
+      fs.writeFileSync(onPath, '');
+      const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'kimiweb-nohome-'));
+      try {
+        assert.equal(locateKimiLauncher({ PATH: alt }, bare), onPath);
+        // Nothing anywhere → null. This is what makes the dock hide the kimi
+        // tab instead of offering one whose spawn can only fail.
+        assert.equal(locateKimiLauncher({ PATH: '' }, bare), null);
+      } finally {
+        fs.rmSync(bare, { recursive: true, force: true });
+      }
+    } finally {
+      fs.rmSync(alt, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

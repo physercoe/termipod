@@ -55,17 +55,23 @@ export function kimiBinaryPath(env: NodeJS.ProcessEnv = process.env, home: strin
   return path.join(kimiCodeHome(env, home), 'bin', process.platform === 'win32' ? 'kimi.cmd' : 'kimi');
 }
 
-/// The binary to spawn: the well-known install path when it exists, else the
-/// bare name as a PATH fallback (a launch from a real terminal resolves it; a
-/// Finder/Dock launch with no login-shell PATH may not — the spawn then fails
-/// with ENOENT and the handler surfaces the "binary not found" error below).
-export function resolveKimiBinary(
+/// The launcher to spawn, resolved to an ABSOLUTE path: the well-known install
+/// path when it exists, else the first launcher found on the (recovered) PATH
+/// plus the well-known bin dirs. `null` means kimi-code is not installed here.
+///
+/// One resolution, two callers — `spawnServer`, which turns null into the
+/// user-facing "not found" error, and `kimiweb_available`, which turns it into
+/// the assistant dock's kimi-tab gate (vision-parity F1). They must not be
+/// allowed to disagree: a probe that reported "installed" where the spawn then
+/// fails with ENOENT would offer a tab that can only error, which is the exact
+/// coupling F1 exists to remove. Injectable for tests.
+export function locateKimiLauncher(
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
   exists: (p: string) => boolean = fs.existsSync,
-): string {
+): string | null {
   const explicit = kimiBinaryPath(env, home);
-  return exists(explicit) ? explicit : process.platform === 'win32' ? 'kimi.cmd' : 'kimi';
+  return exists(explicit) ? explicit : findKimiOnPath(env.PATH, wellKnownBinDirs(env, home), exists);
 }
 
 /// An ephemeral loopback port for the server. There is an inherent close→bind
@@ -284,8 +290,7 @@ async function spawnServer(): Promise<string> {
   // Windows "'kimi.cmd' is not recognized" failure when the inherited PATH is
   // stale, and lets us raise a clean error (not cmd's mojibake) when it's absent.
   const env = await buildSpawnEnv();
-  const explicit = kimiBinaryPath(env);
-  const bin = fs.existsSync(explicit) ? explicit : findKimiOnPath(env.PATH, wellKnownBinDirs(env));
+  const bin = locateKimiLauncher(env);
   if (bin === null) {
     throw new Error('kimi launcher not found — install kimi-code, or set KIMI_CODE_HOME to its install dir (searched the well-known path and PATH)');
   }
@@ -386,6 +391,15 @@ export const kimiwebHandlers: Record<string, Handler> = {
     await kimiwebStop();
   },
   kimiweb_status: async (): Promise<{ running: boolean; url: string | null }> => kimiwebStatus(),
+  /// Is kimi-code installed on this machine? The assistant dock's kimi tab is
+  /// offered only when this says yes (F1) — the Companion tab never consults
+  /// it. Resolved through the SAME path the spawn uses, against the recovered
+  /// PATH, so "available" means "would actually start". The resolved path
+  /// itself stays main-side: the renderer's only question is whether to offer
+  /// the tab.
+  kimiweb_available: async (): Promise<{ available: boolean }> => ({
+    available: locateKimiLauncher(await buildSpawnEnv()) !== null,
+  }),
   /// The resolved kimi-code data root, for the assistant Settings page.
   kimiweb_home: async (): Promise<{ home: string }> => ({ home: kimiCodeHome() }),
 };

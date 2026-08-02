@@ -1022,6 +1022,20 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
 }
+/* "agent" pill on an Author tab an agent has written to (coworking B6). Uses
+   the accent pair rather than the muted border of the draft pill: this one is
+   a claim about authorship the user may want to undo, not a status. Clicking
+   it reverts the last agent edit. */
+.read-tabitem-agent {
+  margin-left: var(--spacing-s4);
+  padding: 0 5px;
+  font-size: var(--font-size-label);
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
 .read-tabitem-x {
   padding: 0 var(--spacing-s8) 0 var(--spacing-s4);
   color: var(--text-muted);

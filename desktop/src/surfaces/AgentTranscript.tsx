@@ -432,17 +432,21 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // Render helper — one card per event with tool folding applied. Folded
   // tool_results are dropped from the virtual list's data (below), so this only
   // sees rows that actually render.
+  // Answering an approval only makes sense against a LIVE agent; a replayed
+  // transcript renders the same cards read-only (R1). Same gate the quote
+  // affordance already uses — a historical view is a record, not a control.
   function renderCard(ev: FeedEvent): JSX.Element {
+    const live = mode === 'live' ? agentId : undefined;
     if (ev.kind === 'tool_result') {
       const id = str(ev.payload, 'tool_use_id');
-      return <EventCard ev={ev} callName={id !== undefined ? nameById.get(id) : undefined} />;
+      return <EventCard ev={ev} agentId={live} callName={id !== undefined ? nameById.get(id) : undefined} />;
     }
     if (ev.kind === 'tool_call') {
       const id = callToolId(ev.payload);
-      return <EventCard ev={ev} result={id !== undefined ? resultById.get(id) : undefined} />;
+      return <EventCard ev={ev} agentId={live} result={id !== undefined ? resultById.get(id) : undefined} />;
     }
     // Quote-into-composer only where the composer lives (live mode).
-    return <EventCard ev={ev} onQuote={mode === 'live' ? quoteToComposer : undefined} />;
+    return <EventCard ev={ev} agentId={live} onQuote={mode === 'live' ? quoteToComposer : undefined} />;
   }
 
   // The item wrapper for the virtual list: carries the transient jump flash and

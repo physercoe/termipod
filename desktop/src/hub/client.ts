@@ -439,6 +439,41 @@ export class HubClient {
       ...(raw === true ? { raw: true } : {}),
     });
   }
+  /** Resolve an `approval_request` the agent is blocked on (vision-parity R1;
+   * `handlers_agent_input.go` `case "approval"`). `decision` ∈
+   * approve|allow|deny|cancel — "allow" is the Claude Code / ACP spelling,
+   * "approve" the original hub vocabulary; both route the same.
+   *
+   * `optionId` carries an ACP-assigned option id (`proceed_once`,
+   * `proceed_always_server`, …) when the agent offered an explicit option set.
+   * The hub treats it as the source of truth and forwards it as the selected
+   * outcome, so the decision string beside it is only the semantic fallback
+   * for agents that offer none. */
+  approveAgentInput(
+    id: string,
+    requestId: string,
+    decision: 'approve' | 'allow' | 'deny' | 'cancel',
+    optionId?: string,
+  ): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), {
+      kind: 'approval',
+      request_id: requestId,
+      decision,
+      ...(optionId !== undefined && optionId !== '' ? { option_id: optionId } : {}),
+    });
+  }
+  /** Answer a tool question the agent is blocked on (vision-parity R1;
+   * `handlers_agent_input.go` `case "answer"`). Carved off `approval` hub-side
+   * because AskUserQuestion expects *the chosen option string*, not a verdict —
+   * routing it through approval would hand the agent "allow: Red".
+   * `requestId` is the originating tool_call id. */
+  answerAgentInput(id: string, requestId: string, body: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), {
+      kind: 'answer',
+      request_id: requestId,
+      body,
+    });
+  }
   /** Interrupt the agent's current turn (parity — mobile agents_api `_cancel`:
    * `postAgentInput(kind:'cancel')`). Lands in agent_events as a `producer:'user'`
    * cancel input the driver acts on — distinct from the `/stop` lifecycle, which

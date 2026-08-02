@@ -21,6 +21,15 @@ export interface TableRow {
 export interface TableData {
   columns: TableColumn[];
   rows: TableRow[];
+  /// An unrecognized body opens read-only and is never serialized back — the
+  /// `canvas.ts` rule (see `Board.readOnly`), applied here (coworking A5).
+  ///
+  /// Before this, `parseTable` answered an unparseable body with a blank
+  /// three-row grid and no signal, and `TableEditor.mutate` serializes on every
+  /// change — so ONE click on a table document whose body failed to parse wrote
+  /// the blank grid over it and the original was gone. That was live with no
+  /// agent involved; `author_apply` would only have made it routine.
+  readOnly?: boolean;
 }
 
 let seq = 0;
@@ -37,7 +46,14 @@ export function emptyTable(nameCol: string): TableData {
   return { columns: [col], rows };
 }
 
+/// Parse a table document body.
+///
+/// An **empty** body is a new document — there is nothing to lose, so it opens
+/// as an editable blank grid. Anything else that fails to parse is content we
+/// could not read, and it opens **read-only**: a blank grid the editor is free
+/// to serialize back would replace the user's rows with nothing.
 export function parseTable(body: string, nameCol: string): TableData {
+  if (body.trim() === '') return emptyTable(nameCol);
   try {
     const d = JSON.parse(body) as Partial<TableData>;
     if (d !== null && Array.isArray(d.columns) && Array.isArray(d.rows)) {
@@ -46,7 +62,7 @@ export function parseTable(body: string, nameCol: string): TableData {
   } catch {
     /* fall through */
   }
-  return emptyTable(nameCol);
+  return { ...emptyTable(nameCol), readOnly: true };
 }
 
 export const serializeTable = (d: TableData): string => JSON.stringify(d);
@@ -83,6 +99,20 @@ export function tableToCsv(data: TableData): string {
     .map((r) => data.columns.map((c) => csvEscape(cellText(r.cells[c.id], c.type))).join(','))
     .join('\n');
   return `${header}\n${body}`;
+}
+
+/// Lower a table BODY to CSV, refusing one we could not read (coworking A5).
+///
+/// The second mouth of the same hole the `readOnly` flag closes. The CSV path
+/// lowers a table through the parser on the way out, so an unreadable body
+/// silently became a zero-row file — written over whatever path the user picked
+/// in the save dialog. Refusing surfaces as a save error the caller already
+/// reports; saving as `.json` stays byte-verbatim and is the one operation that
+/// can still round-trip the user's bytes back out of the app.
+export function tableBodyToCsv(body: string, nameCol: string): string {
+  const data = parseTable(body, nameCol);
+  if (data.readOnly === true) throw new Error('This table could not be read, so it cannot be exported as CSV.');
+  return tableToCsv(data);
 }
 
 // RFC-4180-ish CSV reader: handles quoted fields, escaped quotes (""), embedded

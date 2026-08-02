@@ -1,7 +1,7 @@
 # MCP 2026-07-28 compat + borrows
 
 > **Type:** plan
-> **Status:** In progress (2026-08-01) — **lane U shipped** (U1–U10) with
+> **Status:** In flight (2026-08-01) — **lane U shipped** (U1–U10) with
 > **B2**; lanes B1/B3/B4/B5 stay with their owning lanes. See §6 for the
 > three places the spec text disagreed with this plan's reading and what
 > was built instead

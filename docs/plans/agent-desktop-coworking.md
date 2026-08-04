@@ -108,6 +108,26 @@ excluded. Investigation record:
 - **C1** — port next-ai-draw-io `lib/utils.ts` subset (validate /
   autoFixXml / applyDiagramOperations / wrapWithMxFile) into a renderer
   lib, license header + NOTICE; keep their test cases.
+  - *As built* (`state/drawioXml.ts`): the validator, its six helper
+    checks and `wrapWithMxFile`, plus a `prepareDiagramBody` that wraps
+    THEN validates (validating the raw input passes a bare cell list
+    that collides with the scaffold once wrapped).
+  - **`autoFixXml` was NOT ported, on merit.** Its last-resort loop
+    deletes `mxCell` elements one at a time until the document parses,
+    reporting it only as a line in a `fixes` array. That is right
+    upstream — an LLM generating a diagram from scratch loses nothing
+    real — and wrong here, where `author_apply` writes into a document
+    the user owns: it would delete their shapes and report success.
+    Same class as the `parseTable` hole A5 exists to close. Repair
+    belongs with lane A/D, where each of the 26 fixes can be judged and
+    any that drops content becomes a refusal.
+  - `applyDiagramOperations` is D1's `mode:'ops'` — **W2**, not here.
+  - *No test cases to keep:* upstream ships no unit tests for
+    `lib/utils.ts`, only Playwright e2e specs. Written fresh (30).
+  - **The validator must run RENDERER-side** (which A2 already implies).
+    Its DOM half catches a self-closing nested `mxCell` that the regex
+    sweep structurally cannot — without a DOMParser that body validates
+    clean.
 - **C2** — the 31 shape-library files behind `author_guide
   {kind:'diagram', topic:<library>}` (lazy; full ~180 KB vs top-set —
   reviewer's call).

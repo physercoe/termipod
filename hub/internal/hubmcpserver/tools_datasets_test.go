@@ -459,6 +459,12 @@ func TestToolsCall_DatasetExportRRD(t *testing.T) {
 // view of exports only. A command of another kind is refused rather than
 // answered — otherwise the poll leg would be a window onto work the caller
 // never submitted.
+//
+// The fixture statuses are the REAL host_commands vocabulary — pending →
+// delivered → done|failed (handlers_commands.go, hostrunner/jobs.go); a
+// mid-export job reads `delivered` with a progress heartbeat, and there is
+// no `running`. A fixture that invented a status would verify this tool
+// against itself, not the producer (the #501 blind spot).
 func TestToolsCall_DatasetExportStatus(t *testing.T) {
 	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/teams/team-alpha/commands/cmd_1" {
@@ -466,14 +472,14 @@ func TestToolsCall_DatasetExportStatus(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"cmd_1","host_id":"h_1","kind":"dataset_export_rrd",
-			"args":{"root_path":"/data/pick"},"status":"running",
+			"args":{"root_path":"/data/pick"},"status":"delivered",
 			"progress":{"phase":"decode","done":12,"total":40},"created_at":"2026-08-04T00:00:00Z"}`))
 	})
 	text, isErr := callTool(t, c, 16, "dataset_export_status", `{"command":"cmd_1"}`)
 	if isErr {
 		t.Fatalf("dataset_export_status reported an error: %s", text)
 	}
-	for _, want := range []string{`"status":"running"`, `"phase":"decode"`, `"command_id":"cmd_1"`} {
+	for _, want := range []string{`"status":"delivered"`, `"phase":"decode"`, `"command_id":"cmd_1"`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("status lost %s: %s", want, text)
 		}
@@ -484,7 +490,7 @@ func TestToolsCall_DatasetExportStatus(t *testing.T) {
 
 	c2 := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"cmd_2","kind":"agent_spawn","status":"running",
+		_, _ = w.Write([]byte(`{"id":"cmd_2","kind":"agent_spawn","status":"delivered",
 			"args":{"spawn_spec_yaml":"kind: coder"},"created_at":"2026-08-04T00:00:00Z"}`))
 	})
 	text, isErr = callTool(t, c2, 17, "dataset_export_status", `{"command":"cmd_2"}`)

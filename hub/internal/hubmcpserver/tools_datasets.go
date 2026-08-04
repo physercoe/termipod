@@ -397,7 +397,7 @@ func datasetExportStatusTool() toolDef {
 	return toolDef{
 		Name: "dataset_export_status",
 		Description: "Poll an export queued by `dataset_export_rrd`. Required: `command` (the `command_id` that call returned).\n\n" +
-			"Returns `{command_id, status, progress, result, error, created_at, delivered_at, completed_at}`. `status` walks pending → delivered → running → succeeded|failed|cancelled; `progress` is the host's coarse `{phase, done, total}` while it works; `result` carries the artifact the export produced once it succeeds.\n\n" +
+			"Returns `{command_id, status, progress, result, error, created_at, delivered_at, completed_at}`. `status` walks pending → delivered → done|failed: `delivered` means the host has taken the job and covers the whole time it is working — `progress`, the host's coarse `{phase, done, total}`, heartbeats in that state. `done` is terminal success and `result` carries the artifact the export produced. There is no `running`, `succeeded` or `cancelled` status; a cancelled export lands as `failed` with `error: \"cancelled\"`.\n\n" +
 			"Scoped to exports on purpose: a command id of any other kind is refused rather than answered, so this reads your own job and is not a window onto the host's command queue.",
 		InputSchema: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {

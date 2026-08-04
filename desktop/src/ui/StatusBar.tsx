@@ -105,16 +105,19 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
         ) : null,
       )}
       <span className="spacer" />
-      {isShell() && (
-        <button
-          className={`statusbar-term${assistantOpen ? ' active' : ''}`}
-          title={t('assistant.toggleHint')}
-          aria-pressed={assistantOpen}
-          onClick={() => toggleAssistant()}
-        >
-          <Icon name="globe" size={13} /> {t('assistant.title')}
-        </button>
-      )}
+      {/* Ungated since F1: the dock's kimi tab is Electron-only, the Companion
+          is not (it needs a hub, not a shell), so the chip that opens the dock
+          follows the dock. Leaving it shell-only would have left the browser
+          build with a reachable dock and no way to reach it — the keybinding
+          and the palette entry were never gated. */}
+      <button
+        className={`statusbar-term${assistantOpen ? ' active' : ''}`}
+        title={t('assistant.toggleHint')}
+        aria-pressed={assistantOpen}
+        onClick={() => toggleAssistant()}
+      >
+        <Icon name="globe" size={13} /> {t('assistant.title')}
+      </button>
       {isShell() && sharing && (
         <button
           className={`statusbar-term statusbar-annotate${annotArmed ? ' active' : ''}`}

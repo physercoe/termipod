@@ -46,6 +46,9 @@ interface Props {
   sessionId: string;
   /** Offer a Reconnect affordance when the session dies (#319). */
   onReconnect?: () => void;
+  /** A silent reconnect for this tab is in flight — the dead banner's button
+   *  shows the attempt instead of inviting a second one. */
+  reconnecting?: boolean;
   /** Called when the session emits output — drives the tab unread dot (#319). */
   onActivity?: () => void;
 }
@@ -62,7 +65,7 @@ interface Props {
 /// toolbar stealing vertical space. Find rides a floating bar toggled with
 /// Ctrl/Cmd+F (VS Code idiom). (Command-block tracking was removed in v0.3.49 —
 /// the OSC-133 integration was unreliable.)
-export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX.Element {
+export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity }: Props): JSX.Element {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   // Latest onActivity, read from inside the session effect without adding it to
@@ -539,8 +542,13 @@ export function Screen({ kind, sessionId, onReconnect, onActivity }: Props): JSX
               : t('term.sessionEndedCode').replace('{code}', String(exited.code))}
           </span>
           {onReconnect !== undefined && (
-            <button className="term-dead-reconnect primary small" onClick={onReconnect}>
-              <Icon name="refresh" size={13} /> {t('term.reconnect')}
+            <button
+              className="term-dead-reconnect primary small"
+              disabled={reconnecting === true}
+              onClick={onReconnect}
+            >
+              <Icon name="refresh" size={13} />{' '}
+              {reconnecting === true ? t('term.connecting') : t('term.reconnect')}
             </button>
           )}
         </div>

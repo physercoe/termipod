@@ -8,16 +8,20 @@ import {
   connectionGroup,
   DEFAULT_GROUP,
   deleteConnection,
+  getConnectionJumpPassword,
+  getConnectionPassword,
   listConnections,
   navGroups,
   removeGroup,
   renameGroup,
   setConnectionGroup,
+  touchConnection,
   type Connection,
 } from '../state/connections';
 import { exportSshConfig, importSshConfig } from '../ssh/config';
-import { sshDuplicate } from '../ssh/native';
-import { listKeys } from '../state/keys';
+import { sshClose, sshConnect, sshDuplicate } from '../ssh/native';
+import { getKeyMaterial, listKeys } from '../state/keys';
+import { buildSavedConnectReq, connectTimeoutMs } from './savedConnect';
 import { invoke } from '../bridge';
 import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
@@ -92,6 +96,9 @@ export function TerminalPanel(): JSX.Element {
   /** The tab a pending connect attempt should REBIND rather than sit beside —
    *  set by the Reconnect button, cleared by any other way of opening the form. */
   const [reconnectFor, setReconnectFor] = useState<string | null>(null);
+  /** The tab whose SILENT reconnect (straight from the saved connection, no
+   *  form) is in flight — its dead banner shows the attempt meanwhile. */
+  const [reconnectingId, setReconnectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const cfgRef = useRef<HTMLInputElement>(null);
@@ -352,9 +359,13 @@ export function TerminalPanel(): JSX.Element {
   }
 
   // Reconnect a dead session (#319). A local shell rebinds in place (a fresh PTY
-  // into the same tab). An SSH tab re-opens the connect flow for its saved
-  // connection — credentials may need re-entry — and onConnected rebinds THAT
-  // tab when the attempt lands.
+  // into the same tab). An SSH tab with a saved connection reconnects IN PLACE
+  // too: every credential the connect form would send is already stored (the
+  // vault password slot, the key store), so the attempt is made silently and
+  // the form opens only when it cannot be — a missing credential, a failed
+  // handshake — because the form is where the user can fix either. Opening the
+  // form first and waiting for a Connect click made every reconnect a
+  // two-step detour through the connection's detail page.
   async function reconnect(tab: TermTab): Promise<void> {
     if (tab.kind === 'local') {
       try {
@@ -369,7 +380,56 @@ export function TerminalPanel(): JSX.Element {
     // focusSession would collapse a split down to it just because one half
     // needed reconnecting.
     setActive(tab.id);
-    openConnect(tab.connId, tab.id);
+    if (reconnectingId !== null) return; // one silent attempt at a time
+    const conn = tab.connId !== undefined ? listConnections().find((c) => c.id === tab.connId) : undefined;
+    const req =
+      conn !== undefined
+        ? await buildSavedConnectReq(conn, `r${Date.now()}`, {
+            getPassword: getConnectionPassword,
+            getJumpPassword: getConnectionJumpPassword,
+            getKey: getKeyMaterial,
+          })
+        : null;
+    if (conn === undefined || req === null) {
+      // Ad-hoc tab, deleted connection, or a credential that was never stored
+      // (pasted key, empty vault slot) — the form is the only way forward.
+      openConnect(tab.connId, tab.id);
+      return;
+    }
+    setReconnectingId(tab.id);
+    setError(null);
+    // The same abandon rule as the form (#319): past the ceiling the attempt is
+    // written off, and if the core connects anyway the orphaned session is
+    // closed rather than leaking a remote shell nobody renders.
+    const attempt = { cancelled: false };
+    const timer = setTimeout(() => {
+      attempt.cancelled = true;
+      setReconnectingId(null);
+      setActive(tab.id);
+      openConnect(tab.connId, tab.id);
+    }, connectTimeoutMs(conn));
+    try {
+      const sid = await sshConnect(req);
+      // Abandoned (timeout) or the dead tab was closed mid-attempt — either
+      // way replaceSession has nothing to rebind, and an unrendered session
+      // would leak a remote shell. Close it instead.
+      if (attempt.cancelled || !useTerminals.getState().tabs.some((tb) => tb.id === tab.id)) {
+        void sshClose(sid);
+        return;
+      }
+      touchConnection(conn.id);
+      replaceSession(tab.id, sid, { title: `${conn.username}@${conn.host}`, connId: conn.id });
+    } catch (e) {
+      if (!attempt.cancelled) {
+        // Fall back to the form with the row preselected; the failure reason
+        // lands in the nav notice so the fallback does not read as a whim.
+        setError(msg(e));
+        openConnect(tab.connId, tab.id);
+      }
+    } finally {
+      clearTimeout(timer);
+      if (!attempt.cancelled) setReconnectingId(null);
+    }
   }
 
   // Split the current view (#319): an SSH tab duplicates onto a FRESH channel
@@ -704,7 +764,11 @@ export function TerminalPanel(): JSX.Element {
                       </div>
                     )}
                     <div className="term-pane-body">
-                      <SessionView tab={tab} onReconnect={() => void reconnect(tab)} />
+                      <SessionView
+                        tab={tab}
+                        onReconnect={() => void reconnect(tab)}
+                        reconnecting={reconnectingId === tab.id}
+                      />
                     </div>
                   </div>
                 );
@@ -719,6 +783,7 @@ export function TerminalPanel(): JSX.Element {
                     key={initialConnId ?? '__new__'}
                     initialConnId={initialConnId ?? undefined}
                     onConnected={onConnected}
+                    onSaved={refreshConns}
                     onCancel={() => {
                       setReconnectFor(null);
                       setConnecting(false);

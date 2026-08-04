@@ -17,7 +17,15 @@ type SubView = 'term' | 'files';
 /// terminal sub-tab. They moved to the assistant panel as **local-agent options**
 /// (AgentCompanion, source = Local): a web-UI agent is parallel to the local
 /// shell and remote SSH, not a view of a terminal session.
-export function SessionView({ tab, onReconnect }: { tab: TermTab; onReconnect?: () => void }): JSX.Element {
+export function SessionView({
+  tab,
+  onReconnect,
+  reconnecting,
+}: {
+  tab: TermTab;
+  onReconnect?: () => void;
+  reconnecting?: boolean;
+}): JSX.Element {
   const t = useT();
   const [view, setView] = useState<SubView>('term');
   const isSsh = tab.kind === 'ssh';
@@ -41,6 +49,7 @@ export function SessionView({ tab, onReconnect }: { tab: TermTab; onReconnect?: 
             kind={tab.kind}
             sessionId={tab.sessionId}
             onReconnect={onReconnect}
+            reconnecting={reconnecting}
             onActivity={() => markActivity(tab.id)}
           />
         </div>

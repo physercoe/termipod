@@ -107,10 +107,16 @@ const BLANK_FORM: FormSnapshot = {
 export function ConnectForm({
   onConnected,
   onCancel,
+  onSaved,
   initialConnId,
 }: {
   onConnected: (sessionId: string, title: string, connId?: string) => void;
   onCancel?: () => void;
+  /** Fired after Save/Update lands a row. The terminal nav mirrors the saved
+   *  list into local state and otherwise refreshes only when this form
+   *  CLOSES — without this, a saved connection appeared only after Connect
+   *  or Cancel, which read as the save not having happened. */
+  onSaved?: () => void;
   /** Preselect this saved connection on mount (nav click in the terminal). */
   initialConnId?: string;
 }): JSX.Element {
@@ -275,6 +281,34 @@ export function ConnectForm({
       // Empty (or disabled jump / key-auth jump) deletes the keychain slot.
       await setConnectionJumpPassword(conn.id, jumpOn && jumpAuth === 'password' ? jumpPassword : '');
       setId(conn.id);
+      // What is on screen is now what is stored: re-baseline the dirty-close
+      // guard (#313) so cancelling after a save no longer warns about edits
+      // that were in fact kept.
+      setBase({
+        name,
+        group,
+        host,
+        port,
+        user,
+        auth,
+        password,
+        keyId,
+        privateKey,
+        passphrase,
+        useJump,
+        jumpHost,
+        jumpPort,
+        jumpUser,
+        jumpAuth,
+        jumpKeyId,
+        jumpPassword,
+        useProxy,
+        proxyHost,
+        proxyPort,
+        proxyUser,
+        proxyPassword,
+      });
+      onSaved?.();
     } catch (e) {
       setError(msg(e));
     }

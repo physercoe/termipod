@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { SseHandle } from '../hub/sse';
-import { num, str, type Entity } from '../hub/types';
+import { str, type Entity } from '../hub/types';
 import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
+import { appendEvent, followAgent } from '../state/agentSource';
+import { useAgentSource } from '../state/useAgentSource';
 import { useAnnotation } from '../state/annotation';
 import { loadCompanionBinding } from '../state/companionBinding';
-import { useSession } from '../state/session';
 import { useUiContext } from '../state/uiContext';
 import { useAgents, useAttention } from '../hub/queries';
 import { useWorkspace } from '../state/workspace';
@@ -21,17 +21,19 @@ import { LocalAgentLauncher } from './LocalAgentLauncher';
 // Cap per-mention file text so a large file can't blow the message context.
 const MENTION_MAX = 100_000;
 
-/// The **AgentCompanion** — a hub-attached assistant panel. It lives in the
-/// unified assistant dock (ui/AssistantDock.tsx, the Companion tab; the
-/// per-surface Read/Author mounts are retired) and reuses the hub SDK's agent
-/// stream + the shared Composer + EventCard, so it's a focused view of one
-/// agent's conversation with a composer that injects the ACTIVE surface's
-/// context (the current paper / the current document — the provider registry
-/// in state/companionContext.ts) into each message.
+/// The **AgentCompanion** — an assistant panel bound to one agent. It lives in
+/// the unified assistant dock (ui/AssistantDock.tsx, the Companion tab; the
+/// per-surface Read/Author mounts are retired) and pairs an **event source**
+/// (state/agentSource.ts) with the shared Composer + EventCard, so it's a
+/// focused view of one agent's conversation with a composer that injects the
+/// ACTIVE surface's context (the current paper / the current document — the
+/// provider registry in state/companionContext.ts) into each message.
 ///
-/// Hub-attached is the default; when no hub is bound it degrades to an explanatory
-/// empty state (the offline *local* runner — a desktop-local agent over ConPTY —
-/// is the separate P2 half tracked in author-agent-assist-and-diagrams).
+/// Since vision-parity L1 the panel names no producer: it reads whatever
+/// `useAgentSource()` resolves, which is the hub SDK today and a desktop-local
+/// driver once lane L3/L4 land (plan D-7 — the hub is an option, never a
+/// prerequisite). With no source bound it degrades to an explanatory empty
+/// state.
 
 export interface CompanionContext {
   label: string; // shown in the context chip (paper/doc title)
@@ -56,7 +58,9 @@ export function AgentCompanion({
   onInsert?: (text: string) => void;
 }): JSX.Element {
   const t = useT();
-  const client = useSession((s) => s.client);
+  // The bound event source (L1). Today it resolves to the hub SDK; the feed,
+  // the composer and the cards below never ask which producer it is.
+  const source = useAgentSource();
   const agentsQ = useAgents();
   // Pending approvals this agent raised — rendered inline (R1); the dock stays
   // the cross-agent aggregator over the same rows.
@@ -67,9 +71,16 @@ export function AgentCompanion({
     // keys (state/companionBinding.ts) so an existing binding survives.
     loadCompanionBinding((k) => localStorage.getItem(k), storageKey),
   );
-  // Hub-attached (an agent on some host) vs a local agent running on THIS machine.
-  // Local is desktop-only; the choice is persisted per mount point.
-  const [source, setSource] = useState<'hub' | 'local'>(() =>
+  // Which PANEL this mount shows: the hub-attached chat, or the CLI launcher
+  // that drops a local agent into the terminal dock. Desktop-only; persisted
+  // per mount point.
+  //
+  // NB this is not the D-7 source kind, despite sharing the words "hub" and
+  // "local" — `useAgentSource()` above answers *which producer feeds the
+  // chat*, while this answers *whether the chat is what we render at all*. The
+  // stored vocabulary is kept as-is so an existing choice survives; when a
+  // local event source lands (plan L3) this toggle is what it retires.
+  const [companionMode, setCompanionMode] = useState<'hub' | 'local'>(() =>
     isShell() && localStorage.getItem(`${storageKey}.src`) === 'local' ? 'local' : 'hub',
   );
   const [events, setEvents] = useState<Entity[]>([]);
@@ -113,13 +124,13 @@ export function AgentCompanion({
   // in-place replacement — mount order is what the global arm's first-bound
   // pick reads. Unmount removal lives in its own effect below.
   useEffect(() => {
-    if (source !== 'hub' || agentId === '') {
+    if (companionMode !== 'hub' || agentId === '') {
       unregisterCompanion(storageKey);
       return;
     }
     const a = agents.find((x) => str(x, 'id') === agentId);
     registerCompanion({ storageKey, agentId, agentLabel: a !== undefined ? agentLabel(a) : agentId });
-  }, [source, agentId, agents, storageKey, registerCompanion, unregisterCompanion]);
+  }, [companionMode, agentId, agents, storageKey, registerCompanion, unregisterCompanion]);
   useEffect(() => () => unregisterCompanion(storageKey), [storageKey, unregisterCompanion]);
   useEffect(() => {
     if (folder === null || !isShell()) {
@@ -156,8 +167,8 @@ export function AgentCompanion({
     }
   }
 
-  function pickSource(s: 'hub' | 'local'): void {
-    setSource(s);
+  function pickMode(s: 'hub' | 'local'): void {
+    setCompanionMode(s);
     try {
       localStorage.setItem(`${storageKey}.src`, s);
     } catch {
@@ -165,44 +176,24 @@ export function AgentCompanion({
     }
   }
 
-  // Backfill + stream the selected agent (mirrors AgentTranscript's proven path).
+  // Backfill + stream the selected agent. The ordering, the cursor and the
+  // replay dedupe live in `followAgent`/`appendEvent` (state/agentSource.ts)
+  // where `node --test` can hold them — this effect is now just the binding.
   useEffect(() => {
-    if (client === null || agentId === '' || source !== 'hub') {
+    if (source === null || agentId === '' || companionMode !== 'hub') {
       setEvents([]);
       return;
     }
-    let cancelled = false;
-    let handle: SseHandle | null = null;
     setEvents([]);
     setError(null);
-    void (async () => {
-      try {
-        const initial = await client.listAgentEvents(agentId, { tail: 120 });
-        if (cancelled) return;
-        initial.sort((a, b) => (num(a, 'seq') ?? 0) - (num(b, 'seq') ?? 0));
-        setEvents(initial);
-        const last = initial.length > 0 ? num(initial[initial.length - 1], 'seq') : undefined;
-        handle = client.streamAgent(agentId, {
-          since: last !== undefined ? String(last) : undefined,
-          onEvent: (e) =>
-            setEvents((prev) => {
-              // Dedupe by seq — a reconnect can replay events already in view.
-              const ev = e as Entity;
-              const s = num(ev, 'seq');
-              if (s !== undefined && prev.some((p) => num(p, 'seq') === s)) return prev;
-              return [...prev, ev];
-            }),
-          onError: (err) => setError(err instanceof Error ? err.message : String(err)),
-        });
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancelled = true;
-      handle?.close();
-    };
-  }, [client, agentId]);
+    const handle = followAgent(source, agentId, {
+      tail: 120,
+      onBackfill: setEvents,
+      onEvent: (ev) => setEvents((prev) => appendEvent(prev, ev)),
+      onError: (err) => setError(err instanceof Error ? err.message : String(err)),
+    });
+    return () => handle.close();
+  }, [source, agentId, companionMode]);
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
 
@@ -257,7 +248,7 @@ export function AgentCompanion({
   }, [events]);
 
   async function send(body: string, att: InputAttachments): Promise<void> {
-    if (client === null || agentId === '') throw new Error(t('companion.noAgent'));
+    if (source === null || agentId === '') throw new Error(t('companion.noAgent'));
     let full = body;
     // Resolve @-mentioned workspace files into fenced context blocks.
     if (mentioned.length > 0) {
@@ -276,7 +267,7 @@ export function AgentCompanion({
       const ctx = context.build().trim();
       if (ctx !== '') full = `${ctx}\n\n---\n\n${full}`;
     }
-    await client.postAgentInput(agentId, full, att);
+    await source.send(agentId, full, att);
     setMentioned([]);
   }
 
@@ -286,15 +277,15 @@ export function AgentCompanion({
       <span className="spacer" />
       {isShell() && (
         <div className="companion-src" role="tablist">
-          <button className={source === 'hub' ? 'active' : ''} onClick={() => pickSource('hub')}>
+          <button className={companionMode === 'hub' ? 'active' : ''} onClick={() => pickMode('hub')}>
             {t('companion.srcHub')}
           </button>
-          <button className={source === 'local' ? 'active' : ''} onClick={() => pickSource('local')}>
+          <button className={companionMode === 'local' ? 'active' : ''} onClick={() => pickMode('local')}>
             {t('companion.srcLocal')}
           </button>
         </div>
       )}
-      {source === 'hub' && client !== null && (
+      {companionMode === 'hub' && source !== null && (
         <select className="companion-agent" value={agentId} onChange={(e) => pickAgent(e.target.value)}>
           <option value="">{t('companion.pickAgent')}</option>
           {agents.map((a) => {
@@ -314,7 +305,7 @@ export function AgentCompanion({
   // (raw CLI, cwd = workspace) rather than embedded here, so it fits the width and
   // is reachable from any tab. The structured/chat interaction stays the hub path
   // above; a local structured-protocol driver is the tracked follow-up.
-  if (source === 'local') {
+  if (companionMode === 'local') {
     // The embedded kimi web UI moved to the app-level assistant dock
     // (ui/AssistantDock.tsx) — Local here is the CLI launcher only.
     return (
@@ -325,7 +316,7 @@ export function AgentCompanion({
     );
   }
 
-  if (client === null) {
+  if (source === null) {
     return (
       <div className="companion">
         {head}

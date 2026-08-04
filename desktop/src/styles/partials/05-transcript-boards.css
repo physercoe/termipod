@@ -960,6 +960,62 @@
   font-size: var(--font-size-label);
   margin-right: var(--spacing-s8);
 }
+
+/* ---- inline approval / question cards (vision-parity R1) ----
+   The only two full cards in the feed (plan D-3): the agent is BLOCKED on
+   these, so they carry an accent edge that tool rows and telemetry never do.
+   Everything else stays a row, a group or a footer. */
+.ev-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  border: 1px solid var(--accent-line);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--accent-tint);
+}
+.ev-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  color: var(--accent-text);
+}
+.ev-approval-kind {
+  font-size: var(--font-size-label);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ev-approval-q {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.ev-approval-subject,
+.ev-approval-note {
+  font-size: var(--font-size-caption);
+}
+.ev-approval-note pre {
+  margin: var(--spacing-s4) 0 0;
+  white-space: pre-wrap;
+}
+/* Options wrap rather than scroll: an approval the user can't see every
+   option of is an approval they can't make. */
+.ev-approval-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+}
+.ev-approval-settled {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+}
+.ev-approval-err {
+  color: var(--danger);
+  font-size: var(--font-size-caption);
+}
 .composer-wrap {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);

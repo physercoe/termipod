@@ -8,10 +8,12 @@ import { useAnnotation } from '../state/annotation';
 import { loadCompanionBinding } from '../state/companionBinding';
 import { useSession } from '../state/session';
 import { useUiContext } from '../state/uiContext';
-import { useAgents } from '../hub/queries';
+import { useAgents, useAttention } from '../hub/queries';
 import { useWorkspace } from '../state/workspace';
 import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '../state/workspaceFiles';
 import { Composer, type InjectImage } from './Composer';
+import { InlineAttentionCards } from './ApprovalCards';
+import { pendingAttentionFor } from './approvalRequest';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
 import { LocalAgentLauncher } from './LocalAgentLauncher';
@@ -56,6 +58,9 @@ export function AgentCompanion({
   const t = useT();
   const client = useSession((s) => s.client);
   const agentsQ = useAgents();
+  // Pending approvals this agent raised — rendered inline (R1); the dock stays
+  // the cross-agent aggregator over the same rows.
+  const attentionQ = useAttention();
   const agents = agentsQ.data ?? [];
   const [agentId, setAgentId] = useState<string>(() =>
     // The dock companion's key falls back to the retired per-surface mounts'
@@ -338,14 +343,35 @@ export function AgentCompanion({
         {visible.map((ev) => {
           if (ev.kind === 'tool_call') {
             const id = callToolId(ev.payload);
-            return <EventCard key={ev.id} ev={ev} callName={id !== undefined ? nameById.get(id) : undefined} />;
+            return (
+              <EventCard
+                key={ev.id}
+                ev={ev}
+                agentId={agentId}
+                callName={id !== undefined ? nameById.get(id) : undefined}
+              />
+            );
           }
           if (ev.kind === 'tool_result') {
             const id = str(ev.payload, 'tool_use_id');
-            return <EventCard key={ev.id} ev={ev} result={id !== undefined ? resultById.get(id) : undefined} />;
+            return (
+              <EventCard
+                key={ev.id}
+                ev={ev}
+                agentId={agentId}
+                result={id !== undefined ? resultById.get(id) : undefined}
+              />
+            );
           }
-          return <EventCard key={ev.id} ev={ev} />;
+          // agentId is what lets an approval/question card ANSWER (R1) — the
+          // Companion is bound, so its cards are interactive.
+          return <EventCard key={ev.id} ev={ev} agentId={agentId} />;
         })}
+        {/* R1: the gate tool_call that raised these is hidden by toolGroups on
+            the grounds that an inline card represents it — this is that card.
+            Tail position because a pending item is, by definition, the newest
+            thing waiting on the user. */}
+        <InlineAttentionCards items={pendingAttentionFor(attentionQ.data ?? [], agentId)} />
         <div ref={bottomRef} />
       </div>
       {onInsert !== undefined && lastReply !== undefined && (

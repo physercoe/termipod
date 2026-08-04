@@ -1,4 +1,6 @@
 import { memo, useState, type ReactNode } from 'react';
+import { ApprovalRequestBody, AttentionRequestBody } from './ApprovalCards';
+import { parseApprovalRequest } from './approvalRequest';
 import { Icon, type IconName } from './Icon';
 import { Markdown } from './Markdown';
 import { useT, type TLookup } from '../i18n';
@@ -404,7 +406,7 @@ function InputImages({ p }: { p: Entity }): JSX.Element | null {
   );
 }
 
-function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string): ReactNode {
+function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, agentId?: string): ReactNode {
   const p = ev.payload;
   switch (ev.kind) {
     case 'text': {
@@ -423,6 +425,18 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
     case 'thinking':
     case 'reasoning':
       return <ThoughtBody p={p} />;
+    case 'approval_request':
+      // The two full interactive cards (D-3). Classification is a pure call,
+      // so it can gate the JSX without calling a hook-bearing component
+      // conditionally: a payload none of the three producers' shapes matched
+      // falls through to the generic dump, because showing the bytes beats
+      // showing a card that misreads them.
+      if (parseApprovalRequest(p).form !== 'unknown') {
+        return <ApprovalRequestBody p={p} agentId={agentId} />;
+      }
+      return <GenericBody ev={ev} />;
+    case 'attention_request':
+      return <AttentionRequestBody p={p} />;
     case 'tool_call':
       return <ToolCallBody p={p} result={result} />;
     case 'tool_call_update': {
@@ -532,16 +546,24 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string):
       }
       const text = str(p, 'text');
       if (text !== undefined) return <Markdown text={text} uiRefs />;
-      return (
-        <div className="ev-generic">
-          <span className="ev-kind-label">{ev.kind}</span>
-          <Collapsible label="payload">
-            <pre className="ev-mono">{jsonText(p)}</pre>
-          </Collapsible>
-        </div>
-      );
+      return <GenericBody ev={ev} />;
     }
   }
+}
+
+/// The unmapped-frame fallback: the kind plus a collapsed payload dump. Named
+/// (rather than inline in `default:`) because a typed case can also decide its
+/// payload is not the shape it expected and hand back here — an approval whose
+/// producer shipped something none of the known rules match.
+function GenericBody({ ev }: { ev: FeedEvent }): JSX.Element {
+  return (
+    <div className="ev-generic">
+      <span className="ev-kind-label">{ev.kind}</span>
+      <Collapsible label="payload">
+        <pre className="ev-mono">{jsonText(ev.payload)}</pre>
+      </Collapsible>
+    </div>
+  );
 }
 
 /// A copy button that flips to a check for a beat after copying.
@@ -568,11 +590,16 @@ export const EventCard = memo(function EventCard({
   ev,
   result,
   callName,
+  agentId,
   onQuote,
 }: {
   ev: FeedEvent;
   result?: Entity;
   callName?: string;
+  /// The agent this feed belongs to. Required for the R1 cards to ANSWER an
+  /// approval or question — without it they still render what was asked, but
+  /// with no buttons (a replayed transcript has nothing to unblock).
+  agentId?: string;
   /// Quote this message into the composer (assistant text only). Omitted where
   /// there is no composer to quote into.
   onQuote?: (text: string) => void;
@@ -595,7 +622,7 @@ export const EventCard = memo(function EventCard({
   const text = messageText(ev);
   return (
     <div className={cls} data-seq={ev.seq}>
-      <div className="ev-body">{bodyFor(ev, t, result, callName)}</div>
+      <div className="ev-body">{bodyFor(ev, t, result, callName, agentId)}</div>
       {text !== undefined && (ev.ts !== undefined || text.trim() !== '') && (
         <div className="ev-meta">
           {ev.ts !== undefined && <TimeStamp ts={ev.ts} />}

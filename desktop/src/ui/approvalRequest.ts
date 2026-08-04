@@ -235,12 +235,43 @@ export function pendingAttentionFor(
 ): Entity[] {
   if (agentId === '') return [];
   return items.filter((it) => {
-    if ((str(it, 'status') ?? 'pending') !== 'pending') return false;
+    // The hub's status vocabulary is 'open' (unresolved) / 'resolved' —
+    // `handleListAttention` even defaults its query to status=open. There is
+    // no 'pending' status on the wire; testing for one here would exclude
+    // every real row and the inline cards would simply never render.
+    if ((str(it, 'status') ?? 'open') !== 'open') return false;
     const payload = obj(it, 'pending_payload');
     if (payload !== undefined && str(payload, 'agent_id') === agentId) return true;
     const rowSession = str(it, 'session_id') ?? '';
     return sessionId !== undefined && sessionId !== '' && rowSession === sessionId;
   });
+}
+
+/// Whether an attention kind can be decided by the inline card's plain
+/// approve/reject pair — or must be sent to the AttentionDock, whose per-kind
+/// cards carry the inputs the decision actually needs.
+///
+/// The split is about what `POST /attention/{id}/decide` requires per kind:
+///
+///   - `permission_prompt` / `approval_request` are binary by construction
+///     (request_approval is "the n=2 sibling of request_select").
+///   - `browser_action` / `desktop_action` approve as allow-ONCE; the dock
+///     additionally offers browser_action's session grant, which the inline
+///     card deliberately omits — a standing grant deserves the full card.
+///   - `select` needs an `option_id` (the picked option); approving without
+///     one resolves the row but delivers an answer that names no choice.
+///   - `help_request` needs a `body` — the hub 400s an approve without one,
+///     so an inline approve button could only ever fail.
+///
+/// Anything unrecognised defers too: a new kind's decide contract is unknown
+/// here, and a wrong button is worse than a pointer (D-4).
+export function inlineDecidable(kind: string): boolean {
+  return (
+    kind === 'permission_prompt' ||
+    kind === 'approval_request' ||
+    kind === 'browser_action' ||
+    kind === 'desktop_action'
+  );
 }
 
 /// What `input.approval` should carry for a chosen option.

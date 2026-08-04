@@ -13,6 +13,7 @@ import {
   approvalWire,
   parseApprovalRequest,
   parseAttentionRequest,
+  inlineDecidable,
   pendingAttentionFor,
   readOptions,
   type PermissionSpec,
@@ -218,11 +219,19 @@ test('attention_request carries the offered auth methods when there are any', ()
 });
 
 // ── pending attention scoping ────────────────────────────────────────
+//
+// Fixture statuses are the hub's REAL vocabulary — 'open' / 'resolved'
+// (`handleListAttention` defaults to status=open; nothing ever writes
+// 'pending'). The first cut of these tests invented a 'pending' status and
+// the filter matched the fixtures instead of the wire, so the inline cards
+// never rendered against a live hub. Same equivalence blind spot as the
+// ui_policy coverage invariant: hand-written fixtures verify the halves
+// agree with each other, not with the producer.
 
-test('pendingAttentionFor matches on pending_payload.agent_id', () => {
+test('pendingAttentionFor matches open rows on pending_payload.agent_id', () => {
   const items = [
-    { id: 'a1', status: 'pending', pending_payload: { agent_id: 'ag_1', tool_name: 'Bash' } },
-    { id: 'a2', status: 'pending', pending_payload: { agent_id: 'ag_2' } },
+    { id: 'a1', status: 'open', pending_payload: { agent_id: 'ag_1', tool_name: 'Bash' } },
+    { id: 'a2', status: 'open', pending_payload: { agent_id: 'ag_2' } },
   ];
   assert.deepEqual(pendingAttentionFor(items, 'ag_1').map((i) => i.id), ['a1']);
 });
@@ -232,20 +241,36 @@ test('pendingAttentionFor excludes resolved rows', () => {
   // a matter of record in the transcript.
   const items = [
     { id: 'a1', status: 'resolved', pending_payload: { agent_id: 'ag_1' } },
-    { id: 'a2', status: 'pending', pending_payload: { agent_id: 'ag_1' } },
+    { id: 'a2', status: 'open', pending_payload: { agent_id: 'ag_1' } },
   ];
   assert.deepEqual(pendingAttentionFor(items, 'ag_1').map((i) => i.id), ['a2']);
 });
 
 test('pendingAttentionFor falls back to session_id only when a session is in scope', () => {
-  const items = [{ id: 'a1', status: 'pending', session_id: 'sess_1' }];
+  const items = [{ id: 'a1', status: 'open', session_id: 'sess_1' }];
   assert.deepEqual(pendingAttentionFor(items, 'ag_1', 'sess_1').map((i) => i.id), ['a1']);
   // Without a session in scope the row must NOT match — otherwise every
   // system-raised row with an empty session would land in this agent's feed.
   assert.deepEqual(pendingAttentionFor(items, 'ag_1'), []);
-  assert.deepEqual(pendingAttentionFor([{ id: 'a2', status: 'pending' }], 'ag_1', ''), []);
+  assert.deepEqual(pendingAttentionFor([{ id: 'a2', status: 'open' }], 'ag_1', ''), []);
 });
 
 test('pendingAttentionFor with no bound agent matches nothing', () => {
-  assert.deepEqual(pendingAttentionFor([{ id: 'a1', status: 'pending' }], ''), []);
+  assert.deepEqual(pendingAttentionFor([{ id: 'a1', status: 'open' }], ''), []);
+});
+
+// ── inline decidability ──────────────────────────────────────────────
+
+test('inlineDecidable: binary kinds only — select and help_request defer to the dock', () => {
+  // Binary by construction (request_approval) or allow-once semantics
+  // (the bridge approval kinds): the approve/reject pair is complete.
+  for (const kind of ['permission_prompt', 'approval_request', 'browser_action', 'desktop_action']) {
+    assert.equal(inlineDecidable(kind), true, kind);
+  }
+  // select needs an option_id — an optionless approve resolves the row while
+  // naming no choice; help_request needs a body — the hub 400s without one.
+  // Unknown kinds have an unknown decide contract, so they defer too.
+  for (const kind of ['select', 'help_request', 'elicit', 'propose', 'template_proposal', 'idle', '']) {
+    assert.equal(inlineDecidable(kind), false, kind === '' ? '(empty)' : kind);
+  }
 });

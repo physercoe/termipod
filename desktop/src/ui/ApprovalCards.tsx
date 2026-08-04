@@ -7,6 +7,7 @@ import { useWorkbench } from '../state/workbench';
 import { Icon } from './Icon';
 import {
   approvalWire,
+  inlineDecidable,
   parseApprovalRequest,
   parseAttentionRequest,
   type ApprovalOption,
@@ -246,6 +247,7 @@ export function InlineAttentionCards({
   const t = useT();
   const client = useSession((s) => s.client);
   const qc = useQueryClient();
+  const setJob = useWorkbench((s) => s.setJob);
   if (items.length === 0) return null;
   return (
     <>
@@ -254,13 +256,52 @@ export function InlineAttentionCards({
         const kind = str(item, 'kind') ?? 'attention';
         const summary = str(item, 'summary') ?? '';
         const payload = obj(item, 'pending_payload');
-        const toolName = payload === undefined ? undefined : str(payload, 'tool_name');
+        const toolName = payload === undefined ? undefined : str(payload, 'tool_name') ?? str(payload, 'tool');
+        // `t` echoes the key on a miss, so compare rather than `||`-chain —
+        // an undeclared kind must fall back to its own name, not to the
+        // literal string "approval.attn.<kind>".
+        const labelKey = `approval.attn.${kind}`;
+        const translated = t(labelKey);
+        const kindLabel = translated === labelKey ? kind : translated;
+        const detail = (
+          <>
+            {summary !== '' && <div className="ev-approval-q">{summary}</div>}
+            {toolName !== undefined && (
+              <div className="ev-approval-subject">
+                <span className="muted small">{t('approval.tool')}</span> <code>{toolName}</code>
+              </div>
+            )}
+          </>
+        );
+        // A kind whose decision needs more than approve/reject (select's
+        // option, help_request's reply body) gets the pointer, not a pair of
+        // buttons that would resolve it wrong — see `inlineDecidable`. Same
+        // shape as the compaction card: show the ask, send the user where the
+        // decision actually lives (D-4).
+        if (!inlineDecidable(kind)) {
+          return (
+            <div className="ev-approval" key={id}>
+              <div className="ev-approval-head">
+                <Icon name="lock" size={13} />
+                <span className="ev-approval-kind">{kindLabel}</span>
+              </div>
+              {detail}
+              <div className="ev-approval-opts">
+                <button type="button" className="import-btn" onClick={() => setJob('fleet')}>
+                  <Icon name="eye" size={13} /> {t('approval.openAttention')}
+                </button>
+              </div>
+            </div>
+          );
+        }
+        const approveLabel =
+          kind === 'browser_action' || kind === 'desktop_action' ? t('att.allowOnce') : t('att.approve');
         return (
           <CardShell
             key={id}
-            kindLabel={t(`approval.attn.${kind}`) || kind}
+            kindLabel={kindLabel}
             options={[
-              { id: 'approve', label: t('att.approve') },
+              { id: 'approve', label: approveLabel },
               { id: 'reject', label: t('att.reject') },
             ]}
             onPick={
@@ -272,12 +313,7 @@ export function InlineAttentionCards({
                 : undefined
             }
           >
-            {summary !== '' && <div className="ev-approval-q">{summary}</div>}
-            {toolName !== undefined && (
-              <div className="ev-approval-subject">
-                <span className="muted small">{t('approval.tool')}</span> <code>{toolName}</code>
-              </div>
-            )}
+            {detail}
           </CardShell>
         );
       })}

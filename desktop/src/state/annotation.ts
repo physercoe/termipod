@@ -18,7 +18,7 @@ import { appendPointerNote, type UiPointer } from './uiPointer';
 // annotationTargets.ts (bridge-free, so node --test covers the contract);
 // re-exported here so existing importers keep one entry point.
 export { GLOBAL_ORIGIN, dockHiddenForPhase, resolveTargets } from './annotationTargets';
-export type { AnnotationOrigin, CompanionTarget } from './annotationTargets';
+export type { AnnotationOrigin, AnnotationTarget, CompanionTarget } from './annotationTargets';
 
 /// Annotation overlay state (D2 — docs/plans/desktop-ui-context-and-pointing.md
 /// §3.4): the user→agent pointing gesture. The trigger ARMS the overlay (only

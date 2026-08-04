@@ -351,17 +351,24 @@ export function AnnotationOverlay(): JSX.Element | null {
           onChange={(e) => setNote(e.target.value)}
           autoFocus
         />
-        {targets.kimi && (
-          <button className="primary" disabled={busy} onClick={() => void attachKimi()}>
-            <Icon name="globe" size={13} /> {t('annotate.attachKimi')}
-          </button>
+        {/* One button per resolved target, in the resolver's order — the list
+            IS the contract (F2), so the row does no picking of its own. */}
+        {targets.map((target) =>
+          target.kind === 'kimi' ? (
+            <button key="kimi" className="primary" disabled={busy} onClick={() => void attachKimi()}>
+              <Icon name="globe" size={13} /> {t('annotate.attachKimi')}
+            </button>
+          ) : (
+            <button
+              key={target.storageKey}
+              disabled={busy}
+              onClick={() => handOffToCompanion(note.trim(), target.storageKey)}
+            >
+              <Icon name="send" size={13} /> {t('annotate.sendTo').replace('{agent}', target.agentLabel)}
+            </button>
+          ),
         )}
-        {targets.companion !== null && (
-          <button disabled={busy} onClick={() => handOffToCompanion(note.trim(), targets.companion?.storageKey)}>
-            <Icon name="send" size={13} /> {t('annotate.sendTo').replace('{agent}', targets.companion.agentLabel)}
-          </button>
-        )}
-        {!targets.kimi && targets.companion === null && <span className="muted small">{t('annotate.noTarget')}</span>}
+        {targets.length === 0 && <span className="muted small">{t('annotate.noTarget')}</span>}
         <button className="link-btn" disabled={busy} onClick={discard}>
           {t('common.cancel')}
         </button>

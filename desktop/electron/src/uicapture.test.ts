@@ -11,6 +11,7 @@ import {
   captureRefusal,
   parseScreenshotArgs,
   readCaptureDecision,
+  readCardDecision,
   surfaceForPartition,
   visibleSurfaces,
 } from './uicapture.ts';
@@ -138,6 +139,36 @@ test('readCaptureDecision: only an explicit trailing approve approves', () => {
   assert.equal(readCaptureDecision({ status: 'resolved', decisions: [42] }), 'deny');
   assert.equal(readCaptureDecision(null), 'pending');
   assert.equal(readCaptureDecision('nope'), 'pending');
+});
+
+test('readCardDecision: the option rides an approve and NOTHING else', () => {
+  // The hub stamps `option_id: "session"` on the second approve button. Only
+  // author_apply asks for one today; ui_screenshot's card offers none.
+  assert.deepEqual(readCardDecision({ status: 'resolved', decisions: [{ decision: 'approve', option_id: 'session' }] }), {
+    outcome: 'approve',
+    optionId: 'session',
+  });
+  // An approve with no option is a plain "allow once".
+  assert.deepEqual(readCardDecision({ status: 'resolved', decisions: [{ decision: 'approve' }] }), {
+    outcome: 'approve',
+    optionId: '',
+  });
+  // The one that matters: a DENIED card carrying a stale option_id must never
+  // be readable as a grant, so the field is cleared rather than passed through.
+  assert.deepEqual(readCardDecision({ status: 'resolved', decisions: [{ decision: 'reject', option_id: 'session' }] }), {
+    outcome: 'deny',
+    optionId: '',
+  });
+  // Still open: no decision, no option.
+  assert.deepEqual(readCardDecision({ status: 'open', decisions: [{ decision: 'approve', option_id: 'session' }] }), {
+    outcome: 'pending',
+    optionId: '',
+  });
+  // A non-string option is not an option.
+  assert.deepEqual(readCardDecision({ status: 'resolved', decisions: [{ decision: 'approve', option_id: 7 }] }), {
+    outcome: 'approve',
+    optionId: '',
+  });
 });
 
 test('denial messages point the agent at the cheaper representation', () => {

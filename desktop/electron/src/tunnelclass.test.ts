@@ -12,7 +12,7 @@ import {
   READ_TOOLS,
   TUNNEL_KINDS,
   tunnelClassForTool,
-  UI_TOOL_NAMES,
+  DESKTOP_GATED_TOOL_NAMES,
   type BridgeBackend,
   type McpServerDeps,
   type UiCaptureResult,
@@ -35,7 +35,10 @@ function deps(): McpServerDeps {
 
 test('every tool belongs to exactly one class, and the kinds are distinct', () => {
   for (const t of READ_TOOLS) {
-    assert.equal(tunnelClassForTool(t.name), UI_TOOL_NAMES.has(t.name) ? 'desktop' : 'browser', t.name);
+    // The desktop class is everything the sharing toggle gates: the D1/D3/D6
+    // ui_* tools AND coworking lane A's author_* tools, which describe and
+    // write the user's own workbench rather than an embedded web page.
+    assert.equal(tunnelClassForTool(t.name), DESKTOP_GATED_TOOL_NAMES.has(t.name) ? 'desktop' : 'browser', t.name);
   }
   for (const t of ACTION_TOOLS) assert.equal(tunnelClassForTool(t.name), 'browser', t.name);
   assert.equal(tunnelClassForTool('browser_nuke'), null);

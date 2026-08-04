@@ -40,6 +40,26 @@ excluded. Investigation record:
   mirroring; `tunnelClassForTool` (`:1346`) → `'desktop'`. Per-kind
   rules ride in tool descriptions (the reference app's
   `display_diagram` description ports near-verbatim).
+  - *As built:* **two tools, not four.** `author_read` + `author_apply`
+    shipped; `author_render` was already W2 in §11, and `author_guide`
+    followed it there because its whole content is C2 + C3, both W2 — a
+    guide verb with nothing to answer is a catalog entry that teaches an
+    agent to stop asking. `mode` is `'replace' | 'append'`; `'ops'` is
+    lane D and is refused **by name** (`INVALID_PARAMS`) rather than
+    falling back to replace, which would commit an operation list as the
+    document body.
+  - *As built:* the gate set is now `DESKTOP_GATED_TOOL_NAMES`
+    (`UI_TOOL_NAMES ∪ AUTHOR_TOOL_NAMES`) and the catalog filter +
+    `tunnelClassForTool` read from it, so the next lane that adds a
+    desktop tool cannot forget either site.
+  - **`author_read` did NOT join `DESKTOP_ACTION_TOOL_NAMES`.** That set
+    does two jobs — "audit on every leg" and "`readOnlyHint: false`" —
+    and `author_read` needs the first while the second would be a lie
+    (ADR-063 D5 is explicit that annotating a read as a mutation is the
+    one direction of that hint which can cause harm). Split into
+    `DESKTOP_AUDITED_TOOL_NAMES` ⊃ `DESKTOP_ACTION_TOOL_NAMES`; the
+    audit gate reads the superset, the annotation reads the subset.
+    Hub-leg reads stay ring-only as before — the hub routed them.
 - **A2 — renderer author-bridge RPC.** Main has no DOMParser: a
   correlation-id request/response pair over the `bridge:event` plumbing
   (`events.ts:36-39`); main provider = new `McpServerDeps` field
@@ -47,6 +67,22 @@ excluded. Investigation record:
   (`browserbridge_host.ts:327-345`); the renderer service owns parse,
   validate, apply, snapshot, editor refresh; `redactBridgeArgs`
   (`:221-246`) gains `body`/`operations`.
+  - *As built:* three ops, not two — `read`, `apply`, and a pre-flight
+    `resolve`. The approval card has to NAME the document, the document
+    is a fact only the renderer holds, and naming one must not disclose
+    it: `resolve` returns id/kind/title/path and no body. Order is
+    resolve → card → apply.
+  - *As built:* the request order is the wedge's safety property, so it
+    lives in `executeAuthorRequest` (`state/authorBridge.ts`) with the
+    three stores INJECTED, and `authorBridgeHost.ts` is a 30-line binder.
+    The store write is step 6, after the live editor gets its say — so a
+    body the editor refuses leaves the document byte-identical, and the
+    ring records the pre-write body before the store moves. Both
+    orderings are pinned by tests and both mutations die.
+  - *As built:* `redactBridgeArgs` also clips `reason` (agent-authored,
+    unbounded upstream) and redacts `operations` **before** lane D
+    accepts the mode — an argument this module does not implement still
+    reaches the audit ring.
 - **A3 — consent card + lease (the D3 write class).** First
   `author_apply` per (agent, document, session) raises the
   `desktop_action` card (`uicapture_host.ts:122-140` shape) offering
@@ -55,9 +91,48 @@ excluded. Investigation record:
   (`mcp_desktop_ui.go:118-131`), cleared on toggle-off (join the
   `uiContext.ts:69` cascade), session end, per-run revoke
   (`browserbridge.ts:1378-1380`).
+  - **The lease could not live in `desktopGrantKind` — that namespace is
+    the wrong SHAPE, not merely the wrong scope.** `bridgeGrants` keys by
+    (kind, team, host, agent); there is no document in the key. A grant
+    minted from "allow this document for this session" would therefore
+    silence the card for every OTHER document the user opens: they would
+    have said *edit my draft* and been taken to mean *edit anything I
+    open*. So the lease is the desktop's own, keyed (agent, document),
+    in `electron/src/author.ts`; and hub-side `desktopUIGrantable` now
+    **refuses `author_apply` a grant outright**, which makes every
+    relayed apply carded per call with the document in the card's args.
+    `desktopGrantKind` stays reserved for a future grant key that
+    carries a subject.
+  - *As built:* cleared on toggle-off (`desktopui.ts`), on
+    Remote-driving revoke (`browserbridge_host.ts`), and with the
+    process. Never persisted — a lease is a convenience within one
+    sitting, not a permission.
+  - **The sharing toggle's own copy was a promise this wedge broke.** It
+    said *"Never shared: message bodies, vault contents, settings
+    values"* while describing a snapshot of "ids, paths and URLs only" —
+    and `author_read` returns the text of the user's documents under the
+    same switch. Consent that names the wrong thing is not consent, so
+    `assistant.uiContextToggle` / `assistant.uiContextBlurb` were
+    rewritten in BOTH dicts to enumerate all four capabilities the
+    toggle now grants, including that edits are carded per document and
+    revertible. Worth carrying forward: **a lane that widens what a
+    toggle grants owns that toggle's sentence.**
 - **A4 — degrade honestly.** Result states `applied_live` |
   `applied_store_only` | `applied_via_remount` (interim until the
   kind's B-lane adapter ships).
+  - *As built:* **two rungs, not three.** `applied_via_remount` is not
+    implemented and not reported — nothing remounts an editor, and a
+    state nobody can produce is a promise in a tool description rather
+    than a result.
+  - *As built:* the rung is decided by `applyStateFor` — a registered
+    live target that took the body, else the kind. `rendersFromBody` is
+    true for `markdown` (`ui/MarkdownEditor.tsx` diffs an external
+    `value` into the CodeMirror doc; its own comment names the
+    agent-insert case) and `figure` (`surfaces/FigureEditor.tsx` does the
+    same), false for `table` (parses `value` in a `useState` INITIALIZER,
+    no effect — B4), `excalidraw` (B3) and the two kinds that have
+    adapters. Each answer is cited in the source, because a wrong `true`
+    tells the user to look at a screen that did not change.
 - **A5 — the table silent-empty guard ships WITH `author_apply`, not
   with B4.** `parseTable` (`table.ts:40-50`) catches a JSON parse
   failure and returns `emptyTable()` — unparseable input silently
@@ -445,12 +520,16 @@ one item here that closes a data-loss window the wave itself opens.
 - **Honesty:** windowed/capped tool results surface their caps
   (Replay's invariants); `applied_*` degradation states are exercised
   in tests, not just documented.
-- CI blind spot: desktop node tests run manually
-  (`node --test src/state/*.test.ts src/ui/*.test.ts
-  src/ssh/*.test.ts src/terminal/*.test.ts` + electron suite) per
-  wedge. The lane-G focus tests are the exception — they live in
-  `electron/src/ui_policy.test.ts`, which CI *does* run, so the
-  coverage invariant holds the reserved-field class on every PR.
+- CI blind spot: desktop **frontend** node tests run manually
+  (`node --test src/state/*.test.ts src/ui/*.test.ts src/ssh/*.test.ts
+  src/terminal/*.test.ts`) per wedge. The **electron** package's suite
+  DOES run in CI (`desktop.yml` → `npm test`), and two lanes deliberately
+  put their load-bearing rules on that side of the line: lane A's consent
+  policy, lease and wording live in the electron-free
+  `electron/src/author.ts`, and lane G's focus tests live in
+  `electron/src/ui_policy.test.ts` so the coverage invariant holds the
+  reserved-field class on every PR. The rules a reviewer most wants a
+  machine watching are the ones a machine watches.
 
 ## 13. Acceptance
 

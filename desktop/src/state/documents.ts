@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import { backupCorrupt } from './persist';
+// isExcalidrawBody moved next to the other agent-write body rules (lane A):
+// classifying a file being opened and refusing an agent's malformed scene are
+// the same question, and one predicate cannot drift from itself.
+import { isExcalidrawBody } from './authorBody';
 import { csvToTable, isTableBody, serializeTable, tableBodyToCsv } from './table';
 import { figureBySpec, specForFile, type FigureSpec } from './figures';
 
@@ -101,19 +105,6 @@ export function extForKind(kind: DocKind): string {
 export function extForDoc(doc: Pick<Doc, 'kind' | 'spec'>): string {
   if (doc.kind === 'figure' && doc.spec !== undefined) return figureBySpec(doc.spec)?.ext ?? 'txt';
   return extForKind(doc.kind);
-}
-
-/// A `.json` blob is an Excalidraw scene if its top-level `type` is
-/// `"excalidraw"` (the ecosystem-standard discriminator) — so a scene saved with
-/// a `.json` extension still opens in the sketch editor, and arbitrary JSON never
-/// is. Kept cheap: bail on the first structural mismatch.
-function isExcalidrawBody(content: string): boolean {
-  try {
-    const d = JSON.parse(content) as { type?: unknown; elements?: unknown };
-    return d.type === 'excalidraw' && Array.isArray(d.elements);
-  } catch {
-    return false;
-  }
 }
 
 /// The document kind (+ figure spec) for a file being opened. Extension decides

@@ -155,6 +155,19 @@ transport rung (lane T), never the renderer's ceiling.
   untouched — they already consume typed events. The dock's agent
   picker lists sources: local sessions + hub agents when a hub is
   configured.
+  - *As built (`state/agentSource.ts`):* the fourth verb split in two.
+    R1 landed first and added the direct unblock verbs
+    (`approveAgentInput` / `answerAgentInput`), which are the same
+    input channel as `send` and generalise to any producer — so they
+    are **core**. Attention resolve is the hub's own table
+    (`POST /attention/{id}/decide`), which a local driver has none of
+    (L4: "no attention table locally") — so it is an **optional
+    capability**, absent rather than stubbed, and consumers gate on
+    its presence rather than on `kind === 'hub'` (D-4/D-7).
+  - *Deferred to L3:* source **selection** — the picker and a React
+    context. With one implementation a selector has nothing to select;
+    the shape of the real one depends on what a local source needs,
+    and that arrives with the local source.
 - **L2 — TS frame-profile interpreter.** Interpret
   `agent_families.yaml` `frame_profile` rules in Electron main,
   validated against the **same corpus fixtures** the Go interpreter

@@ -425,6 +425,9 @@ const en: Dict = {
   'att.reject': 'Reject',
   'att.allowOnce': 'Allow once',
   'att.allowSession': 'Allow session',
+  // Coworking A3: the author_apply card's second approve — the lease is per
+  // (agent, document), so the label names the scope the user is granting.
+  'att.allowDocSession': 'Allow this document (session)',
   'att.override': 'Override',
   'att.replyPlaceholder': 'Reply…',
   'att.answer': 'Answer',
@@ -2503,6 +2506,7 @@ const zh: Dict = {
   'att.reject': '拒绝',
   'att.allowOnce': '仅允许一次',
   'att.allowSession': '允许本次会话',
+  'att.allowDocSession': '本次会话允许编辑此文档',
   'att.override': '覆盖',
   'att.replyPlaceholder': '回复…',
   'att.answer': '回答',

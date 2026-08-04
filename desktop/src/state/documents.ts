@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { backupCorrupt } from './persist';
-import { csvToTable, isTableBody, parseTable, serializeTable, tableToCsv } from './table';
+// isExcalidrawBody moved next to the other agent-write body rules (lane A):
+// classifying a file being opened and refusing an agent's malformed scene are
+// the same question, and one predicate cannot drift from itself.
+import { isExcalidrawBody } from './authorBody';
+import { csvToTable, isTableBody, serializeTable, tableBodyToCsv } from './table';
 import { figureBySpec, specForFile, type FigureSpec } from './figures';
 
 /// The J2 Author workspace — multiple open documents as tabs (director request:
@@ -103,19 +107,6 @@ export function extForDoc(doc: Pick<Doc, 'kind' | 'spec'>): string {
   return extForKind(doc.kind);
 }
 
-/// A `.json` blob is an Excalidraw scene if its top-level `type` is
-/// `"excalidraw"` (the ecosystem-standard discriminator) — so a scene saved with
-/// a `.json` extension still opens in the sketch editor, and arbitrary JSON never
-/// is. Kept cheap: bail on the first structural mismatch.
-function isExcalidrawBody(content: string): boolean {
-  try {
-    const d = JSON.parse(content) as { type?: unknown; elements?: unknown };
-    return d.type === 'excalidraw' && Array.isArray(d.elements);
-  } catch {
-    return false;
-  }
-}
-
 /// The document kind (+ figure spec) for a file being opened. Extension decides
 /// everything except `.json`, which is content-sniffed in order: a `{columns,
 /// rows}` doc is a table → a Vega-Lite spec (registry sniff) → otherwise plain
@@ -146,8 +137,15 @@ export function kindForFile(ext: string, content: string): { kind: DocKind; spec
 
 // The disk representation depends on the linked file's extension, not just the
 // kind: a table is JSON-verbatim in a `.json` and lossy-CSV in a `.csv`.
+//
+// A5: a table body we could not parse THROWS rather than exporting an empty
+// CSV. This is the second mouth of the same hole `parseTable`'s read-only flag
+// closes — the CSV path lowers a table through the parser on the way out, so an
+// unreadable body silently became a zero-row file written over whatever the
+// user picked in the save dialog. Refusing surfaces as a save error the caller
+// already reports; the JSON path is byte-verbatim and unaffected.
 export function bodyToFile(kind: DocKind, body: string, ext: string, nameFallback: string): string {
-  return kind === 'table' && ext.toLowerCase() === 'csv' ? tableToCsv(parseTable(body, nameFallback)) : body;
+  return kind === 'table' && ext.toLowerCase() === 'csv' ? tableBodyToCsv(body, nameFallback) : body;
 }
 export function fileToBody(kind: DocKind, text: string, ext: string, nameFallback: string): string {
   return kind === 'table' && ext.toLowerCase() === 'csv' ? serializeTable(csvToTable(text, nameFallback)) : text;

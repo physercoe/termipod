@@ -6,7 +6,7 @@
 /// card would loiter in the director's inbox forever).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { approveViaCard, dismissCard, raiseCard, teamUrl, type HubLeg } from './uicapture_hub.ts';
+import { approveViaCard, approveViaCardWithOption, dismissCard, raiseCard, teamUrl, type HubLeg } from './uicapture_hub.ts';
 import { UI_CAPTURE_POLL_MS } from './uicapture.ts';
 
 const LEG: HubLeg = { baseUrl: 'https://hub.example', teamId: 'team_1', token: 'tok' };
@@ -138,6 +138,40 @@ test('approveViaCard: poll transport errors are not decisions — the deadline s
   const clock = fakeClock();
   const verdict = await approveViaCard(LEG, CARD, 'pi-a', { ...clock, fetchFn, timeoutMs: UI_CAPTURE_POLL_MS * 2 });
   assert.equal(verdict, 'timeout');
+});
+
+test('approveViaCardWithOption: an approve carries the session option through', async () => {
+  const clock = fakeClock();
+  const { fetchFn } = scriptedFetch([
+    json(200, { id: 'att_1' }),
+    json(200, { status: 'resolved', decisions: [{ decision: 'approve', option_id: 'session' }] }),
+  ]);
+  const out = await approveViaCardWithOption(LEG, CARD, 'pi-a', { ...clock, fetchFn });
+  assert.deepEqual(out, { verdict: 'approve', optionId: 'session' });
+});
+
+test('approveViaCardWithOption: a denial and a timeout carry NO option', async () => {
+  const denied = scriptedFetch([json(200, { id: 'att_1' }), json(200, { status: 'resolved', decisions: [{ decision: 'reject', option_id: 'session' }] })]);
+  assert.deepEqual(await approveViaCardWithOption(LEG, CARD, 'pi-a', { ...fakeClock(), fetchFn: denied.fetchFn }), {
+    verdict: 'denied',
+    optionId: '',
+  });
+
+  // A timeout dismisses the card (2 polls inside the window, then the
+  // deadline) and grants nothing — the lease must not outlive a decision that
+  // was never made.
+  const open = scriptedFetch([
+    json(200, { id: 'att_1' }),
+    json(200, { status: 'open' }),
+    json(200, { status: 'open' }),
+    json(204, null),
+  ]);
+  const out = await approveViaCardWithOption(LEG, CARD, 'pi-a', {
+    ...fakeClock(),
+    fetchFn: open.fetchFn,
+    timeoutMs: UI_CAPTURE_POLL_MS * 2,
+  });
+  assert.deepEqual(out, { verdict: 'timeout', optionId: '' });
 });
 
 test('approveViaCard: a hub that refuses the card is raise_failed, and never polled', async () => {

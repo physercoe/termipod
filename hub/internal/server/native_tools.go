@@ -785,7 +785,7 @@ func buildNativeTools() []nativeTool {
 		},
 		{
 			Name:  "desktop_ui_invoke",
-			Short: "Ask an online desktop what its user is looking at, or (approved per call) for a screenshot.",
+			Short: "Ask an online desktop what its user is looking at, point at it, read its documents, or (approved per call) screenshot or edit.",
 			Description: "Invoke a desktop-UI tool on an online TermiPod desktop that registered the " +
 				"desktop_ui capability; the call rides the hub's A2A reverse tunnel, so the desktop " +
 				"can be on a different host than you. Discover desktops via hosts_list (hosts whose " +
@@ -802,6 +802,14 @@ func buildNativeTools() []nativeTool {
 				"ui_highlight points the user at something on their own screen — an ephemeral, " +
 				"attributed marker over a UIRef, non-actuating (it never focuses, scrolls, clicks " +
 				"or types) and needing no approval; the user's click is the only actuator. " +
+				"author_read returns a document open in the desktop's Author surface (markdown, " +
+				"draw.io diagram, JSON Canvas board, table, figure source or Excalidraw scene) with " +
+				"its full body plus the index of every open document; author_apply writes one back " +
+				"and raises an approval card the user must accept on every call. A body that does " +
+				"not parse as its kind is refused with the parser's diagnosis and the document is " +
+				"left byte-identical, and the result says whether the write reached the editor on " +
+				"screen (applied_live) or only the document behind it (applied_store_only) — pass " +
+				"that on, do not report a store-only write as one the user can see. " +
 				"Required: host_id, tool. Optional: args (object, default {}).",
 			InputSchema: map[string]any{
 				"type": "object",

@@ -101,13 +101,32 @@ excluded. Investigation record:
 
 ## 2. Lane B — Author per-editor adapters + safety net
 
+Every adapter registers in one place: `state/liveApply.ts`, a
+document-keyed registry of "apply this body to the live editor". Lane
+A's `author_apply` calls it first and reports which A4 rung it landed
+on — `applied_live` when a target took the body, `applied_store_only`
+when none is registered (the document is not open, or its kind has no
+adapter yet), `rejected` when a target refused. B3–B5 are new rows in
+the same registry, not new plumbing.
+
 - **B1 — diagram.** Post-init write path into the draw.io iframe
   (`{action:'load'|'merge', xml}`); pin `ev.origin ===
   'drawio://localhost'` and drop the `'*'` targetOrigin
   (`DiagramEditor.tsx:80,91`).
+  - *As built:* only `load` is wired. `merge` is draw.io's additive
+    action and belongs with D1's `mode:'ops'` — exposing it under
+    `mode:'replace'` would let an agent append to a diagram while
+    believing it replaced one. The origin pin is safe because
+    `drawio://` is registered with `standard: true`
+    (`electron/src/schemes.ts:27-29`), so the frame reports a real
+    tuple origin rather than `"null"`.
 - **B2 — canvas.** Expose `applyBoardString`
   (`CanvasEditor.tsx:598-610`); `pushHistory` first so **Cmd+Z undoes
   the agent**; reject parses that yield `readOnly`.
+  - *As built:* two refusals, not one — a body whose parse yields
+    `readOnly`, **and** a board that is itself read-only. A user who
+    cannot edit a board by hand must not have an agent edit it for
+    them.
 - **B3 — excalidraw.** `updateScene` via the held API ref
   (`ExcalidrawEditor.tsx:73`); validate scene shape first.
 - **B4 — table.** Add the `useEffect([value])` reconcile

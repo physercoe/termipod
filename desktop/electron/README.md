@@ -258,6 +258,14 @@ npm start          # esbuild → out/, then `electron .`
       bytes on every OS) by the workflow's `wasm` job and shared to the three
       `bundle` jobs as an artifact. Signing/notarization consume repo secrets
       when present; absent, the build is unsigned (enough to gate the pipeline).
+      The **deb** carries maintainer scripts (`build/linux/after-install.sh` /
+      `after-remove.sh`): chrome-sandbox is made setuid-root post-install
+      (Electron aborts on the 0755 the files section packs), and an AppArmor
+      profile granting `userns` is installed on systems with Ubuntu 24.04+'s
+      `kernel.apparmor_restrict_unprivileged_userns=1`, without which the
+      Chromium sandbox is denied cap_sys_admin and the app exits instantly.
+      The AppImage has no install hook — there the same Ubuntu versions need
+      `--no-sandbox` or a hand-installed profile.
 - [x] **M3.2** electron-updater — main-process `updater_check`/`_download`/
       `_install` + `app_version` (`ipc/updater.ts`); `bridge/updater.ts`
       synthesizes the Tauri `Update` shape (its `downloadAndInstall` translates

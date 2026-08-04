@@ -12,3 +12,6 @@
 {"type":"result","subtype":"success","duration_ms":4500,"num_turns":3,"total_cost_usd":0.0123,"permission_denials":[]}
 {"type":"error","error":"connection refused","code":"ECONNREFUSED"}
 {"type":"telemetry_v2","data":"hypothetical future shape","session_id":"sess-x"}
+{"type":"assistant","message":{"id":"msg_thinking_signed","model":"claude-opus-4-7","content":[{"type":"thinking","thinking":"","signature":"EqQBCkYIBRgCKkB9"},{"type":"text","text":"Done."}]}}
+{"type":"assistant","message":{"id":"msg_thinking_text","model":"claude-opus-4-7","content":[{"type":"thinking","thinking":"Let me check the file first."}]}}
+{"type":"result","subtype":"success","duration_ms":8100,"num_turns":5,"total_cost_usd":0.42,"permission_denials":[],"modelUsage":{"claude-opus-4-7":{"inputTokens":1200,"outputTokens":340,"cacheReadInputTokens":9000,"cacheCreationInputTokens":120,"costUSD":0.42,"contextWindow":1000000,"maxOutputTokens":64000}}}

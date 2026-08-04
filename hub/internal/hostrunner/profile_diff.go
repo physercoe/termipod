@@ -10,8 +10,8 @@
 //     against every frame, and fails on any DiffEvents return.
 //
 // Both call sites pass the same ParityIgnoreFields map, so a known
-// gap (modelUsage inner-key renaming, overage_disabled boolean
-// projection, …) is documented once and respected everywhere.
+// gap (overage_disabled boolean projection, …) is documented once and
+// respected everywhere.
 package hostrunner
 
 import (
@@ -29,10 +29,6 @@ import (
 // future grammar extension lands. Adding a field here is a deliberate
 // policy decision; the comment on each entry explains why.
 //
-//   - by_model: legacy normalizeTurnResult walks modelUsage's per-
-//     model map and renames the inner camelCase keys (inputTokens →
-//     input, …). The v1 grammar has no map-iter construct; by_model
-//     passes through with the original keys. See plan §7.
 //   - overage_disabled: legacy translateRateLimit derives a boolean
 //     from `firstNonNil(reason) != nil`. The v1 grammar has no
 //     "is-this-non-nil" predicate at expression level; the profile
@@ -40,8 +36,19 @@ import (
 //     derive the boolean. Mobile reads `reason`, not `overage_disabled`,
 //     so this is a wire-shape difference without functional impact.
 var ParityIgnoreFields = map[string]string{
-	"by_model":         "v1 grammar lacks map-iter; modelUsage passes through verbatim",
 	"overage_disabled": "v1 grammar lacks bool-from-nullable; mobile reads reason directly",
+	// Not a translator divergence: context_window is stamped in
+	// StdioDriver.emit, BELOW both translators, so it reaches every real
+	// event either path produces. This comparison runs above that layer
+	// and therefore sees it on the hand-written side only. (The stamp
+	// can't live in a rule: it needs a static model table and
+	// cross-frame state, neither of which the profile grammar has — nor
+	// should it.)
+	"context_window": "stamped below both translators in emit(); the diff runs above that layer",
+	// `by_model` was listed here until the `payload_maps` map-projection
+	// landed. The grammar can now re-shape an object keyed by data, so
+	// the two paths agree on it and the entry was retired rather than
+	// re-worded — an ignore list that outlives its gap hides the next one.
 }
 
 // DiffEvents compares the events produced by the legacy translator

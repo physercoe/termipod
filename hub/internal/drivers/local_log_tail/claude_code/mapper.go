@@ -180,6 +180,20 @@ func usageFromMessage(model string, raw json.RawMessage) *MappedEvent {
 	}
 }
 
+// ModelContextWindow is this package's exported entry point to the
+// table below. The M2 stdio driver (hostrunner) needs the same answer
+// to the same question: stream-json usage frames carry token counts but
+// no window, so the context-fill chip has nothing to divide by. One
+// table, two rungs — a second copy would go stale the next time
+// Anthropic ships a model family, and the two rungs of the SAME engine
+// would then disagree about the same session.
+//
+// The implementation keeps its unexported name because ADR-036 is
+// Accepted and names it, anchor included (doc-spec §6.2). Renaming the
+// symbol would mean editing an immutable decision record to chase a
+// refactor; a two-line export costs less than that.
+func ModelContextWindow(model string) int { return claudeModelContextWindow(model) }
+
 // claudeModelContextWindow returns the context window of a claude
 // model identifier in tokens, or 0 if the identifier is unrecognised
 // (mobile then suppresses the chip rather than rendering a wrong %).

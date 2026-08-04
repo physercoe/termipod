@@ -227,6 +227,22 @@ families:
                   id:    "$.id"
                   name:  "$.name"
                   input: "$.input"
+            # Extended reasoning. claude-code 2.1.x signs the block and
+            # ships `thinking` empty, so the typed event is usually a
+            # marker; when a build DOES populate it we forward the text
+            # rather than throwing it away. Without this sub-rule the
+            # block matched nothing and was dropped on the profile path
+            # (and fell to kind=raw on the legacy one) — the M4 tap has
+            # emitted `thought` since ADR-027, so M2 was the odd one out.
+            - match: { type: thinking }
+              emit:
+                kind: thought
+                producer: agent
+                payload:
+                  text:              'nonempty($.thinking) || "Thinking…"'
+                  marker_only:       "absent($.thinking)"
+                  signature_present: "present($.signature)"
+                  message_id:        "$$.message.id"
 
         # ── assistant.message.usage  →  usage (when present) ─────
         # Telemetry strip in mobile; gated by when_present so it
@@ -267,11 +283,14 @@ families:
         # turn.result is the canonical typed kind; completion is a
         # deprecated alias kept for one release per ADR. Both rules
         # match {type: result} (specificity tie) so they co-fire.
-        # Note: modelUsage's inner-key renaming (camelCase →
-        # snake_case) is a known parity gap — the v1 grammar lacks a
-        # map-iter construct, so by_model passes through verbatim.
-        # Tracked for grammar extension after the parity test
-        # surfaces the real diff. See plan Phase 1.5.
+        #
+        # by_model rides `payload_maps`: modelUsage is keyed by model
+        # id, so its VALUES need re-shaping while its keys are data.
+        # Passing it through verbatim (what the grammar could express
+        # before) shipped claude's own camelCase field names where the
+        # typed vocabulary promises ours — and since the digest fold
+        # and insights both treat by_model as authoritative, every
+        # per-model number silently read as zero on the profile path.
         - match: { type: result }
           emit:
             kind: turn.result
@@ -283,7 +302,17 @@ families:
               terminal_reason:    "$.terminal_reason || $.subtype"
               permission_denials: "$.permission_denials"
               fast_mode_state:    "$.fast_mode_state || $.fastModeState"
-              by_model:           "$.modelUsage || $.model_usage"
+            payload_maps:
+              by_model:
+                source: "$.modelUsage || $.model_usage"
+                fields:
+                  input:             "$.inputTokens || $.input_tokens"
+                  output:            "$.outputTokens || $.output_tokens"
+                  cache_read:        "$.cacheReadInputTokens || $.cache_read_input_tokens"
+                  cache_create:      "$.cacheCreationInputTokens || $.cache_creation_input_tokens"
+                  cost_usd:          "$.costUSD || $.cost_usd"
+                  context_window:    "$.contextWindow || $.context_window"
+                  max_output_tokens: "$.maxOutputTokens || $.max_output_tokens"
         - match: { type: result }
           emit:
             kind: completion

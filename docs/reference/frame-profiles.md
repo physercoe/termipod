@@ -67,7 +67,8 @@ default. What's in the rule is what runs.
 
 ```
 expr     := term ( '||' term )*
-term     := path | string
+term     := path | string | pred
+pred     := ( 'present' | 'absent' | 'nonempty' ) '(' expr ')'
 path     := '$.' segments              # inner scope (the for_each element)
           | '$$.' segments             # outer scope (parent frame)
           | '$.'                       # the inner scope itself
@@ -88,15 +89,35 @@ That's the entire language. Concretely:
 | `"literal"` | a string constant |
 | `$.a \|\| $.b` | first non-nil; missing → fall through |
 | `$.a \|\| $.b \|\| "default"` | trailing literal acts as a default value |
+| `present($.sig)` | `true` when `$.sig` carries something, else `false` |
+| `absent($.sig)` | the negation of `present` |
+| `nonempty($.a) \|\| "d"` | like `$.a \|\| "d"`, but an **empty** `$.a` also takes the default |
+
+**Presence predicates.** Typed payloads often carry a boolean *derived*
+from whether a source field was populated — `thought.signature_present`
+is the canonical case. A hand-written translator writes `x != ""` in Go;
+without these a rule could only ship the raw value, which is a different
+field with a different meaning, and the two paths could never agree.
+
+"Present" means **carrying something**: `nil`, `""`, `[]`, `{}` and
+`false` are all absent. `0` is *present* — a token count of zero is a
+real measurement, not a missing one.
+
+`present`/`absent` always return a bool, so a coalesce never falls past
+them (`present($.nope) || "d"` is `false`, not `"d"`). `nonempty` is the
+one that *does* fall through: it returns its argument when present and
+`nil` otherwise, which is how a rule says "treat empty as missing".
 
 **Resolution rules:**
 
 - Missing key at any depth → `nil`. No errors, no panics.
 - `nil || x` falls through to `x`.
 - Empty string `""` is **non-nil** and wins coalesce. Intentional —
-  if an SDK emits `""` for a real field, you can model it.
+  if an SDK emits `""` for a real field, you can model it. Wrap the term
+  in `nonempty(...)` when you want the opposite.
 - Out-of-bounds indices, type mismatches (indexing into a non-array),
-  malformed paths all collapse to `nil`.
+  malformed paths all collapse to `nil`. A predicate missing its closing
+  paren is just a malformed path — `nil`, not an error.
 
 **Common pitfalls** (especially for AI agents who've seen JSONata):
 
@@ -108,10 +129,10 @@ That's the entire language. Concretely:
   treats falsy values as fall-through-able.
 - There is no `.foo` (without `$.` prefix) syntax. Every path starts
   with `$.` or `$$.`.
-- There are no functions, comparison operators, arithmetic, or
-  ternaries. If you need any of those, the right move is to extend the
-  grammar minimally via a follow-up ADR — don't try to encode logic
-  through coalesce hackery.
+- Beyond the three presence predicates there are no functions,
+  comparison operators, arithmetic, or ternaries. If you need any of
+  those, the right move is to extend the grammar minimally via a
+  follow-up ADR — don't try to encode logic through coalesce hackery.
 
 ## 4. Rule shape
 
@@ -127,12 +148,43 @@ That's the entire language. Concretely:
     payload:                  # per-field expression map
       field_name: <expr>
       another:    <expr>
-    # OR (mutually exclusive with payload):
+    payload_maps:             # optional: fields whose value is a map
+      field_name:             # keyed by DATA, re-shaped per value
+        source: <expr>        # must resolve to a map
+        fields:               # evaluated per value ($. = that value)
+          out_name: <expr>
+    # OR (mutually exclusive with payload / payload_maps):
     payload_expr: <expr>      # whole-payload passthrough; result must be a map
   sub_rules:                  # only meaningful with for_each
     - match: { ... }
       emit: { ... }
 ```
+
+**`payload_maps`** is the map twin of `for_each` + `sub_rules`:
+`for_each` walks an *array* and dispatches per element, `payload_maps`
+walks a *map* and projects each value while keeping the source's keys.
+
+Reach for it when an object is keyed by **data** rather than by field
+names — claude's `modelUsage`, keyed by model id, is the motivating
+case. Without it such an object can only pass through verbatim, which
+means shipping the engine's own field names (`inputTokens`) where the
+typed vocabulary promises ours (`input`). Nothing errors; the consumers
+that treat the field as authoritative just read every number as zero.
+
+```yaml
+payload_maps:
+  by_model:
+    source: "$.modelUsage || $.model_usage"
+    fields:
+      input:  "$.inputTokens || $.input_tokens"
+      output: "$.outputTokens || $.output_tokens"
+```
+
+Inside `fields`, `$.` is the value being projected and `$$.` is the
+rule's own scope. An absent source **omits the field entirely** rather
+than emitting `{}` — "no per-model data" and "data for zero models" are
+different claims. Values that aren't objects are skipped, so one
+malformed entry can't void the map.
 
 **Choosing `payload` vs `payload_expr`:**
 

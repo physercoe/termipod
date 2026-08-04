@@ -31,3 +31,13 @@ Licensed under the Apache License, Version 2.0.
 kept verbatim because those strings are read by an agent. The upstream
 `autoFixXml` repair pass was deliberately NOT ported — see that file's
 header for why.
+
+`desktop/src/state/drawioOps.ts` is derived from the same file's
+`applyDiagramOperations`. What is taken is the design — the
+`{operation, cell_id, new_xml}` grammar, the rule that `new_xml`'s own id
+must match `cell_id`, the delete cascade over children and referencing
+edges, the protection of draw.io's root cells — together with several
+diagnostic sentences verbatim, for the same reason. The implementation is
+not a port: upstream applies a batch partially and re-serializes through
+the DOM, and this one is all-or-nothing and edits the document as text so
+that bytes outside the named cells survive. See that file's header.

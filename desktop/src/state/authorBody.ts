@@ -21,17 +21,21 @@
 ///      ladder reports. Getting it wrong here makes the tool lie about what
 ///      the user can see, so each answer below cites the code that decides it.
 import { parseCanvas } from './canvas.ts';
+import { applyDiagramOperations, diagramOpsSummary, type DiagramOperation } from './drawioOps.ts';
 import { prepareDiagramBody } from './drawioXml.ts';
 import { parseExcalidrawScene } from './excalidrawScene.ts';
 import { parseTable } from './table.ts';
 import type { DocKind } from './documents.ts';
 
-/// The write modes lane A ships. `ops` (structured edits against an existing
-/// diagram/canvas) is lane D — W2 — and is deliberately absent rather than
-/// accepted-and-ignored.
-export type AuthorApplyMode = 'replace' | 'append';
+/// The write modes. `replace` and `append` shipped with lane A; `ops` —
+/// ID-addressed structured edits against the diagram the user already has — is
+/// lane D1, and today means draw.io only (`supportsOps`). Canvas ops are D2.
+export type AuthorApplyMode = 'replace' | 'append' | 'ops';
 
-export type BodyCheck = { ok: true; body: string } | { ok: false; code: string; message: string };
+/// `note` carries what an agent could not work out from the body alone. Today
+/// that is the op batch's summary, and specifically its CASCADE: deleting one
+/// box can remove six cells, and the composed body does not say which.
+export type BodyCheck = { ok: true; body: string; note?: string } | { ok: false; code: string; message: string };
 
 /// A `.json` blob is an Excalidraw scene if its top-level `type` is
 /// `"excalidraw"` (the ecosystem-standard discriminator) and it carries an
@@ -70,6 +74,15 @@ export function rendersFromBody(kind: DocKind): boolean {
 /// rather than silently reinterpreted as `replace`.
 export function supportsAppend(kind: DocKind): boolean {
   return kind === 'markdown';
+}
+
+/// Whether `ops` means anything for this kind. Diagram only: the op grammar is
+/// draw.io's cell model (`{operation, cell_id, new_xml}` over `mxCell` ids), and
+/// there is no kind-neutral reading of it. Canvas gets its own node/edge ops in
+/// D2; the two structured drawing kinds that stay replace-only are named in the
+/// tool description (D3) rather than left for an agent to discover by refusal.
+export function supportsOps(kind: DocKind): boolean {
+  return kind === 'diagram';
 }
 
 function refuse(code: string, message: string): BodyCheck {
@@ -130,11 +143,34 @@ export function validateAuthorBody(kind: DocKind, body: string): BodyCheck {
   }
 }
 
+/// What an `author_apply` wants written, before any of it is judged.
+export interface AuthorWrite {
+  mode: AuthorApplyMode;
+  body: string;
+  operations: readonly DiagramOperation[];
+}
+
 /// Compose the body to commit from the mode. Separated from validation because
-/// `append` must be validated on the RESULT, not on the fragment: a fragment
-/// can be perfectly good markdown and still produce a document that is not.
-export function composeAuthorBody(kind: DocKind, mode: AuthorApplyMode, current: string, incoming: string): BodyCheck {
+/// neither composing mode can be judged on its input: an `append` fragment can
+/// be perfectly good markdown and still produce a document that is not, and an
+/// `ops` batch produces a body no argument contained. Both are validated on the
+/// RESULT, which is what `executeAuthorRequest` does next.
+export function composeAuthorBody(kind: DocKind, current: string, write: AuthorWrite): BodyCheck {
+  const { mode, body: incoming } = write;
   if (mode === 'replace') return { ok: true, body: incoming };
+  if (mode === 'ops') {
+    if (!supportsOps(kind)) {
+      return refuse(
+        'MODE_UNSUPPORTED',
+        `mode 'ops' addresses draw.io cells by id and this is a ${kind} document — send mode 'replace' with the whole document`,
+      );
+    }
+    const done = applyDiagramOperations(current, write.operations);
+    // Every refusal here leaves `current` untouched by construction: the op
+    // engine returns a new string or a message, and never edits in place.
+    if (!done.ok) return refuse('INVALID_OPERATIONS', done.message);
+    return { ok: true, body: done.result.xml, note: diagramOpsSummary(done.result) };
+  }
   if (!supportsAppend(kind)) {
     return refuse(
       'MODE_UNSUPPORTED',

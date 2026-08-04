@@ -27,16 +27,39 @@ test('narrowing coerces every field to the type the executor expects', () => {
   // Main already narrowed these; re-narrowed here because the values came from
   // an agent, and a store must take nothing on trust across an IPC boundary
   // that agent input reached.
-  const req = asAuthorRequest({ id: 'r1', op: 'apply', document_id: 42, mode: 'ops', body: null, reason: {}, by: ['x'] });
+  const req = asAuthorRequest({ id: 'r1', op: 'apply', document_id: 42, mode: 'merge', body: null, reason: {}, by: ['x'] });
   assert.notEqual(req, null);
   assert.equal(req?.documentId, null);
   // An unknown mode falls back to `replace` HERE, but never reaches here from
-  // the tool: browserbridge.ts refuses anything that is not replace/append, so
-  // this fallback is the second wall, not the policy.
+  // the tool: browserbridge.ts refuses anything that is not replace/append/ops,
+  // so this fallback is the second wall, not the policy.
   assert.equal(req?.mode, 'replace');
   assert.equal(req?.body, '');
   assert.equal(req?.reason, '');
   assert.equal(req?.by, '');
+  assert.deepEqual(req?.operations, []);
+});
+
+test('an ops batch is re-narrowed on this side, and a malformed one becomes empty', () => {
+  const good = asAuthorRequest({
+    id: 'r1',
+    op: 'apply',
+    mode: 'ops',
+    operations: [{ operation: 'delete', cell_id: 'n1' }, { operation: 'add', cell_id: 'n2', new_xml: '<mxCell id="n2"/>' }],
+  });
+  assert.equal(good?.mode, 'ops');
+  assert.deepEqual(good?.operations, [
+    { operation: 'delete', cell_id: 'n1', new_xml: '' },
+    { operation: 'add', cell_id: 'n2', new_xml: '<mxCell id="n2"/>' },
+  ]);
+  // An op list this side cannot read becomes NO ops, which `composeAuthorBody`
+  // refuses by name — never a partial batch assembled from the entries that
+  // happened to narrow.
+  assert.deepEqual(asAuthorRequest({ id: 'r1', op: 'apply', mode: 'ops', operations: [{ operation: 'add', cell_id: 'n1' }] })?.operations, []);
+  assert.deepEqual(asAuthorRequest({ id: 'r1', op: 'apply', mode: 'ops', operations: 'nope' })?.operations, []);
+  // …and ops that arrive under another mode are dropped: the caller asked for a
+  // whole-body write, so that is what it gets.
+  assert.deepEqual(asAuthorRequest({ id: 'r1', op: 'apply', mode: 'replace', body: 'x', operations: [{ operation: 'delete', cell_id: 'n1' }] })?.operations, []);
 });
 
 test('an empty document_id means the active document, not a document named ""', () => {
@@ -155,7 +178,7 @@ function spy(docs: Doc[], outcome: ApplyOutcome | 'no_target' = 'applied_live'):
 }
 
 function req(over: Partial<AuthorRequest> = {}): AuthorRequest {
-  return { id: 'r1', op: 'apply', documentId: null, mode: 'replace', body: '', reason: '', by: 'kimi-1', ...over };
+  return { id: 'r1', op: 'apply', documentId: null, mode: 'replace', body: '', operations: [], reason: '', by: 'kimi-1', ...over };
 }
 
 test('a body that does not parse changes NOTHING — no live call, no record, no write', async () => {
@@ -329,4 +352,99 @@ test('B5: the dry run applies to figures only', async () => {
   const out = await executeAuthorRequest(req({ body: 'b' }), s.io);
   assert.equal(out.ok, true);
   assert.equal(s.log.filter((l) => l.startsWith('render:')).length, 0);
+});
+
+// ── D1: mode 'ops' end to end ───────────────────────────────────────────────
+
+const OPS_DOC = [
+  '<mxfile><diagram name="Page-1" id="p1"><mxGraphModel><root>',
+  '<mxCell id="0"/><mxCell id="1" parent="0"/>',
+  '<mxCell id="n1" value="A" vertex="1" parent="1"/>',
+  '<mxCell id="n2" value="B" vertex="1" parent="1"/>',
+  '<mxCell id="e1" edge="1" parent="1" source="n1" target="n2"/>',
+  '</root></mxGraphModel></diagram></mxfile>',
+].join('');
+
+function diagramSpy(): ReturnType<typeof spy> {
+  return spy([{ id: 'doc_d', kind: 'diagram', title: 'Arch', body: OPS_DOC, updatedAt: 1 }]);
+}
+
+test('D1: an op batch reaches the live editor and the store, with the cascade in the answer', async () => {
+  const s = diagramSpy();
+  const out = await executeAuthorRequest(
+    req({ mode: 'ops', operations: [{ operation: 'delete', cell_id: 'n1', new_xml: '' }] }),
+    s.io,
+  );
+  assert.equal(out.ok, true);
+  if (!out.ok || out.op !== 'apply') return;
+  assert.equal(out.state, 'applied_live');
+  assert.match(String(out.note), /e1 was removed by cascade/);
+  assert.doesNotMatch(s.docs[0].body, /id="n1"|id="e1"/);
+  assert.match(s.docs[0].body, /id="n2"/);
+  // The order the whole wedge hangs from is unchanged by the new mode: the
+  // editor is offered the body, and only then is the store written.
+  assert.deepEqual(s.log.map((l) => l.split(':').slice(0, 2).join(':')), ['live:doc_d', 'record:doc_d', 'update:doc_d']);
+});
+
+test('D1: a batch with one bad op leaves the document byte-identical', async () => {
+  const s = diagramSpy();
+  const out = await executeAuthorRequest(
+    req({
+      mode: 'ops',
+      operations: [
+        { operation: 'delete', cell_id: 'n2', new_xml: '' },
+        { operation: 'update', cell_id: 'ghost', new_xml: '<mxCell id="ghost"/>' },
+      ],
+    }),
+    s.io,
+  );
+  assert.equal(out.ok, false);
+  if (!out.ok) assert.equal(out.code, 'INVALID_OPERATIONS');
+  // n2 would have gone if the batch were applied op by op. Not even the editor
+  // was asked.
+  assert.equal(s.docs[0].body, OPS_DOC);
+  assert.deepEqual(s.log, []);
+});
+
+test('D1: ops on a kind that has no cell model refuses, and never falls back to replace', async () => {
+  const s = spy([{ id: 'doc_t', kind: 'table', title: 'T', body: '{"columns":[],"rows":[]}', updatedAt: 1 }]);
+  const out = await executeAuthorRequest(
+    req({ mode: 'ops', operations: [{ operation: 'delete', cell_id: 'n1', new_xml: '' }] }),
+    s.io,
+  );
+  assert.equal(out.ok, false);
+  if (!out.ok) assert.equal(out.code, 'MODE_UNSUPPORTED');
+  assert.equal(s.docs[0].body, '{"columns":[],"rows":[]}');
+});
+
+test('D1: an empty batch is refused rather than reported as a successful no-op', async () => {
+  // This is the shape a narrowing failure upstream degrades to, so it must not
+  // read as success — an agent told "applied" for a batch nobody understood
+  // will move on.
+  const s = diagramSpy();
+  const out = await executeAuthorRequest(req({ mode: 'ops', operations: [] }), s.io);
+  assert.equal(out.ok, false);
+  if (!out.ok) assert.match(out.message, /operations is empty/);
+  assert.deepEqual(s.log, []);
+});
+
+test('D1: the size cap counts what the agent sent, not the diagram it edits', async () => {
+  // A one-cell tweak on a large drawing is exactly what this mode is for, so
+  // charging the batch for the document would refuse its best case.
+  const big = OPS_DOC.replace('</root>', `${'<mxCell id="x" parent="1" value="'}${'y'.repeat(600_000)}"/></root>`);
+  const s = spy([{ id: 'doc_d', kind: 'diagram', title: 'Arch', body: big, updatedAt: 1 }]);
+  const out = await executeAuthorRequest(
+    req({ mode: 'ops', operations: [{ operation: 'delete', cell_id: 'n1', new_xml: '' }] }),
+    s.io,
+  );
+  assert.equal(out.ok, true, out.ok ? '' : out.message);
+  // …while an oversized batch is still refused before anything is composed.
+  const s2 = diagramSpy();
+  const huge = await executeAuthorRequest(
+    req({ mode: 'ops', operations: [{ operation: 'add', cell_id: 'n9', new_xml: 'z'.repeat(600_000) }] }),
+    s2.io,
+  );
+  assert.equal(huge.ok, false);
+  if (!huge.ok) assert.equal(huge.code, 'BODY_TOO_LARGE');
+  assert.deepEqual(s2.log, []);
 });

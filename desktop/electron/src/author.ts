@@ -106,6 +106,11 @@ export interface AuthorApprovalRequest {
   /// Size of the body about to be committed — the one number that tells a user
   /// "this is a tweak" from "this replaces the document".
   bytes: number;
+  /// How many structured edits, for `mode:'ops'` (D1). Zero for the whole-body
+  /// modes. A count and a byte size answer different questions here: "12 edits"
+  /// is what the user is agreeing to, and 400 bytes of op payload would read as
+  /// a trivial change.
+  operations?: number;
 }
 
 /// The `desktop_action` card an `author_apply` parks on. `session_grant: true`
@@ -113,10 +118,16 @@ export interface AuthorApprovalRequest {
 /// DOCUMENT because that is the scope the second button grants.
 export function authorApprovalCard(req: AuthorApprovalRequest): { summary: string; payload: Record<string, unknown> } {
   const who = req.agentHandle !== '' ? req.agentHandle : req.agentId !== '' ? req.agentId : 'An agent';
-  const what = req.mode === 'append' ? 'append to' : 'rewrite';
+  const ops = req.operations ?? 0;
+  const what = req.mode === 'append' ? 'append to' : req.mode === 'ops' ? 'edit' : 'rewrite';
+  // What the user is agreeing to, in the mode's own terms. "Rewrite (12000
+  // bytes)" and "edit (3 changes)" are the two very different things
+  // `author_apply` can mean, and a card that reports bytes for both makes an op
+  // batch look like the smaller change when it may not be.
+  const size = req.mode === 'ops' ? `${String(ops)} change${ops === 1 ? '' : 's'}` : `${String(req.bytes)} bytes`;
   const title = req.title !== '' ? req.title : 'an untitled document';
   return {
-    summary: `${who} wants to ${what} your ${req.kind} document “${title}” (${String(req.bytes)} bytes)`,
+    summary: `${who} wants to ${what} your ${req.kind} document “${title}” (${size})`,
     payload: {
       tool: 'author_apply',
       document_id: req.documentId,
@@ -124,6 +135,7 @@ export function authorApprovalCard(req: AuthorApprovalRequest): { summary: strin
       kind: req.kind,
       mode: req.mode,
       bytes: req.bytes,
+      ...(req.mode === 'ops' ? { operations: ops } : {}),
       // Agent-authored free text. Kept because it is the most useful thing on
       // the card, clipped because a card is one line and an agent's `reason`
       // is not bounded by anything upstream.
@@ -164,6 +176,11 @@ export interface AuthorApplyOutcome {
   kind: string;
   state: AuthorApplyState;
   bytes: number;
+  /// What the renderer knows and the byte count cannot say — for D1, which
+  /// cells the batch touched and which the CASCADE took. An agent that deletes
+  /// one box and reports "removed the box" is not lying on purpose when five
+  /// edges went with it; it simply was not told.
+  note?: string;
 }
 
 /// The `author_apply` answer. It says what the USER can see, not merely what
@@ -171,7 +188,8 @@ export interface AuthorApplyOutcome {
 /// other side may not have noticed yet, and an agent that reports "done" from
 /// it without saying so is the exact dishonesty A4 exists to prevent.
 export function applyResultText(out: AuthorApplyOutcome): string {
-  const head = `${out.state}: ${String(out.bytes)} bytes written to ${out.kind} document “${out.title}” (${out.documentId})`;
+  const what = out.note !== undefined && out.note !== '' ? `${out.note} — ${String(out.bytes)} bytes` : `${String(out.bytes)} bytes`;
+  const head = `${out.state}: ${what} written to ${out.kind} document “${out.title}” (${out.documentId})`;
   if (out.state === 'applied_live') {
     return `${head}. The user is looking at the new version; their undo (Cmd+Z, or the agent-edit chip on the document tab) puts the old one back.`;
   }

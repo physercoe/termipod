@@ -7,7 +7,7 @@
 /// Run: node --test src/state/authorBody.test.ts  (CI does NOT run these)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composeAuthorBody, isExcalidrawBody, rendersFromBody, supportsAppend, validateAuthorBody } from './authorBody.ts';
+import { composeAuthorBody, isExcalidrawBody, rendersFromBody, supportsAppend, supportsOps, validateAuthorBody } from './authorBody.ts';
 
 const TABLE = JSON.stringify({ columns: [{ id: 'c1', name: 'Name', type: 'text' }], rows: [{ id: 'r1', c1: 'a' }] });
 const CANVAS = JSON.stringify({ nodes: [], edges: [] });
@@ -86,7 +86,7 @@ test('append is markdown-only, and refuses rather than degrading to replace', ()
   assert.equal(supportsAppend('markdown'), true);
   for (const kind of ['diagram', 'canvas', 'table', 'figure', 'excalidraw'] as const) {
     assert.equal(supportsAppend(kind), false, kind);
-    const out = composeAuthorBody(kind, 'append', TABLE, 'more');
+    const out = composeAuthorBody(kind, TABLE, { mode: 'append', body: 'more', operations: [] });
     assert.equal(out.ok, false, kind);
     // Silently treating it as a replace would commit the FRAGMENT as the whole
     // document — the worst reading of an unsupported mode.
@@ -102,14 +102,14 @@ test('append separates with exactly one blank line, whatever the tail looks like
     ['', 'b'],
   ];
   for (const [current, want] of cases) {
-    const out = composeAuthorBody('markdown', 'append', current, 'b');
+    const out = composeAuthorBody('markdown', current, { mode: 'append', body: 'b', operations: [] });
     assert.equal(out.ok, true);
     if (out.ok) assert.equal(out.body, want, JSON.stringify(current));
   }
 });
 
 test('replace ignores the current body for every kind', () => {
-  const out = composeAuthorBody('table', 'replace', TABLE, '{}');
+  const out = composeAuthorBody('table', TABLE, { mode: 'replace', body: '{}', operations: [] });
   assert.deepEqual(out, { ok: true, body: '{}' });
 });
 
@@ -132,4 +132,77 @@ test('isExcalidrawBody survives non-JSON without throwing', () => {
   assert.equal(isExcalidrawBody('not json'), false);
   assert.equal(isExcalidrawBody('null'), false);
   assert.equal(isExcalidrawBody(SCENE), true);
+});
+
+// ── D1: mode 'ops' ──────────────────────────────────────────────────────────
+
+const DIAGRAM = [
+  '<mxfile><diagram name="Page-1" id="p1"><mxGraphModel><root>',
+  '<mxCell id="0"/><mxCell id="1" parent="0"/>',
+  '<mxCell id="n1" value="A" vertex="1" parent="1"/>',
+  '<mxCell id="e1" edge="1" parent="1" source="n1" target="n1"/>',
+  '</root></mxGraphModel></diagram></mxfile>',
+].join('');
+
+test("ops is diagram-only, and refuses rather than degrading to replace", () => {
+  assert.equal(supportsOps('diagram'), true);
+  for (const kind of ['markdown', 'canvas', 'table', 'figure', 'excalidraw'] as const) {
+    assert.equal(supportsOps(kind), false, kind);
+    const out = composeAuthorBody(kind, '{}', { mode: 'ops', body: '', operations: [{ operation: 'delete', cell_id: 'n1', new_xml: '' }] });
+    assert.equal(out.ok, false, kind);
+    if (!out.ok) assert.equal(out.code, 'MODE_UNSUPPORTED', kind);
+  }
+});
+
+test('ops composes against the CURRENT body and reports what it did', () => {
+  const out = composeAuthorBody('diagram', DIAGRAM, {
+    mode: 'ops',
+    body: '',
+    operations: [{ operation: 'update', cell_id: 'n1', new_xml: '<mxCell id="n1" value="A2" vertex="1" parent="1"/>' }],
+  });
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+  assert.equal(out.body, DIAGRAM.replace('value="A"', 'value="A2"'));
+  assert.equal(out.note, 'updated n1');
+});
+
+test('the cascade is in the note, because the composed body cannot say it', () => {
+  const out = composeAuthorBody('diagram', DIAGRAM, {
+    mode: 'ops',
+    body: '',
+    operations: [{ operation: 'delete', cell_id: 'n1', new_xml: '' }],
+  });
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+  assert.doesNotMatch(out.body, /id="e1"/);
+  assert.match(String(out.note), /e1 was removed by cascade/);
+});
+
+test('a bad op refuses with the engine diagnosis under one code the agent can branch on', () => {
+  const out = composeAuthorBody('diagram', DIAGRAM, {
+    mode: 'ops',
+    body: '',
+    operations: [{ operation: 'update', cell_id: 'ghost', new_xml: '<mxCell id="ghost"/>' }],
+  });
+  assert.equal(out.ok, false);
+  if (out.ok) return;
+  assert.equal(out.code, 'INVALID_OPERATIONS');
+  assert.match(out.message, /not found/);
+});
+
+test('the ops result still goes through the kind validator — ops are not a way around it', () => {
+  // An op batch can produce a body that parses as XML and is not a legal
+  // diagram. `executeAuthorRequest` validates the COMPOSED body, so the check
+  // below is the same one a replace gets.
+  const composed = composeAuthorBody('diagram', DIAGRAM, {
+    mode: 'ops',
+    body: '',
+    operations: [{ operation: 'add', cell_id: 'n2', new_xml: '<mxCell id="n2" value="x &amp; y" vertex="1" parent="1"/>' }],
+  });
+  assert.equal(composed.ok, true);
+  if (!composed.ok) return;
+  assert.equal(validateAuthorBody('diagram', composed.body).ok, true);
+  // …and the same path refuses a body the engine let through structurally.
+  const bad = validateAuthorBody('diagram', DIAGRAM.replace('id="e1"', 'id="n1"'));
+  assert.equal(bad.ok, false);
 });

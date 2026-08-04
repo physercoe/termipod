@@ -285,3 +285,109 @@ func TestRecordsAreScopedThroughTheirProject(t *testing.T) {
 		t.Error("another team patched a record")
 	}
 }
+
+// The propose-verb posture must hold on the MUTATING paths too, not only on
+// create: teamGate checks the token's team and not its kind, so an agent
+// bearer reaches PATCH and DELETE. Before recordAgentGate an agent could
+// self-accept its own proposal — and, via /supersede plus a self-accept,
+// retire the director's accepted decision.
+func TestRecordAgentsNeverAcceptNorTouchOthers(t *testing.T) {
+	s, _ := newTestServer(t)
+	team := defaultTeamID
+	project := seedRecordProject(t, s, team, "records-agent-gate")
+
+	agentA := NewID()
+	agentB := NewID()
+	for _, a := range []struct{ id, handle string }{{agentA, "worker.a"}, {agentB, "worker.b"}} {
+		if _, err := s.writeDB.Exec(`
+			INSERT INTO agents (id, team_id, handle, kind, status, created_at)
+			VALUES (?, ?, ?, 'claude-code', 'running', ?)`, a.id, team, a.handle, NowUTC()); err != nil {
+			t.Fatalf("seed agent: %v", err)
+		}
+	}
+	ctxA := auth.WithToken(context.Background(), &auth.Token{
+		Kind: "agent", ScopeJSON: `{"team":"` + team + `","handle":"worker.a"}`,
+	})
+	ctxB := auth.WithToken(context.Background(), &auth.Token{
+		Kind: "agent", ScopeJSON: `{"team":"` + team + `","handle":"worker.b"}`,
+	})
+	userCtx := context.Background()
+
+	prop, err := s.createRecord(ctxA, team, project, recordBody{Kind: "finding", Title: "agent proposal"}, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// 1. The self-accept: the exact escalation the gate exists to refuse.
+	var fe errRecordForbidden
+	if _, err := s.patchRecord(ctxA, team, prop.ID, []byte(`{"status":"accepted"}`)); !errors.As(err, &fe) {
+		t.Fatalf("agent self-accept: err = %v, want errRecordForbidden", err)
+	}
+	if got, _ := s.getRecordByID(userCtx, team, prop.ID); got.Status != recordProposed {
+		t.Fatalf("status moved to %q under a refused accept", got.Status)
+	}
+
+	// 2. An agent may edit its OWN proposal's content…
+	if _, err := s.patchRecord(ctxA, team, prop.ID, []byte(`{"title":"agent proposal, clarified"}`)); err != nil {
+		t.Fatalf("agent editing its own proposal: %v", err)
+	}
+	// …and another agent may not.
+	if _, err := s.patchRecord(ctxB, team, prop.ID, []byte(`{"title":"hijacked"}`)); !errors.As(err, &fe) {
+		t.Fatalf("agent editing another agent's proposal: err = %v, want errRecordForbidden", err)
+	}
+
+	// 3. Delete: an agent withdraws only its own proposal.
+	if err := s.deleteRecord(ctxB, team, prop.ID); !errors.As(err, &fe) {
+		t.Fatalf("agent deleting another agent's proposal: err = %v, want errRecordForbidden", err)
+	}
+	userProp, _ := s.createRecord(userCtx, team, project, recordBody{Kind: "decision", Title: "the director's proposal"}, "")
+	if err := s.deleteRecord(ctxA, team, userProp.ID); !errors.As(err, &fe) {
+		t.Fatalf("agent deleting the director's proposal: err = %v, want errRecordForbidden", err)
+	}
+	if err := s.deleteRecord(ctxA, team, prop.ID); err != nil {
+		t.Fatalf("agent withdrawing its own proposal: %v", err)
+	}
+
+	// 4. The supersede escalation end-to-end: the successor an agent proposes
+	//    against an accepted decision stays a proposal it cannot promote, and
+	//    the predecessor stays accepted.
+	accepted, err := s.createRecord(userCtx, team, project,
+		recordBody{Kind: "decision", Title: "the decision", Status: recordAccepted}, "")
+	if err != nil {
+		t.Fatalf("create accepted: %v", err)
+	}
+	successor, err := s.createRecord(ctxA, team, project, recordBody{Kind: "decision", Title: "revision"}, accepted.ID)
+	if err != nil {
+		t.Fatalf("agent proposing a successor: %v", err)
+	}
+	if _, err := s.patchRecord(ctxA, team, successor.ID, []byte(`{"status":"accepted"}`)); !errors.As(err, &fe) {
+		t.Fatalf("agent accepting its own successor: err = %v, want errRecordForbidden", err)
+	}
+	if got, _ := s.getRecordByID(userCtx, team, accepted.ID); got.Status != recordAccepted {
+		t.Fatalf("the accepted decision was retired by a refused self-accept (status %q)", got.Status)
+	}
+	// An agent may not rewrite history either — accepted records are not its
+	// to edit, even its own.
+	if _, err := s.patchRecord(ctxA, team, accepted.ID, []byte(`{"title":"rewritten"}`)); !errors.As(err, &fe) {
+		t.Fatalf("agent editing an accepted record: err = %v, want errRecordForbidden", err)
+	}
+	// A ghost agent (handle no longer resolves) owns nothing and fails closed.
+	ghostCtx := auth.WithToken(context.Background(), &auth.Token{
+		Kind: "agent", ScopeJSON: `{"team":"` + team + `","handle":"worker.gone"}`,
+	})
+	ghost, err := s.createRecord(ghostCtx, team, project, recordBody{Kind: "finding", Title: "orphan"}, "")
+	if err != nil {
+		t.Fatalf("ghost create: %v", err)
+	}
+	if err := s.deleteRecord(ghostCtx, team, ghost.ID); !errors.As(err, &fe) {
+		t.Fatalf("ghost agent deleting its unattributed proposal: err = %v, want errRecordForbidden", err)
+	}
+
+	// The director still does everything the log allows.
+	if _, err := s.patchRecord(userCtx, team, successor.ID, []byte(`{"status":"accepted"}`)); err != nil {
+		t.Fatalf("director accepting the successor: %v", err)
+	}
+	if got, _ := s.getRecordByID(userCtx, team, accepted.ID); got.Status != recordSuperseded {
+		t.Fatalf("predecessor after director acceptance: %q, want superseded", got.Status)
+	}
+}

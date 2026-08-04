@@ -645,7 +645,8 @@ paths:
       description: >-
         The only status transition this accepts is proposed to accepted. Anything else is
         409 — 'superseded' is not a setting, it is what happens to a record when its
-        successor is accepted.
+        successor is accepted. An agent token may edit only its own proposals and may
+        never change status (the propose-verb posture) — those refusals are 403.
       requestBody:
         required: true
         content:
@@ -658,6 +659,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Record" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
     delete:
@@ -666,9 +668,11 @@ paths:
       summary: Dismiss a proposal
       description: >-
         Only a `proposed` record can be deleted. An accepted or superseded record is
-        history and answers 409 — it supersedes rather than disappears.
+        history and answers 409 — it supersedes rather than disappears. An agent token
+        may withdraw only its own proposal; anything else answers 403.
       responses:
         "200": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 

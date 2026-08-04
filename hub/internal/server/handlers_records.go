@@ -268,6 +268,41 @@ type errRecordTransition struct{ msg string }
 
 func (e errRecordTransition) Error() string { return e.msg }
 
+// errRecordForbidden is returned when the CALLER may not perform an otherwise
+// well-formed mutation. A 403, not a 409: the log would allow it, the caller's
+// token does not.
+type errRecordForbidden struct{ msg string }
+
+func (e errRecordForbidden) Error() string { return e.msg }
+
+// recordAgentGate enforces the propose-verb posture (plan §4.3: "agents never
+// accept") on the mutating paths. Provenance-on-create alone does not carry
+// it: the REST routes sit behind teamGate, which checks the token's TEAM and
+// not its kind, so an agent bearer reaches PATCH and DELETE too. Without this
+// gate an agent could create a proposal and immediately self-accept it — and,
+// via /supersede plus a self-accept, retire the director's accepted decision.
+//
+// The rule for an agent caller: it may touch only records that are (a) still
+// proposals and (b) its own, and it may never change `status`. A user (or
+// operator) caller passes untouched. An agent whose handle no longer resolves
+// has no id to own anything with, and fails closed.
+func (s *Server) recordAgentGate(ctx context.Context, team string, cur recordOut, statusChanging bool) error {
+	kind, byID, _ := s.recordProvenance(ctx, team)
+	if kind != "agent" {
+		return nil
+	}
+	if statusChanging {
+		return errRecordForbidden{"agents never accept — proposing is the agent verb; the desktop user moves a record to accepted (plan §4.3)"}
+	}
+	if cur.Status != recordProposed {
+		return errRecordForbidden{"a " + cur.Status + " record is history — an agent may propose a successor (POST /records/" + cur.ID + "/supersede), not edit it"}
+	}
+	if byID == "" || cur.CreatedByKind != "agent" || cur.CreatedByID != byID {
+		return errRecordForbidden{"an agent may edit or withdraw only its own proposals"}
+	}
+	return nil
+}
+
 // patchRecord applies a partial patch. Status moves only proposed → accepted;
 // accepting a record that supersedes another retires the predecessor in the
 // same transaction, which is the only way a row reaches 'superseded'.
@@ -293,6 +328,9 @@ func (s *Server) patchRecord(ctx context.Context, team, id string, patch json.Ra
 					"to retire an accepted record, POST a successor to /records/%s/supersede",
 				cur.Status, next.Status, id)}
 		}
+	}
+	if err := s.recordAgentGate(ctx, team, cur, next.Status != cur.Status); err != nil {
+		return recordOut{}, err
 	}
 	accepting := cur.Status == recordProposed && next.Status == recordAccepted
 
@@ -323,7 +361,9 @@ func (s *Server) patchRecord(ctx context.Context, team, id string, patch json.Ra
 }
 
 // deleteRecord removes a record that is still a proposal. Anything past that
-// is history: it supersedes, it does not disappear.
+// is history: it supersedes, it does not disappear. An agent may withdraw
+// only its OWN proposal (recordAgentGate) — deleting a competing one is not a
+// verb agents have.
 func (s *Server) deleteRecord(ctx context.Context, team, id string) error {
 	cur, err := s.getRecordByID(ctx, team, id)
 	if err != nil {
@@ -332,6 +372,9 @@ func (s *Server) deleteRecord(ctx context.Context, team, id string) error {
 	if cur.Status != recordProposed {
 		return errRecordTransition{fmt.Sprintf(
 			"a %s record is history and cannot be deleted — POST a successor to /records/%s/supersede", cur.Status, id)}
+	}
+	if err := s.recordAgentGate(ctx, team, cur, false); err != nil {
+		return err
 	}
 	_, err = s.writeDB.ExecContext(ctx, `DELETE FROM records WHERE id = ?`, id)
 	return err
@@ -419,6 +462,11 @@ func (s *Server) handleUpdateRecord(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "record not found")
 		return
 	case err != nil:
+		var fe errRecordForbidden
+		if errors.As(err, &fe) {
+			writeErr(w, http.StatusForbidden, fe.msg)
+			return
+		}
 		var te errRecordTransition
 		if errors.As(err, &te) {
 			writeErr(w, http.StatusConflict, te.msg)
@@ -492,6 +540,11 @@ func (s *Server) handleDeleteRecord(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "record not found")
 		return
 	case err != nil:
+		var fe errRecordForbidden
+		if errors.As(err, &fe) {
+			writeErr(w, http.StatusForbidden, fe.msg)
+			return
+		}
 		var te errRecordTransition
 		if errors.As(err, &te) {
 			writeErr(w, http.StatusConflict, te.msg)

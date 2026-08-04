@@ -7,6 +7,7 @@ import { useDocuments } from './documents';
 import { useInspect } from './inspect';
 import { useReadTabs } from './readTabs';
 import { useReplay } from './replay';
+import { useCompareWall } from './compareWall';
 import { useTerminals } from '../terminal/store';
 import { assembleRawFocus, createFocusSender, projectFocus, type FocusSources } from './ui_policy';
 import { useAgentHighlight } from './agentHighlight';
@@ -28,10 +29,14 @@ import { useAgentHighlight } from './agentHighlight';
 /// projects through the ui_policy table (secret-free by construction), and
 /// pushes over the `desktopui_focus` invoke — throttled ≥500 ms with
 /// coalescing, and only while the toggle is on. It reads only what stores
-/// already expose: Read-surface tabs, the Inspect text selection, the compare
-/// refs and the record target live in surface-local useState today and are
-/// deliberately NOT published in D1 (their policy rows already reserve the
-/// fields).
+/// already expose: D1 shipped with Read tabs, the Inspect selection, the
+/// compare refs and the record target all living in surface-local useState,
+/// so their policy rows reserved fields nothing produced. Lane G closed them
+/// as each store appeared — G1/G2/G3, then G4's `compare.*` off
+/// `useCompareWall`. `record.record_id` is the one still open: the Record
+/// surface holds device-local drafts, and an id no tool can dereference is not
+/// a UIRef (ADR-062 D-2). It publishes when B2 puts the surface on the hub
+/// `records` entity.
 
 const LS_KEY = 'termipod.uiContext.enabled';
 
@@ -109,6 +114,7 @@ function sourcesNow(): FocusSources {
   const inspect = useInspect.getState();
   const read = useReadTabs.getState();
   const replay = useReplay.getState();
+  const wall = useCompareWall.getState();
   const term = useTerminals.getState();
   const activeDoc = docs.activeId !== null ? (docs.docs.find((d) => d.id === docs.activeId) ?? null) : null;
   const activeInspect = inspect.activeId !== null ? (inspect.tabs.find((t) => t.id === inspect.activeId) ?? null) : null;
@@ -130,6 +136,11 @@ function sourcesNow(): FocusSources {
     inspectTabs: inspect.tabs.map((t) => (t.path !== undefined ? { kind: t.kind, path: t.path } : { kind: t.kind })),
     inspectActive: activeInspect !== null && activeInspect.path !== undefined ? { path: activeInspect.path } : null,
     inspectSelection: activeInspect !== null ? (inspect.selection[activeInspect.id] ?? null) : null,
+    // The wall's own state, not a re-derivation of it: `selected` is the one
+    // visible-runs state every panel reads (compareWall.ts), so the snapshot
+    // cannot disagree with what is on screen.
+    compareSelected: wall.view.selected,
+    compareBaseline: wall.view.baseline,
     replayDatasetId: replay.target?.datasetId ?? (replay.selectedId !== '' ? replay.selectedId : null),
     replayEpisodeId: replay.viewing?.episodeId ?? null,
     replayCursor: replay.viewing?.cursor ?? null,
@@ -157,6 +168,7 @@ useDocuments.subscribe(tick);
 useInspect.subscribe(tick);
 useReadTabs.subscribe(tick);
 useReplay.subscribe(tick);
+useCompareWall.subscribe(tick);
 useTerminals.subscribe(tick);
 
 /// Boot push (called from main.tsx): hand the persisted toggle to main (which

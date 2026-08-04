@@ -246,6 +246,14 @@ not a feature.
   "baseline": "…", "metric": "…" } }` — emitted in the focus snapshot,
   accepted by ref-chips (a chip in a transcript focuses the wall with that
   exact state), copyable from the palette ("Copy compare ref").
+  - *State after G4:* the focus snapshot carries the policy row's existing
+    two-field `compare` block — `{left, right}`, baseline first — and
+    publishes it **only when exactly two runs are selected**, because two
+    fields cannot state a three-run wall without silently truncating it.
+    So A6's job here is the `wall` block itself (the whole selection, the
+    project, the metric) plus the accept/copy legs; when it lands, decide
+    whether `compare.left/right` stays as the two-run shorthand or retires
+    into it.
 
 ### 3.5 Agent surface (ships inside A1/A2, not after)
 
@@ -335,12 +343,13 @@ renders as a jump-chip and an agent dereferences it with its existing tools.
   (dismissing a proposal); accepted and superseded records answer 409 and
   name the supersede route. The plan's "delete only device-local drafts"
   reads the same way once the drafts are hub proposals.
-- *Deferred to G4, deliberately:* `record.dataset_id` in the desktop's
-  focus policy still names a dataset. It becomes `record.record_id` in the
-  same change that populates `compare.*`, because both live in
-  `ui_policy.ts` and in a bidirectional CI-run test that an unmerged
-  branch also edits — splitting the rename across two PRs would break one
-  of them.
+- *Done in G4/G5:* `record.dataset_id` is now `record.record_id`, renamed
+  in the same change that populated `compare.*` (both live in
+  `ui_policy.ts` and in one bidirectional CI-run test). The field is still
+  a **declared gap**, and B2 is what closes it: Record writes device-local
+  drafts whose ids dereference through no tool, and a UIRef whose entity is
+  not agent-addressable is not a join key (ADR-062 D-2). Publishing a draft
+  id would have been a handle that resolves nowhere.
 
 ### 4.2 Surface (B2)
 

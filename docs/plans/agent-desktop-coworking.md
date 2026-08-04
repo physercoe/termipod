@@ -200,10 +200,38 @@ Populate every reserved-but-empty policy field
   `:64,87-89` — mirror into `useReplay`).
 - **G4 — Compare.** Ships with lane K's `compareWall` store (the plan
   already specifies `compare.left/right` + the compare UIRef).
+  - *As built:* `assembleRawFocus` takes the wall's own `selected` +
+    `baseline` (not a re-derivation — `useCompareWall` is the one
+    visible-runs state every panel reads, so the snapshot cannot disagree
+    with the screen) and publishes `{left, right}` **only when exactly two
+    runs are selected**, baseline first. The wall is an N-run surface and
+    this block has two fields: at three runs a pair would be two thirds of
+    the truth with nothing saying so, and an agent cannot tell a truncated
+    pair from a real one. Baseline-left because every delta reads "other
+    minus baseline" — publishing screen order would invert the direction of
+    every number an agent then computes. The whole selection is A6's `wall`
+    UIRef, noted there.
+  - *Also:* the publisher's stated rule — every store `sourcesNow()` reads
+    must be subscribed to `tick()` — is now executable
+    (`ui_context_publisher.test.ts`). It was a comment, and its failure
+    mode is invisible to every other test: the field assembles, projects,
+    and then reaches an agent late or never depending on unrelated UI
+    activity.
 - **G5 — Record.** Fix the wrong reserved field: `record.dataset_id`
   (`ui_policy.ts:171`) describes an episode-recording surface that was
   never built; replace with `record.record_id` when lane K's records
   land (coordinated policy + `UiRefRecord` + plan-matrix erratum).
+  - *As built — the rename only, and that is the whole of G5 today.*
+    `record.dataset_id` → `record.record_id` across the policy row, the
+    `UiRefRecord` type and the coverage test's fixtures. It stays a
+    DECLARED gap: **B2** closes it, not this wedge. The Record surface
+    still writes device-local drafts (`useJsonDraft('records')`), and
+    `record_id: "rec1754…"` would be a handle no tool can dereference —
+    the hub `records` entity B1 shipped uses ULIDs and has no `record_*`
+    verbs yet (B3). ADR-062 D-2 is explicit that a UIRef is only a join key
+    if the entity behind it is agent-addressable, so publishing the draft
+    id would have satisfied the coverage test while telling an agent
+    something it cannot act on.
 - **G6 — the four gaps G1–G5 did not name.** The coverage invariant
   added with G1–G3 (`electron/src/ui_policy.test.ts`, "every
   allowlisted field is assemblable, or is a DECLARED gap") found that

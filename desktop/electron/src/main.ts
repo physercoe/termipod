@@ -33,6 +33,9 @@ import { disposeAnnotations } from './annotation_host';
 import { setShellWindow } from './uicapture_host';
 // D6: importing the module registers the agent-highlight provider.
 import './uihighlight_host';
+// Coworking H: importing the module registers the navigate (desktop_open)
+// provider. Its IPC reply handler is registered separately, in ipc/dispatch.
+import './desktopopen_host';
 import { initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) it resolves to

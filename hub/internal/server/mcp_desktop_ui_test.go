@@ -419,6 +419,34 @@ func TestDesktopUIAuthorTools_ClassifyByWhatTheyDo(t *testing.T) {
 	}
 }
 
+func TestDesktopUINavigate_IsItsOwnClass(t *testing.T) {
+	// desktop_open ACTUATES — it moves the user's screen — and still
+	// routes without a card. The judgement is what an unwanted call
+	// costs: an unwanted write has changed the user's work, an unwanted
+	// navigation has changed which tab is in front of them and is undone
+	// by one click on the banner that names the agent.
+	if desktopUIToolClass("desktop_open") != "navigate" {
+		t.Errorf("desktop_open must be the navigate class, got %q", desktopUIToolClass("desktop_open"))
+	}
+	// Not folded into the action list: that list is what the hub cards,
+	// and a card on every navigation makes "show me where" cost two round
+	// trips and a decision.
+	if desktopUIToolClass("desktop_open") == desktopUIToolClass("author_apply") {
+		t.Error("a navigation and a document write must not share a class")
+	}
+	// …and it must be in the enum the tool advertises, or an agent that
+	// reads the catalog cannot call it.
+	found := false
+	for _, n := range desktopUIToolNames() {
+		if n == "desktop_open" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("desktop_open is missing from desktopUIToolNames — invisible to callers")
+	}
+}
+
 // ── Agent pointing routes without a card (ADR-062 D-5) ───────────────
 
 func TestDesktopUIHighlight_RoutesWithNoApprovalCard(t *testing.T) {

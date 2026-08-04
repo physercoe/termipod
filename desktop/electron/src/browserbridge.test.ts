@@ -40,6 +40,7 @@ import {
   type BridgeRequestContext,
   type BridgeTarget,
 } from './browserbridge.ts';
+import { OPEN_NOTE_MAX } from './desktopopen.ts';
 
 const KIMIWEB_URL = 'http://127.0.0.1:17331/#token=9OmdWua4fvUgNh1nQsvdOoySJgoXxUE14APKVCeJxuk';
 
@@ -994,8 +995,47 @@ test('U8: the desktop-action tools are never marked read-only', async () => {
   const { tools } = res?.result as { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> };
   assert.equal(tools.find((t) => t.name === 'ui_screenshot')?.annotations.readOnlyHint, false);
   assert.equal(tools.find((t) => t.name === 'ui_highlight')?.annotations.readOnlyHint, false);
+  // …and lane H's navigate verb, which moves the screen outright.
+  assert.equal(tools.find((t) => t.name === 'desktop_open')?.annotations.readOnlyHint, false);
   // ui_get_focus really does only observe.
   assert.equal(tools.find((t) => t.name === 'ui_get_focus')?.annotations.readOnlyHint, true);
+});
+
+test('coworking H: desktop_open rides the sharing toggle and refuses without a provider', async () => {
+  const off = { ...DEPS, backend: fakeBackend(), uiFocusAvailable: () => false };
+  const hidden = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, off);
+  const names = (hidden?.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+  assert.equal(names.includes('desktop_open'), false, 'the toggle hides it from the catalog');
+
+  // …and the gate is at the tool too: a stateless caller (the hub tunnel leg)
+  // can call a tool it never listed.
+  const refused = await handleMcpMessage(
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'desktop_open', arguments: { ref: 'ui://replay' } } },
+    off,
+    { scope: 'read', agentId: 'ag_1' },
+  );
+  assert.match(((refused?.result as { content: Array<{ text: string }> }).content[0]?.text ?? ''), /UI_UNAVAILABLE/);
+
+  // Sharing on but no provider wired: still a refusal, never a pretend success.
+  const noProvider = { ...DEPS, backend: fakeBackend(), uiFocusAvailable: () => true };
+  const out = await handleMcpMessage(
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'desktop_open', arguments: { ref: 'ui://replay' } } },
+    noProvider,
+    { scope: 'read', agentId: 'ag_1' },
+  );
+  assert.match(((out?.result as { content: Array<{ text: string }> }).content[0]?.text ?? ''), /UI_UNAVAILABLE/);
+});
+
+test('coworking H: the audit ring keeps the ref shape and clips the note, never the whole payload', () => {
+  const args = redactBridgeArgs('desktop_open', {
+    ref: { surface: 'replay', params: { dataset_id: 'ds_1' } },
+    note: 'n'.repeat(400),
+  });
+  // The ref is agent-authored and of arbitrary depth: audit the shape, capped.
+  assert.equal(typeof args.ref, 'string');
+  assert.match(String(args.ref), /replay/);
+  // The ring must not out-store what the banner showed.
+  assert.ok(String(args.note).length <= OPEN_NOTE_MAX + 40);
 });
 
 test('U3/U7/U10 over HTTP: version header, _meta identity, batch rejection', async () => {

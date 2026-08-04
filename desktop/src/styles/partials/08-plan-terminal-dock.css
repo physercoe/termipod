@@ -1405,6 +1405,56 @@
   white-space: nowrap;
 }
 
+/* Coworking H — the agent-navigation banner (`desktop_open`).
+
+   The counterweight to the one desktop-UI capability that MOVES the user's
+   screen. Shares the highlight layer's tier for the same reason (an agent must
+   never cover the UI that governs it) but sits at the TOP of the viewport, not
+   the bottom-right corner: a jump the user did not ask for needs to be seen
+   immediately, and the corner is where transient markers live. It does not
+   fade — an undo that expires is an undo for whoever was watching. */
+.agent-navigate {
+  position: fixed;
+  top: var(--spacing-s16);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--sh-3);
+  font-size: var(--font-size-label);
+  max-width: min(560px, calc(100vw - 48px));
+}
+/* Attribution is load-bearing here too, and more so: a tab that changes by
+   itself reads as a bug, and a user who thinks their tools are glitching stops
+   trusting the ones that are not. */
+.agent-navigate-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.agent-navigate-ref {
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-navigate-note {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* D6 ref-chips: an agent-emitted `ui://…` rendered inline in the transcript.
    Clicking focuses that surface — the agent directs attention, the user
    actuates. A ref this build cannot focus renders disabled, still readable. */

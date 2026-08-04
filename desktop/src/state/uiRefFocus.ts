@@ -17,6 +17,7 @@
 import { isKnownJob, useWorkbench, type JobId } from './workbench.ts';
 import { useReplay } from './replay.ts';
 import { useInspect } from './inspect.ts';
+import { useReadTabs } from './readTabs.ts';
 import type { UiRef } from './uiRef.ts';
 
 /// How far a click got. Returned so the caller can say something honest when
@@ -30,23 +31,73 @@ export function canFocusUiRef(ref: UiRef): boolean {
 }
 
 export function focusUiRef(ref: UiRef): UiRefFocusResult {
-  if (!isKnownJob(ref.surface)) return 'unknown';
+  return focusUiRefWithUndo(ref).result;
+}
+
+/// How far a focus got, plus how to put the screen back.
+export interface UiRefFocusOutcome {
+  result: UiRefFocusResult;
+  /// Reverses everything this call changed, or null when it changed nothing.
+  ///
+  /// Only lane H's `desktop_open` uses it: a navigation the AGENT started needs
+  /// an undo, because the user did not ask for it. A user clicking a chip is
+  /// already where they wanted to go, so `focusUiRef` discards this.
+  ///
+  /// Best-effort by surface, and honest about it: the workbench job always
+  /// reverts (that is "put me back on the tab I was on"), and per-surface state
+  /// reverts where a store exposes the setter — a Read tab this call OPENED is
+  /// closed again, an Inspect tab it merely focused hands focus back. What it
+  /// cannot do is un-consume a handoff a surface has already acted on; those
+  /// leave the entity selected and only the job returns.
+  undo: (() => void) | null;
+}
+
+export function focusUiRefWithUndo(ref: UiRef): UiRefFocusOutcome {
+  if (!isKnownJob(ref.surface)) return { result: 'unknown', undo: null };
   const job = ref.surface as JobId;
+  const previousJob = useWorkbench.getState().job;
+  const revert: (() => void)[] = [];
   // Entity focus is requested BEFORE the job switch: the Replay surface reads
   // its target as it mounts, so setting the job first would race a surface
   // that has not been told what to show yet.
-  const focused = focusEntity(job, ref);
+  const focused = focusEntity(job, ref, revert);
   useWorkbench.getState().setJob(job);
-  return focused ? 'entity' : 'surface';
+  revert.push(() => useWorkbench.getState().setJob(previousJob));
+  return {
+    result: focused ? 'entity' : 'surface',
+    // LIFO, by convention rather than by necessity: every revert today is a
+    // write to a different store, so the order is not observable and a test
+    // cannot pin it (a mutation to forward order survives, which is how this
+    // comment stopped claiming otherwise). Kept because it is what the next
+    // person adding an order-sensitive revert will expect — and if you add one,
+    // this is the line that makes its position matter.
+    undo: () => {
+      for (const fn of [...revert].reverse()) fn();
+    },
+  };
 }
 
-function focusEntity(job: JobId, ref: UiRef): boolean {
+/// http(s) only, for a URL an agent chose.
+///
+/// The webview partition enforces the same rule at the guest layer
+/// (`electron/src/webtab_policy.ts`, `allowTopFrame`), which is the wall that
+/// actually stops a navigation. This is the earlier one: without it a `file://`
+/// or `javascript:` ref would still MINT a tab that then refuses to load, and
+/// the user would be looking at a broken tab an agent opened. Two layers on
+/// purpose — the guest policy cannot be imported here (different package) and
+/// should not be, since it answers a different question at a different time.
+export function isNavigableUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function focusEntity(job: JobId, ref: UiRef, revert: (() => void)[]): boolean {
   const p = ref.params;
   if (job === 'replay') {
     const datasetId = p.dataset_id;
     // `openRegistered` needs the project too — the surface defaults to the
     // first project's library, so without it the dataset is never found.
     const projectId = p.project_id;
+    const previousSelected = useReplay.getState().selectedId;
     if (datasetId !== undefined && projectId !== undefined) {
       const episode = toIndex(p.episode ?? p.episode_id);
       useReplay.getState().openRegistered({
@@ -54,15 +105,53 @@ function focusEntity(job: JobId, ref: UiRef): boolean {
         projectId,
         ...(episode !== null ? { episode } : {}),
       });
+      // Clearing the target is only half an undo: once the surface has consumed
+      // it the dataset is open, and nothing here can un-open it. The job revert
+      // is what actually puts the user back.
+      revert.push(() => {
+        useReplay.getState().clearTarget();
+        useReplay.getState().select(previousSelected);
+      });
       return true;
     }
     if (datasetId !== undefined) {
       // No project: the best we can do is preselect the id and let the
       // surface's own library resolve it.
       useReplay.getState().select(datasetId);
+      revert.push(() => useReplay.getState().select(previousSelected));
       return true;
     }
     return false;
+  }
+  if (job === 'read') {
+    const tabs = useReadTabs.getState();
+    const previousActive = tabs.activeId;
+    const tabId = p.tab_id;
+    if (tabId !== undefined) {
+      if (!tabs.tabs.some((t) => t.id === tabId)) return false;
+      tabs.setActive(tabId);
+      revert.push(() => useReadTabs.getState().setActive(previousActive));
+      return true;
+    }
+    const url = p.url;
+    if (url === undefined || !isNavigableUrl(url)) return false;
+    // Prefer a tab already showing this page. Read is the one surface where an
+    // agent can drive a web tab but could not OPEN one (lane H3), and opening a
+    // second copy of a page the user already has would be the wrong reading of
+    // "show me this".
+    const open = tabs.tabs.find((t) => t.kind === 'web' && t.url === url);
+    if (open !== undefined) {
+      tabs.setActive(open.id);
+      revert.push(() => useReadTabs.getState().setActive(previousActive));
+      return true;
+    }
+    const id = tabs.open({ kind: 'web', url, title: hostOfUrl(url) });
+    // This one CAN be fully undone: the tab did not exist a moment ago.
+    revert.push(() => {
+      useReadTabs.getState().close(id);
+      useReadTabs.getState().setActive(previousActive);
+    });
+    return true;
   }
   if (job === 'debug') {
     const path = p.file ?? p.path;
@@ -72,12 +161,25 @@ function focusEntity(job: JobId, ref: UiRef): boolean {
     // agent is pointing at what the user has, not asking for a new view.
     const existing = tabs.find((t) => t.path === path);
     if (existing !== undefined) {
+      const previousActive = useInspect.getState().activeId;
       useInspect.getState().setActive(existing.id);
+      revert.push(() => useInspect.getState().setActive(previousActive));
       return true;
     }
     return false;
   }
   return false;
+}
+
+/// A web tab's strip label before the guest reports its real title. Host only —
+/// a full URL in a tab strip is unreadable, and the title is replaced as soon as
+/// the page loads.
+function hostOfUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 function toIndex(raw: string | undefined): number | null {

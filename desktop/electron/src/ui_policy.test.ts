@@ -608,3 +608,38 @@ test('assembleRawFocus: the split fields are set only when a pane is pinned', ()
     active_pane: 'secondary',
   });
 });
+
+// ── Coworking H — the navigate column ───────────────────────────────────────
+
+test('navigate is declared exactly where an agent may bring the user, and NOWHERE else', () => {
+  // The invariant ADR-064 §12 states, made executable: terminal, settings and
+  // the vault are unreachable by `desktop_open`. This suite runs in CI, so a
+  // future edit that adds `navigate: 'allow'` to one of them fails on the PR
+  // that does it rather than at review.
+  const navigable = Object.entries(UI_POLICY)
+    .filter(([, row]) => row.navigate === 'allow')
+    .map(([surface]) => surface)
+    .sort();
+  assert.deepEqual(navigable, ['author', 'compare', 'debug', 'fleet', 'projects', 'read', 'record', 'replay']);
+
+  for (const surface of ['terminal', 'settings', 'kimiweb', 'vault']) {
+    // Absent, not false. `capture: 'refuse'` is a bit a careless edit flips;
+    // a missing field has to be added on purpose.
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(UI_POLICY[surface], 'navigate'),
+      false,
+      `${surface} must have no navigate column at all`,
+    );
+  }
+});
+
+test('a surface that refuses PIXELS is never navigable — the weaker bit cannot outrank the stronger', () => {
+  // Not a rule the type system can state, and the pairing is the point: if a
+  // surface is too sensitive to photograph, dropping the user into it with an
+  // agent watching the transcript is not a lesser act.
+  for (const [surface, row] of Object.entries(UI_POLICY)) {
+    if (row.capture === 'refuse') {
+      assert.notEqual(row.navigate, 'allow', `${surface} refuses capture but allows navigate`);
+    }
+  }
+});

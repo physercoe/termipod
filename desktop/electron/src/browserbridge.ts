@@ -49,6 +49,7 @@ import type { AddressInfo } from 'node:net';
 import { partitionPolicy } from './webtab_policy.ts';
 import { parseScreenshotArgs } from './uicapture.ts';
 import { narrowDiagramOperations, type DiagramOperation } from '../../src/state/drawioOps.ts';
+import { OPEN_NOTE_MAX } from './desktopopen.ts';
 
 // ── Targets / backend ────────────────────────────────────────────────────────
 
@@ -266,6 +267,14 @@ export function redactBridgeArgs(tool: string, args: Record<string, unknown>): R
       // reading the audit view, and neither is content.
       const n = Array.isArray(v) ? v.length : 0;
       out[k] = `<redacted ${String(n)} operation${n === 1 ? '' : 's'}>`;
+    } else if (tool === 'desktop_open' && k === 'note' && typeof v === 'string') {
+      // Same rule as a highlight's note: the ring must not out-store what the
+      // banner showed.
+      out[k] = v.length > OPEN_NOTE_MAX ? `${v.slice(0, OPEN_NOTE_MAX)}… (${String(v.length)} chars)` : v;
+    } else if (tool === 'desktop_open' && k === 'ref' && v !== null && typeof v === 'object') {
+      // An agent-authored object of arbitrary depth — audit the shape, capped.
+      const json = JSON.stringify(v) ?? '';
+      out[k] = json.length > 200 ? `${json.slice(0, 200)}… (${String(json.length)} chars)` : json;
     } else if (tool === 'author_apply' && k === 'reason' && typeof v === 'string') {
       // Kept — it is the whole point of the row — but clipped like a highlight
       // note: the ring must not out-store what the approval card showed.
@@ -501,6 +510,26 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  // Coworking lane H (agent-desktop-coworking.md §6, ADR-064): the NAVIGATE
+  // class. The first desktop-UI verb that moves the user's screen rather than
+  // describing or drawing over it — so it is the only one carrying an undo.
+  {
+    name: 'desktop_open',
+    description:
+      'Bring the TermiPod desktop user to something on their own screen: switch surface and, where the reference names one, open the entity. Takes the same UIRef ui_get_focus returns (or its "ui://replay?dataset_id=ds_1" spelling), so you can hand back a slice of what you were just given. This ACTUATES — the user did not click — so it is attributed on a banner naming you, undoable from that banner, and rate-limited; use ui_highlight instead when pointing is enough. Terminal, Settings and the vault cannot be opened at all. The result says how far the reference resolved: `entity` (they are looking at the thing) or `surface` (they are on the right tab but this build could not open that reference) — do not report the second as the first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: {
+          description: 'A UIRef: the JSON ui_get_focus returns, or its ui:// URI spelling.',
+          type: ['object', 'string'],
+        },
+        note: { type: 'string', description: 'One short line for the banner: why you brought them here.' },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+  },
   // Coworking A1 (agent-desktop-coworking.md §1, ADR-064): the Author surface
   // as a co-authoring partner rather than a place the agent can only describe.
   // Both tools ride the same sharing toggle as the D1/D3/D6 set — reading the
@@ -569,7 +598,7 @@ export const READ_TOOLS: readonly McpToolDef[] = [
 
 /// The D1/D3/D6 desktop-UI tools, which the sharing toggle gates as a set: off
 /// means none appears in any catalog and all refuse on call.
-export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot', 'ui_highlight']);
+export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_screenshot', 'ui_highlight', 'desktop_open']);
 
 /// Coworking lane A: the Author co-authoring tools, gated by the SAME toggle.
 /// A separate set because they are a separate capability sentence (write into
@@ -593,7 +622,7 @@ export const DESKTOP_GATED_TOOL_NAMES: ReadonlySet<string> = new Set([...UI_TOOL
 /// explicit that a highlight needs no card (consent is the sharing toggle plus
 /// the policy bit) but is audited like an action — and it does change what the
 /// user sees, so the annotation is honest too.
-export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot', 'ui_highlight', 'author_apply']);
+export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_screenshot', 'ui_highlight', 'author_apply', 'desktop_open']);
 
 /// Tools audited on EVERY leg, local included. A superset of the action tools:
 /// `author_read` returns the full text of the user's documents, which is worth
@@ -778,6 +807,8 @@ export interface McpServerDeps {
   /// returns finished TEXT rather than a document, so nothing about the
   /// Author document model has to be modelled twice.
   authorBridge?: (req: AuthorBridgeRequest) => Promise<AuthorBridgeResult>;
+  /// Coworking lane H — `desktop_open` (desktopopen_host.ts).
+  openDesktop?: (req: DesktopOpenRequest) => Promise<DesktopOpenResult>;
 }
 
 /// One `ui_screenshot` request, with the target already resolved against the
@@ -818,6 +849,23 @@ export interface UiHighlightRequest {
 }
 
 export type UiHighlightResult = { ok: true; surface: string; ttl_ms: number } | { ok: false; code: string; message: string };
+
+/// Coworking lane H. Same shape as a highlight request minus the TTL — a
+/// navigation does not expire, which is exactly why it carries an undo instead.
+export interface DesktopOpenRequest {
+  ref: unknown;
+  note: string;
+  agentId: string;
+  agentHandle: string;
+}
+
+/// `depth` is the honesty field: `entity` means the user is looking at the
+/// thing, `surface` means they are on the right tab and this build could not
+/// resolve the reference further. The provider composes the sentence, because
+/// the wording is pinned by a test rather than eyeballed at two call sites.
+export type DesktopOpenResult =
+  | { ok: true; surface: string; depth: 'entity' | 'surface'; text: string }
+  | { ok: false; code: string; message: string };
 
 /// Coworking A1/A2: one `author_read` / `author_apply` call, narrowed, with
 /// the caller's identity and leg attached — the leg decides who asks for
@@ -1399,6 +1447,25 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
       // The answer says what the user will SEE, so the agent can describe it
       // ("I've highlighted the replay panel") rather than guess.
       return textContent(`highlighted ${res.surface} for ${String(Math.round(res.ttl_ms / 1000))}s — the user sees an attributed marker; nothing was focused or clicked`);
+    }
+    case 'desktop_open': {
+      if (deps.uiFocusAvailable?.() !== true) {
+        throw new BridgeError(
+          'UI_UNAVAILABLE',
+          'UI context sharing is off on the desktop (Settings → Assistant) — the desktop UI is not addressable',
+        );
+      }
+      if (deps.openDesktop === undefined) {
+        throw new BridgeError('UI_UNAVAILABLE', 'this desktop build cannot be navigated by an agent');
+      }
+      const res = await deps.openDesktop({
+        ref: args.ref,
+        note: typeof args.note === 'string' ? args.note.slice(0, OPEN_NOTE_MAX) : '',
+        agentId: ctx.agentId ?? '',
+        agentHandle: ctx.agentHandle ?? '',
+      });
+      if (!res.ok) throw new BridgeError(res.code, res.message);
+      return textContent(res.text);
     }
     case 'author_read':
     case 'author_render':

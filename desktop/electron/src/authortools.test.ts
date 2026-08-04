@@ -57,7 +57,7 @@ function harness(opts: { sharing?: boolean; result?: AuthorBridgeResult; provide
 }
 
 interface ToolResult {
-  content: Array<{ type: string; text?: string }>;
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
   isError?: true;
 }
 
@@ -75,14 +75,15 @@ async function call(
   return res?.result as ToolResult;
 }
 
-test('both author tools live in READ_TOOLS, so a read-scoped agent can reach them', () => {
+test('every author tool lives in READ_TOOLS, so a read-scoped agent can reach them', () => {
   // The kimi loop holds only the read token. `author_apply` is action CLASS
   // (consent + audit) but read SCOPE, the same split ui_screenshot ships —
   // otherwise co-authoring would need a respawn flag the local arm never has.
   const names = READ_TOOLS.map((t) => t.name);
   assert.ok(names.includes('author_read'));
   assert.ok(names.includes('author_apply'));
-  assert.deepEqual([...AUTHOR_TOOL_NAMES].sort(), ['author_apply', 'author_read']);
+  assert.ok(names.includes('author_render'));
+  assert.deepEqual([...AUTHOR_TOOL_NAMES].sort(), ['author_apply', 'author_read', 'author_render']);
 });
 
 test('the sharing toggle hides BOTH author tools from every catalog', async () => {
@@ -143,6 +144,7 @@ test('author_apply narrows its arguments: body required, mode allowlisted', asyn
     mode: 'append',
     body: '# hi',
     operations: [],
+    format: 'svg',
     reason: 'why',
     agentId: 'ag_1',
     agentHandle: 'kimi-1',
@@ -279,4 +281,77 @@ test('a revoked agent cannot reach the author tools at all', async () => {
   );
   assert.equal(out.ok, false);
   assert.equal(h.seen.length, 0);
+});
+
+// ── author_render ───────────────────────────────────────────────────────────
+
+test('author_render rides the same toggle and the same audit as author_read', async () => {
+  assert.ok(AUTHOR_TOOL_NAMES.has('author_render'));
+  assert.ok(DESKTOP_GATED_TOOL_NAMES.has('author_render'));
+  // Audited on every leg — it discloses the user's document.
+  assert.ok(DESKTOP_AUDITED_TOOL_NAMES.has('author_render'));
+  // …and NOT an action. It is a read that answers in pixels: no card, and the
+  // readOnlyHint stays true, which is the direction of that hint that cannot
+  // cause harm (ADR-063 D5).
+  assert.equal(DESKTOP_ACTION_TOOL_NAMES.has('author_render'), false);
+
+  const off = harness({ sharing: false });
+  const refused = await call(off.deps, 'author_render', {});
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0]?.text ?? '', /UI_UNAVAILABLE/);
+  assert.equal(off.seen.length, 0);
+});
+
+test('author_render returns the caption first and the image second', async () => {
+  const h = harness({ result: { ok: true, text: 'rendered “Flow” as svg', image: { base64: 'PHN2Zy8+', mimeType: 'image/svg+xml' } } });
+  const out = await call(h.deps, 'author_render', { document_id: 'doc_f', format: 'svg' });
+  assert.notEqual(out.isError, true);
+  // An MCP image block carries no caption. A client that renders only the
+  // leading block still learns which document this is a picture of.
+  assert.equal(out.content[0]?.type, 'text');
+  assert.match(out.content[0]?.text ?? '', /Flow/);
+  assert.equal(out.content[1]?.type, 'image');
+  assert.equal(out.content[1]?.data, 'PHN2Zy8+');
+  assert.equal(out.content[1]?.mimeType, 'image/svg+xml');
+  assert.equal(h.seen[0]?.op, 'render');
+  assert.equal(h.seen[0]?.format, 'svg');
+});
+
+test('author_render defaults to svg and refuses an unknown format by name', async () => {
+  const h = harness();
+  await call(h.deps, 'author_render', {});
+  assert.equal(h.seen[0]?.format, 'svg', 'an omitted format must not cost a raster image');
+
+  const bad = await call(h.deps, 'author_render', { format: 'jpeg' });
+  assert.equal(bad.isError, true);
+  // Silently substituting png would teach the agent nothing, and the next call
+  // asks for jpeg again.
+  assert.match(bad.content[0]?.text ?? '', /format must be 'svg' or 'png'/);
+  assert.equal(h.seen.length, 1);
+});
+
+test('author_render keeps readOnlyHint true, unlike author_apply', async () => {
+  const h = harness();
+  const res = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, h.deps);
+  const tools = (res?.result as { tools: Array<{ name: string; annotations: Record<string, unknown> }> }).tools;
+  assert.equal(tools.find((t) => t.name === 'author_render')?.annotations.readOnlyHint, true);
+  assert.equal(tunnelClassForTool('author_render'), 'desktop');
+});
+
+test('a provider that answers ok with no image is a refusal, not an empty picture', async () => {
+  // A client renders an empty image block as a broken graphic and an agent
+  // reads it as "the document is blank". This is the tool layer's half; the
+  // host's half refuses the same shape.
+  const h = harness({ result: { ok: true, text: 'rendered' } });
+  const out = await call(h.deps, 'author_render', {});
+  assert.notEqual(out.isError, true);
+  assert.equal(out.content.length, 1, 'no image block is emitted without image bytes');
+  assert.equal(out.content[0]?.type, 'text');
+});
+
+test('all three author tools are audited on the local leg', async () => {
+  const h = harness();
+  await call(h.deps, 'author_render', {});
+  assert.deepEqual(h.audit.map((e) => e.tool), ['author_render']);
+  assert.deepEqual(h.audit.map((e) => e.via), ['local']);
 });

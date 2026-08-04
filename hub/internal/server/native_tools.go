@@ -804,7 +804,11 @@ func buildNativeTools() []nativeTool {
 				"or types) and needing no approval; the user's click is the only actuator. " +
 				"author_read returns a document open in the desktop's Author surface (markdown, " +
 				"draw.io diagram, JSON Canvas board, table, figure source or Excalidraw scene) with " +
-				"its full body plus the index of every open document; author_apply writes one back " +
+				"its full body plus the index of every open document; author_render draws one of " +
+				"the drawable kinds (figure, Excalidraw scene, draw.io diagram) and returns the " +
+				"picture, which is how you check a drawing you just wrote instead of re-reading " +
+				"your own source — it is a read of one document, not a screenshot of the app, and " +
+				"takes no card; author_apply writes one back " +
 				"and raises an approval card the user must accept on every call. A body that does " +
 				"not parse as its kind is refused with the parser's diagnosis and the document is " +
 				"left byte-identical, and the result says whether the write reached the editor on " +

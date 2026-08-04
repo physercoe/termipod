@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyStateFor, asAuthorRequest, docLine, executeAuthorRequest, resolveTarget, type AuthorIO, type AuthorRequest } from './authorBridge.ts';
+import { RENDER_BASE64_MAX } from './renderDoc.ts';
 import type { ApplyOutcome } from './liveApply.ts';
 import type { Doc } from './documents.ts';
 
@@ -173,12 +174,18 @@ function spy(docs: Doc[], outcome: ApplyOutcome | 'no_target' = 'applied_live'):
         log.push(`render:${spec}:${src.length}`);
         return '<svg/>';
       },
+      // author_render: no live target by default; a diagram test opts in.
+      hasLiveRender: () => false,
+      renderDocument: async (d, format) => {
+        log.push(`draw:${d.id}:${format}`);
+        return { base64: 'AAAA', mimeType: format === 'svg' ? 'image/svg+xml' : 'image/png' };
+      },
     },
   };
 }
 
 function req(over: Partial<AuthorRequest> = {}): AuthorRequest {
-  return { id: 'r1', op: 'apply', documentId: null, mode: 'replace', body: '', operations: [], reason: '', by: 'kimi-1', ...over };
+  return { id: 'r1', op: 'apply', documentId: null, mode: 'replace', body: '', operations: [], format: 'svg', reason: '', by: 'kimi-1', ...over };
 }
 
 test('a body that does not parse changes NOTHING — no live call, no record, no write', async () => {
@@ -447,4 +454,99 @@ test('D1: the size cap counts what the agent sent, not the diagram it edits', as
   assert.equal(huge.ok, false);
   if (!huge.ok) assert.equal(huge.code, 'BODY_TOO_LARGE');
   assert.deepEqual(s2.log, []);
+});
+
+// ── author_render ───────────────────────────────────────────────────────────
+
+const FIGURE_DOC: Doc = { id: 'doc_f', kind: 'figure', title: 'Flow', body: 'graph TD\n  A --> B', spec: 'mermaid', updatedAt: 1 };
+const DIAGRAM_DOC: Doc = { id: 'doc_d', kind: 'diagram', title: 'Arch', body: '<mxfile/>', updatedAt: 1 };
+
+test('render: a body-rendered kind is drawn and captioned', async () => {
+  const s = spy([FIGURE_DOC]);
+  const out = await executeAuthorRequest(req({ op: 'render', format: 'png' }), s.io);
+  assert.equal(out.ok, true);
+  if (!out.ok || out.op !== 'render') return;
+  assert.equal(out.image.mimeType, 'image/png');
+  assert.equal(out.image.base64, 'AAAA');
+  // The caption is what makes a bare image block attributable.
+  assert.match(out.text, /“Flow”/);
+  assert.deepEqual(s.log, ['draw:doc_f:png']);
+});
+
+test('render: a kind with no picture refuses without asking the renderer', async () => {
+  for (const kind of ['markdown', 'table', 'canvas'] as const) {
+    const s = spy([{ id: 'doc_x', kind, title: 'X', body: 'x', updatedAt: 1 }]);
+    const out = await executeAuthorRequest(req({ op: 'render' }), s.io);
+    assert.equal(out.ok, false, kind);
+    if (!out.ok) assert.equal(out.code, 'RENDER_UNSUPPORTED', kind);
+    assert.deepEqual(s.log, [], kind);
+  }
+});
+
+test('render: a closed diagram refuses BEFORE the renderer, with its own code', async () => {
+  // "No editor is open" and "the editor could not draw this" have different
+  // recoveries, so they must not arrive as the same refusal. `hasLiveRender`
+  // is false in the harness by default.
+  const s = spy([DIAGRAM_DOC]);
+  const out = await executeAuthorRequest(req({ op: 'render' }), s.io);
+  assert.equal(out.ok, false);
+  if (!out.ok) {
+    assert.equal(out.code, 'DOCUMENT_NOT_OPEN');
+    assert.match(out.message, /Arch/);
+  }
+  assert.deepEqual(s.log, [], 'the renderer was asked for a document nobody has open');
+});
+
+test('render: an OPEN diagram goes through to the editor', async () => {
+  const s = spy([DIAGRAM_DOC]);
+  s.io.hasLiveRender = () => true;
+  const out = await executeAuthorRequest(req({ op: 'render' }), s.io);
+  assert.equal(out.ok, true);
+  assert.deepEqual(s.log, ['draw:doc_d:svg']);
+});
+
+test('render: the renderer\'s own diagnosis reaches the agent', async () => {
+  const s = spy([FIGURE_DOC]);
+  s.io.renderDocument = () => Promise.reject(new Error('Parse error on line 3'));
+  const out = await executeAuthorRequest(req({ op: 'render' }), s.io);
+  assert.equal(out.ok, false);
+  if (!out.ok) {
+    assert.equal(out.code, 'RENDER_FAILED');
+    // Paraphrasing would cost the agent the one detail it can act on.
+    assert.match(out.message, /Parse error on line 3/);
+  }
+});
+
+test('render: an image over the context cap is refused, not truncated', async () => {
+  const s = spy([FIGURE_DOC]);
+  s.io.renderDocument = () => Promise.resolve({ base64: 'A'.repeat(RENDER_BASE64_MAX + 1), mimeType: 'image/png' });
+  const out = await executeAuthorRequest(req({ op: 'render', format: 'png' }), s.io);
+  assert.equal(out.ok, false);
+  if (!out.ok) {
+    assert.equal(out.code, 'RENDER_TOO_LARGE');
+    assert.match(out.message, /svg/);
+  }
+});
+
+test('render: a document that is gone fails the same way every op does', async () => {
+  const s = spy([FIGURE_DOC]);
+  const out = await executeAuthorRequest(req({ op: 'render', documentId: 'doc_zz' }), s.io);
+  assert.equal(out.ok, false);
+  if (!out.ok) assert.equal(out.code, 'DOCUMENT_GONE');
+});
+
+test('render: nothing about a render touches the document', async () => {
+  // The property that lets this verb skip the approval card: it is a read.
+  const s = spy([FIGURE_DOC]);
+  await executeAuthorRequest(req({ op: 'render' }), s.io);
+  assert.equal(s.docs[0].body, 'graph TD\n  A --> B');
+  assert.equal(s.log.filter((l) => l.startsWith('update:') || l.startsWith('record:')).length, 0);
+});
+
+test('the narrowing defaults an absent or bogus format to svg, never to png', async () => {
+  // svg is the cheap answer and the one an agent can read; a missing argument
+  // must not cost the user's context a raster image.
+  assert.equal(asAuthorRequest({ id: 'r1', op: 'render' })?.format, 'svg');
+  assert.equal(asAuthorRequest({ id: 'r1', op: 'render', format: 'jpeg' })?.format, 'svg');
+  assert.equal(asAuthorRequest({ id: 'r1', op: 'render', format: 'png' })?.format, 'png');
 });

@@ -18,6 +18,8 @@ import { useAgentEdits } from './agentEdits';
 import { useDocuments } from './documents';
 import { renderFigure } from './figures';
 import { liveApply } from './liveApply';
+import { hasLiveRender } from './liveRender';
+import { renderDocument } from './renderDocHost';
 
 /// Read the stores at CALL time, never at module load: an `author_apply` that
 /// parked behind an approval card comes back to a workbench the user has been
@@ -36,6 +38,11 @@ function io(): AuthorIO {
     // agent's body is judged by exactly what the user's pane will run — not by
     // a second, kinder validator that agrees with it until it does not.
     renderFigure,
+    // `author_render`. `hasLiveRender` is read separately from the render itself
+    // so the executor can tell "no editor is open" from "the editor could not
+    // draw this" — two facts with different recoveries.
+    hasLiveRender,
+    renderDocument,
   };
 }
 

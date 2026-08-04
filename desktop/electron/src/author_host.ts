@@ -73,11 +73,12 @@ export const authorHostHandlers: Record<string, Handler> = {
 };
 
 interface RendererRequest {
-  op: 'read' | 'resolve' | 'apply';
+  op: 'read' | 'resolve' | 'apply' | 'render';
   documentId: string | null;
   mode?: string;
   body?: string;
   operations?: readonly DiagramOperation[];
+  format?: string;
   reason?: string;
   by?: string;
 }
@@ -106,6 +107,7 @@ async function askRenderer(req: RendererRequest): Promise<RendererReply> {
     mode: req.mode ?? 'replace',
     body: req.body ?? '',
     operations: req.operations ?? [],
+    format: req.format ?? 'svg',
     reason: req.reason ?? '',
     by: req.by ?? '',
   });
@@ -157,6 +159,35 @@ async function read(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
     ok: true,
     text: `${JSON.stringify(doc, null, 2)}\n\nOpen documents:\n${index}`,
   };
+}
+
+/// `author_render`. No card and no lease: this returns a picture of ONE
+/// document, drawn from that document, and the agent could already have the same
+/// document's source from `author_read` under the same toggle. It is a read that
+/// happens to answer in pixels — not a screenshot, which is a frame of the
+/// user's whole screen and is carded every single time (ADR-062 D-4).
+///
+/// One round trip, not two: unlike `apply` there is nothing to ask the user
+/// between resolving the target and doing the work, so the renderer resolves and
+/// draws in the same call.
+async function render(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
+  const reply = await askRenderer({ op: 'render', documentId: req.documentId, format: req.format });
+  if (reply === null || reply.ok !== true) return rendererRefusal(reply, 'AUTHOR_UNAVAILABLE', NO_RENDERER);
+  const image = (reply.image ?? {}) as Record<string, unknown>;
+  const base64 = str(image.base64);
+  const mimeType = str(image.mimeType);
+  if (base64 === '' || mimeType === '') {
+    // A reply shaped like a success with no picture in it. Refusing beats
+    // forwarding an empty image block, which a client renders as a broken
+    // graphic and an agent reads as "the document is blank".
+    //
+    // Not unit-tested here — this module imports Electron and `node --test`
+    // cannot load it. The same shape IS pinned one layer out
+    // (`authortools.test.ts`, "a provider that answers ok with no image"),
+    // which is the leg an agent actually reaches; this is the second wall.
+    return { ok: false, code: 'RENDER_FAILED', message: 'the desktop answered without an image' };
+  }
+  return { ok: true, text: str(reply.text, 'rendered'), image: { base64, mimeType } };
 }
 
 async function apply(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
@@ -238,7 +269,8 @@ async function authorBridge(req: AuthorBridgeRequest): Promise<AuthorBridgeResul
   if (!isUiSharingEnabled()) {
     return { ok: false, code: 'UI_UNAVAILABLE', message: 'UI context sharing is off on the desktop (Settings → Assistant)' };
   }
-  return req.op === 'read' ? read(req) : apply(req);
+  if (req.op === 'read') return read(req);
+  return req.op === 'render' ? render(req) : apply(req);
 }
 
 setAuthorBridgeProvider(authorBridge);

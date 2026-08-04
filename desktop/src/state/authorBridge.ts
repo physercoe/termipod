@@ -24,6 +24,17 @@
 /// `authorBridgeHost.ts` does the store work and the wiring.
 import { composeAuthorBody, rendersFromBody, validateAuthorBody, type AuthorApplyMode } from './authorBody.ts';
 import { diagramOpsBytes, narrowDiagramOperations, type DiagramOperation } from './drawioOps.ts';
+import {
+  narrowRenderFormat,
+  RENDER_BASE64_MAX,
+  renderKindRefusal,
+  renderNotOpenRefusal,
+  renderPathFor,
+  renderResultText,
+  renderTooLargeRefusal,
+  type RenderedImage,
+  type RenderFormat,
+} from './renderDoc.ts';
 import type { ApplyOutcome } from './liveApply.ts';
 import type { AgentEdit } from './agentEdits.ts';
 import type { Doc, DocKind } from './documents.ts';
@@ -37,7 +48,7 @@ export const AUTHOR_RESULT_COMMAND = 'desktopui_author_result';
 /// `resolve` is main's pre-flight: it needs the target document's identity to
 /// put on the approval card BEFORE the body is applied, and it deliberately
 /// does not return the body — naming a document must not disclose it.
-export type AuthorOp = 'read' | 'resolve' | 'apply';
+export type AuthorOp = 'read' | 'resolve' | 'apply' | 'render';
 
 export interface AuthorRequest {
   id: string;
@@ -50,6 +61,10 @@ export interface AuthorRequest {
   /// with `mode:'replace'` is not silently honoured, because the caller asked
   /// for a whole-body write and that is what it gets.
   operations: readonly DiagramOperation[];
+  /// `author_render`'s output format. Meaningless for the other ops and
+  /// defaulted rather than optional, so no code path has to ask whether a
+  /// render request forgot to say.
+  format: RenderFormat;
   reason: string;
   /// The agent's handle as the tool call carried it — display text for the
   /// agent-edit chip, never trusted as an identity.
@@ -78,6 +93,7 @@ export type AuthorResult =
       /// touched and which the cascade took with them (D1).
       note?: string;
     }
+  | { ok: true; op: 'render'; document: AuthorDocLine; image: RenderedImage; text: string }
   | { ok: false; code: string; message: string };
 
 /// The largest body an agent may commit in one call. A document is prose or a
@@ -98,7 +114,7 @@ export function asAuthorRequest(value: unknown): AuthorRequest | null {
   const v = value as Record<string, unknown>;
   const id = str(v.id);
   const op = str(v.op);
-  if (id === '' || (op !== 'read' && op !== 'resolve' && op !== 'apply')) return null;
+  if (id === '' || (op !== 'read' && op !== 'resolve' && op !== 'apply' && op !== 'render')) return null;
   const documentId = str(v.document_id);
   const mode = v.mode === 'append' ? 'append' : v.mode === 'ops' ? 'ops' : 'replace';
   // Narrowed again on this side of the IPC boundary even though main narrowed
@@ -115,6 +131,7 @@ export function asAuthorRequest(value: unknown): AuthorRequest | null {
     mode,
     body: str(v.body),
     operations: narrowed !== null && narrowed.ok ? narrowed.ops : [],
+    format: narrowRenderFormat(v.format) ?? 'svg',
     reason: str(v.reason),
     by: str(v.by),
   };
@@ -200,10 +217,54 @@ export interface AuthorIO {
   /// module `node --test` drives. Resolving means the source renders; throwing
   /// is the refusal, and the thrown message is what the agent is told.
   renderFigure: (spec: FigureSpec, src: string) => Promise<unknown>;
+  /// `author_render`. Injected for the same reason `renderFigure` is — it
+  /// reaches lazily-loaded vendor code, a live iframe and a canvas — and split
+  /// in two so the executor decides the REFUSALS (which are pure) while the
+  /// host owns the drawing.
+  hasLiveRender: (docId: string) => boolean;
+  renderDocument: (doc: Doc, format: RenderFormat) => Promise<RenderedImage>;
 }
 
 function refuse(code: string, message: string): AuthorResult {
   return { ok: false, code, message };
+}
+
+/// `author_render`. Split out of the executor because it shares only step 1 with
+/// the write path and none of its ordering rules — nothing here mutates, so
+/// there is no "editor first, store second" to preserve.
+///
+/// Four refusals, and each names a different thing the agent can do next: the
+/// kind has no picture (read the source), the document is a diagram nobody has
+/// open (ask the user), the renderer threw (its own diagnosis), the image is
+/// over the context cap (ask for svg).
+async function renderRequest(req: AuthorRequest, io: AuthorIO, doc: Doc, line: AuthorDocLine): Promise<AuthorResult> {
+  const path = renderPathFor(doc.kind);
+  if (path === null) return refuse('RENDER_UNSUPPORTED', renderKindRefusal(doc.kind));
+  // Checked BEFORE the render rather than inferred from its failure: "no editor
+  // is open" and "the editor could not draw this" are different facts, and only
+  // the first has a recovery the agent can name to the user.
+  if (path === 'live' && !io.hasLiveRender(doc.id)) {
+    return refuse('DOCUMENT_NOT_OPEN', renderNotOpenRefusal(doc.title !== '' ? doc.title : doc.id));
+  }
+  let image: RenderedImage;
+  try {
+    image = await io.renderDocument(doc, req.format);
+  } catch (e) {
+    // The renderer's own words. Same judgement as B5's figure dry run: a
+    // renderer that refuses a source knows why, and paraphrasing it costs the
+    // agent the one detail it could act on.
+    return refuse('RENDER_FAILED', `could not render this ${doc.kind} document: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (image.base64.length > RENDER_BASE64_MAX) {
+    return refuse('RENDER_TOO_LARGE', renderTooLargeRefusal(image.base64.length, req.format));
+  }
+  return {
+    ok: true,
+    op: 'render',
+    document: line,
+    image,
+    text: renderResultText(doc.title !== '' ? doc.title : doc.id, doc.kind, req.format, image.base64.length),
+  };
 }
 
 /// Turn a renderer throw into the sentence the agent gets back (B5).
@@ -249,6 +310,7 @@ export async function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): Pr
   const line = docLine(doc, io.activeId);
 
   if (req.op === 'resolve') return { ok: true, op: 'resolve', document: line };
+  if (req.op === 'render') return renderRequest(req, io, doc, line);
   if (req.op === 'read') {
     return {
       ok: true,

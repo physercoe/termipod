@@ -29,12 +29,12 @@
 //     the user's authority — so ADR-062 D-5 puts its consent in the
 //     sharing toggle plus the policy table's `highlight` bit, and its
 //     safety in the desktop's rate limit and the audit trail;
-//   - `author_read` / `author_apply` (ADR-064, coworking lane A) join the
-//     class: the Author surface's documents, read and written through the
-//     same tunnel. `author_apply` is an ACTION and is carded per call
-//     here, because the consent the desktop offers locally is per
-//     DOCUMENT and this grant store's key has no document in it — see
-//     desktopUIGrantable.
+//   - `author_read` / `author_render` / `author_apply` (ADR-064,
+//     coworking lanes A and W2) join the class: the Author surface's
+//     documents, read, drawn and written through the same tunnel.
+//     `author_apply` is an ACTION and is carded per call here, because
+//     the consent the desktop offers locally is per DOCUMENT and this
+//     grant store's key has no document in it — see desktopUIGrantable.
 //
 // The hub relays and never stores: no focus snapshot, no capture, ever
 // lands in a table (ADR-062 D-7). What crosses is audited by the
@@ -76,6 +76,14 @@ var desktopUIReadTools = []string{
 	// bytes rather than ids, so the desktop audits it on every leg, but
 	// it changes nothing and takes no card.
 	"author_read",
+	// ADR-064, W2. A PICTURE of one document, drawn from that document.
+	// It looks like `ui_screenshot` and is not: a screenshot is a frame
+	// of the user's whole screen (hence D-3's surface table and D-4's
+	// per-call card), while this renders a single Author document the
+	// caller could already have read the source of under the same
+	// toggle. So it is a read — same class as `author_read`, audited on
+	// every leg, no card.
+	"author_render",
 }
 
 // desktopUIAnnotateTools route immediately like a read, but WRITE

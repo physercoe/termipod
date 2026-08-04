@@ -243,6 +243,124 @@ test('assembleRawFocus: store slices land in the right blocks; non-matching sele
   });
 });
 
+// ── Coverage: allowlisted ⇒ assemblable (coworking lane G) ───────────────────
+//
+// The suite above proves the projection narrows correctly, but every one of
+// its inputs is a HAND-WRITTEN RawFocus — so a field the table reserves and
+// `assembleRawFocus` never produces passes every test while being permanently
+// invisible to agents. That is exactly what lane G found: `tabs.*`, `tab.*`,
+// `inspect.selection`, `replay.episode_id` and `replay.cursor` had been
+// allowlisted since D1 and assembled by nothing.
+//
+// This test closes the class. It drives the assembler with a maximal
+// FocusSources and asserts every allowlisted path comes out — except the ones
+// named below, which must state WHY. A gap is allowed; a silent one is not.
+
+/// Allowlisted paths `assembleRawFocus` cannot yet produce, each with the
+/// reason and the wedge that closes it. Removing an entry without adding the
+/// assembly fails the test; adding one without a reason fails review.
+const DECLARED_GAPS: Readonly<Record<string, string>> = {
+  // Lane G's own remaining wedges.
+  'compare.left': 'G4 — ships with lane K compareWall store',
+  'compare.right': 'G4 — ships with lane K compareWall store',
+  'record.dataset_id': 'G5 — the reserved field is wrong; becomes record.record_id with lane K records',
+  // Gaps lane G did not enumerate, found by this test. Each is a real hole in
+  // what an agent can learn, tracked for a follow-up wedge.
+  'agent.session_id': 'focus.fleet.selection carries {type,id,name} only — no session id reaches the assembler',
+  'project.task_id': 'focus.projects.selection names a project or a host, never a task',
+  'terminal.agent_id': 'useTerminals knows the pane, not which agent owns it',
+  'kimiweb.url': 'the kimi panel is main-side; its URL never reaches the renderer publisher',
+  // Reserved on purpose, with nothing truthful to fill it — see
+  // FocusSources.readTabs. Not a follow-up: a Read tab has no local path.
+  'tabs.path': 'a Read tab addresses bytes by reference id, not a filesystem path',
+  'tab.path': 'a Read tab addresses bytes by reference id, not a filesystem path',
+};
+
+/// Every source populated — the upper bound of what assembly can be handed.
+const FULL_SOURCES = {
+  job: 'read',
+  fleetSelection: { type: 'agent', id: 'ag_1', name: 'kimi-1' },
+  projectSelection: { type: 'project', id: 'pr_1' },
+  activeDocument: { id: 'doc1', title: 'notes' },
+  readTabs: [{ kind: 'pdf', title: 'a paper', url: 'https://arxiv.org/abs/2401.00001' }],
+  readActive: { kind: 'pdf', title: 'a paper', url: 'https://arxiv.org/abs/2401.00001' },
+  inspectTabs: [{ kind: 'code', path: 'src/foo.ts' }],
+  inspectActive: { path: 'src/foo.ts' },
+  inspectSelection: [42, 58] as [number, number],
+  replayDatasetId: 'ds_1',
+  replayEpisodeId: '7',
+  replayCursor: 12.5,
+  terminalPaneId: '%12',
+  capturedAt: 't0',
+};
+
+test('every allowlisted field is assemblable, or is a DECLARED gap', () => {
+  const raw = assembleRawFocus(FULL_SOURCES) as unknown as Record<string, unknown>;
+  const missing: string[] = [];
+  for (const row of Object.values(UI_POLICY)) {
+    for (const p of row.snapshot) {
+      const dot = p.indexOf('.');
+      const [block, sub] = [p.slice(0, dot), p.slice(dot + 1)];
+      const val = raw[block];
+      const items = Array.isArray(val) ? (val as Array<Record<string, unknown>>) : val !== undefined ? [val as Record<string, unknown>] : [];
+      const present = items.some((item) => item[sub] !== undefined);
+      if (present === (DECLARED_GAPS[p] !== undefined)) {
+        missing.push(
+          present
+            ? `${p} is now assembled — delete its DECLARED_GAPS entry`
+            : `${p} is allowlisted but assembleRawFocus never produces it (add the assembly, or a DECLARED_GAPS entry saying why not)`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(missing, [], missing.join('\n'));
+});
+
+test('assembleRawFocus: lane G fields land in their blocks', () => {
+  const raw = assembleRawFocus(FULL_SOURCES);
+  assert.deepEqual(raw.tabs, [{ kind: 'pdf', title: 'a paper', url: 'https://arxiv.org/abs/2401.00001' }]);
+  assert.deepEqual(raw.tab, { kind: 'pdf', title: 'a paper', url: 'https://arxiv.org/abs/2401.00001' });
+  assert.deepEqual(raw.inspect, { path: 'src/foo.ts', selection: [42, 58] });
+  assert.deepEqual(raw.replay, { dataset_id: 'ds_1', episode_id: '7', cursor: 12.5 });
+});
+
+test('assembleRawFocus: a Read tab set with nothing open publishes tabs but no tab', () => {
+  // The library view is not a tab. Publishing one would tell an agent the user
+  // is reading a document when they are looking at the shelf.
+  const raw = assembleRawFocus({ ...FULL_SOURCES, readActive: null });
+  assert.equal(raw.tabs?.length, 1);
+  assert.equal(raw.tab, undefined);
+});
+
+test('assembleRawFocus: a caret with no selection publishes path alone', () => {
+  const raw = assembleRawFocus({ ...FULL_SOURCES, inspectSelection: null });
+  assert.deepEqual(raw.inspect, { path: 'src/foo.ts' });
+});
+
+test('assembleRawFocus: cursor 0 is a position, not an absence', () => {
+  // `if (cursor)` would drop the start of the episode — the one cursor value a
+  // user reaches by rewinding.
+  const raw = assembleRawFocus({ ...FULL_SOURCES, replayCursor: 0 });
+  assert.equal(raw.replay?.cursor, 0);
+});
+
+test('assembleRawFocus: an episode with no dataset publishes nothing', () => {
+  // The player cannot be on screen without a dataset; a bare episode_id would
+  // be an id an agent has no way to resolve.
+  const raw = assembleRawFocus({ ...FULL_SOURCES, replayDatasetId: null });
+  assert.equal(raw.replay, undefined);
+});
+
+test('assembleRawFocus: lane G sources are optional — a pre-G caller still assembles', () => {
+  const { readTabs, readActive, inspectSelection, replayEpisodeId, replayCursor, ...preG } = FULL_SOURCES;
+  void readTabs, readActive, inspectSelection, replayEpisodeId, replayCursor;
+  const raw = assembleRawFocus(preG);
+  assert.equal(raw.tabs, undefined);
+  assert.equal(raw.tab, undefined);
+  assert.deepEqual(raw.inspect, { path: 'src/foo.ts' });
+  assert.deepEqual(raw.replay, { dataset_id: 'ds_1' });
+});
+
 test('assembleRawFocus: sparse sources produce a bare snapshot', () => {
   const raw = assembleRawFocus({
     job: 'settings',

@@ -277,12 +277,31 @@ export interface FocusSources {
   projectSelection: { type: string; id: string; name?: string } | null;
   /// The Author surface's active document, if any.
   activeDocument: { id: string; title: string } | null;
+  /// Read's open tabs, already narrowed to the allowlisted sub-fields (G1).
+  /// Optional: absent reads as "no tabs", which is what every pre-G1 caller
+  /// meant.
+  ///
+  /// `path` is absent from the type on purpose, though the allowlist reserves
+  /// `tabs.path`. A pdf tab addresses its bytes by reference + attachment id —
+  /// hub ids, not a filesystem path — so there is nothing truthful to put
+  /// there, and the type is what says so (a comment would let a future caller
+  /// pass a plausible-looking wrong one).
+  readTabs?: ReadonlyArray<{ kind: string; title: string; url?: string }>;
+  /// The Read tab the user is in, or null for the library view (which is not a
+  /// tab — publishing one would claim they are reading something) (G1).
+  readActive?: { kind: string; title: string; url?: string } | null;
   /// Inspect (debug) tabs, already narrowed to {kind, path?}.
   inspectTabs: ReadonlyArray<{ kind: string; path?: string }>;
   /// The active Inspect tab's {path?}, if a tab is active.
   inspectActive: { path?: string } | null;
+  /// The active Inspect tab's 1-based line selection, if the user made one (G2).
+  inspectSelection?: [number, number] | null;
   /// The Replay surface's selected dataset id, if any.
   replayDatasetId: string | null;
+  /// The open episode's id, if the player is on screen (G3).
+  replayEpisodeId?: string | null;
+  /// The player's scrub position, if the user has placed one (G3).
+  replayCursor?: number | null;
   /// The focused terminal pane id — null when no pane is visible.
   terminalPaneId: string | null;
   capturedAt: string;
@@ -299,14 +318,29 @@ export function assembleRawFocus(s: FocusSources): RawFocus {
   if (s.activeDocument !== null) {
     raw.document = { id: s.activeDocument.id, title: s.activeDocument.title };
   }
+  if (s.readTabs !== undefined && s.readTabs.length > 0) {
+    raw.tabs = s.readTabs.map((t) => ({ ...t }));
+  }
+  if (s.readActive !== undefined && s.readActive !== null) {
+    raw.tab = { ...s.readActive };
+  }
   if (s.inspectTabs.length > 0) {
     raw.inspect_tabs = s.inspectTabs.map((t) => (t.path !== undefined ? { kind: t.kind, path: t.path } : { kind: t.kind }));
   }
-  if (s.inspectActive !== null && s.inspectActive.path !== undefined) {
-    raw.inspect = { path: s.inspectActive.path };
+  // The selection is a property OF the active tab, so it rides the same block —
+  // and a selection with no active tab is not a state the surface can be in.
+  if (s.inspectActive !== null) {
+    const inspect: UiRefInspect = {};
+    if (s.inspectActive.path !== undefined) inspect.path = s.inspectActive.path;
+    if (s.inspectSelection !== undefined && s.inspectSelection !== null) inspect.selection = s.inspectSelection;
+    if (Object.keys(inspect).length > 0) raw.inspect = inspect;
   }
   if (s.replayDatasetId !== null) {
-    raw.replay = { dataset_id: s.replayDatasetId };
+    const replay: UiRefReplay = { dataset_id: s.replayDatasetId };
+    if (s.replayEpisodeId !== undefined && s.replayEpisodeId !== null) replay.episode_id = s.replayEpisodeId;
+    // `cursor: 0` is a real position — guard on null, never on falsiness.
+    if (s.replayCursor !== undefined && s.replayCursor !== null) replay.cursor = s.replayCursor;
+    raw.replay = replay;
   }
   if (s.terminalPaneId !== null) {
     raw.terminal = { pane_id: s.terminalPaneId };

@@ -145,6 +145,20 @@ Populate every reserved-but-empty policy field
   (`ui_policy.ts:171`) describes an episode-recording surface that was
   never built; replace with `record.record_id` when lane K's records
   land (coordinated policy + `UiRefRecord` + plan-matrix erratum).
+- **G6 — the four gaps G1–G5 did not name.** The coverage invariant
+  added with G1–G3 (`electron/src/ui_policy.test.ts`, "every
+  allowlisted field is assemblable, or is a DECLARED gap") found that
+  the reserved-but-unpopulated set was larger than this lane's audit:
+  `agent.session_id` (`focus.fleet.selection` carries `{type,id,name}`
+  only), `project.task_id` (the selection names a project or a host,
+  never a task), `terminal.agent_id` (`useTerminals` knows the pane,
+  not its owner), and `kimiweb.url` (main-side; never reaches the
+  renderer publisher). Each is declared in `DECLARED_GAPS` with its
+  reason, so they are now visible rather than silent — closing them is
+  a follow-up wedge, not a W1 blocker. `tabs.path`/`tab.path` are in
+  that list too but are **not** a gap to close: a Read tab addresses
+  bytes by reference id, and `FocusSources` omits the field by type so
+  no caller can invent one.
 
 ## 6. Lane H — the `navigate` class (`desktop_open`)
 
@@ -268,8 +282,11 @@ one item here that closes a data-loss window the wave itself opens.
   (Replay's invariants); `applied_*` degradation states are exercised
   in tests, not just documented.
 - CI blind spot: desktop node tests run manually
-  (`node --test src/state/*.test.ts src/ssh/*.test.ts` + electron
-  suite) per wedge.
+  (`node --test src/state/*.test.ts src/ui/*.test.ts
+  src/ssh/*.test.ts src/terminal/*.test.ts` + electron suite) per
+  wedge. The lane-G focus tests are the exception — they live in
+  `electron/src/ui_policy.test.ts`, which CI *does* run, so the
+  coverage invariant holds the reserved-field class on every PR.
 
 ## 13. Acceptance
 

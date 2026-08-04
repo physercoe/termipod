@@ -106,12 +106,18 @@ interface InspectState {
   loading: Record<string, boolean>;
   /// Read error for a tab, if its source failed to load.
   error: Record<string, string | undefined>;
+  /// The user's 1-based `[fromLine, toLine]` line selection per tab (coworking
+  /// G2). Deliberately NOT persisted: a selection is about what the user is
+  /// looking at right now, and restoring one across a restart would tell an
+  /// agent they had picked out lines they last touched days ago.
+  selection: Record<string, [number, number] | undefined>;
   open: (tab: Omit<InspectTab, 'id'>, body?: string) => string;
   close: (id: string) => void;
   setActive: (id: string | null) => void;
   setContent: (id: string, body: string) => void;
   setLoading: (id: string, v: boolean) => void;
   setError: (id: string, msg: string | undefined) => void;
+  setSelection: (id: string, sel: [number, number] | null) => void;
   rename: (id: string, title: string) => void;
   setLang: (id: string, lang: string | undefined) => void;
   setKind: (id: string, kind: InspectKind) => void;
@@ -192,6 +198,7 @@ export const useInspect = create<InspectState>((set, get) => ({
   ...load(),
   loading: {},
   error: {},
+  selection: {},
 
   open: (tab, body) => {
     // Focus an already-open file-backed tab instead of duplicating it.
@@ -226,7 +233,12 @@ export const useInspect = create<InspectState>((set, get) => ({
     const activeId = get().activeId === id ? (tabs[tabs.length - 1]?.id ?? null) : get().activeId;
     const content = { ...get().content };
     delete content[id];
-    set({ tabs, activeId, content });
+    // Ids are minted from a counter + Date.now(), so a closed tab's key would
+    // not be reused — but leaving it would leak one entry per closed tab for
+    // the session's lifetime.
+    const selection = { ...get().selection };
+    delete selection[id];
+    set({ tabs, activeId, content, selection });
     persist({ tabs, activeId, content });
   },
 
@@ -243,6 +255,16 @@ export const useInspect = create<InspectState>((set, get) => ({
 
   setLoading: (id, v) => set({ loading: { ...get().loading, [id]: v } }),
   setError: (id, msg) => set({ error: { ...get().error, [id]: msg } }),
+
+  // A cleared selection deletes the key rather than storing `undefined`, so
+  // `sourcesNow()` reads absence the same way whether the tab never had one or
+  // the user just clicked it away.
+  setSelection: (id, sel) => {
+    const selection = { ...get().selection };
+    if (sel === null) delete selection[id];
+    else selection[id] = sel;
+    set({ selection });
+  },
 
   rename: (id, title) => {
     const tabs = get().tabs.map((t) => (t.id === id ? { ...t, title } : t));

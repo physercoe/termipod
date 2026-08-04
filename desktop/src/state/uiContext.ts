@@ -5,6 +5,7 @@ import { panesForFocus, useWorkbench } from './workbench';
 import { useFocus } from './focus';
 import { useDocuments } from './documents';
 import { useInspect } from './inspect';
+import { useReadTabs } from './readTabs';
 import { useReplay } from './replay';
 import { useTerminals } from '../terminal/store';
 import { assembleRawFocus, createFocusSender, projectFocus, type FocusSources } from './ui_policy';
@@ -106,10 +107,12 @@ function sourcesNow(): FocusSources {
   const focus = useFocus.getState();
   const docs = useDocuments.getState();
   const inspect = useInspect.getState();
+  const read = useReadTabs.getState();
   const replay = useReplay.getState();
   const term = useTerminals.getState();
   const activeDoc = docs.activeId !== null ? (docs.docs.find((d) => d.id === docs.activeId) ?? null) : null;
   const activeInspect = inspect.activeId !== null ? (inspect.tabs.find((t) => t.id === inspect.activeId) ?? null) : null;
+  const activeRead = read.activeId !== null ? (read.tabs.find((t) => t.id === read.activeId) ?? null) : null;
   return {
     job,
     secondaryJob,
@@ -117,9 +120,19 @@ function sourcesNow(): FocusSources {
     fleetSelection: focus.fleet.selection,
     projectSelection: focus.projects.selection,
     activeDocument: activeDoc !== null ? { id: activeDoc.id, title: activeDoc.title } : null,
+    // No `path`: a Read tab addresses its bytes by reference id, not by a
+    // filesystem path — see FocusSources.readTabs.
+    readTabs: read.tabs.map((t) => ({ kind: t.kind, title: t.title, ...(t.url !== undefined && t.url !== '' ? { url: t.url } : {}) })),
+    readActive:
+      activeRead !== null
+        ? { kind: activeRead.kind, title: activeRead.title, ...(activeRead.url !== undefined && activeRead.url !== '' ? { url: activeRead.url } : {}) }
+        : null,
     inspectTabs: inspect.tabs.map((t) => (t.path !== undefined ? { kind: t.kind, path: t.path } : { kind: t.kind })),
     inspectActive: activeInspect !== null && activeInspect.path !== undefined ? { path: activeInspect.path } : null,
+    inspectSelection: activeInspect !== null ? (inspect.selection[activeInspect.id] ?? null) : null,
     replayDatasetId: replay.target?.datasetId ?? (replay.selectedId !== '' ? replay.selectedId : null),
+    replayEpisodeId: replay.viewing?.episodeId ?? null,
+    replayCursor: replay.viewing?.cursor ?? null,
     // A pane is "focused" only when the terminal is actually visible — the
     // dock stays mounted (and its activeId alive) while hidden.
     terminalPaneId: term.activeId !== null && (term.open || job === 'terminal') ? term.activeId : null,
@@ -134,11 +147,15 @@ function tick(): void {
 
 // Any store change may move the projection; the sender dedupes the ones that
 // don't. Fine-grained selector subscriptions would save a cheap recompute per
-// tick at the cost of seven hand-maintained selector pairs — not worth it.
+// tick at the cost of eight hand-maintained selector pairs — not worth it.
+// EVERY store `sourcesNow()` reads must be listed: one missing subscription is
+// a field that publishes only when some other store happens to move, which is
+// worse than not publishing it at all.
 useWorkbench.subscribe(tick);
 useFocus.subscribe(tick);
 useDocuments.subscribe(tick);
 useInspect.subscribe(tick);
+useReadTabs.subscribe(tick);
 useReplay.subscribe(tick);
 useTerminals.subscribe(tick);
 

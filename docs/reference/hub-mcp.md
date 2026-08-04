@@ -1,11 +1,13 @@
 # Hub MCP tool surface
 
 > **Type:** reference
-> **Status:** Current (2026-08-01) — §1 re-verified against the four
-> servers for the ADR-063 compat wedge; §3's catalog still spells tools
-> the retired dotted way and is stale (see the note there)
+> **Status:** Current (2026-08-04) — §3 gained the datasets family at its
+> real spelling (lane J1); the rest of §3's catalog still spells tools the
+> retired dotted way and is stale (see the note there); §1 was
+> re-verified against the four servers for the ADR-063 compat wedge
 > **Audience:** agent authors, steward template authors, integrators
-> **Last verified vs code:** §1–§2 at 2026-08-01 (lane U); §3 at v1.0.809
+> **Last verified vs code:** §1–§2 at 2026-08-01 (lane U); §3 datasets at
+> 2026-08-04 (lane J1); the rest of §3 at v1.0.809
 
 **TL;DR.** Single canonical entry for "what MCP tools does the
 hub expose, and what does each one do?" Every tool is a thin
@@ -19,7 +21,8 @@ allow-list in [`../../hub/internal/server/roles.yaml`](../../hub/internal/server
 
 Source of truth for tool definitions:
 [`../../hub/internal/hubmcpserver/tools.go`](../../hub/internal/hubmcpserver/tools.go)
-+ [`../../hub/internal/hubmcpserver/tools_templates.go`](../../hub/internal/hubmcpserver/tools_templates.go).
++ [`../../hub/internal/hubmcpserver/tools_templates.go`](../../hub/internal/hubmcpserver/tools_templates.go)
++ [`../../hub/internal/hubmcpserver/tools_datasets.go`](../../hub/internal/hubmcpserver/tools_datasets.go).
 This doc lags one release behind tagging by design — re-grep
 `Name:` in those files for an unconditional truth.
 
@@ -160,6 +163,30 @@ fields read straight from the JSON-Schema embedded in
 | `artifacts.list` | List artifacts under a project. |
 | `artifacts.get` | Fetch one. **`artifact`**. |
 | `artifacts.create` | Project-scope artifact (not tied to a run). Same shape as `runs.attach_artifact` minus `run`. |
+
+### datasets (Replay)
+
+*Names below are the **current** snake_case spellings — this family
+landed after the rename, so the staleness banner above does not apply to
+it.* Two hub reads and two host-proxied reads; the write half is not
+built yet.
+
+| Tool | Purpose |
+|---|---|
+| `datasets_list` | List registered datasets with headline counts (`episodes`, `frames`, `duration_sec`, `fps`, `robot_type`). Optional `project`, `host`. `read: false` marks a root nobody has folded a digest from — not a dataset with zero episodes. |
+| `datasets_get` | Fetch one with its full digest — features, video streams, tasks, per-feature stats, length histogram. **`dataset`**. Read the digest's own `stats_partial` / `tasks_truncated` / `episodes_truncated` flags before quoting a number as the dataset's. |
+| `dataset_episodes_list` | One window of the episodes table. **`dataset`**; optional `offset`, `limit` (default 200, cap 1000). Returns `{episodes, offset, limit, total, truncated}`. |
+| `dataset_episode_series` | One episode's decimated numeric channels. **`dataset`**, **`episode`** (the `episode_index`); optional `features`, `max_points` (default 1000, cap 5000). Returns `stride` / `points` / `downsampled` / `truncated` / `warnings` alongside the series. |
+
+The last two are **proxied to the host that owns the bytes** — the hub
+stores neither the episodes table nor any series (blueprint §4). They
+cost a tunnel round-trip, and they refuse with facts rather than
+failures: `409` no host attached, `501` a non-`local` root (sftp/hf are
+registerable but not yet readable), `422` an unsupported LeRobot
+generation — which names the `codebase_version` it refused — and `504`
+when the host does not answer. Every cap that shaped an answer travels
+in the answer; a caller that ignores `truncated` will read a clamped
+page as the whole table.
 
 ### documents + reviews
 

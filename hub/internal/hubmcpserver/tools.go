@@ -1400,6 +1400,9 @@ func buildTools() []toolDef {
 	// (agents/prompts/plans) — five ops each (create, update,
 	// delete, list, get). Defined in tools_templates.go.
 	tools = append(tools, templateToolDefs()...)
+	// Lane J1: the Replay dataset library — two hub reads and two
+	// host-proxied reads. Defined in tools_datasets.go.
+	tools = append(tools, datasetToolDefs()...)
 	return tools
 }
 

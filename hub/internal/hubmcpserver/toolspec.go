@@ -226,6 +226,23 @@ func toolRegistry() []ToolSpec {
 		spec("runs_attach_artifact",
 			"Attach an artifact to a run. Required: run, project_id, kind, name, uri.",
 			tierRoutine, true),
+		// --- datasets (coworking lane J1) ---
+		// Two hub reads and two host-proxied reads. All trivial-tier and
+		// worker-eligible: reading the library a director already opened in
+		// Replay is not an elevation, and the proxied pair cannot reach a byte
+		// the host does not already serve the desktop.
+		spec("datasets_list",
+			"List the team's registered datasets with their headline counts. Optional: project, host.",
+			tierTrivial, true),
+		spec("datasets_get",
+			"Fetch one dataset with its full folded digest. Required: dataset.",
+			tierTrivial, true),
+		spec("dataset_episodes_list",
+			"List one dataset's episodes, windowed and capped (host-proxied). Required: dataset. Optional: offset, limit.",
+			tierTrivial, true),
+		spec("dataset_episode_series",
+			"Read one episode's decimated numeric channels (host-proxied). Required: dataset, episode. Optional: features, max_points.",
+			tierTrivial, true),
 		// --- artifacts (W2) ---
 		spec("artifacts_list",
 			"List artifacts, optionally filtered by project, run, or kind.",
@@ -445,7 +462,7 @@ var toolMeta = map[string]toolMetaEntry{
 	"plan_steps_list":               {true, []string{"plan_steps_update", "plans_get"}},
 	"plan_steps_update":             {false, []string{"plan_steps_list"}},
 	"runs_list":                     {true, []string{"runs_get", "runs_create"}},
-	"runs_get":                      {true, []string{"runs_list", "run_metrics", "artifacts_list"}},
+	"runs_get":                      {true, []string{"runs_list", "run_metrics", "artifacts_list", "datasets_get"}},
 	"run_metrics":                   {true, []string{"runs_get", "runs_list"}},
 	"run_config_diff":               {true, []string{"runs_get", "run_metrics"}},
 	"runs_create":                   {false, []string{"runs_attach_artifact", "runs_list"}},
@@ -453,6 +470,10 @@ var toolMeta = map[string]toolMetaEntry{
 	"runs_delete":                   {false, []string{"runs_update", "runs_list"}},
 	"runs_detach_artifact":          {false, []string{"runs_get", "artifacts_list"}},
 	"runs_attach_artifact":          {false, []string{"runs_get", "artifacts_create"}},
+	"datasets_list":                 {true, []string{"datasets_get", "dataset_episodes_list"}},
+	"datasets_get":                  {true, []string{"datasets_list", "dataset_episodes_list"}},
+	"dataset_episodes_list":         {true, []string{"datasets_get", "dataset_episode_series"}},
+	"dataset_episode_series":        {true, []string{"dataset_episodes_list", "datasets_get"}},
 	"artifacts_list":                {true, []string{"artifacts_get", "artifacts_create"}},
 	"artifacts_get":                 {true, []string{"artifacts_list", "runs_get"}},
 	"artifacts_create":              {false, []string{"artifacts_list", "runs_attach_artifact"}},

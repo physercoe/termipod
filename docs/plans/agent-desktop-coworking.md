@@ -1,9 +1,9 @@
 # Agent desktop co-working — surfaces, adapters, transport
 
 > **Type:** plan
-> **Status:** Proposed (2026-08-02) — ADR-064 accepted 2026-08-02, so
-> the contract is settled and principal review is done; fleet
-> implementation in four waves, W1 next per issue #494
+> **Status:** In flight (2026-08-04) — ADR-064 accepted 2026-08-02, so
+> the contract is settled and principal review is done; W1 merged
+> 2026-08-04 (#503–#508), lane J1 next off it, then W2 per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
 > the authoring audits
@@ -251,6 +251,39 @@ Add to the ADR-033 registries (nothing here exists today —
   `dataset_episodes_list {dataset, offset?, limit?}` (windowed, caps
   surfaced — honesty invariants of `ReplaySurface.tsx:30-34` carry to
   the tool results), `episode_series_get {dataset, episode, channels?}`.
+  - *As built:* four tools in `hubmcpserver/tools_datasets.go`, each
+    with its `spec()` + `toolMeta` row (the catalog/spec/meta trio).
+    Two names deviate from the line above, both deliberately:
+    - `episode_series_get` → **`dataset_episode_series`**. Nothing
+      referenced the old spelling (the family did not exist), and the
+      `dataset` prefix keeps all four in one place for an agent
+      scanning `tools/list`. The shape matches the catalog's existing
+      sub-resource reads — `run_metrics`, `plan_steps_list` — where the
+      entity leads and the sub-resource follows.
+    - `channels?` → **`features?`**. In the reader these are two
+      different levels: a *feature* (`observation.state`) contains
+      *channels* (the scalar tracks inside it — a joint, a gripper).
+      The selector picks features; naming it `channels` would have
+      addressed the wrong level and disagreed with the REST query
+      param and the host verb, which both spell it `features`.
+  - *Also as built:* `datasets_list` reduces each row's digest to its
+    headline counts and points at `datasets_get` for the whole thing —
+    the `documents_list`/`documents_get` split, for the same reason (a
+    full digest is a page of per-feature stats per dataset). `read:
+    false` distinguishes a root nobody has folded from a dataset with
+    zero episodes. `runs_get`'s `SeeAlso` gained `datasets_get`:
+    `runs.dataset_id` is the only link between the two halves, and
+    without that pointer nothing in the catalog led to this family.
+  - *Removed as shadowed:* a closure-side negative-`episode` guard.
+    Mutation-testing it survived — the schema's `minimum: 0` is
+    enforced on both dispatch paths before any closure runs, so the
+    check could not change an answer. The empty-string guards stay:
+    `required` accepts `""`, so those do fire.
+  - *Known limit, not introduced here:* `hubClient`'s HTTP timeout is
+    30s while the hub's own dataset verb timeout is 60s, so a very slow
+    host read fails on the MCP client's clock first. Narrowing the
+    window (`limit`, `features`) is the workaround; giving the proxied
+    reads their own budget is a J2/W3 call.
 - **J2** — writes: `datasets_register {project, host, root_path,
   source, format?}` (idempotent per the identity index),
   `datasets_refresh`, `datasets_update {name?, env_ref?}` (the only

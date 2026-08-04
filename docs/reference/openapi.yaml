@@ -80,6 +80,11 @@ tags:
       refs; an Environment is where a robot run happened.
   - name: References
     description: The hub-owned research reference library + PDF annotations (ADR-053)
+  - name: Records
+    description: >-
+      Decision records and findings with typed evidence links to the runs and
+      episodes that justify them (compare-wall/decisions plan §4.1). Not an
+      engine record — that is an engine's own transcript file.
 
 paths:
 
@@ -576,6 +581,127 @@ paths:
       responses:
         "200": { description: Deleted }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/teams/{team}/records:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Records]
+      operationId: listRecords
+      summary: List decision records and findings (compare-wall plan §4.1)
+      parameters:
+        - { name: project, in: query, schema: { type: string } }
+        - { name: kind, in: query, schema: { type: string, enum: [decision, finding] } }
+        - { name: status, in: query, schema: { type: string, enum: [proposed, accepted, superseded] } }
+      responses:
+        "200":
+          description: Records, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Record" }
+    post:
+      tags: [Records]
+      operationId: createRecord
+      summary: Record a decision or finding
+      description: >-
+        Provenance (created_by_kind, created_by_id, origin_session_id) is derived from the
+        authenticated caller and ignored if sent. An agent's record is always created
+        `proposed` — acceptance is the director's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Record" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Record" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/teams/{team}/records/{record}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: record, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Records]
+      operationId: getRecord
+      summary: Get one record
+      responses:
+        "200":
+          description: Record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Record" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Records]
+      operationId: updateRecord
+      summary: Partially update a record (present fields override)
+      description: >-
+        The only status transition this accepts is proposed to accepted. Anything else is
+        409 — 'superseded' is not a setting, it is what happens to a record when its
+        successor is accepted. An agent token may edit only its own proposals and may
+        never change status (the propose-verb posture) — those refusals are 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Record" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Record" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Records]
+      operationId: deleteRecord
+      summary: Dismiss a proposal
+      description: >-
+        Only a `proposed` record can be deleted. An accepted or superseded record is
+        history and answers 409 — it supersedes rather than disappears. An agent token
+        may withdraw only its own proposal; anything else answers 403.
+      responses:
+        "200": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/teams/{team}/records/{record}/supersede:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - { name: record, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Records]
+      operationId: supersedeRecord
+      summary: Propose a successor that retires this record
+      description: >-
+        Creates the successor (status `proposed`) and the supersedes edge. The predecessor
+        keeps its own status until the successor is accepted — a proposal must not retire
+        a live decision. Omitted `kind` / `title` are inherited from the predecessor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Record" }
+      responses:
+        "201":
+          description: Successor created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Record" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/teams/{team}/references:
     parameters:
@@ -3624,6 +3750,53 @@ components:
             allowlist: { type: array, items: { type: string } }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    Record:
+      type: object
+      description: >-
+        A decision or finding with typed evidence links to the runs, episodes, datasets,
+        references and documents that justify it (compare-wall plan §4.1). Metadata only:
+        body_md is a rationale, not a document.
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        kind:
+          type: string
+          enum: [decision, finding]
+        title: { type: string }
+        body_md: { type: string }
+        status:
+          type: string
+          enum: [proposed, accepted, superseded]
+          description: Status is history — an accepted record is retired only by a successor.
+        supersedes_id:
+          type: string
+          description: The record this one replaces, set by the supersede route.
+        created_by_kind:
+          type: string
+          enum: [user, agent]
+          description: Derived from the caller's token; ignored on input.
+        created_by_id:
+          type: string
+          description: The agent's id when an agent wrote it. Derived; ignored on input.
+        origin_session_id:
+          type: string
+          description: The writing agent's session. Derived; ignored on input.
+        links:
+          type: array
+          description: Evidence as typed ids, never URLs — each renders as a jump-chip.
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum: [run, episode, dataset, reference, doc]
+              id: { type: string }
+              note: { type: string }
+            required: [kind, id]
+        created_at: { type: string }
+        updated_at: { type: string }
+      required: [id, project_id, kind, title, status]
 
     Reference:
       type: object

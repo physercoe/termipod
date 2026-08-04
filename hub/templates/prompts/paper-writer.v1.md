@@ -52,7 +52,7 @@ The steward's spawn task carries:
 
 All three are produced by prior phases; you read them via
 `documents_get`. You also have read access to run digests via
-`runs_list` + `run.metrics.read` if you need to recompute or
+`runs_list` + `run_metrics` if you need to recompute or
 verify any number from the result summary.
 
 ## Procedure

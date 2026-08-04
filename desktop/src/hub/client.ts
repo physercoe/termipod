@@ -137,6 +137,44 @@ export class HubClient {
     return this.transport.get(this.transport.team(`/sessions/${id}/digest`)) as Promise<Entity>;
   }
 
+  // --- decision records (compare-wall/decisions plan §4.1) ---
+  /** List decisions and findings. Team-scoped through their project; filter by
+   *  `project`, `kind` (decision|finding) and `status`
+   *  (proposed|accepted|superseded). */
+  async listRecords(params: { project?: string; kind?: string; status?: string } = {}): Promise<Entity[]> {
+    const out = await this.transport.get(this.transport.team('/records'), {
+      project: params.project,
+      kind: params.kind,
+      status: params.status,
+    });
+    return asArray(out);
+  }
+  getRecord(id: string): Promise<Entity> {
+    return this.transport.get(this.transport.team(`/records/${id}`)) as Promise<Entity>;
+  }
+  /** Create a record. `project_id` + `title` are required; `links` are typed
+   *  ids (`{kind,id,note}`), never URLs. Provenance is derived server-side from
+   *  the caller's token — sending it does nothing. */
+  createRecord(body: Json): Promise<Entity> {
+    return this.transport.post(this.transport.team('/records'), body) as Promise<Entity>;
+  }
+  /** Patch a record. The only status move this accepts is proposed → accepted;
+   *  anything else answers 409 and points at `supersedeRecord`. */
+  updateRecord(id: string, patch: Json): Promise<Entity> {
+    return this.transport.patch(this.transport.team(`/records/${id}`), patch) as Promise<Entity>;
+  }
+  /** Retire a record by proposing its successor: creates the new record and the
+   *  `supersedes` edge. The predecessor keeps its status until the successor is
+   *  accepted — a proposal must not retire a live decision. */
+  supersedeRecord(id: string, body: Json): Promise<Entity> {
+    return this.transport.post(this.transport.team(`/records/${id}/supersede`), body) as Promise<Entity>;
+  }
+  /** Dismiss a PROPOSAL. Accepted and superseded records are history and answer
+   *  409 — they supersede rather than disappear. */
+  deleteRecord(id: string): Promise<Json> {
+    return this.transport.delete(this.transport.team(`/records/${id}`));
+  }
+
   // --- reference library (ADR-053) ---
   /** List the team's references (the hub-owned library shared with agents).
    *  Filters mirror the REST handler: collection / tag / source / q. */

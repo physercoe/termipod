@@ -79,7 +79,7 @@ the director taps to review and approve**. The attention surfaces:
      repos, official binary releases only. **No** `curl <random> |
      bash`.
    - `paper-writer.v1.yaml` — read-side only (documents_get,
-     run.metrics.read, runs_list). Produces a 6-section paper
+     run_metrics, runs_list). Produces a 6-section paper
      (Abstract, Intro, Method, Results, Discussion, Limitations,
      References). Cites only the lit-review's findings — no
      made-up novelty claims.

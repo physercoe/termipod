@@ -41,6 +41,13 @@
   --ok: var(--color-success);
   --warn: var(--color-warning);
   --danger: var(--color-error);
+  /* Compare wall — Δ against the pinned baseline (J5/A1). Coloured by
+   * DIRECTION, never by valence: whether up is good depends on the metric
+   * (loss down, reward up) and nothing on that surface knows which, so
+   * --ok/--danger would state a guess as a fact. Blue/magenta read as
+   * "different", not as "better". */
+  --delta-up: var(--color-terminal-blue);
+  --delta-down: var(--color-terminal-magenta);
   /* Architecture-schematic component bands (config-only arch view) — one hue per
    * transformer component kind. Theme-invariant (the terminal palette is fixed),
    * so defined once here and consumed by the .archgraph-card left border. */
@@ -150,6 +157,10 @@
   --syntax-number: color-mix(in srgb, var(--color-terminal-magenta) 68%, var(--text));
   --syntax-type: color-mix(in srgb, var(--color-terminal-cyan) 52%, var(--text));
   --syntax-func: color-mix(in srgb, var(--color-terminal-blue) 68%, var(--text));
+  /* Same darkening for the Δ hues — the bright terminal blue/magenta are
+   * ~3:1 on white. */
+  --delta-up: color-mix(in srgb, var(--color-terminal-blue) 68%, var(--text));
+  --delta-down: color-mix(in srgb, var(--color-terminal-magenta) 68%, var(--text));
   --sh-1: none;
   --sh-2: 0 6px 20px rgba(16, 24, 40, 0.10);
   --sh-3: 0 20px 48px rgba(16, 24, 40, 0.16), 0 2px 8px rgba(16, 24, 40, 0.08);

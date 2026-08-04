@@ -1,0 +1,57 @@
+{
+  "note": "SHARED FIXTURE. Read by hub/internal/hubmcpserver/run_config_diff_test.go (Go) and by desktop/src/state/compareRuns.test.ts (TypeScript). The comparison wall promises ONE row model with two implementations (plan desktop-compare-wall-and-decisions.md §3.5); this file is what keeps them from drifting apart. Change a flattening rule in one language and the other language's test fails.",
+  "runs": [
+    {
+      "id": "run_a",
+      "registered": {
+        "optimizer": { "lr": 0.0003, "name": "adamw" },
+        "epochs": 10,
+        "tags": [],
+        "note": null,
+        "tiny": 1e-7,
+        "huge": 1e21,
+        "round": 1000000,
+        "drift": 0.30000000000000004,
+        "layers": [{ "width": 8 }, { "width": 16 }],
+        "opts": {}
+      },
+      "logged": { "optimizer": { "lr": 0.001 }, "seed": 7, "amp": true }
+    },
+    {
+      "id": "run_b",
+      "registered": {
+        "optimizer": { "lr": 0.001, "name": "adamw" },
+        "epochs": 10,
+        "tags": [],
+        "note": null,
+        "tiny": 1e-7,
+        "huge": 1e21,
+        "round": 1000000,
+        "drift": 0.30000000000000004,
+        "layers": [{ "width": 8 }, { "width": 16 }],
+        "opts": {},
+        "resume_from": "ckpt-9"
+      },
+      "logged": null
+    }
+  ],
+  "expect_conflicts": { "run_a": ["optimizer.lr"] },
+  "expect_differing": 3,
+  "expect_rows": [
+    { "key": "amp", "values": ["true", null], "identical": false },
+    { "key": "drift", "values": ["0.30000000000000004", "0.30000000000000004"], "identical": true },
+    { "key": "epochs", "values": ["10", "10"], "identical": true },
+    { "key": "huge", "values": ["1e+21", "1e+21"], "identical": true },
+    { "key": "layers[0].width", "values": ["8", "8"], "identical": true },
+    { "key": "layers[1].width", "values": ["16", "16"], "identical": true },
+    { "key": "note", "values": ["null", "null"], "identical": true },
+    { "key": "optimizer.lr", "values": ["0.001", "0.001"], "identical": true },
+    { "key": "optimizer.name", "values": ["adamw", "adamw"], "identical": true },
+    { "key": "opts", "values": ["{}", "{}"], "identical": true },
+    { "key": "resume_from", "values": [null, "ckpt-9"], "identical": false },
+    { "key": "round", "values": ["1000000", "1000000"], "identical": true },
+    { "key": "seed", "values": ["7", null], "identical": false },
+    { "key": "tags", "values": ["[]", "[]"], "identical": true },
+    { "key": "tiny", "values": ["1e-7", "1e-7"], "identical": true }
+  ]
+}

@@ -34,7 +34,7 @@ default_capabilities:
   - reviews_create          # if reviewing a document, optional
   - reviews_list
   - runs_list               # paper-review may want to verify numbers
-  - run.metrics.read
+  - run_metrics             # the run's curves behind those numbers
   - channels_post_event
   - request_help        # when blocked
   - a2a_invoke              # parent-steward target only (D4)

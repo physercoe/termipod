@@ -38,7 +38,7 @@ default_capabilities:
   - documents_get          # all prior-phase docs
   - documents_list
   - runs_list
-  - run.metrics.read        # results section pulls digests
+  - run_metrics             # results section pulls digests
   - reviews_list            # if there are critic reviews of method
   - channels_post_event
   - request_help        # when blocked

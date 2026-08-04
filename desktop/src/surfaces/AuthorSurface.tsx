@@ -15,7 +15,9 @@ import {
   type Doc,
   type DocKind,
 } from '../state/documents';
+import { agentEditCount, agentEditTitle, latestAgentEdit, useAgentEdits } from '../state/agentEdits';
 import { figureBySpec, FIGURES, type FigureSpec } from '../state/figures';
+import { liveApply } from '../state/liveApply';
 import { useWorkspace } from '../state/workspace';
 import { NEW_BASE, uniqueWorkspacePath, writeDocToWorkspace } from '../state/workspaceFiles';
 import { useContextMenu, type MenuItem } from '../ui/ContextMenu';
@@ -297,6 +299,9 @@ export function AuthorSurface(): JSX.Element {
   const setActive = useDocuments((s) => s.setActive);
   const markSaved = useDocuments((s) => s.markSaved);
   const update = useDocuments((s) => s.update);
+  // B6: which documents an agent has written to, and their pre-write bodies.
+  const agentEdits = useAgentEdits((s) => s.byDoc);
+  const clearAgentEdits = useAgentEdits((s) => s.clear);
   const folder = useWorkspace((s) => s.folder);
   const touchWs = useWorkspace((s) => s.touch);
   const { ask, node: promptNode } = useTextPrompt();
@@ -389,7 +394,25 @@ export function AuthorSurface(): JSX.Element {
       return;
     }
     setConfirmClose(null);
+    clearAgentEdits(id);
     remove(id);
+  }
+
+  /// B6: put back the document as it was before the last agent write.
+  ///
+  /// Both halves are needed. The store write is what the document IS, and it is
+  /// enough for kinds whose editor re-renders from `body`; the live-apply pass
+  /// is what a vendor editor needs, because draw.io and the canvas board own
+  /// their state once mounted and would otherwise keep showing the agent's
+  /// version over a store that no longer holds it. `liveApply` answers
+  /// `no_target` for a document that is not the mounted editor, which is the
+  /// ordinary case when reverting from another tab — nothing to do there,
+  /// because mounting it later reads the reverted `body`.
+  function revertAgentEdit(id: string): void {
+    const before = useAgentEdits.getState().revert(id);
+    if (before === null) return;
+    update(id, { body: before });
+    liveApply(id, before);
   }
 
   // Materialize a draft tab into the workspace folder (the same path AuthorNav's
@@ -658,6 +681,20 @@ export function AuthorSurface(): JSX.Element {
                   {d.title !== '' ? d.title : t('author.untitled')}
                   {draft && <span className="read-tabitem-badge">{t('author.navDraft')}</span>}
                 </button>
+                {/* B6: attribution + one-click revert. Outside the tab button
+                    (a button cannot nest one) so it is reachable without
+                    switching to the tab — reverting a write on a document you
+                    are not looking at is the common case when an agent works
+                    across several. */}
+                {latestAgentEdit(agentEdits, d.id) !== undefined && (
+                  <button
+                    className="read-tabitem-agent"
+                    title={agentEditTitle(latestAgentEdit(agentEdits, d.id), agentEditCount(agentEdits, d.id), t)}
+                    onClick={() => revertAgentEdit(d.id)}
+                  >
+                    {t('author.agentEdited')}
+                  </button>
+                )}
                 <button
                   className={confirmClose === d.id ? 'read-tabitem-x danger' : 'read-tabitem-x'}
                   title={confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}

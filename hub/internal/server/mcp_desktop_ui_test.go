@@ -377,12 +377,32 @@ func TestHostCapable_ReadsOneKeyWithoutGuessing(t *testing.T) {
 	}
 }
 
-func TestDesktopUIGrantable_ScreenshotIsTheExemption(t *testing.T) {
+func TestDesktopUIGrantable_NeitherActionToolRidesAGrant(t *testing.T) {
 	if desktopUIGrantable("ui_screenshot") {
 		t.Error("ui_screenshot must never be grantable (plan §3.3)")
 	}
+	// ADR-064 lane A. The reason differs from ui_screenshot's: a grant here
+	// would be the wrong SHAPE. This store keys by (kind, team, host, agent)
+	// with no document in it, while the consent the desktop offers is "allow
+	// this document for this session" — so a grant minted from that answer
+	// would silence the card for every other document the user opens.
+	if desktopUIGrantable("author_apply") {
+		t.Error("author_apply must not ride a grant whose key has no document in it")
+	}
 	if !desktopUIGrantable("ui_get_focus") {
 		t.Error("the predicate should not refuse everything by default")
+	}
+}
+
+func TestDesktopUIAuthorTools_ClassifyByWhatTheyDo(t *testing.T) {
+	// author_read discloses document BYTES but changes nothing: a read, so it
+	// routes without a card (the desktop audits it on every leg instead).
+	if desktopUIToolClass("author_read") != "read" {
+		t.Errorf("author_read must be a read, got %q", desktopUIToolClass("author_read"))
+	}
+	// author_apply writes into the user's own work: the gated class.
+	if desktopUIToolClass("author_apply") != "action" {
+		t.Errorf("author_apply must be the gated class, got %q", desktopUIToolClass("author_apply"))
 	}
 }
 

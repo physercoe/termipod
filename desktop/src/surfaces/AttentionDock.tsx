@@ -76,16 +76,29 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
         </div>
       )}
       {/* D3 (docs/plans/desktop-ui-context-and-pointing.md §3.3): the gated
-          desktop screenshot. The card describes WHAT was asked for — which
-          surfaces are on screen, or which embedded tab — because the image
-          does not exist until this decision says yes. */}
+          desktop screenshot, and — since coworking A3 — the author_apply edit
+          card, which shares the kind. The card describes WHAT was asked for:
+          for a capture, which surfaces are on screen; for an edit, which
+          document and why. The per-call-only sentence is a claim about the
+          card's OFFER, so it renders from the payload (`session_grant`) rather
+          than from the kind — an author card that offers a session lease must
+          not say no standing grant exists. */}
       {kind === 'desktop_action' && pending !== undefined && (
         <div className="card-detail">
           <code>{str(pending, 'tool') ?? 'desktop tool'}</code>
           {str(pending, 'scope') !== undefined && <span> · {str(pending, 'scope')}</span>}
+          {str(pending, 'title') !== undefined && (
+            <span>
+              {' '}
+              · <b>{str(pending, 'title')}</b>
+            </span>
+          )}
           {preview(pending['surfaces']) !== '' && <div className="mono">{preview(pending['surfaces'])}</div>}
           {str(pending, 'url') !== undefined && <div className="mono">{str(pending, 'url')}</div>}
-          <div className="muted">{t('att.perCallOnly')}</div>
+          {str(pending, 'reason') !== undefined && str(pending, 'reason') !== '' && (
+            <div className="muted">{str(pending, 'reason')}</div>
+          )}
+          {pending['session_grant'] !== true && <div className="muted">{t('att.perCallOnly')}</div>}
         </div>
       )}
       {changeKind !== undefined && (
@@ -136,13 +149,23 @@ function AttentionCard({ item }: { item: Entity }): JSX.Element {
           </button>
         </div>
       ) : kind === 'desktop_action' ? (
-        // Deliberately NO "Allow session" — a screenshot never gets a standing
-        // grant (plan §3.3, ADR-062 D-4). The tool parks on this decision and
+        // A screenshot card offers NO "Allow session" — a screenshot never
+        // gets a standing grant (plan §3.3, ADR-062 D-4). An author_apply card
+        // DOES: "allow this document for this session" (coworking A3), and the
+        // payload's `session_grant` flag is what says which card this is — the
+        // desktop holds the lease per (agent, document), so the option rides
+        // `option_id: 'session'` back through the decision row it polls
+        // (readCardDecision). The tool parks on this decision either way and
         // fails closed if it does not arrive.
         <div className="card-actions">
           <button className="primary" disabled={busy} onClick={() => void decide('approve')}>
             {t('att.allowOnce')}
           </button>
+          {pending !== undefined && pending['session_grant'] === true && (
+            <button disabled={busy} onClick={() => void decide('approve', { option_id: 'session' })}>
+              {str(pending, 'session_grant_scope') === 'document' ? t('att.allowDocSession') : t('att.allowSession')}
+            </button>
+          )}
           <button disabled={busy} onClick={() => void decide('reject')}>
             {t('att.reject')}
           </button>

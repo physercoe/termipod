@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Excalidraw, exportToBlob, exportToSvg, getSceneVersion, serializeAsJSON } from '@excalidraw/excalidraw';
+import {
+  CaptureUpdateAction,
+  Excalidraw,
+  exportToBlob,
+  exportToSvg,
+  getSceneVersion,
+  serializeAsJSON,
+} from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
@@ -7,6 +14,9 @@ import { isShell } from '../platform';
 import { useTheme } from '../state/theme';
 import { toast } from '../state/toast';
 import { useDocuments, type Doc } from '../state/documents';
+import { openScene, parseExcalidrawScene } from '../state/excalidrawScene';
+import { registerLiveApply } from '../state/liveApply';
+import { Icon } from '../ui/Icon';
 
 /// The J2 Author **Excalidraw** editor — a freeform hand-drawn sketch surface
 /// (figure-plan Phase C). Unlike the `figure` kind (a `spec → SVG` function) this
@@ -35,20 +45,22 @@ type ChangeArgs = Parameters<NonNullable<ExcalidrawProps['onChange']>>;
 type SceneData = { elements: ChangeArgs[0]; appState: ChangeArgs[1]; files: ChangeArgs[2] };
 
 /// Parse a persisted `.excalidraw` body into Excalidraw `initialData`. A blank
-/// (new) doc has no body → a blank scene. `serializeAsJSON` already strips
-/// runtime-only appState, so the stored `appState` is safe to restore verbatim.
+/// (new) doc and one we could not read both load nothing — but they are not the
+/// same document, and only `openScene` tells them apart (see `unreadable`
+/// below). The cast is where the structural shapes from `state/excalidrawScene`
+/// meet the vendor's types; that module stays free of the Excalidraw import so
+/// `node --test` can cover the parse.
 function toInitialData(body: string): SceneData | null {
-  if (body.trim() === '') return null;
-  try {
-    const d = JSON.parse(body) as { elements?: unknown; appState?: unknown; files?: unknown };
-    return {
-      elements: (Array.isArray(d.elements) ? d.elements : []) as ChangeArgs[0],
-      appState: (d.appState ?? {}) as ChangeArgs[1],
-      files: (d.files ?? undefined) as ChangeArgs[2],
-    };
-  } catch {
-    return null;
-  }
+  const scene = parseExcalidrawScene(body);
+  if (scene === null) return null;
+  return {
+    elements: scene.elements as ChangeArgs[0],
+    // Through `unknown` because `SceneData` borrows the FULL `AppState` from
+    // `onChange`, while `initialData` only ever receives a partial one — a
+    // stored appState is a handful of persisted keys, never all ninety.
+    appState: scene.appState as unknown as ChangeArgs[1],
+    files: scene.files as ChangeArgs[2],
+  };
 }
 
 function initialSceneVersion(body: string): number {
@@ -80,6 +92,13 @@ export function ExcalidrawEditor({ doc }: { doc: Doc }): JSX.Element {
 
   // Read `initialData` once per doc (the component is uncontrolled thereafter).
   const initialData = useMemo(() => toInitialData(doc.body), [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A non-empty body that is not a scene opens READ-ONLY — the A5 rule, which
+  // this editor needed just as much as the table grid did. `kindForFile` sends
+  // every `.excalidraw` file here on its extension alone, so a corrupt or
+  // foreign one used to open as a blank canvas and the first `onChange`
+  // serialized that blank over it. Persistence is suppressed below and the
+  // exports are disabled, so nothing this session can overwrite the bytes.
+  const unreadable = useMemo(() => openScene(doc.body).state === 'unreadable', [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const baseName = (doc.title !== '' ? doc.title : 'sketch').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-');
 
   // Persist is debounced: `onChange` fires on every pointer move while drawing,
@@ -107,7 +126,57 @@ export function ExcalidrawEditor({ doc }: { doc: Doc }): JSX.Element {
     };
   }, [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // B3: the live-apply target. `<Excalidraw>` reads `initialData` once and owns
+  // the scene from then on, so writing `doc.body` alone leaves the user looking
+  // at the pre-write drawing while the store holds the agent's — the tool would
+  // report a change nobody can see.
+  //
+  // Three rules, the same three B2 gives the canvas, in this vendor's terms:
+  //
+  //   1. `captureUpdate: IMMEDIATELY`, so **Cmd+Z undoes the agent**. The
+  //      parameter's default is `EVENTUALLY`, which does not put the update on
+  //      the undo stack as its own step — the user would be left with an
+  //      agent's drawing and no keystroke back to theirs. This is also the only
+  //      route back to strokes made inside the last debounce window, which the
+  //      store never saw.
+  //   2. Refuse a body that is not a scene. `validateAuthorBody` refuses the
+  //      same class one layer up on the agent path, so this is the editor's own
+  //      contract rather than that check's twin — and it is what keeps
+  //      `updateScene` from being handed a null.
+  //   3. Refuse while the document is unreadable. A user who is looking at a
+  //      read-only notice because we could not parse their file must not have
+  //      an agent write over the bytes underneath it.
+  //
+  // `addFiles` runs BEFORE `updateScene` on purpose: it is the call that can
+  // throw on a malformed entry, and a throw after the scene changed would leave
+  // the screen holding a body the store refuses — the editor showing one
+  // document and `doc.body` another.
+  //
+  // `appState` is deliberately NOT applied. It is presentation — scroll, zoom,
+  // the active tool — so pushing the agent's would move the user's camera as a
+  // side effect of an edit they can see perfectly well from where they are.
+  // The next `onChange` serializes the user's own appState back, so the stored
+  // document keeps their view, not the agent's.
+  useEffect(() => {
+    return registerLiveApply(doc.id, (body) => {
+      const api = apiRef.current;
+      if (api === null || unreadable) return 'rejected';
+      const scene = parseExcalidrawScene(body);
+      if (scene === null) return 'rejected';
+      const files = scene.files === undefined ? [] : Object.values(scene.files);
+      if (files.length > 0) api.addFiles(files as Parameters<ExcalidrawAPI['addFiles']>[0]);
+      api.updateScene({
+        elements: scene.elements as Parameters<ExcalidrawAPI['updateScene']>[0]['elements'],
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+      return 'applied_live';
+    });
+  }, [doc.id, unreadable]);
+
   function onChange(...[elements, appState, files]: ChangeArgs): void {
+    // What is on screen is a blank canvas, not the document — writing it back
+    // is the loss this flag exists to prevent.
+    if (unreadable) return;
     const version = getSceneVersion(elements);
     if (version === lastVersion.current) return;
     lastVersion.current = version;
@@ -170,15 +239,27 @@ export function ExcalidrawEditor({ doc }: { doc: Doc }): JSX.Element {
         <span className="spacer" />
         {isShell() && (
           <>
-            <button className="import-btn" disabled={!ready} onClick={() => void exportSvg()}>
+            {/* Exporting an unreadable document would write a blank SVG/PNG
+                under the document's own name — a quiet lie about what the file
+                contains, and the one export path that leaves the app. */}
+            <button className="import-btn" disabled={!ready || unreadable} onClick={() => void exportSvg()}>
               {t('figure.exportSvg')}
             </button>
-            <button className="import-btn" disabled={!ready} onClick={() => void exportPng()}>
+            <button className="import-btn" disabled={!ready || unreadable} onClick={() => void exportPng()}>
               {t('figure.exportPng')}
             </button>
           </>
         )}
       </div>
+      {/* Say plainly that this is not the document — the wording TableEditor
+          uses for the same situation. A blank canvas with no explanation reads
+          as "my drawing is gone", which is what the old behaviour then made
+          true on the first stroke. */}
+      {unreadable && (
+        <div className="doc-unreadable">
+          <Icon name="alert" size={13} /> {t('excalidraw.unreadable')}
+        </div>
+      )}
       <div className="excalidraw-host">
         <Excalidraw
           initialData={initialData}

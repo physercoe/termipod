@@ -118,7 +118,12 @@ test('rendersFromBody is true exactly for the kinds whose editor reconciles valu
   // a wrong `true` tells the user to look at a screen that did not change.
   assert.equal(rendersFromBody('markdown'), true);
   assert.equal(rendersFromBody('figure'), true);
-  for (const kind of ['table', 'excalidraw', 'diagram', 'canvas'] as const) {
+  // `table` joined them in B4 — its grid now adopts an external `value`.
+  assert.equal(rendersFromBody('table'), true);
+  // The three whose editor owns its live state after mount answer `false` and
+  // rely on their registered live-apply target instead: diagram (B1), canvas
+  // (B2), excalidraw (B3).
+  for (const kind of ['excalidraw', 'diagram', 'canvas'] as const) {
     assert.equal(rendersFromBody(kind), false, kind);
   }
 });

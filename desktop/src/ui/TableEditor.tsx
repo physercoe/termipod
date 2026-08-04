@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import {
   COL_TYPES,
   newId,
   parseTable,
+  reconcileExternalTable,
   serializeTable,
   tableToCsv,
   type ColType,
@@ -39,6 +40,16 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
   // the document. Every write is refused — `mutate` serializes on EVERY change,
   // so without this one click replaces the user's rows with a blank grid.
   const readOnly = data.readOnly === true;
+  // B4: the last body this grid emitted. Every local mutation writes through
+  // `onChange` and the new body comes straight back as `value` — the echo — so
+  // the reconcile below needs to tell "the store is telling me what I just
+  // said" from "the store changed under me".
+  const lastEmitted = useRef<string>(value);
+  function commit(next: TableData): void {
+    const body = serializeTable(next);
+    lastEmitted.current = body;
+    onChange(body);
+  }
   function mutate(fn: (d: TableData) => TableData): void {
     if (readOnly) return;
     const prev = dataRef.current;
@@ -46,7 +57,7 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
     setPast((p) => [...p, prev].slice(-UNDO_CAP));
     dataRef.current = next;
     setData(next);
-    onChange(serializeTable(next));
+    commit(next);
   }
   function undo(): void {
     if (readOnly) return;
@@ -55,10 +66,26 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
       const prev = p[p.length - 1];
       dataRef.current = prev;
       setData(prev);
-      onChange(serializeTable(prev));
+      commit(prev);
       return p.slice(0, -1);
     });
   }
+
+  // B4: adopt an EXTERNAL change to `value` — an agent's `author_apply`, a B6
+  // revert, a reload of the linked file. Until this effect existed the grid
+  // parsed `value` once in a `useState` initializer, so each of those changed
+  // the document while the user kept looking at the old table and the tool
+  // reported a change nobody could see. Which changes to adopt, and whether the
+  // replaced state may go on the undo stack, is `reconcileExternalTable` —
+  // pure, in `state/table.ts`, where a test can drive it.
+  useEffect(() => {
+    const step = reconcileExternalTable(lastEmitted.current, value, dataRef.current, t('table.colName'));
+    if (step === null) return;
+    lastEmitted.current = value;
+    if (step.pushUndo) setPast((p) => [...p, dataRef.current].slice(-UNDO_CAP));
+    dataRef.current = step.next;
+    setData(step.next);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { columns, rows } = data;
   const [menuCol, setMenuCol] = useState<string | null>(null);
@@ -200,7 +227,7 @@ export function TableEditor({ value, onChange }: { value: string; onChange: (nex
           explanation reads as "my table is gone" — which is what the old
           behaviour then made true on the next click. */}
       {readOnly && (
-        <div className="table-unreadable">
+        <div className="doc-unreadable">
           <Icon name="alert" size={13} /> {t('table.unreadable')}
         </div>
       )}

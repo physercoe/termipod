@@ -1667,6 +1667,8 @@ const en: Dict = {
   'author.newCanvas': 'Board (canvas)',
   'author.newTable': 'Table',
   'author.newExcalidraw': 'Sketch (Excalidraw)',
+  'excalidraw.unreadable':
+    "This sketch's contents could not be read, so it is open read-only — nothing you draw here will be written back over your file. Open it as text to see what is actually stored.",
   'figure.mermaid': 'Mermaid',
   'figure.graphviz': 'Graphviz',
   'figure.vegaLite': 'Vega-Lite',
@@ -3766,6 +3768,8 @@ const zh: Dict = {
   'author.newCanvas': '白板（canvas）',
   'author.newTable': '表格',
   'author.newExcalidraw': '手绘（Excalidraw）',
+  'excalidraw.unreadable':
+    '此手绘内容无法读取，因此以只读方式打开——你在这里绘制的任何内容都不会写回你的文件。请以文本方式打开以查看实际存储的内容。',
   'figure.mermaid': 'Mermaid',
   'figure.graphviz': 'Graphviz',
   'figure.vegaLite': 'Vega-Lite',

@@ -67,6 +67,36 @@ export function parseTable(body: string, nameCol: string): TableData {
 
 export const serializeTable = (d: TableData): string => JSON.stringify(d);
 
+/// What a mounted grid should do when its `value` prop changes (coworking B4).
+///
+/// The editor holds parsed `TableData` and re-emits a serialized body on every
+/// mutation, so `value` changes for two very different reasons and the answer
+/// differs for each:
+///
+///   - **the echo** — the store handing back the body this grid just wrote.
+///     Re-parsing it would discard the object the user is typing into, taking
+///     the row/column identities and the caret with it. Answer: `null`, do
+///     nothing.
+///   - **an external write** — an agent's `author_apply`, a B6 revert, a reload
+///     of the linked file. The grid must adopt it, or the user keeps looking at
+///     a table the document no longer contains.
+///
+/// `pushUndo` says whether the state being replaced belongs on the undo stack.
+/// An external write should be undoable (B2's "Cmd+Z undoes the agent", in this
+/// editor) — but a read-only PLACEHOLDER must never go on it. `undo` serializes
+/// whatever it pops, so a blank grid on that stack is one keystroke from being
+/// written over the document it merely stands in for: the A5 silent-empty class,
+/// arriving through undo instead of through a click.
+export function reconcileExternalTable(
+  lastEmitted: string,
+  incoming: string,
+  current: TableData,
+  nameCol: string,
+): { next: TableData; pushUndo: boolean } | null {
+  if (incoming === lastEmitted) return null;
+  return { next: parseTable(incoming, nameCol), pushUndo: current.readOnly !== true };
+}
+
 /// Does this text look like a table document (our `{columns, rows}` JSON)? Used to
 /// content-sniff a `.json` file on open so an *arbitrary* JSON file opens as text,
 /// not hijacked into the grid editor.

@@ -38,6 +38,9 @@ files:
   - '!tsconfig.json'
   - '!esbuild.mjs'
   - '!electron-builder.yml'
+  # build/ holds the deb maintainer scripts (buildResources) — packaging
+  # inputs, not runtime payload; keep them out of the asar.
+  - '!build/**/*'
 
 # Native .node addons can't be loaded from inside the asar — unpack them.
 # @napi-rs/keyring is N-API (ABI-stable, prebuilt); node-pty is rebuilt for the
@@ -108,3 +111,15 @@ linux:
   target:
     - AppImage
     - deb
+
+# Maintainer scripts for the .deb (fpm --after-install/--after-remove):
+# after-install sets chrome-sandbox setuid-root (the files section packs it
+# 0755 and Electron aborts at launch otherwise) and installs an AppArmor
+# profile granting userns creation, required since Ubuntu 24.04 restricts
+# unprivileged user namespaces (without it the sandbox is denied
+# cap_sys_admin and the app exits instantly — "closed unexpectedly").
+# after-remove drops that profile. The AppImage can't ship either fix —
+# on Ubuntu 24.04+ it still needs --no-sandbox or a hand-installed profile.
+deb:
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh

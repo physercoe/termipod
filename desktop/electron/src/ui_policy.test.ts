@@ -55,9 +55,9 @@ const FULL_RAW: RawFocus = {
   document: { id: 'doc1', title: 'notes' },
   inspect_tabs: [{ kind: 'code', path: 'src/foo.ts' }, { kind: 'log' }],
   inspect: { path: 'src/foo.ts', selection: [42, 58] },
-  compare: { left: 'src/a.ts', right: 'src/b.ts' },
+  compare: { left: 'run_a', right: 'run_b' },
   replay: { dataset_id: 'ds_1', episode_id: 'ep_1', cursor: 1234 },
-  record: { dataset_id: 'ds_9' },
+  record: { record_id: 'rec_9' },
   terminal: { pane_id: '%12', agent_id: 'ag_1' },
   kimiweb: { url: 'http://127.0.0.1:17331/' },
 };
@@ -77,7 +77,7 @@ const FULLEST_RAW: RawFocus = {
   inspect: { path: 'p', selection: [1, 2] },
   compare: { left: 'l', right: 'r' },
   replay: { dataset_id: 'd', episode_id: 'e', cursor: 1 },
-  record: { dataset_id: 'd' },
+  record: { record_id: 'r' },
   terminal: { pane_id: 'p', agent_id: 'a' },
   kimiweb: { url: 'u' },
 };
@@ -260,10 +260,12 @@ test('assembleRawFocus: store slices land in the right blocks; non-matching sele
 /// reason and the wedge that closes it. Removing an entry without adding the
 /// assembly fails the test; adding one without a reason fails review.
 const DECLARED_GAPS: Readonly<Record<string, string>> = {
-  // Lane G's own remaining wedges.
-  'compare.left': 'G4 — ships with lane K compareWall store',
-  'compare.right': 'G4 — ships with lane K compareWall store',
-  'record.dataset_id': 'G5 — the reserved field is wrong; becomes record.record_id with lane K records',
+  // Lane G's own remaining wedge. G5 renamed the field (the row reserved
+  // `record.dataset_id`, describing an episode-recording surface that was
+  // never built); populating it is B2's, because the Record surface still
+  // holds device-local drafts and a draft id dereferences to nothing — a UIRef
+  // whose entity is not agent-addressable is not a join key (ADR-062 D-2).
+  'record.record_id': 'B2 — Record still writes device-local drafts; their ids resolve through no tool',
   // Gaps lane G did not enumerate, found by this test. Each is a real hole in
   // what an agent can learn, tracked for a follow-up wedge.
   'agent.session_id': 'focus.fleet.selection carries {type,id,name} only — no session id reaches the assembler',
@@ -287,6 +289,8 @@ const FULL_SOURCES = {
   inspectTabs: [{ kind: 'code', path: 'src/foo.ts' }],
   inspectActive: { path: 'src/foo.ts' },
   inspectSelection: [42, 58] as [number, number],
+  compareSelected: ['run_a', 'run_b'],
+  compareBaseline: 'run_a',
   replayDatasetId: 'ds_1',
   replayEpisodeId: '7',
   replayCursor: 12.5,
@@ -322,6 +326,36 @@ test('assembleRawFocus: lane G fields land in their blocks', () => {
   assert.deepEqual(raw.tab, { kind: 'pdf', title: 'a paper', url: 'https://arxiv.org/abs/2401.00001' });
   assert.deepEqual(raw.inspect, { path: 'src/foo.ts', selection: [42, 58] });
   assert.deepEqual(raw.replay, { dataset_id: 'ds_1', episode_id: '7', cursor: 12.5 });
+  assert.deepEqual(raw.compare, { left: 'run_a', right: 'run_b' });
+});
+
+// ── G4: the wall's N-run selection through a two-field block ─────────────────
+
+test('assembleRawFocus: the baseline is the LEFT of the pair', () => {
+  // Pick order puts run_b first; the baseline is run_a. Every delta on the
+  // wall reads "other minus baseline", so the pair must read that way too —
+  // publishing screen order here would invert the direction of every number an
+  // agent then computes.
+  const raw = assembleRawFocus({ ...FULL_SOURCES, compareSelected: ['run_b', 'run_a'], compareBaseline: 'run_a' });
+  assert.deepEqual(raw.compare, { left: 'run_a', right: 'run_b' });
+});
+
+test('assembleRawFocus: with no baseline the pair keeps pick order', () => {
+  const raw = assembleRawFocus({ ...FULL_SOURCES, compareSelected: ['run_b', 'run_a'], compareBaseline: null });
+  assert.deepEqual(raw.compare, { left: 'run_b', right: 'run_a' });
+});
+
+test('assembleRawFocus: a wall that is not a pair publishes no compare block', () => {
+  // Three runs is the one that matters: {left, right} would be two thirds of
+  // the truth with nothing saying so, and an agent cannot tell a truncated
+  // pair from a real one. Zero and one have no comparison to name.
+  for (const selected of [[], ['run_a'], ['run_a', 'run_b', 'run_c']]) {
+    const raw = assembleRawFocus({ ...FULL_SOURCES, compareSelected: selected, compareBaseline: 'run_a' });
+    assert.equal(raw.compare, undefined, `${selected.length} selected run(s) must publish nothing`);
+  }
+  // And a pre-G4 caller that passes no wall state at all is unchanged.
+  const { compareSelected: _s, compareBaseline: _b, ...withoutWall } = FULL_SOURCES;
+  assert.equal(assembleRawFocus(withoutWall).compare, undefined);
 });
 
 test('assembleRawFocus: a Read tab set with nothing open publishes tabs but no tab', () => {

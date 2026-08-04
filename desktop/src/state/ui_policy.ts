@@ -67,7 +67,9 @@ export interface UiRefInspect {
 }
 
 export interface UiRefCompare {
-  /// The two refs/paths being compared (labels, never diff bodies).
+  /// The two refs being compared (ids, never diff bodies). On the comparison
+  /// wall these are run ids — dereferenceable with `runs_get` / `run_metrics`,
+  /// which is what makes the pair a join key rather than a label (ADR-062 D-2).
   left?: string;
   right?: string;
 }
@@ -79,7 +81,11 @@ export interface UiRefReplay {
 }
 
 export interface UiRefRecord {
-  dataset_id?: string;
+  /// The decision record the surface is on. Named `record_id` since G5: the
+  /// field this row reserved was `dataset_id`, describing an episode-recording
+  /// surface that was never built — Record is decision capture (ADR-shaped
+  /// records), and a dataset id there was a handle to the wrong entity.
+  record_id?: string;
 }
 
 export interface UiRefTerminal {
@@ -168,7 +174,7 @@ export const UI_POLICY: Readonly<Record<string, UiPolicyRow>> = {
   },
   compare: { snapshot: ['compare.left', 'compare.right'], capture: 'allow', highlight: 'allow' },
   replay: { snapshot: ['replay.dataset_id', 'replay.episode_id', 'replay.cursor'], capture: 'allow', highlight: 'allow' },
-  record: { snapshot: ['record.dataset_id'], capture: 'allow', highlight: 'allow' },
+  record: { snapshot: ['record.record_id'], capture: 'allow', highlight: 'allow' },
   terminal: { snapshot: ['terminal.pane_id', 'terminal.agent_id'], capture: 'allow', highlight: 'allow' },
   settings: { snapshot: [], capture: 'refuse', highlight: 'allow' },
   kimiweb: { snapshot: ['kimiweb.url'], capture: 'allow', highlight: 'allow' },
@@ -296,6 +302,13 @@ export interface FocusSources {
   inspectActive: { path?: string } | null;
   /// The active Inspect tab's 1-based line selection, if the user made one (G2).
   inspectSelection?: [number, number] | null;
+  /// The comparison wall's selected run ids, in pick order (G4). Optional:
+  /// absent reads as "nothing selected", which is what every pre-G4 caller
+  /// meant.
+  compareSelected?: readonly string[];
+  /// The wall's baseline run — the one every delta is measured against — or
+  /// null for "no baseline" (G4).
+  compareBaseline?: string | null;
   /// The Replay surface's selected dataset id, if any.
   replayDatasetId: string | null;
   /// The open episode's id, if the player is on screen (G3).
@@ -305,6 +318,18 @@ export interface FocusSources {
   /// The focused terminal pane id — null when no pane is visible.
   terminalPaneId: string | null;
   capturedAt: string;
+}
+
+/// The wall's selection as a left/right pair, or null when the two-field block
+/// cannot state it (G4). The baseline goes LEFT when it is one of the two:
+/// every delta on the wall is measured against it, so baseline-then-other is
+/// the direction the numbers already read in, and it matches the diff idiom
+/// the block's field names come from.
+function comparePair(selected: readonly string[] | undefined, baseline: string | null | undefined): UiRefCompare | null {
+  if (selected === undefined || selected.length !== 2) return null;
+  const [a, b] = selected;
+  if (baseline === b) return { left: b, right: a };
+  return { left: a, right: b };
 }
 
 export function assembleRawFocus(s: FocusSources): RawFocus {
@@ -334,6 +359,17 @@ export function assembleRawFocus(s: FocusSources): RawFocus {
     if (s.inspectActive.path !== undefined) inspect.path = s.inspectActive.path;
     if (s.inspectSelection !== undefined && s.inspectSelection !== null) inspect.selection = s.inspectSelection;
     if (Object.keys(inspect).length > 0) raw.inspect = inspect;
+  }
+  // The wall is an N-run surface and this block has two fields, so it speaks
+  // ONLY for the case it can state truthfully: exactly two runs selected. With
+  // three the pair would be a silent truncation — an agent reading
+  // {left, right} has no way to learn there was a third curve on screen — and
+  // with one there is no comparison to name. The richer `wall` UIRef
+  // ({project_id, runs[], baseline, metric}) is A6's, and carries the whole
+  // selection; until it lands, "nothing" beats "two of three".
+  const pair = comparePair(s.compareSelected, s.compareBaseline);
+  if (pair !== null) {
+    raw.compare = pair;
   }
   if (s.replayDatasetId !== null) {
     const replay: UiRefReplay = { dataset_id: s.replayDatasetId };

@@ -168,8 +168,7 @@ fields read straight from the JSON-Schema embedded in
 
 *Names below are the **current** snake_case spellings — this family
 landed after the rename, so the staleness banner above does not apply to
-it.* Two hub reads and two host-proxied reads; the write half is not
-built yet.
+it.*
 
 | Tool | Purpose |
 |---|---|
@@ -177,16 +176,25 @@ built yet.
 | `datasets_get` | Fetch one with its full digest — features, video streams, tasks, per-feature stats, length histogram. **`dataset`**. Read the digest's own `stats_partial` / `tasks_truncated` / `episodes_truncated` flags before quoting a number as the dataset's. |
 | `dataset_episodes_list` | One window of the episodes table. **`dataset`**; optional `offset`, `limit` (default 200, cap 1000). Returns `{episodes, offset, limit, total, truncated}`. |
 | `dataset_episode_series` | One episode's decimated numeric channels. **`dataset`**, **`episode`** (the `episode_index`); optional `features`, `max_points` (default 1000, cap 5000). Returns `stride` / `points` / `downsampled` / `truncated` / `warnings` alongside the series. |
+| `datasets_register` | Register a dataset root. **`project_id`**, **`root_path`** (absolute, on the host); optional `host_id`, `name`, `source`, `env_ref`. Idempotent on (project, host, root) — `created: false` means the call joined an existing registration. Registers a *location*; no digest is folded here. |
+| `datasets_refresh` | Ask the owning host to re-read `meta/` and store the fold. **`dataset`**. The only way a digest appears or updates — the hub never crawls. `env_ref` is filled in, never overwritten. |
+| `datasets_update` | Edit `name` / `env_ref` — the only patchable fields. **`dataset`**. Moving a root is a re-registration; a digest that did not come from a host read would be a fact nobody checked. |
+| `dataset_export_rrd` | Queue a Rerun `.rrd` export of one episode on the owning host. **`dataset`**, **`episode_index`**; optional `repo_id`. Submit-only: returns `{command_id, kind, reused}`. |
+| `dataset_export_status` | Poll an export. **`command`**. Narrowed to `dataset_export_rrd` jobs — a command of any other kind is refused, so this is not a window onto the host's queue. |
 
-The last two are **proxied to the host that owns the bytes** — the hub
-stores neither the episodes table nor any series (blueprint §4). They
-cost a tunnel round-trip, and they refuse with facts rather than
-failures: `409` no host attached, `501` a non-`local` root (sftp/hf are
-registerable but not yet readable), `422` an unsupported LeRobot
-generation — which names the `codebase_version` it refused — and `504`
-when the host does not answer. Every cap that shaped an answer travels
-in the answer; a caller that ignores `truncated` will read a clamped
-page as the whole table.
+The two proxied reads and `datasets_refresh` reach **the host that owns
+the bytes** — the hub stores neither the episodes table nor any series
+(blueprint §4). They cost a tunnel round-trip, and they refuse with
+facts rather than failures: `409` no host attached, `501` a non-`local`
+root (sftp/hf are registerable but not yet readable), `422` an
+unsupported LeRobot generation — which names the `codebase_version` it
+refused — and `504` when the host does not answer. Every cap that shaped
+an answer travels in the answer; a caller that ignores `truncated` will
+read a clamped page as the whole table.
+
+`datasets_delete` is deliberately **not** exposed: de-registering also
+clears `runs.dataset_id` on every run that pointed there, and nothing in
+this lane needs it.
 
 ### documents + reviews
 

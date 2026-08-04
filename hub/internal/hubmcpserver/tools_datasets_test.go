@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/termipod/hub/internal/hostjobs"
 )
 
 // Lane J1. The dataset family was the last surface that was REST-complete
@@ -304,6 +306,207 @@ func TestStringsArg(t *testing.T) {
 	}
 }
 
+// --- J2: the write half ----------------------------------------------
+
+// Registration is idempotent, and which of the two things happened is the
+// question an idempotent write leaves open. 201 and 200 are both success
+// on the wire; only `created` tells them apart.
+func TestToolsCall_DatasetsRegister_ReportsCreatedVsJoined(t *testing.T) {
+	for _, tc := range []struct {
+		status      int
+		wantCreated bool
+	}{
+		{http.StatusCreated, true},
+		{http.StatusOK, false},
+	} {
+		var sawBody map[string]any
+		c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&sawBody)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(`{"id":"ds_1","root_path":"/data/pick"}`))
+		})
+		text, isErr := callTool(t, c, 10, "datasets_register",
+			`{"project_id":"pr_1","root_path":"/data/pick","host_id":"h_1","source":"local"}`)
+		if isErr {
+			t.Fatalf("datasets_register reported an error: %s", text)
+		}
+		var out struct {
+			Created bool `json:"created"`
+		}
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatalf("decode: %v (%s)", err, text)
+		}
+		if out.Created != tc.wantCreated {
+			t.Errorf("hub answered %d: created=%v, want %v", tc.status, out.Created, tc.wantCreated)
+		}
+		if sawBody["project_id"] != "pr_1" || sawBody["root_path"] != "/data/pick" ||
+			sawBody["host_id"] != "h_1" || sawBody["source"] != "local" {
+			t.Errorf("registration body lost a field: %#v", sawBody)
+		}
+	}
+}
+
+func TestToolsCall_DatasetsRefresh(t *testing.T) {
+	var sawPath, sawMethod string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath, sawMethod = r.URL.Path, r.Method
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"ds_1","digest_ts":"2026-08-04T00:00:00Z"}`))
+	})
+	text, isErr := callTool(t, c, 11, "datasets_refresh", `{"dataset":"ds_1"}`)
+	if isErr {
+		t.Fatalf("datasets_refresh reported an error: %s", text)
+	}
+	if sawMethod != "POST" || sawPath != "/v1/teams/team-alpha/datasets/ds_1/refresh" {
+		t.Errorf("hub saw %s %s", sawMethod, sawPath)
+	}
+	if !strings.Contains(text, "digest_ts") {
+		t.Errorf("refreshed row did not survive: %s", text)
+	}
+}
+
+// A host that refuses the dataset's LeRobot generation names the version it
+// refused. That sentence is the whole value of the 422 — an agent can act on
+// "v1.6 is unsupported" and cannot act on "refresh failed".
+func TestToolsCall_DatasetsRefresh_UnsupportedFormatKeepsItsVersion(t *testing.T) {
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":"unsupported_format","codebase_version":"v1.6"}`))
+	})
+	text, isErr := callTool(t, c, 12, "datasets_refresh", `{"dataset":"ds_old"}`)
+	if !isErr {
+		t.Fatalf("a 422 reported success: %s", text)
+	}
+	if !strings.Contains(text, "v1.6") || !strings.Contains(text, "unsupported_format") {
+		t.Errorf("the host's own answer was flattened away: %s", text)
+	}
+}
+
+// The patch surface is two fields. A call naming neither is refused here,
+// before a round-trip that would come back "no updatable fields in body".
+func TestToolsCall_DatasetsUpdate(t *testing.T) {
+	var sawBody map[string]any
+	var sawMethod string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		_ = json.NewDecoder(r.Body).Decode(&sawBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"ds_1","name":"renamed"}`))
+	})
+	if text, isErr := callTool(t, c, 13, "datasets_update", `{"dataset":"ds_1","name":"renamed","env_ref":""}`); isErr {
+		t.Fatalf("datasets_update reported an error: %s", text)
+	}
+	if sawMethod != "PATCH" {
+		t.Errorf("hub saw method %q", sawMethod)
+	}
+	if sawBody["name"] != "renamed" {
+		t.Errorf("name did not reach the hub: %#v", sawBody)
+	}
+	// Clearing a wrong env_ref is a real edit, so an EXPLICIT "" must travel
+	// rather than being dropped as empty.
+	if v, present := sawBody["env_ref"]; !present || v != "" {
+		t.Errorf("an explicit empty env_ref was dropped: %#v", sawBody)
+	}
+
+	called := false
+	c2 := newTestHub(t, func(w http.ResponseWriter, r *http.Request) { called = true })
+	text, isErr := callTool(t, c2, 14, "datasets_update", `{"dataset":"ds_1"}`)
+	if called {
+		t.Error("a field-less datasets_update still reached the hub")
+	}
+	if !isErr {
+		t.Fatalf("a field-less datasets_update reported success: %s", text)
+	}
+	if !strings.Contains(text, "patchable") {
+		t.Errorf("refusal does not say what IS editable: %s", text)
+	}
+}
+
+func TestToolsCall_DatasetExportRRD(t *testing.T) {
+	var sawPath string
+	var sawBody map[string]any
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&sawBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"command_id":"cmd_1","kind":"dataset_export_rrd","reused":true}`))
+	})
+	text, isErr := callTool(t, c, 15, "dataset_export_rrd",
+		`{"dataset":"ds_1","episode_index":0,"repo_id":"lab/pick"}`)
+	if isErr {
+		t.Fatalf("dataset_export_rrd reported an error: %s", text)
+	}
+	if sawPath != "/v1/teams/team-alpha/datasets/ds_1/export" {
+		t.Errorf("hub saw path %q", sawPath)
+	}
+	// Episode 0 is a perfectly ordinary episode; it must travel, not be
+	// dropped as a zero value.
+	if v, present := sawBody["episode_index"]; !present || v != float64(0) {
+		t.Errorf("episode 0 did not reach the hub: %#v", sawBody)
+	}
+	if sawBody["repo_id"] != "lab/pick" {
+		t.Errorf("repo_id did not reach the hub: %#v", sawBody)
+	}
+	if !strings.Contains(text, `"reused":true`) {
+		t.Errorf("joining an in-flight export was not reported: %s", text)
+	}
+}
+
+// The status endpoint serves every host command in the team; this tool is a
+// view of exports only. A command of another kind is refused rather than
+// answered — otherwise the poll leg would be a window onto work the caller
+// never submitted.
+func TestToolsCall_DatasetExportStatus(t *testing.T) {
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/teams/team-alpha/commands/cmd_1" {
+			t.Errorf("hub saw path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cmd_1","host_id":"h_1","kind":"dataset_export_rrd",
+			"args":{"root_path":"/data/pick"},"status":"running",
+			"progress":{"phase":"decode","done":12,"total":40},"created_at":"2026-08-04T00:00:00Z"}`))
+	})
+	text, isErr := callTool(t, c, 16, "dataset_export_status", `{"command":"cmd_1"}`)
+	if isErr {
+		t.Fatalf("dataset_export_status reported an error: %s", text)
+	}
+	for _, want := range []string{`"status":"running"`, `"phase":"decode"`, `"command_id":"cmd_1"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status lost %s: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "root_path") {
+		t.Errorf("the command's args were published; the poll leg is meant to be narrow: %s", text)
+	}
+
+	c2 := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cmd_2","kind":"agent_spawn","status":"running",
+			"args":{"spawn_spec_yaml":"kind: coder"},"created_at":"2026-08-04T00:00:00Z"}`))
+	})
+	text, isErr = callTool(t, c2, 17, "dataset_export_status", `{"command":"cmd_2"}`)
+	if !isErr {
+		t.Fatalf("a non-export command was answered: %s", text)
+	}
+	if strings.Contains(text, "spawn_spec_yaml") {
+		t.Errorf("the refusal leaked the other job's args: %s", text)
+	}
+}
+
+// The kind string is duplicated here because this package binds to the
+// on-wire contract, not to the hub's internals (client.go's package
+// comment). Duplicated is fine; DIVERGED is not — one import in a test
+// keeps the two spellings equal.
+func TestDatasetExportKind_MatchesHostJobs(t *testing.T) {
+	if datasetExportKind != hostjobs.KindDatasetExportRRD {
+		t.Errorf("datasetExportKind = %q, hostjobs.KindDatasetExportRRD = %q — dataset_export_status would refuse every real export",
+			datasetExportKind, hostjobs.KindDatasetExportRRD)
+	}
+}
+
 // The catalog/spec/meta trio must move together — a handler without a
 // registry entry is invisible to agents (CLAUDE.md), and a read tool that
 // inherits the fail-closed ReadOnly=false default is advertised as
@@ -339,5 +542,43 @@ func TestDatasetTools_AreAdvertisedAsReads(t *testing.T) {
 	// runs.dataset_id is the only link between the two halves.
 	if !containsName(toolMeta["runs_get"].seeAlso, "datasets_get") {
 		t.Error("runs_get should point at datasets_get — a run names the dataset it trained on")
+	}
+}
+
+// The write half carries the opposite flag, and the flag is what tells a
+// client the call is not safe to batch or retry blindly. `false` here is
+// the fail-closed default, so this test would pass on a missing toolMeta
+// row too — hence the Short/Backend/tier checks alongside it, which would
+// not.
+func TestDatasetWriteTools_AreAdvertisedAsWrites(t *testing.T) {
+	specs := map[string]ToolSpec{}
+	for _, s := range toolRegistry() {
+		specs[s.Name] = s
+	}
+	for _, name := range []string{"datasets_register", "datasets_refresh", "datasets_update", "dataset_export_rrd"} {
+		s, found := specs[name]
+		if !found {
+			t.Errorf("%s is missing from the ToolSpec registry", name)
+			continue
+		}
+		if s.ReadOnly {
+			t.Errorf("%s mutates and must not be advertised as concurrency-safe", name)
+		}
+		if s.Tier != tierRoutine {
+			t.Errorf("%s tier = %q, want %q", name, s.Tier, tierRoutine)
+		}
+		if s.Short == "" || s.Description == "" || s.Backend != name {
+			t.Errorf("%s: incomplete spec (short=%q backend=%q)", name, s.Short, s.Backend)
+		}
+		if len(toolMeta[name].seeAlso) == 0 {
+			t.Errorf("%s has no SeeAlso — the family is only discoverable by walking it", name)
+		}
+	}
+	// The poll leg is a read, and it is the one the write points at.
+	if s := specs["dataset_export_status"]; !s.ReadOnly || s.Tier != tierTrivial {
+		t.Errorf("dataset_export_status: readOnly=%v tier=%q, want true/%q", s.ReadOnly, s.Tier, tierTrivial)
+	}
+	if !containsName(toolMeta["dataset_export_rrd"].seeAlso, "dataset_export_status") {
+		t.Error("a submit-only verb must point at the tool that observes it")
 	}
 }

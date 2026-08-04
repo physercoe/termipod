@@ -290,6 +290,40 @@ Add to the ADR-033 registries (nothing here exists today —
   patchable fields — `handlers_datasets.go:301-308`), tier routine;
   `dataset_export_rrd` wrapping the existing host job
   (`hostjobs.KindDatasetExportRRD`).
+  - *As built:* `datasets_register`, `datasets_refresh`,
+    `datasets_update`, `dataset_export_rrd` — all routine-tier, plus one
+    tool this line did not ask for and the lane needs:
+    **`dataset_export_status`**. `dataset_export_rrd` is submit-only by
+    design (ADR-058 §3 — decoding every frame does not fit in a
+    request); it returns a `command_id` polled at
+    `GET /commands/{cmd}`, and there was no MCP tool for that endpoint.
+    Shipping the submit alone would have handed an agent a receipt it
+    could not redeem. The poll tool is **narrowed to export jobs**: the
+    endpoint serves every host command in the team, so answering only
+    `dataset_export_rrd` kinds keeps it from becoming a window onto work
+    the caller never submitted (`args` for other kinds describes exactly
+    that).
+  - *Deviations from the line above:* `format?` is not a register
+    argument — `datasets_register` takes `name?`/`env_ref?` instead, and
+    `format` is derived by the host on refresh, never set by a caller.
+    `{project, host}` are spelled `project_id`/`host_id` per §4's own
+    rule (a short key addresses the row a tool targets; a context id
+    keeps its `_id`), matching `runs_create`.
+  - *Not exposed:* `datasets_delete`. De-registering nulls
+    `runs.dataset_id` on every run that pointed at the dataset, and
+    nothing in this lane needs it — an unwanted row is inert, so the
+    expensive-to-undo verb stays out until something asks for it.
+  - *Client change:* `hubClient.do` gained a status-returning sibling
+    (`doStatus`). Registration is idempotent, and 201-created vs
+    200-joined-an-existing-row is the answer the caller asked for; it
+    was invisible while every tool discarded the status code.
+  - *Posture worth a reviewer's eye:* the write half is
+    worker-eligible. Registration is the marginal one — it lets an agent
+    assert "a dataset lives at this path on that host", and a bad root
+    is inert (the host verbs only read under `<root>/meta` and refuse
+    escapes, so the most a guessed path reveals is whether a LeRobot
+    dataset sits there). That oracle already exists for anything with a
+    shell on the host, which is most workers.
 - **J3** — desktop transport: invalidate `['datasets']` queries on hub
   events (or a shorter stale window) so agent-registered datasets
   appear without a tab switch; `environments_list` read tool if the

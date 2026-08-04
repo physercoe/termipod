@@ -25,19 +25,25 @@ package hubmcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 )
 
-// datasetToolDefs returns lane J1's four read tools. Called from
-// buildTools() and appended to the dispatch table, the way the template
-// family is.
+// datasetToolDefs returns the dataset family — J1's four reads and J2's
+// five writes. Called from buildTools() and appended to the dispatch
+// table, the way the template family is.
 func datasetToolDefs() []toolDef {
 	return []toolDef{
 		datasetsListTool(),
 		datasetsGetTool(),
 		datasetEpisodesListTool(),
 		datasetEpisodeSeriesTool(),
+		datasetsRegisterTool(),
+		datasetsRefreshTool(),
+		datasetsUpdateTool(),
+		datasetExportRRDTool(),
+		datasetExportStatusTool(),
 	}
 }
 
@@ -106,7 +112,7 @@ func datasetsListTool() toolDef {
 		Description: "List the datasets registered in this team — the Replay library. Optional `project` and `host` filters.\n\n" +
 			"Each row is hub metadata plus the HEADLINE numbers of its digest: `id`, `name`, `root_path`, `source` (local|sftp|hf), `host_id`, `format`, `env_ref`, and `episodes`/`frames`/`tasks`/`duration_sec`/`fps`/`robot_type`. " +
 			"Call `datasets_get` for one dataset's full digest (per-feature stats, the task list, the length histogram, video streams).\n\n" +
-			"`read: false` means nobody has ever read this root — the row was registered and no digest was ever folded. That is NOT the same as a dataset with zero episodes, and the counts are absent rather than 0 to keep the two apart.",
+			"`read: false` means nobody has ever read this root — the row was registered and no digest was ever folded (`datasets_refresh` folds one). That is NOT the same as a dataset with zero episodes, and the counts are absent rather than 0 to keep the two apart.",
 		InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"},"host":{"type":"string"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			q := url.Values{}
@@ -157,7 +163,7 @@ func datasetsGetTool() toolDef {
 		Description: "Fetch one dataset by id, with its full folded digest. Required: `dataset`.\n\n" +
 			"The digest is metadata about metadata — everything in it was derived from the dataset's `meta/` tree, never from the frames: `total_episodes`/`total_frames`/`total_tasks`, `fps`, `duration_sec`, `robot_type`, `codebase_version`, `features`, `video_streams`, `tasks`, per-feature `stats`, and `length_histogram`.\n\n" +
 			"Read the digest's own cap flags before quoting a number as the dataset's: `stats_partial` (the stats fold stopped early — `stats_episodes` says how many episodes it saw), `tasks_truncated`, `episodes_truncated`, and `warnings`. `stats_source` names which file the stats came from, which differs by LeRobot generation and matters when comparing two datasets.\n\n" +
-			"No `digest` at all means the root has never been read. `digest_ts` is when it was last folded; the desktop's Refresh action re-folds it, and a digest older than the data on disk is stale rather than wrong.",
+			"No `digest` at all means the root has never been read. `digest_ts` is when it was last folded; `datasets_refresh` re-folds it, and a digest older than the data on disk is stale rather than wrong.",
 		InputSchema: schema(`{"type":"object","required":["dataset"],"properties":{"dataset":{"type":"string"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			id, _ := args["dataset"].(string)
@@ -258,6 +264,204 @@ func datasetEpisodeSeriesTool() toolDef {
 		},
 	}
 }
+
+// --- J2: the write half ---------------------------------------------
+//
+// Four writes and one poll. Everything here still obeys the ownership
+// split: registering says "a dataset lives at this path on that host",
+// refreshing asks the HOST to re-read it, and exporting queues work on
+// the host. The hub never opens a dataset file for any of them.
+
+func datasetsRegisterTool() toolDef {
+	return toolDef{
+		Name: "datasets_register",
+		Description: "Register a dataset root so it appears in Replay. Required: `project_id`, `root_path` (ABSOLUTE path on the host). Optional: `host_id` (the host holding the bytes — without it the row exists but nothing can read it), `name` (defaults to the root's last path segment), `source` (local|sftp|hf, default local — only `local` is readable today), `env_ref`.\n\n" +
+			"Idempotent on (project, host, root_path): calling it twice returns the SAME row instead of minting a second that then drifts. `created: false` in the result means you joined an existing registration.\n\n" +
+			"This registers a LOCATION, not the data: no digest is folded here, so a fresh row reads `read: false` until something refreshes it. Call `datasets_refresh` next if you want the episode counts.",
+		InputSchema: schema(`{"type":"object","required":["project_id","root_path"],"properties":{"project_id":{"type":"string"},"root_path":{"type":"string"},"host_id":{"type":"string"},"name":{"type":"string"},"source":{"type":"string","enum":["local","sftp","hf"]},"env_ref":{"type":"string"}}}`),
+		call: func(c *hubClient, args map[string]any) (any, error) {
+			project, _ := args["project_id"].(string)
+			root, _ := args["root_path"].(string)
+			if project == "" || root == "" {
+				return nil, fmt.Errorf("project_id and root_path are required")
+			}
+			body := map[string]any{"project_id": project, "root_path": root}
+			for _, key := range []string{"host_id", "name", "source", "env_ref"} {
+				if v, ok := args[key].(string); ok && v != "" {
+					body[key] = v
+				}
+			}
+			var row json.RawMessage
+			status, err := c.doStatus("POST", c.teamPath("/datasets"), nil, body, &row)
+			if err != nil {
+				return nil, err
+			}
+			// 201 = a new row; 200 = the identity index already had one and
+			// this call joined it. Both are success, and which one happened is
+			// the question an idempotent write leaves open.
+			return map[string]any{"dataset": row, "created": status == http.StatusCreated}, nil
+		},
+	}
+}
+
+func datasetsRefreshTool() toolDef {
+	return toolDef{
+		Name: "datasets_refresh",
+		Description: "Ask the owning host to re-read a dataset's `meta/` tree and store the fold. Required: `dataset`. Returns the updated row.\n\n" +
+			"This is the only way a digest appears or updates — the hub never crawls, so counts are as old as the last refresh and `digest_ts` says when that was. Run it after a recording session appends episodes, or on a row that still reads `read: false`.\n\n" +
+			"`env_ref` is only ever FILLED IN, never overwritten: the host derives one from the robot type, but a human may have set something more specific, and a refresh must not quietly undo that.\n\n" +
+			"Same refusals as the other host-backed calls (409 no host, 501 non-local root, 504 host silent), plus 422 when the host does not support the dataset's LeRobot generation — which names the `codebase_version` it refused rather than flattening it to a failure.",
+		InputSchema: schema(`{"type":"object","required":["dataset"],"properties":{"dataset":{"type":"string"}}}`),
+		call: func(c *hubClient, args map[string]any) (any, error) {
+			id, _ := args["dataset"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("dataset is required")
+			}
+			var out json.RawMessage
+			if err := c.do("POST", c.teamPath("/datasets/"+url.PathEscape(id)+"/refresh"), nil, nil, &out); err != nil {
+				return nil, err
+			}
+			return out, nil
+		},
+	}
+}
+
+func datasetsUpdateTool() toolDef {
+	return toolDef{
+		Name: "datasets_update",
+		Description: "Edit the fields a human owns on a dataset row. Required: `dataset`, and at least one of `name`, `env_ref`.\n\n" +
+			"Those two are the ONLY patchable fields, by design: `root_path`/`host_id` are not editable because moving a root is a re-registration (call `datasets_register` with the new path), and the digest is not editable because a digest that did not come from a host read would be a fact nobody checked.",
+		InputSchema: schema(`{"type":"object","required":["dataset"],"properties":{"dataset":{"type":"string"},"name":{"type":"string"},"env_ref":{"type":"string"}}}`),
+		call: func(c *hubClient, args map[string]any) (any, error) {
+			id, _ := args["dataset"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("dataset is required")
+			}
+			body := map[string]any{}
+			// env_ref is settable to "" (clearing a wrong handle is a real
+			// edit), so presence — not emptiness — is what counts here.
+			for _, key := range []string{"name", "env_ref"} {
+				if v, ok := args[key]; ok {
+					s, ok := v.(string)
+					if !ok {
+						return nil, fmt.Errorf("%s must be a string", key)
+					}
+					body[key] = s
+				}
+			}
+			if len(body) == 0 {
+				return nil, fmt.Errorf("name or env_ref is required — nothing else on a dataset is patchable")
+			}
+			var out json.RawMessage
+			if err := c.do("PATCH", c.teamPath("/datasets/"+url.PathEscape(id)), nil, body, &out); err != nil {
+				return nil, err
+			}
+			return out, nil
+		},
+	}
+}
+
+func datasetExportRRDTool() toolDef {
+	return toolDef{
+		Name: "dataset_export_rrd",
+		Description: "Queue a Rerun `.rrd` export of ONE episode on the host that owns the bytes. Required: `dataset`, `episode_index`. Optional: `repo_id` (overrides the LeRobot dataset identity; the host otherwise derives `owner/name` from the root's last two segments and reports what it used).\n\n" +
+			"SUBMIT ONLY. It returns `{command_id, kind, reused}` immediately — decoding every frame of an episode does not fit in a request — and you poll `dataset_export_status` with that id. `reused: true` means an identical export was already in flight and this call joined it rather than queueing a second pass over the same frames.\n\n" +
+			"Refusals at submit, so you are told now instead of polling a job to its failure: 409 the dataset has no host, or the host has reported that it does not have the `lerobot-export` tool installed; 501 a non-local root; 404 no such dataset.",
+		InputSchema: schema(`{"type":"object","required":["dataset","episode_index"],"properties":{"dataset":{"type":"string"},"episode_index":{"type":"integer","minimum":0},"repo_id":{"type":"string"}}}`),
+		call: func(c *hubClient, args map[string]any) (any, error) {
+			id, _ := args["dataset"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("dataset is required")
+			}
+			episode, ok, err := intArg(args, "episode_index")
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("episode_index is required")
+			}
+			body := map[string]any{"episode_index": episode}
+			if v, ok := args["repo_id"].(string); ok && v != "" {
+				body["repo_id"] = v
+			}
+			var out json.RawMessage
+			if err := c.do("POST", c.teamPath("/datasets/"+url.PathEscape(id)+"/export"), nil, body, &out); err != nil {
+				return nil, err
+			}
+			return out, nil
+		},
+	}
+}
+
+func datasetExportStatusTool() toolDef {
+	return toolDef{
+		Name: "dataset_export_status",
+		Description: "Poll an export queued by `dataset_export_rrd`. Required: `command` (the `command_id` that call returned).\n\n" +
+			"Returns `{command_id, status, progress, result, error, created_at, delivered_at, completed_at}`. `status` walks pending → delivered → running → succeeded|failed|cancelled; `progress` is the host's coarse `{phase, done, total}` while it works; `result` carries the artifact the export produced once it succeeds.\n\n" +
+			"Scoped to exports on purpose: a command id of any other kind is refused rather than answered, so this reads your own job and is not a window onto the host's command queue.",
+		InputSchema: schema(`{"type":"object","required":["command"],"properties":{"command":{"type":"string"}}}`),
+		call: func(c *hubClient, args map[string]any) (any, error) {
+			id, _ := args["command"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("command is required")
+			}
+			var cmd struct {
+				ID          string          `json:"id"`
+				Kind        string          `json:"kind"`
+				Status      string          `json:"status"`
+				Result      json.RawMessage `json:"result"`
+				Error       string          `json:"error"`
+				Progress    json.RawMessage `json:"progress"`
+				ProgressAt  *string         `json:"progress_at"`
+				CreatedAt   string          `json:"created_at"`
+				DeliveredAt *string         `json:"delivered_at"`
+				CompletedAt *string         `json:"completed_at"`
+			}
+			if err := c.do("GET", c.teamPath("/commands/"+url.PathEscape(id)), nil, nil, &cmd); err != nil {
+				return nil, err
+			}
+			// The endpoint serves every host command in the team; this tool
+			// grants a view of exports only. Narrowing here rather than
+			// publishing the whole row keeps `args` — which for other kinds
+			// describes work this caller never asked for — out of the answer.
+			if cmd.Kind != datasetExportKind {
+				return nil, fmt.Errorf("command %s is a %q job, not a dataset export", id, cmd.Kind)
+			}
+			out := map[string]any{
+				"command_id": cmd.ID,
+				"kind":       cmd.Kind,
+				"status":     cmd.Status,
+				"created_at": cmd.CreatedAt,
+			}
+			if len(cmd.Result) > 0 {
+				out["result"] = cmd.Result
+			}
+			if cmd.Error != "" {
+				out["error"] = cmd.Error
+			}
+			if len(cmd.Progress) > 0 {
+				out["progress"] = cmd.Progress
+			}
+			if cmd.ProgressAt != nil {
+				out["progress_at"] = *cmd.ProgressAt
+			}
+			if cmd.DeliveredAt != nil {
+				out["delivered_at"] = *cmd.DeliveredAt
+			}
+			if cmd.CompletedAt != nil {
+				out["completed_at"] = *cmd.CompletedAt
+			}
+			return out, nil
+		},
+	}
+}
+
+// datasetExportKind mirrors hostjobs.KindDatasetExportRRD. Spelled here
+// rather than imported because this package is deliberately free of any
+// dependency on the hub's internals — it binds to the on-wire contract
+// only (see the package comment in client.go). TestDatasetExportKind
+// pins the two spellings together.
+const datasetExportKind = "dataset_export_rrd"
 
 // intArg reads an optional integer argument. MCP arguments arrive as
 // decoded JSON, so a whole number is a float64 here; the schema check in

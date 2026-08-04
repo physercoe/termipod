@@ -43,6 +43,15 @@ func newHubClient(baseURL, token, team string) *hubClient {
 // (and ultimately the MCP client) see the real cause, not a stripped
 // "internal error" string.
 func (c *hubClient) do(method, path string, query url.Values, body any, out any) error {
+	_, err := c.doStatus(method, path, query, body, out)
+	return err
+}
+
+// doStatus is `do` with the response status returned alongside. Only tools
+// whose CONTRACT differs by status need it — dataset registration is
+// idempotent, and 201-created vs 200-joined-an-existing-row is the answer
+// an agent asked for. Everything else uses `do` and ignores the number.
+func (c *hubClient) doStatus(method, path string, query url.Values, body any, out any) (int, error) {
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -51,13 +60,13 @@ func (c *hubClient) do(method, path string, query url.Values, body any, out any)
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("marshal request: %w", err)
+			return 0, fmt.Errorf("marshal request: %w", err)
 		}
 		reqBody = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, u, reqBody)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -69,26 +78,26 @@ func (c *hubClient) do(method, path string, query url.Values, body any, out any)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return resp.StatusCode, err
 	}
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("hub %s %s: %d %s", method, path, resp.StatusCode, bytes.TrimSpace(raw))
+		return resp.StatusCode, fmt.Errorf("hub %s %s: %d %s", method, path, resp.StatusCode, bytes.TrimSpace(raw))
 	}
 	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
-		return nil
+		return resp.StatusCode, nil
 	}
 	// We decode into json.RawMessage holders rather than strongly-typed
 	// structs because MCP tool results are opaque JSON to the client — the
 	// MCP server's job is protocol translation, not schema normalization.
 	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		return resp.StatusCode, fmt.Errorf("decode response: %w", err)
 	}
-	return nil
+	return resp.StatusCode, nil
 }
 
 // teamPath prefixes a team-scoped resource path with the configured team id.

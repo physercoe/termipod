@@ -226,6 +226,43 @@ func toolRegistry() []ToolSpec {
 		spec("runs_attach_artifact",
 			"Attach an artifact to a run. Required: run, project_id, kind, name, uri.",
 			tierRoutine, true),
+		// --- datasets (coworking lane J1) ---
+		// Two hub reads and two host-proxied reads. All trivial-tier and
+		// worker-eligible: reading the library a director already opened in
+		// Replay is not an elevation, and the proxied pair cannot reach a byte
+		// the host does not already serve the desktop.
+		spec("datasets_list",
+			"List the team's registered datasets with their headline counts. Optional: project, host.",
+			tierTrivial, true),
+		spec("datasets_get",
+			"Fetch one dataset with its full folded digest. Required: dataset.",
+			tierTrivial, true),
+		spec("dataset_episodes_list",
+			"List one dataset's episodes, windowed and capped (host-proxied). Required: dataset. Optional: offset, limit.",
+			tierTrivial, true),
+		spec("dataset_episode_series",
+			"Read one episode's decimated numeric channels (host-proxied). Required: dataset, episode. Optional: features, max_points.",
+			tierTrivial, true),
+		// The write half (J2). Routine rather than significant: every one of
+		// these is cheap to undo — a registration is a row, a refresh
+		// re-reads what is already on disk, an update touches two fields, and
+		// an export queues a host job that joins an identical one in flight.
+		// None of them can write, move or delete a byte of the dataset.
+		spec("datasets_register",
+			"Register a dataset root so it appears in Replay (idempotent per project+host+root). Required: project_id, root_path.",
+			tierRoutine, true),
+		spec("datasets_refresh",
+			"Ask the owning host to re-read a dataset and store the fold. Required: dataset.",
+			tierRoutine, true),
+		spec("datasets_update",
+			"Edit a dataset's name or env_ref — the only patchable fields. Required: dataset.",
+			tierRoutine, true),
+		spec("dataset_export_rrd",
+			"Queue a Rerun .rrd export of one episode on the owning host. Required: dataset, episode_index.",
+			tierRoutine, true),
+		spec("dataset_export_status",
+			"Poll an export queued by dataset_export_rrd. Required: command.",
+			tierTrivial, true),
 		// --- artifacts (W2) ---
 		spec("artifacts_list",
 			"List artifacts, optionally filtered by project, run, or kind.",
@@ -445,7 +482,7 @@ var toolMeta = map[string]toolMetaEntry{
 	"plan_steps_list":               {true, []string{"plan_steps_update", "plans_get"}},
 	"plan_steps_update":             {false, []string{"plan_steps_list"}},
 	"runs_list":                     {true, []string{"runs_get", "runs_create"}},
-	"runs_get":                      {true, []string{"runs_list", "run_metrics", "artifacts_list"}},
+	"runs_get":                      {true, []string{"runs_list", "run_metrics", "artifacts_list", "datasets_get"}},
 	"run_metrics":                   {true, []string{"runs_get", "runs_list"}},
 	"run_config_diff":               {true, []string{"runs_get", "run_metrics"}},
 	"runs_create":                   {false, []string{"runs_attach_artifact", "runs_list"}},
@@ -453,6 +490,15 @@ var toolMeta = map[string]toolMetaEntry{
 	"runs_delete":                   {false, []string{"runs_update", "runs_list"}},
 	"runs_detach_artifact":          {false, []string{"runs_get", "artifacts_list"}},
 	"runs_attach_artifact":          {false, []string{"runs_get", "artifacts_create"}},
+	"datasets_list":                 {true, []string{"datasets_get", "dataset_episodes_list"}},
+	"datasets_get":                  {true, []string{"datasets_list", "dataset_episodes_list"}},
+	"dataset_episodes_list":         {true, []string{"datasets_get", "dataset_episode_series"}},
+	"dataset_episode_series":        {true, []string{"dataset_episodes_list", "datasets_get"}},
+	"datasets_register":             {false, []string{"datasets_refresh", "datasets_list"}},
+	"datasets_refresh":              {false, []string{"datasets_get", "datasets_register"}},
+	"datasets_update":               {false, []string{"datasets_get", "datasets_list"}},
+	"dataset_export_rrd":            {false, []string{"dataset_export_status", "dataset_episodes_list"}},
+	"dataset_export_status":         {true, []string{"dataset_export_rrd", "datasets_get"}},
 	"artifacts_list":                {true, []string{"artifacts_get", "artifacts_create"}},
 	"artifacts_get":                 {true, []string{"artifacts_list", "runs_get"}},
 	"artifacts_create":              {false, []string{"artifacts_list", "runs_attach_artifact"}},

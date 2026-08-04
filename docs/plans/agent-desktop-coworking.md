@@ -1,9 +1,9 @@
 # Agent desktop co-working — surfaces, adapters, transport
 
 > **Type:** plan
-> **Status:** Proposed (2026-08-02) — ADR-064 accepted 2026-08-02, so
-> the contract is settled and principal review is done; fleet
-> implementation in four waves, W1 next per issue #494
+> **Status:** In flight (2026-08-04) — ADR-064 accepted 2026-08-02, so
+> the contract is settled and principal review is done; W1 merged
+> 2026-08-04 (#503–#508), lane J1 next off it, then W2 per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
 > the authoring audits
@@ -251,12 +251,79 @@ Add to the ADR-033 registries (nothing here exists today —
   `dataset_episodes_list {dataset, offset?, limit?}` (windowed, caps
   surfaced — honesty invariants of `ReplaySurface.tsx:30-34` carry to
   the tool results), `episode_series_get {dataset, episode, channels?}`.
+  - *As built:* four tools in `hubmcpserver/tools_datasets.go`, each
+    with its `spec()` + `toolMeta` row (the catalog/spec/meta trio).
+    Two names deviate from the line above, both deliberately:
+    - `episode_series_get` → **`dataset_episode_series`**. Nothing
+      referenced the old spelling (the family did not exist), and the
+      `dataset` prefix keeps all four in one place for an agent
+      scanning `tools/list`. The shape matches the catalog's existing
+      sub-resource reads — `run_metrics`, `plan_steps_list` — where the
+      entity leads and the sub-resource follows.
+    - `channels?` → **`features?`**. In the reader these are two
+      different levels: a *feature* (`observation.state`) contains
+      *channels* (the scalar tracks inside it — a joint, a gripper).
+      The selector picks features; naming it `channels` would have
+      addressed the wrong level and disagreed with the REST query
+      param and the host verb, which both spell it `features`.
+  - *Also as built:* `datasets_list` reduces each row's digest to its
+    headline counts and points at `datasets_get` for the whole thing —
+    the `documents_list`/`documents_get` split, for the same reason (a
+    full digest is a page of per-feature stats per dataset). `read:
+    false` distinguishes a root nobody has folded from a dataset with
+    zero episodes. `runs_get`'s `SeeAlso` gained `datasets_get`:
+    `runs.dataset_id` is the only link between the two halves, and
+    without that pointer nothing in the catalog led to this family.
+  - *Removed as shadowed:* a closure-side negative-`episode` guard.
+    Mutation-testing it survived — the schema's `minimum: 0` is
+    enforced on both dispatch paths before any closure runs, so the
+    check could not change an answer. The empty-string guards stay:
+    `required` accepts `""`, so those do fire.
+  - *Known limit, not introduced here:* `hubClient`'s HTTP timeout is
+    30s while the hub's own dataset verb timeout is 60s, so a very slow
+    host read fails on the MCP client's clock first. Narrowing the
+    window (`limit`, `features`) is the workaround; giving the proxied
+    reads their own budget is a J2/W3 call.
 - **J2** — writes: `datasets_register {project, host, root_path,
   source, format?}` (idempotent per the identity index),
   `datasets_refresh`, `datasets_update {name?, env_ref?}` (the only
   patchable fields — `handlers_datasets.go:301-308`), tier routine;
   `dataset_export_rrd` wrapping the existing host job
   (`hostjobs.KindDatasetExportRRD`).
+  - *As built:* `datasets_register`, `datasets_refresh`,
+    `datasets_update`, `dataset_export_rrd` — all routine-tier, plus one
+    tool this line did not ask for and the lane needs:
+    **`dataset_export_status`**. `dataset_export_rrd` is submit-only by
+    design (ADR-058 §3 — decoding every frame does not fit in a
+    request); it returns a `command_id` polled at
+    `GET /commands/{cmd}`, and there was no MCP tool for that endpoint.
+    Shipping the submit alone would have handed an agent a receipt it
+    could not redeem. The poll tool is **narrowed to export jobs**: the
+    endpoint serves every host command in the team, so answering only
+    `dataset_export_rrd` kinds keeps it from becoming a window onto work
+    the caller never submitted (`args` for other kinds describes exactly
+    that).
+  - *Deviations from the line above:* `format?` is not a register
+    argument — `datasets_register` takes `name?`/`env_ref?` instead, and
+    `format` is derived by the host on refresh, never set by a caller.
+    `{project, host}` are spelled `project_id`/`host_id` per §4's own
+    rule (a short key addresses the row a tool targets; a context id
+    keeps its `_id`), matching `runs_create`.
+  - *Not exposed:* `datasets_delete`. De-registering nulls
+    `runs.dataset_id` on every run that pointed at the dataset, and
+    nothing in this lane needs it — an unwanted row is inert, so the
+    expensive-to-undo verb stays out until something asks for it.
+  - *Client change:* `hubClient.do` gained a status-returning sibling
+    (`doStatus`). Registration is idempotent, and 201-created vs
+    200-joined-an-existing-row is the answer the caller asked for; it
+    was invisible while every tool discarded the status code.
+  - *Posture worth a reviewer's eye:* the write half is
+    worker-eligible. Registration is the marginal one — it lets an agent
+    assert "a dataset lives at this path on that host", and a bad root
+    is inert (the host verbs only read under `<root>/meta` and refuse
+    escapes, so the most a guessed path reveals is whether a LeRobot
+    dataset sits there). That oracle already exists for anything with a
+    shell on the host, which is most workers.
 - **J3** — desktop transport: invalidate `['datasets']` queries on hub
   events (or a shorter stale window) so agent-registered datasets
   appear without a tab switch; `environments_list` read tool if the

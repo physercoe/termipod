@@ -22,6 +22,7 @@
 ///      the user can see, so each answer below cites the code that decides it.
 import { parseCanvas } from './canvas.ts';
 import { prepareDiagramBody } from './drawioXml.ts';
+import { parseExcalidrawScene } from './excalidrawScene.ts';
 import { parseTable } from './table.ts';
 import type { DocKind } from './documents.ts';
 
@@ -34,17 +35,13 @@ export type BodyCheck = { ok: true; body: string } | { ok: false; code: string; 
 
 /// A `.json` blob is an Excalidraw scene if its top-level `type` is
 /// `"excalidraw"` (the ecosystem-standard discriminator) and it carries an
-/// element array. Lives here rather than in `documents.ts` (its original home)
-/// because it is now asked twice — once to classify a file being opened, once
-/// to refuse an agent's malformed scene — and one predicate with two callers
-/// beats two predicates that can drift.
+/// element array. Asked three times now — to classify a file being opened, to
+/// refuse an agent's malformed scene, and (B3) to decide whether the editor may
+/// write back over the file it opened — so the rule itself lives in
+/// `excalidrawScene.ts` and this is the boolean face of it. Re-stating the
+/// checks here instead would be two predicates that agree until one is edited.
 export function isExcalidrawBody(content: string): boolean {
-  try {
-    const d = JSON.parse(content) as { type?: unknown; elements?: unknown };
-    return d.type === 'excalidraw' && Array.isArray(d.elements);
-  } catch {
-    return false;
-  }
+  return parseExcalidrawScene(content) !== null;
 }
 
 /// Whether an editor of this kind re-renders from `doc.body`, so writing the
@@ -54,16 +51,18 @@ export function isExcalidrawBody(content: string): boolean {
 ///     into the CodeMirror doc (its own comment names the agent-insert case);
 ///   - `figure` — `surfaces/FigureEditor.tsx` does the same for the source
 ///     pane and re-renders the preview from a debounced `doc.body`;
-///   - `table` — `ui/TableEditor.tsx` parses `value` in a `useState`
-///     INITIALIZER and has no effect on it: a store write does not reach the
-///     mounted grid (lane B4 adds the reconcile);
-///   - `excalidraw` — holds the scene in the vendor component after mount
-///     (lane B3 adds `updateScene`);
+///   - `table` — `ui/TableEditor.tsx` parsed `value` in a `useState`
+///     INITIALIZER only, so a store write never reached the mounted grid. B4
+///     added the `useEffect([value])` reconcile (with an echo guard, so the
+///     editor does not re-parse its own writes), which is what moved this kind
+///     from `false` to `true`;
+///   - `excalidraw` — holds the scene in the vendor component after mount, so
+///     B3 registers a live-apply target that calls `updateScene`;
 ///   - `diagram` / `canvas` — own their live state too, which is exactly why
 ///     lane B1/B2 register live-apply targets for them. A registered target
-///     answers `applied_live` on its own, so they are `false` here.
+///     answers `applied_live` on its own, so all three are `false` here.
 export function rendersFromBody(kind: DocKind): boolean {
-  return kind === 'markdown' || kind === 'figure';
+  return kind === 'markdown' || kind === 'figure' || kind === 'table';
 }
 
 /// Whether `append` means anything for this kind. Appending to a structured
@@ -122,9 +121,11 @@ export function validateAuthorBody(kind: DocKind, body: string): BodyCheck {
     case 'figure':
       // A figure body is renderer source (mermaid/dot/vega-lite); the renderer
       // is the only thing that can judge it, and it lives behind a lazy import
-      // + a worker. Lane B5 adds the dry-run render; until then a figure body
-      // is accepted and its error surfaces in the preview, where a human sees
-      // it — the failure mode is a visible render error, not a lost document.
+      // + a DOM. So this function — pure, synchronous, `node --test`-drivable —
+      // is the wrong place, and B5 puts the judgement where it can be made: an
+      // awaited dry-run render inside `executeAuthorRequest`, step 4. The
+      // non-empty check above still applies, and is all that can be decided
+      // here.
       return { ok: true, body };
   }
 }

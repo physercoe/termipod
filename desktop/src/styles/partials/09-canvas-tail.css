@@ -1717,10 +1717,12 @@
 }
 
 /* ---- Table / database document ---- */
-/* A5: the body could not be parsed, so the grid below is a placeholder and
+/* The body could not be parsed, so what is rendered below is a placeholder and
    every write is refused. Warning colours, not error: nothing has gone wrong
-   yet — this banner is what keeps it that way. */
-.table-unreadable {
+   yet — this banner is what keeps it that way. Worn by the table grid (A5) and
+   the Excalidraw canvas (B3); named for the situation rather than the editor,
+   because a third kind will eventually need it too. */
+.doc-unreadable {
   display: flex;
   gap: var(--spacing-s8);
   align-items: center;

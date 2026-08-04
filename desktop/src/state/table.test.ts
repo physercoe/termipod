@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTable, serializeTable, tableBodyToCsv } from './table.ts';
+import { parseTable, reconcileExternalTable, serializeTable, tableBodyToCsv } from './table.ts';
 
 /// The table read-only guard (coworking A5). `parseTable` used to answer an
 /// unparseable body with a blank three-row grid and no signal, and
@@ -80,3 +80,49 @@ test('an empty body exports the blank starter grid rather than refusing', () => 
 // `bodyToFile` in documents.ts routes `.csv` here and leaves `.json`
 // byte-verbatim; that module reaches localStorage and cannot load under
 // `node --test`, so the guard lives beside the parser where it can be tested.
+
+/// ---- B4: adopting an external write into a mounted grid ----
+///
+/// The grid re-emits its own body on every mutation, so the store hands that
+/// body straight back as a new `value`. Telling that echo apart from a real
+/// external write is the whole job — and the undo stack is where getting it
+/// wrong costs the user a document rather than a keystroke.
+
+test('B4: the grid\'s own echo is not adopted', () => {
+  // Re-parsing here would build fresh row/column objects on every keystroke and
+  // take the caret with them.
+  const current = parseTable(GOOD, 'Name');
+  assert.equal(reconcileExternalTable(GOOD, GOOD, current, 'Name'), null);
+});
+
+test('B4: an external write is adopted and made undoable', () => {
+  const current = parseTable(GOOD, 'Name');
+  const incoming = '{"columns":[{"id":"c0","name":"Name","type":"text"}],"rows":[]}';
+  const step = reconcileExternalTable(GOOD, incoming, current, 'Name');
+  assert.notEqual(step, null);
+  assert.equal(step?.next.rows.length, 0);
+  // Cmd+Z must reach the agent's write — B2's rule for the canvas, here.
+  assert.equal(step?.pushUndo, true);
+});
+
+test('B4: a read-only PLACEHOLDER is never pushed onto the undo stack', () => {
+  // The A5 class arriving through undo. `undo` serializes whatever it pops, so
+  // a blank read-only grid on that stack is one keystroke from being written
+  // over the document it merely stands in for. Reproduce the sequence: an
+  // unreadable body is open, then a real table arrives externally.
+  const placeholder = parseTable('{"columns":[', 'Name');
+  assert.equal(placeholder.readOnly, true);
+  const step = reconcileExternalTable('{"columns":[', GOOD, placeholder, 'Name');
+  assert.notEqual(step, null);
+  assert.equal(step?.next.readOnly, undefined, 'the good body opens editable');
+  assert.equal(step?.pushUndo, false, 'the placeholder must not become an undo target');
+});
+
+test('B4: an external write we cannot read is adopted as read-only, not as a blank grid', () => {
+  // Adopting it is right — the document really did change — but it must arrive
+  // wearing the A5 flag, so the grid refuses writes instead of serializing a
+  // placeholder back over the new bytes.
+  const current = parseTable(GOOD, 'Name');
+  const step = reconcileExternalTable(GOOD, 'not a table at all', current, 'Name');
+  assert.equal(step?.next.readOnly, true);
+});

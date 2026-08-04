@@ -204,13 +204,66 @@ the same registry, not new plumbing.
     them.
 - **B3 — excalidraw.** `updateScene` via the held API ref
   (`ExcalidrawEditor.tsx:73`); validate scene shape first.
+  - *As built:* the scene rules moved to a dependency-free
+    `state/excalidrawScene.ts` (`parseExcalidrawScene` / `openScene`), so
+    `node --test` drives them without the vendor chunk;
+    `isExcalidrawBody` is now defined as `parseExcalidrawScene(…) !== null`
+    rather than re-stating the checks. `captureUpdate:
+    CaptureUpdateAction.IMMEDIATELY` is the load-bearing argument — the
+    parameter defaults to `EVENTUALLY`, which does NOT make the update its
+    own undo step, so without it the user has an agent's drawing and no
+    keystroke back to theirs. `appState` is deliberately not applied
+    (presentation: pushing it would move the user's camera as a side effect
+    of an edit), and `addFiles` runs before `updateScene` so a malformed
+    file entry throws before the scene changes.
+  - **It also closed A5's hole in this editor.** `kindForFile` routes a
+    `.excalidraw` file on its extension without reading the content
+    (`documents.ts:122-124`), and the old reader coerced any JSON into a
+    scene — so a corrupt or foreign file opened as a BLANK canvas and the
+    first `onChange` serialized that blank over it. Same class as the
+    table hole A5 exists to close, found by writing B3's predicate. The
+    editor now opens read-only with the A5 notice and suppresses both
+    persistence and export.
 - **B4 — table.** Add the `useEffect([value])` reconcile
   (`TableEditor.tsx:29`); `isTableBody` (`table.ts:57-64`) before
   commit — the silent-empty class (`table.ts:40-50`) must be
   unreachable from agent input.
+  - *As built:* the reconcile ships with an **echo guard** the plan line
+    does not mention and cannot work without — the grid re-emits its own
+    body on every mutation, so `value` changes for two different reasons
+    and re-parsing the echo would rebuild the row/column identities the
+    user is typing into, caret included. The decision is
+    `reconcileExternalTable` in `state/table.ts`, pure and tested.
+  - **`isTableBody` before commit was NOT added, on merit.** A5 already
+    made `parseTable` return `readOnly` for a body it cannot read, and
+    `validateAuthorBody` refuses `INVALID_TABLE` before an agent write
+    reaches the editor at all — a third check in `mutate` could not change
+    any answer, and an unreachable guard is indistinguishable from dead
+    code to the next reader. What B4 *did* need was a guard the plan could
+    not have foreseen, because nothing external could change the grid
+    before it: a read-only placeholder must never go on the undo stack,
+    since `undo` serializes whatever it pops. That is the same
+    silent-empty class arriving through undo rather than through a click.
+  - `rendersFromBody('table')` becomes **true**, which moves the A4 rung
+    for tables from `applied_store_only` to `applied_live`. The defensive
+    `rejected` arm of `applyStateFor` was made explicit at the same time:
+    it used to answer conservatively only by the accident that no
+    body-reactive kind had a live target.
 - **B5 — figure / markdown.** Already reactive; figure applies dry-run
   `renderFigure`; markdown `append` reuses the insert semantics
   (`AuthorSurface.tsx:352-366`).
+  - *As built:* markdown `append` shipped with lane A
+    (`composeAuthorBody`), so B5 is the figure dry run. It cannot live in
+    `validateAuthorBody` — that function is pure and synchronous by
+    design, and a renderer is neither — so `executeAuthorRequest` became
+    **async** and the dry run is step 4's second half, injected through
+    `AuthorIO.renderFigure`. The host binds the same `renderFigure` the
+    figure pane uses, so an agent's body is judged by exactly what the
+    user's screen will run rather than by a second, kinder validator.
+  - Ordered after the no-op check (re-rendering a body the document
+    already has cannot change the answer, and mermaid/vega are not cheap)
+    and before the editor call. A figure with no `spec` has no renderer to
+    ask and is accepted — absence of a judge is not a verdict.
 - **B6 — snapshot ring + attribution + revert.** Bounded per-document
   pre-apply ring reusing `createHistory` (`canvas.ts:287-318`, generic
   over strings); agent-edit chip on the doc tab (attribution per
@@ -498,7 +551,9 @@ diagram/canvas co-authoring end-to-end, agents no longer blind on
 Read/Inspect/Replay. A5 is in W1 by necessity, not by size: it is the
 one item here that closes a data-loss window the wave itself opens.
 **W2** = B3–B5 + D1 + C2 + C3 + `author_render` + **H1–H3** + **J1–J2**
-→ all Author kinds; navigation; Replay agent-reachable.
+→ all Author kinds; navigation; Replay agent-reachable. *J1–J2 merged
+2026-08-04 (#513); B3–B5 followed. Remaining: D1, C2, C3,
+`author_render`, H1–H3.*
 **W3** = **I1–I4** + J3 + K (as its own plan's waves) + D2 + E1–E3.
 **W4** = I5 + F1 + polish + the K2 arrange write if demand holds.
 

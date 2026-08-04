@@ -26,6 +26,7 @@ import { composeAuthorBody, rendersFromBody, validateAuthorBody, type AuthorAppl
 import type { ApplyOutcome } from './liveApply.ts';
 import type { AgentEdit } from './agentEdits.ts';
 import type { Doc, DocKind } from './documents.ts';
+import type { FigureSpec } from './figures.ts';
 
 /// The renderer event main pushes requests on, and the bridge command the
 /// renderer answers with. One channel each way, correlated by `id`.
@@ -149,6 +150,13 @@ export function resolveTarget(
 /// tab reads the new body.
 export function applyStateFor(outcome: ApplyOutcome | 'no_target', kind: DocKind): 'applied_live' | 'applied_store_only' {
   if (outcome === 'applied_live') return 'applied_live';
+  // A refusal is never a landing, whatever the kind re-renders from. The
+  // executor turns `rejected` into a refusal before this function is reached,
+  // so this arm is defensive — but it must stay true by construction rather
+  // than by the accident that no body-reactive kind had a live target: B4 made
+  // `table` reactive, and without this line a rejected table write would have
+  // started answering `applied_live`.
+  if (outcome === 'rejected') return 'applied_store_only';
   return rendersFromBody(kind) ? 'applied_live' : 'applied_store_only';
 }
 
@@ -164,10 +172,31 @@ export interface AuthorIO {
   record: (docId: string, edit: AgentEdit) => void;
   update: (docId: string, body: string) => void;
   now: () => number;
+  /// B5's dry run: render a figure body and throw the result away. Injected
+  /// rather than imported because it reaches a lazily-loaded renderer library
+  /// (mermaid, graphviz-wasm, vega) and a DOM — neither of which belongs in a
+  /// module `node --test` drives. Resolving means the source renders; throwing
+  /// is the refusal, and the thrown message is what the agent is told.
+  renderFigure: (spec: FigureSpec, src: string) => Promise<unknown>;
 }
 
 function refuse(code: string, message: string): AuthorResult {
   return { ok: false, code, message };
+}
+
+/// Turn a renderer throw into the sentence the agent gets back (B5).
+///
+/// `FigureRenderError` carries an optional source `line`, and it is read
+/// STRUCTURALLY rather than by importing the class: `state/figures.ts` builds a
+/// registry of renderers that reach `document` and lazily import megabytes of
+/// vendor code, and pulling it in here for one `instanceof` would drag all of
+/// that into a module whose whole point is being drivable by `node --test`.
+/// A duck-typed number is the same answer at a fraction of the coupling.
+export function figureRefusal(spec: string, e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const line = (e as { line?: unknown }).line;
+  const where = typeof line === 'number' ? ` (line ${String(line)})` : '';
+  return `the ${spec} renderer could not render this source${where}: ${msg}. The document is unchanged`;
 }
 
 /// Serve one request. The order below IS the contract:
@@ -175,14 +204,21 @@ function refuse(code: string, message: string): AuthorResult {
 ///   1. resolve the target — a document that is gone fails before anything;
 ///   2. cap the size;
 ///   3. compose (`replace` / `append`);
-///   4. validate the RESULT through the kind's parser;
+///   4. validate the RESULT through the kind's parser, and for a figure also
+///      through its RENDERER (B5) — a figure body is source for mermaid or
+///      graphviz, and no parser we own can judge it;
 ///   5. offer it to the mounted editor;
 ///   6. record the pre-write body, then write the store.
 ///
-/// Steps 6 are the only mutations, and every refusal above them leaves the
+/// Step 6 holds the only mutations, and every refusal above it leaves the
 /// document byte-identical — including a live editor's rejection, which is why
 /// the store write comes AFTER the editor gets its say rather than before.
-export function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): AuthorResult {
+///
+/// Async only because of step 4's dry run. Everything else here is synchronous,
+/// and no `await` sits between the editor call and the store write: those two
+/// must not be separated by a suspension point that lets a user edit land in
+/// between them.
+export async function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): Promise<AuthorResult> {
   const target = resolveTarget(io.docs, io.activeId, req.documentId);
   if (!target.ok) return refuse(target.code, target.message);
   const doc = target.doc;
@@ -215,8 +251,31 @@ export function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): AuthorRe
 
   // Nothing changed: report it rather than pushing a no-op onto the revert
   // ring, which would spend the user's undo budget on writes that did nothing.
+  // Ahead of the dry run on purpose — re-rendering a body the document already
+  // has cannot change the answer, and for mermaid or vega it is not cheap.
   if (next === doc.body) {
     return { ok: true, op: 'apply', document: line, state: 'applied_live', bytes: next.length };
+  }
+
+  // B5: the figure dry run. Every other kind has a parser we own, and
+  // `validateAuthorBody` has already asked it; a figure body is source for a
+  // third-party renderer, so the only honest judge is the renderer itself.
+  // Render it once and discard the SVG — what matters is whether it throws.
+  //
+  // Without this the failure mode was quiet in the worst way: the write landed,
+  // the tool said `applied_live`, and the user's figure pane switched to an
+  // error strip over a document they did not break. A refusal instead keeps the
+  // document intact and hands the agent the renderer's own diagnosis, which is
+  // what lets it fix the source and retry.
+  //
+  // A figure doc with no `spec` has no renderer to ask, so it is accepted —
+  // absence of a judge is not a verdict.
+  if (doc.kind === 'figure' && doc.spec !== undefined) {
+    try {
+      await io.renderFigure(doc.spec, next);
+    } catch (e) {
+      return refuse('INVALID_FIGURE', figureRefusal(doc.spec, e));
+    }
   }
 
   const outcome = io.liveApply(doc.id, next);

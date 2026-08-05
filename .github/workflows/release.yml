@@ -150,7 +150,7 @@ jobs:
              "build/app/outputs/flutter-apk/Mobile-${VERSION_NUM}-android-arm64.apk"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           # Mobile release is NON-prerelease by design — it owns `releases/latest`,
           # which the in-app updater reads. (hub/host/desktop lanes are prereleases.)

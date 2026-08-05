@@ -2,7 +2,7 @@
 
 > **Type:** plan
 > **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
-> W2 in progress (E2, R2). Principal review done
+> W2 all but L2 landed (E2, R2, R3, F3). Principal review done
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit

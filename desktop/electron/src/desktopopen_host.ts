@@ -80,8 +80,10 @@ async function open(req: DesktopOpenRequest): Promise<DesktopOpenResult> {
   if (!decision.ok) {
     // A refusal does not consume budget — a refused surface is the policy table
     // talking and an unparseable ref is a mistake, neither of which is the abuse
-    // the limit exists for.
-    history.set(key, recent);
+    // the limit exists for. Nothing is written back either: this call awaited
+    // nothing, but a concurrent one may be past its own read, and overwriting
+    // the map with our stale prune would erase the charge it is about to make.
+    // Stale timestamps cost nothing — every reader prunes.
     return { ok: false, code: decision.code, message: decision.message };
   }
 
@@ -94,19 +96,25 @@ async function open(req: DesktopOpenRequest): Promise<DesktopOpenResult> {
     emit(wc, NAVIGATE_EVENT, decision.order);
   });
 
+  // Charging re-reads the map rather than reusing `recent`: the await above is
+  // a real gap, and two orders from one agent in flight together (parallel
+  // tool calls) would otherwise each write back a list holding only its own
+  // timestamp — the limit then leaks by however many overlapped.
+  const charge = (): void => {
+    history.set(key, [...pruneOpenHistory(history.get(key) ?? [], now), now]);
+  };
   if (depth === 'timeout') {
     // Budget spent: the order WAS pushed, so the screen may well have moved.
     // Charging for it is the safe direction — the alternative lets a timing-out
     // desktop be navigated without limit.
-    history.set(key, [...recent, now]);
+    charge();
     return { ok: false, code: 'NAVIGATE_TIMEOUT', message: 'the desktop did not confirm the navigation — the user may or may not have been moved' };
   }
   if (depth !== 'entity' && depth !== 'surface') {
     // The renderer resolved nothing, so nothing moved and nothing is charged.
-    history.set(key, recent);
     return { ok: false, code: 'NAVIGATE_UNRESOLVED', message: openUnresolvedMessage(decision.order.ref) };
   }
-  history.set(key, [...recent, now]);
+  charge();
   return { ok: true, surface: decision.order.ref.surface, depth, text: openResultText(decision.order.ref, depth) };
 }
 

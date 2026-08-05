@@ -174,3 +174,80 @@ test('sftp flavour: round-trip, host discrimination, traversal refused', async (
   assert.equal(mediaSftpOf(`${MEDIA_SCHEME}://sftp/?p=%2Fx.mp4`), null); // no session
   assert.equal(mediaSftpOf(`${MEDIA_SCHEME}://sftp/?s=s7`), null); // no path
 });
+
+test('Inspect previews widen WHAT is served, not where it is read from', async () => {
+  const { mediaSftpOf, mediaSftpUrl } = await import('./media_policy.ts');
+  // Inspect can be pointed at any file, so image/audio/pdf join video in the
+  // allowlist. Each is a type a <video>/<audio>/<img>/<iframe> decodes on its
+  // own — nothing here needs a parser of ours.
+  for (const ext of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.ico', '.tif', '.tiff']) {
+    assert.match(MEDIA_TYPES[ext] ?? '', /^image\//, ext);
+  }
+  for (const ext of ['.mp3', '.m4a', '.wav', '.oga', '.ogg', '.flac', '.aac', '.opus']) {
+    assert.match(MEDIA_TYPES[ext] ?? '', /^audio\//, ext);
+  }
+  assert.equal(MEDIA_TYPES['.pdf'], 'application/pdf');
+  // ACTIVE documents stay out. Both can script and reach back into this
+  // scheme's own session, so serving one would hand a file the renderer merely
+  // pointed at the app's privileges.
+  assert.equal(MEDIA_TYPES['.svg'], undefined);
+  assert.equal(MEDIA_TYPES['.html'], undefined);
+  assert.equal(MEDIA_TYPES['.htm'], undefined);
+  assert.equal(MEDIA_TYPES['.xhtml'], undefined);
+  // Widening the type list must not have widened the path rules.
+  assert.equal(mediaPathOf(`${MEDIA_SCHEME}://file/?p=relative.png`), null);
+  assert.equal(mediaSftpOf(mediaSftpUrl('s1', 'rel.png')), null);
+});
+
+test('every extension the renderer previews is one this scheme serves', async () => {
+  // The renderer package mirrors this list (`src/state/inspectMedia.ts`) because
+  // the two packages cannot import each other. A row present there and absent
+  // here is a tab that mounts a player against a 415 — an empty box with no
+  // error anywhere. Pin the union so the drift fails HERE.
+  const rendererPreviews = [
+    'mp4', 'm4v', 'mov', 'webm', 'mkv', 'avi', 'ogv',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'ico', 'tif', 'tiff',
+    'mp3', 'm4a', 'wav', 'oga', 'ogg', 'flac', 'aac', 'opus',
+    'pdf',
+  ];
+  for (const ext of rendererPreviews) {
+    assert.ok(MEDIA_TYPES[`.${ext}`] !== undefined, `renderer previews .${ext} but the scheme will not serve it`);
+  }
+});
+
+test('readTextStrict names the file instead of leaking the decoder error', async () => {
+  const { NOT_TEXT_PREFIX, readTextStrict } = await import('./ipc/fsutil.ts');
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fsutil-'));
+  const bin = path.join(dir, 'clip.mp4');
+  // A lone 0xFF is not valid UTF-8 in any position — the shortest possible
+  // stand-in for the mp4 that produced the reported crash.
+  await fs.writeFile(bin, Buffer.from([0x00, 0x01, 0xff, 0xfe]));
+  await assert.rejects(
+    () => readTextStrict(bin),
+    (e: Error) => {
+      // The old behaviour was a bare TypeError from the decoder, which names
+      // neither the file nor anything a UI can branch on.
+      assert.ok(e.message.includes(NOT_TEXT_PREFIX), `message was: ${e.message}`);
+      assert.ok(e.message.includes(bin), 'the message must name the file');
+      assert.ok(!e.message.includes('The encoded data'), 'the decoder message must not leak through');
+      return true;
+    },
+  );
+  // Valid UTF-8 still reads, multi-byte included — the strictness is the point
+  // for Author's tree walk and must survive this change. Written as escapes so
+  // this source file stays ASCII (repo rule) while the BYTES on disk are 2-, 3-
+  // and 4-byte sequences, which is what the decoder is being asked about.
+  const good = path.join(dir, 'ok.txt');
+  const multibyte = '\u00e9 \u2014 \u6f22 \u{1f600}\n'; // 2-, 3-, 3-, 4-byte
+  await fs.writeFile(good, multibyte, 'utf8');
+  assert.equal(await readTextStrict(good), multibyte);
+  // A missing file is a DIFFERENT failure and must keep its own error.
+  await assert.rejects(() => readTextStrict(path.join(dir, 'nope.txt')), (e: Error) => {
+    assert.ok(!e.message.includes(NOT_TEXT_PREFIX), 'ENOENT must not read as "not text"');
+    return true;
+  });
+  await fs.rm(dir, { recursive: true, force: true });
+});

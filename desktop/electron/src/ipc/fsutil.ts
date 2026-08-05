@@ -45,12 +45,35 @@ export function assertSafeRemoteDelete(target: string): void {
   }
 }
 
+/// Marker prefix on the error `readTextStrict` throws for a file that is not
+/// UTF-8 text. Callers across the IPC boundary get a wrapped, stringified error
+/// ("Error invoking remote method …: Error: <this> <path>"), so they match on
+/// the prefix as a SUBSTRING rather than comparing whole messages.
+///
+/// This file is the authority for the wording; `state/inspectMedia.ts` mirrors
+/// it in the renderer package (the two packages cannot import each other) and
+/// both sides pin it in tests, so drift fails a test instead of silently
+/// turning a "this is a binary file" placard back into a raw decoder crash.
+export const NOT_TEXT_PREFIX = 'not a UTF-8 text file:';
+
 /// Read a file as UTF-8, THROWING on invalid UTF-8 — matching Rust
 /// `read_to_string`, so the Author file tree can skip binary/unreadable files
 /// instead of opening them full of replacement characters.
+///
+/// The decoder's own failure is a bare `TypeError: The encoded data was not
+/// valid for encoding utf-8` — true, and useless to the person who just clicked
+/// an mp4. It names neither the file nor the reason a UI should act on, and it
+/// reads as a crash rather than as a fact about the file. Restate it as
+/// something a caller can branch on and a user can understand; the read error
+/// itself (missing, unreadable) is left alone, because that is a different
+/// problem with a different fix.
 export async function readTextStrict(p: string): Promise<string> {
   const buf = await readFile(p);
-  return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    throw new Error(`${NOT_TEXT_PREFIX} ${p}`);
+  }
 }
 
 export async function toBase64(p: string): Promise<string> {

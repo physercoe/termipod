@@ -14,7 +14,8 @@ import type { GraphCollection } from '../state/modelGraph';
 import { TraceModal } from '../ui/TraceModal';
 import { CallGraphModal } from '../ui/CallGraphModal';
 import { useWorkspace } from '../state/workspace';
-import { readRef, readSource } from '../state/inspectSources';
+import { readRef, readSource, readSourceBytes, sftpSessionFor } from '../state/inspectSources';
+import { canStreamMedia, isNotTextError, mediaFileUrl, mediaSftpUrl, PDF_PREVIEW_CAP } from '../state/inspectMedia';
 import { useSession } from '../state/session';
 import { runScript, type ScriptResult } from '../state/scriptRun';
 import { parseTrace, type ParsedTrace, type TraceFrame } from '../state/stackTrace';
@@ -60,6 +61,11 @@ const ModuleGraphView = lazy(() => import('../ui/ModuleGraphView').then((m) => (
 // pure block-diagram spec), its own lazy chunk (React Flow shared with the module
 // graph), loaded when an archgraph tab opens.
 const ArchSchematicView = lazy(() => import('../ui/ArchSchematicView').then((m) => ({ default: m.ArchSchematicView })));
+// The PDF preview shares Read's pdf.js viewer — same pipeline, so the two
+// surfaces agree on what a PDF looks like. Lazy for the usual reason: pdf.js is
+// a multi-MB dependency and a static import would drag it into the boot bundle
+// for every user who never opens one.
+const PdfCanvas = lazy(() => import('../ui/PdfCanvas').then((m) => ({ default: m.PdfCanvas })));
 
 /// J3 — the **Inspect** surface (label-only rename of "Debug"; the `debug` JobId
 /// stays, see the round-2 plan §0a). The round-1 paste textarea becomes a tabbed
@@ -136,9 +142,42 @@ function kindIcon(kind: InspectKind): IconName {
       return 'git-branch';
     case 'archgraph':
       return 'sitemap';
+    case 'image':
+      return 'image';
+    case 'video':
+      return 'film';
+    case 'audio':
+      return 'music';
+    case 'pdf':
+      return 'file-text';
     default:
       return 'code';
   }
+}
+
+// The failure a file-backed tab shows when its source could not be read.
+//
+// "This file is not text" is separated out because it is not an error in the
+// sense the others are: nothing is broken, no retry helps, and the user's next
+// move is different — they opened something Inspect renders as bytes or not at
+// all. Left as a raw message it arrives as the decoder's own
+// `TypeError: The encoded data was not valid for encoding utf-8`, wrapped in an
+// IPC frame, which reads as a crash. Say what the file is instead, and name the
+// kinds that DO preview so the boundary is discoverable rather than guessed at.
+function ReadError({ message }: { message: string }): JSX.Element {
+  const t = useT();
+  if (isNotTextError(message))
+    return (
+      <div className="surface-placeholder region-pad">
+        <div className="surface-posture">{t('inspect.notText')}</div>
+        <p className="small muted">{t('inspect.notTextHint')}</p>
+      </div>
+    );
+  return (
+    <div className="inspect-error region-pad">
+      <Icon name="alert" size={16} /> {message}
+    </div>
+  );
 }
 
 // ── trace lens ───────────────────────────────────────────────────────────────
@@ -297,9 +336,7 @@ function CodeTab({
   if (loading === true) return <div className="muted region-pad">{t('inspect.loading')}</div>;
   if (error !== undefined)
     return (
-      <div className="inspect-error region-pad">
-        <Icon name="alert" size={16} /> {error}
-      </div>
+      <ReadError message={error} />
     );
 
   const isPatch = looksLikePatch(body);
@@ -496,9 +533,7 @@ function DiffTab({ tab }: { tab: InspectTab }): JSX.Element {
   if (loading === true) return <div className="muted region-pad">{t('inspect.loading')}</div>;
   if (error !== undefined)
     return (
-      <div className="inspect-error region-pad">
-        <Icon name="alert" size={16} /> {error}
-      </div>
+      <ReadError message={error} />
     );
 
   if (isCompare) {
@@ -557,9 +592,7 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
 
   if (error !== undefined)
     return (
-      <div className="inspect-error region-pad">
-        <Icon name="alert" size={16} /> {error}
-      </div>
+      <ReadError message={error} />
     );
   if (!indexMode && content === undefined && tab.source !== 'paste') return <div className="muted region-pad">{t('inspect.loading')}</div>;
 
@@ -579,6 +612,123 @@ function LogTab({ tab }: { tab: InspectTab }): JSX.Element {
           <LogView source={source} />
         </Suspense>
       </div>
+    </div>
+  );
+}
+
+// ── media tab (image / video / audio / pdf) ───────────────────────────────────
+// The bytes are STREAMED, never read into the store. A media file is routinely
+// orders of magnitude larger than any text Inspect holds — the store persists
+// to localStorage (~5 MB whole-app quota) and a slurped video would blow it —
+// and `<video>` needs range requests to seek at all, which only the main
+// process's media scheme provides. So this tab holds a URL, not a body.
+//
+// Sources split on whether their bytes can be streamed. `local`/`workspace` are
+// absolute paths on this machine; `remote` rides the same live SFTP session the
+// text reads use, resolved here because the scheme addresses an ssh session id
+// rather than a saved-connection id. `hub`/`github`/`hf` reach their bytes
+// through HTTP transports that decode to text before the renderer sees them, so
+// they say that plainly instead of mounting a player that will never load.
+function MediaTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  const [url, setUrl] = useState<string | null>(null);
+  const [pdfBuf, setPdfBuf] = useState<ArrayBuffer | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const streamable = isShell() && canStreamMedia(tab.source);
+
+  // PDF is the one kind that cannot stream. Chromium's built-in viewer is off
+  // (`plugins` is false on this window, deliberately — it is a plugin surface
+  // we do not otherwise want), so an <iframe> would render nothing; pdf.js
+  // parses a whole document, so the bytes have to be in hand. Read reaches for
+  // the same viewer for the same reason, which is also what makes the two
+  // surfaces agree on what a PDF looks like.
+  useEffect(() => {
+    if (!streamable || tab.kind !== 'pdf') return;
+    let cancelled = false;
+    setPdfBuf(null);
+    setFailed(null);
+    void readSourceBytes(tab, PDF_PREVIEW_CAP)
+      .then((bytes) => {
+        if (cancelled) return;
+        // Copy into a standalone ArrayBuffer: the IPC buffer may be a view over
+        // a larger pooled allocation, and pdf.js takes ownership of what it is
+        // given.
+        setPdfBuf(bytes.slice().buffer);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setFailed(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  useEffect(() => {
+    if (!streamable || tab.kind === 'pdf') return;
+    let cancelled = false;
+    setUrl(null);
+    setFailed(null);
+    if (tab.source !== 'remote') {
+      setUrl(mediaFileUrl(tab.path));
+      return;
+    }
+    // A remote tab names a saved connection; the scheme wants the ephemeral ssh
+    // session id. Reuse the cached session so opening a preview does not add a
+    // second connection alongside the one the tree is already browsing on.
+    void sftpSessionFor(tab.hostId ?? '')
+      .then((sid) => {
+        if (!cancelled) setUrl(mediaSftpUrl(sid, tab.path ?? ''));
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setFailed(e instanceof Error ? e.message : t('inspect.mediaFailed'));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  if (!isShell())
+    return (
+      <div className="surface-placeholder region-pad">
+        <div className="surface-posture">{t('inspect.mediaDesktopOnly')}</div>
+      </div>
+    );
+  if (!streamable)
+    return (
+      <div className="surface-placeholder region-pad">
+        <div className="surface-posture">{t('inspect.mediaSourceUnsupported')}</div>
+      </div>
+    );
+  if (failed !== null)
+    return (
+      <div className="inspect-error region-pad">
+        <Icon name="alert" size={16} /> {failed}
+      </div>
+    );
+
+  if (tab.kind === 'pdf') {
+    if (pdfBuf === null) return <div className="muted region-pad">{t('inspect.loading')}</div>;
+    return (
+      <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+        <PdfCanvas data={pdfBuf} fileName={tab.title} />
+      </Suspense>
+    );
+  }
+  if (url === null) return <div className="muted region-pad">{t('inspect.loading')}</div>;
+
+  // `key={url}` so a re-resolved remote session swaps the element rather than
+  // leaving a player pinned to a session that has since closed.
+  return (
+    <div className="inspect-media">
+      {tab.kind === 'image' ? (
+        <img className="inspect-media-el" src={url} alt={tab.title} onError={() => setFailed(t('inspect.mediaFailed'))} />
+      ) : tab.kind === 'video' ? (
+        <video key={url} className="inspect-media-el" src={url} controls onError={() => setFailed(t('inspect.mediaFailed'))} />
+      ) : (
+        <audio key={url} className="inspect-media-audio" src={url} controls onError={() => setFailed(t('inspect.mediaFailed'))} />
+      )}
     </div>
   );
 }
@@ -666,9 +816,7 @@ function GraphTab({ tab }: { tab: InspectTab }): JSX.Element {
 
   if (error !== undefined)
     return (
-      <div className="inspect-error region-pad">
-        <Icon name="alert" size={16} /> {error}
-      </div>
+      <ReadError message={error} />
     );
   if (content === undefined && tab.source !== 'paste') return <div className="muted region-pad">{t('inspect.loading')}</div>;
 
@@ -1136,6 +1284,8 @@ export function DebugSurface(): JSX.Element {
             <ModGraphTab key={active.id} tab={active} onReveal={(l) => revealModeling(active, l)} />
           ) : active.kind === 'archgraph' ? (
             <ArchGraphTab key={active.id} tab={active} />
+          ) : active.kind === 'image' || active.kind === 'video' || active.kind === 'audio' || active.kind === 'pdf' ? (
+            <MediaTab key={active.id} tab={active} />
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}

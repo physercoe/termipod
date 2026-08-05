@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { looksLikeDot } from './dotGraph.ts';
+import { mediaKindFor } from './inspectMedia.ts';
 
 /// The Inspect (J3) surface's open-tab model — the multi-source inspector shell
 /// that replaces the round-1 paste textarea. Each tab is a viewer over one
@@ -7,9 +8,10 @@ import { looksLikeDot } from './dotGraph.ts';
 ///
 /// **kind** selects the viewer: `code` (CodeMirror 6 + trace lens + run-scratch,
 /// W1) · `diff` (patch / two-blob compare, W2) · `log` (virtualized ANSI viewer,
-/// W3) · `model` (checkpoint / graph inspector, W4). W1 ships the shell + the
-/// `code` viewer; the other three render an honest "coming next" placard until
-/// their wedge lands.
+/// W3) · `model` (checkpoint / graph inspector, W4) · `image`/`video`/`audio`/
+/// `pdf` (media previews, streamed rather than read into the store). W1 ships
+/// the shell + the `code` viewer; the other three render an honest "coming
+/// next" placard until their wedge lands.
 ///
 /// **source** is where the bytes come from: `paste` (device-local scratch),
 /// `local` (a file picked via the native dialog), `workspace` (the Author
@@ -19,7 +21,11 @@ import { looksLikeDot } from './dotGraph.ts';
 /// activate (open question 1's proposed answer), so a huge log or checkpoint is
 /// never copied into `localStorage`.
 
-export type InspectKind = 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph' | 'archgraph';
+export type InspectKind =
+  | 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph' | 'archgraph'
+  /// Media previews. These tabs never enter `content` — their bytes stream from
+  /// the main process on demand, so a 2 GB video costs the store nothing.
+  | 'image' | 'video' | 'audio' | 'pdf';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub' | 'github' | 'hf';
 
 /// A pinned forge snapshot (round-3 T3). `id` is `owner/repo` (GitHub) or the
@@ -85,6 +91,13 @@ const GRAPH_EXTS = new Set(['dot', 'gv']);
 
 export function kindForInspectFile(ext: string, content: string): InspectKind {
   const e = ext.toLowerCase();
+  // Media first, and by extension only. Every branch below this point reasons
+  // about TEXT — the content sniff, the DOT probe, the `code` fallback — and a
+  // binary file reaching any of them ends in a strict-UTF-8 read that throws a
+  // decoder error at the user. `content` is empty for every picker anyway
+  // (nothing has been read yet), so a sniff could not save a video regardless.
+  const media = mediaKindFor(e);
+  if (media !== null) return media;
   if (MODEL_EXTS.has(e)) return 'model';
   if (GRAPH_EXTS.has(e)) return 'graph';
   if (DIFF_EXTS.has(e)) return 'diff';

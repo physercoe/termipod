@@ -4,6 +4,7 @@ import { sftpList, sftpRead, sshClose, sshConnect, type SftpEntry } from '../ssh
 import { readWorkspaceFile } from './workspaceFiles';
 import { useSession } from './session';
 import { isShell } from '../platform';
+import { invoke } from '../bridge';
 import { readForgeBlob } from './forge';
 import type { ForgeRepo, InspectRef, InspectSource, InspectTab } from './inspect';
 
@@ -104,6 +105,37 @@ async function readFrom(loc: {
     default:
       throw new Error(`inspect: source '${loc.source}' is unsupported`);
   }
+}
+
+/// Read a file-backed source's raw BYTES.
+///
+/// The text core above decodes; this one does not, because some of what Inspect
+/// opens is not text. Only the sources that can actually produce bytes are here
+/// — `hub`, `github` and `hf` decode to a string inside their transports before
+/// the renderer ever sees a buffer, so offering them would mean handing back
+/// re-encoded mojibake. The caller checks `canStreamMedia` first and says so.
+///
+/// Used for the PDF preview only. Images, video and audio go through the media
+/// scheme instead, which streams and seeks rather than slurping.
+export async function readSourceBytes(tab: InspectTab, cap: number): Promise<Uint8Array> {
+  if (!isShell()) throw new Error('opening files requires the desktop app');
+  if (tab.source === 'local' || tab.source === 'workspace') {
+    const bytes = await invoke<Uint8Array>('localfs_read', { path: tab.path ?? '' });
+    if (bytes.byteLength > cap) throw new Error(tooLargeForPreview(bytes.byteLength, cap));
+    return bytes;
+  }
+  if (tab.source === 'remote') {
+    const sid = await sftpSessionFor(tab.hostId ?? '');
+    const bytes = await sftpRead(sid, tab.path ?? '', `insp-bin-${tab.id}`);
+    if (bytes.byteLength > cap) throw new Error(tooLargeForPreview(bytes.byteLength, cap));
+    return bytes;
+  }
+  throw new Error(`inspect: source '${tab.source}' cannot supply raw bytes`);
+}
+
+function tooLargeForPreview(size: number, cap: number): string {
+  const mb = (n: number): string => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `file too large to preview (${mb(size)} — cap is ${mb(cap)})`;
 }
 
 /// Read a tab's current content from its source. `paste` tabs never reach here

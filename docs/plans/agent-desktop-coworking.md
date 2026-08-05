@@ -1,10 +1,11 @@
 # Agent desktop co-working — surfaces, adapters, transport
 
 > **Type:** plan
-> **Status:** In flight (2026-08-04) — ADR-064 accepted 2026-08-02, so
+> **Status:** In flight (2026-08-05) — ADR-064 accepted 2026-08-02, so
 > the contract is settled and principal review is done. W1 merged
-> 2026-08-04 (#503–#508, restored by #515); W2 is part-landed — J1–J2
-> (#513), B3–B5 (#516), D1, `author_render`, H1–H3 — with C2/C3 to go
+> 2026-08-04 (#503–#508, restored by #515); **W2 is complete** — J1–J2
+> (#513), B3–B5 (#516), D1, `author_render`, H1–H3, and C2/C3 with the
+> `author_guide` verb they needed. W3 (lane I co-reading, lane K) next
 > per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
@@ -42,11 +43,12 @@ excluded. Investigation record:
   mirroring; `tunnelClassForTool` (`:1346`) → `'desktop'`. Per-kind
   rules ride in tool descriptions (the reference app's
   `display_diagram` description ports near-verbatim).
-  - *As built:* **two tools in W1, three now.** `author_read` +
+  - *As built:* **two tools in W1, all four now.** `author_read` +
     `author_apply` shipped first; `author_render` was already W2 in §11
     and landed there; `author_guide` followed it to W2 because its whole
     content is C2 + C3, both W2 — a guide verb with nothing to answer is
-    a catalog entry that teaches an agent to stop asking. `mode` was
+    a catalog entry that teaches an agent to stop asking — and shipped
+    WITH them (§3). `mode` was
     `'replace' | 'append'` in W1, with `'ops'` refused **by name**
     (`INVALID_PARAMS`) rather than falling back to replace, which would
     commit an operation list as the document body; **D1 added `'ops'`**
@@ -363,12 +365,75 @@ the same registry, not new plumbing.
     sweep structurally cannot — without a DOMParser that body validates
     clean.
 - **C2** — the 31 shape-library files behind `author_guide
-  {kind:'diagram', topic:<library>}` (lazy; full ~180 KB vs top-set —
-  reviewer's call).
+  {kind:'diagram', topic:<library>}` (lazy; ~~full ~180 KB~~ **92.9
+  KiB** vs top-set — reviewer's call).
+  - ★ **The cited size was wrong**, and re-measuring changed the
+    question. Upstream's `docs/shape-libraries/` at `6e65394` is 31
+    files / 95,126 bytes = **92.9 KiB**, roughly half the plan's
+    figure — written from the discussion-doc study and never
+    re-measured. And because the verb is lazy (one topic per call),
+    per-call cost is bounded by the largest FILE, not the sum, so
+    dropping libraries would have saved repo weight and zero tokens on
+    any call that did not ask for them. *Decision: take all 31.* The
+    sizing effort went instead into `filter`, which narrows the four
+    big libraries (`aws4` alone is 22.5 KiB in one tool result).
+  - *As built:* `shapes/` is a **byte-exact** copy of upstream, so a
+    reviewer diffs the directory and expects nothing; every correction
+    lives in `gen-shapes.mjs`, and `shapes.test.ts` fails when the
+    generated module drifts from what those rules produce.
+  - ★ **Upstream's data is wrong in ways an agent would act on**, which
+    turned out to be the real work — the licensing question was
+    settled, and accuracy was not. Three corrections:
+    **(a)** 18 files list their own prefix as a shape, composing to
+    `shape=mxgraph.aws4.mxgraph.aws4`, which draw.io draws as a blank
+    box — valid XML, so nothing in the apply path can catch it;
+    **(b)** upstream's README links three libraries that have no file
+    (`arista`, `digitalocean`, `eip`) and omits one that does
+    (`material_design`, 300 icons), so the index is **generated from
+    the files that exist** rather than copied — a vendored index would
+    have sent an agent to three topics that refuse and hidden a fourth
+    library completely;
+    **(c)** eight libraries enumerate less than draw.io ships (`azure2`
+    lists 354 of 608), so each body states what it actually carries and
+    says outright when the list is partial. An agent reading a partial
+    list as complete concludes a shape does not exist and invents one.
+  - *Not done:* the render pass. A wrong shape name is invisible to
+    every test here — it needs a machine with a display, same class as
+    task #166.
 - **C3** — guides for the rest: figure registry samples
   (`figures.ts:36` — already "agent starters"), JSON Canvas +
   `x-termipod` fields (`canvas.ts:51-92`), minimal Excalidraw element
   set, `TableData` schema, diagram layout/edge-routing rules.
+  - *As built* (`authorguide/guides.ts`): one guide per `DocKind`, each
+    naming the module that enforces the rule it states. `guide.test.ts`
+    pins the enumerations to the renderer sources it describes — a
+    seventh figure renderer or a seventh document kind fails the suite
+    rather than shipping with no way for an agent to learn it exists.
+  - The layout/edge-routing rules are upstream's `system-prompts.ts`
+    (Apache-2.0, NOTICE). ★ Its tool names, its "generate ONLY mxCell
+    elements" rule and its ban on XML comments were **not** carried
+    over: all three describe upstream's pipeline, and here
+    `wrapWithMxFile` normalises every document level and the `ops` path
+    preserves comments. A ported rule brings its premise with it, and
+    this one would have taught an agent to avoid things we support.
+- **The verb itself did not exist.** The plan reads as though
+  `author_guide` shipped in lane A and only its content was missing; it
+  did not (`AUTHOR_TOOL_NAMES` held three names at `1f8fc773`), so
+  building it — catalog entry, dispatcher arm, handler — was the larger
+  half of C2/C3.
+  - It is the one `author_*` verb **main answers alone**: the others
+    are about a document that exists and need the renderer, and a guide
+    that went unavailable with no window open would be missing exactly
+    when an agent is working out what to send.
+  - It joins `DESKTOP_GATED_TOOL_NAMES` (one capability sentence) but
+    **not** `DESKTOP_AUDITED_TOOL_NAMES`. That log answers "what did an
+    agent learn about me?", and this verb answers with static text
+    identical for every caller; rows that disclose nothing make the
+    rows that do harder to find.
+  - Widening the gate owns its sentence: `assistant.uiContextBlurb` now
+    lists all **eight** gated tools in both dicts. It had said "four
+    things" since lane A and had never been updated for `author_render`
+    or `desktop_open`.
 
 ## 4. Lane D — Author op modes beyond replace
 

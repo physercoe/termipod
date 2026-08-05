@@ -151,7 +151,11 @@ The two legs differ, and the difference is deliberate:
 
 `ui_get_focus` and `author_read` never raise a row — they are reads. (An
 `author_read` is audited on every leg all the same: it returns the text of
-the user's documents, not just ids.)
+the user's documents, not just ids.) `author_guide` raises no row **and is
+not audited**: it returns static reference text about document formats,
+identical for every caller and derived from nothing the user owns, so an
+audit row for it would disclose nothing while making the rows that do
+harder to find.
 
 ### The answerless sibling — `notice`
 

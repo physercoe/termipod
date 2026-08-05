@@ -41,3 +41,21 @@ diagnostic sentences verbatim, for the same reason. The implementation is
 not a port: upstream applies a batch partially and re-serializes through
 the DOM, and this one is all-or-nothing and edits the document as text so
 that bytes outside the named cells survive. See that file's header.
+
+`desktop/electron/src/authorguide/shapes/` is a verbatim copy of that
+project's `docs/shape-libraries/` at commit
+6e653942b0a9912123093179c6f2db2cf7c1d42f — 31 files documenting the
+draw.io shape libraries, which upstream derived in turn from
+jgraph/drawio's own Apache-2.0 shape data. The directory is unmodified,
+so it can be diffed against upstream directly; the corrections we serve
+on top of it (a scraping artifact removed, an index rebuilt from the
+files that exist, a stated count of what each file enumerates) live in
+`gen-shapes.ts` and are documented there.
+
+`desktop/electron/src/authorguide/guides.ts` adapts the layout and
+edge-routing rules from that project's `lib/system-prompts.ts` for the
+`author_guide {kind:'diagram', topic:'layout'}` topic. Upstream's tool
+names, its "no wrapper tags" rule and its ban on XML comments were NOT
+carried over: all three describe upstream's own pipeline and are untrue
+here, where every document level is normalised on the way in and the
+`ops` path preserves comments.

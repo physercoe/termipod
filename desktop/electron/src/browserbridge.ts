@@ -50,6 +50,7 @@ import { partitionPolicy } from './webtab_policy.ts';
 import { parseScreenshotArgs } from './uicapture.ts';
 import { narrowDiagramOperations, type DiagramOperation } from '../../src/state/drawioOps.ts';
 import { OPEN_NOTE_MAX } from './desktopopen.ts';
+import { GUIDE_KINDS, guideAnswer } from './authorguide/guide.ts';
 
 // ── Targets / backend ────────────────────────────────────────────────────────
 
@@ -594,6 +595,32 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'author_guide',
+    description:
+      'Look up how to WRITE a document of a given kind before calling author_apply — the body grammar, what gets refused, and the draw.io shape libraries. author_apply refuses a malformed body instead of repairing it, so this is the cheap way to learn the format rather than spending a failed write on it. Omit topic for a kind\'s index of topics. For diagrams: topic "xml" (body structure), "ops" (id-addressed edits), "layout" (positioning + edge routing), "shapes" (the 30 icon libraries — AWS, Azure, GCP, Cisco, Kubernetes, BPMN, …), or a library name such as "aws4" for its shape names. NEVER guess an icon name: a style naming a shape that does not exist is valid XML that renders as a blank box, so nothing in the apply path can catch it. Static reference text — this reads nothing about the user, their screen or their documents.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          // Derived, not written out: guide.test.ts pins GUIDE_KINDS to DocKind,
+          // so a seventh kind gets a guide — but a literal here would stay six
+          // long and a schema-validating client would refuse the kind the
+          // handler serves. The offer surface must not be able to drift.
+          enum: [...GUIDE_KINDS],
+          description: 'The document kind to explain.',
+        },
+        topic: { type: 'string', description: 'A topic within the kind; omit for the index of topics.' },
+        filter: {
+          type: 'string',
+          description: 'Shape-library topics only: return just the names containing this substring. Use it on the big libraries (aws4, azure2, alibaba_cloud, material_design).',
+        },
+      },
+      required: ['kind'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /// The D1/D3/D6 desktop-UI tools, which the sharing toggle gates as a set: off
@@ -603,7 +630,7 @@ export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_s
 /// Coworking lane A: the Author co-authoring tools, gated by the SAME toggle.
 /// A separate set because they are a separate capability sentence (write into
 /// my documents vs describe my screen) even though one switch governs both.
-export const AUTHOR_TOOL_NAMES: ReadonlySet<string> = new Set(['author_read', 'author_apply', 'author_render']);
+export const AUTHOR_TOOL_NAMES: ReadonlySet<string> = new Set(['author_read', 'author_apply', 'author_render', 'author_guide']);
 
 /// Every tool the desktop's UI-context sharing toggle gates. Off means none of
 /// them appears in any catalog and all of them refuse on call — one switch,
@@ -630,6 +657,15 @@ export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_scree
 /// `readOnlyHint: true`. Folding it into DESKTOP_ACTION_TOOL_NAMES to get the
 /// audit would have annotated a read as a mutation — the one direction of that
 /// hint that can cause harm (ADR-063 D5).
+///
+/// **`author_guide` is deliberately NOT here**, though it is in the gated set.
+/// This log answers "what did an agent learn about me?", and the guide answers
+/// with static reference text that is identical for every caller and derived
+/// from nothing the user owns — no document, no path, no screen. Auditing it
+/// would add rows that disclose nothing to the log a user scans for the rows
+/// that do, which makes the real ones harder to see rather than the surface
+/// safer. It stays gated because the toggle is one capability sentence and a
+/// guide to verbs you cannot call is not worth splitting that sentence for.
 export const DESKTOP_AUDITED_TOOL_NAMES: ReadonlySet<string> = new Set([...DESKTOP_ACTION_TOOL_NAMES, 'author_read', 'author_render']);
 
 /// D1: the MCP resource uri mirroring ui_get_focus (ADR-062 D-6). list + read
@@ -1466,6 +1502,30 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
       });
       if (!res.ok) throw new BridgeError(res.code, res.message);
       return textContent(res.text);
+    }
+    case 'author_guide': {
+      // The one `author_*` verb main answers alone. The other three are about a
+      // document that exists, so they need the renderer; this one is about the
+      // FORMAT, and the text is compiled in. That difference is why it is here
+      // and not behind `authorBridge` — a guide that goes unavailable when no
+      // window is open would be missing exactly when an agent is working out
+      // what to send.
+      if (deps.uiFocusAvailable?.() !== true) {
+        throw new BridgeError(
+          'UI_UNAVAILABLE',
+          'UI context sharing is off on the desktop (Settings → Assistant) — the Author tools are not available',
+        );
+      }
+      if (typeof args.kind !== 'string') {
+        throw new BridgeError('INVALID_PARAMS', `kind must be a string — one of ${GUIDE_KINDS.map((k) => `'${k}'`).join(', ')}`);
+      }
+      // Empty string is absent, not a topic named "": an argument the caller
+      // filled in with nothing means they did not have one.
+      const topic = typeof args.topic === 'string' && args.topic !== '' ? args.topic : null;
+      const filter = typeof args.filter === 'string' && args.filter !== '' ? args.filter : null;
+      const answer = guideAnswer(args.kind, topic, filter);
+      if (!answer.ok) throw new BridgeError(answer.code, answer.message);
+      return textContent(answer.text);
     }
     case 'author_read':
     case 'author_render':

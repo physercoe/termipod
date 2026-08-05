@@ -940,12 +940,59 @@
   letter-spacing: 0.04em;
   margin-bottom: 2px;
 }
-.ev-turn,
+/* `.ev-turn` retired with R3 — turn.result now renders as `.ev-turn-foot`,
+   its only emitter. A selector no component writes is a rule that quietly
+   stops applying and nobody notices. */
 .ev-usage,
 .ev-line,
 .ev-kv {
   color: var(--text-muted);
   font-size: var(--font-size-label);
+}
+
+/* R3 — turn footer + context divider. Both are RULES with a centred label,
+   not cards: what they mark is a boundary between things, so the shape of the
+   row is a line across the column rather than a box beside it. The turn footer
+   is quiet by default and only raises its voice for a failed turn, where the
+   transcript above it can look identical to a successful one. */
+.ev-turn-foot,
+.ev-ctx-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  width: 100%;
+  padding: var(--spacing-s4) 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+.tf-rule,
+.cd-rule {
+  flex: 1 1 0;
+  height: 1px;
+  background: var(--border);
+}
+.tf-text,
+.cd-label {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+.ev-turn-foot.failed {
+  color: var(--danger);
+}
+.ev-turn-foot.failed .tf-rule {
+  background: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+/* The divider carries more weight than a turn boundary: a turn ending is
+   routine, the agent's memory diverging from the transcript is not. */
+.ev-ctx-divider {
+  color: var(--warn);
+}
+.ev-ctx-divider .cd-rule {
+  background: color-mix(in srgb, var(--warn) 40%, var(--border));
+}
+.cd-delta {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
 }
 .ev-usage {
   font-family: var(--font-mono, monospace);

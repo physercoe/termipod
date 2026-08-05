@@ -286,6 +286,43 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   `system{subtype:compact_boundary}` to the same divider treatment —
   hairline + centered label, token before→after when the payload has
   it. Sweep `feedLens.ts` allowlists deliberately (D-2).
+  - *As built:* both decisions are pure in `ui/turnMarkers.ts`
+    (`turnFooter`, `contextDivider`, `isContextBoundarySystem`) so the
+    component only draws. Hiding `turn.result` was itself the
+    divergence — mobile's `kAgentFeedAlwaysHiddenKinds` has never
+    contained it — so un-hiding **restores** parity rather than opening
+    a gap. Render-only: `agentIsBusy` walks the raw feed, so the
+    busy-parity anchor above is satisfied by inspection with no logic
+    change. `turn.start` stays hidden: it marks the same boundary from
+    the other side.
+  - *A third producer the plan didn't name:* **kimi's M4 tap** emits
+    `system{subtype:"compaction", tokens_before, tokens_after,
+    summary}` — the only producer that reports the delta. claude's
+    `compact_boundary` carries the subtype and nothing else, and the
+    hub's input-route markers carry neither, so before→after shows
+    exactly where it was reported and is absent everywhere else.
+  - *The `system` exemption is narrow.* `system` is verbose-only
+    chatter, and a compaction boundary is structure. It is exempted by
+    PREDICATE (`isContextBoundarySystem`) before the verbose tier, not
+    by un-hiding `system` wholesale — an ordinary system notice must
+    never draw a rule that means "the agent forgot something here".
+  - ★ *Producer bug found while wiring the consumer:*
+    `maybeEmitContextMutationMarker` keyed `detectContextMutation` on
+    `agents.kind`, which for a **steward** is the persona template
+    (`steward.general.v1`), never the engine. So `/compact` from a
+    steward — the agent class this product is built around — matched
+    nothing and emitted no marker, silently, while the engine still ran
+    the command. Now resolved through `backend_json.kind` (the column
+    spawn populates for exactly this reason,
+    `handlers_agents.go:1567`), falling back to `kind` for legacy rows,
+    with `engine` added to the payload alongside the existing
+    `agent_kind` (additive, D-2). **Same field, same mistake, two
+    layers apart** — R2 hit it on the desktop side the day before.
+  - *Mobile counterpart:* `turn.result` and the `context.*` kinds
+    already render there; the **divider treatment** (hairline + label)
+    is desktop-only and a follow-up if the director wants it — mobile
+    draws them as ordinary cards today. The producer fix benefits both
+    clients immediately.
 - **R4 — live output + agent-produced media.** Render E3's cumulative
   `tool_call_update` output inside the running tool row (expandable
   while running, scroll-capped like kimi-web's 50-line block), folding

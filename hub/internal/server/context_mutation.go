@@ -1,6 +1,28 @@
 package server
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
+
+// backendKindOf pulls the engine family out of an agent row's
+// `backend_json` — the column spawn populates precisely because
+// `agents.kind` carries a persona template for steward spawns
+// (handlers_agents.go:1567). Returns "" for the `{}` a row written
+// before that column was populated carries, and for unparseable JSON,
+// so callers fall back deliberately rather than treating a template id
+// as an engine. The empty string needs no guard of its own —
+// json.Unmarshal rejects it ("unexpected end of JSON input") and takes
+// the same branch.
+func backendKindOf(backendJSON string) string {
+	var b struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal([]byte(backendJSON), &b); err != nil {
+		return ""
+	}
+	return b.Kind
+}
 
 // contextMutation describes a slash command that mutates engine-side
 // conversation state but emits no observable frame back to the hub.
@@ -36,9 +58,13 @@ type contextMutation struct {
 // detectContextMutation inspects an input.text body for a leading
 // slash command that mutates engine context. Returns the mutation
 // descriptor + true when one matches, or zero + false when the body
-// is regular text. agentKind selects the per-engine command set —
+// is regular text. `engine` selects the per-engine command set —
 // claude's `/compact` and gemini's `/compress` are different verbs
 // for the same operation, so they map to different `kind` values.
+//
+// It is the engine FAMILY, not `agents.kind`: those coincide for a
+// direct spawn and diverge for a steward, whose kind is its persona
+// template. Callers resolve it with backendKindOf.
 //
 // Match rules:
 //   - body is trimmed before inspection.
@@ -49,7 +75,7 @@ type contextMutation struct {
 //     so we follow.
 //   - unknown engines fall through to the empty match — no
 //     speculative markers for kinds we haven't audited.
-func detectContextMutation(agentKind, body string) (contextMutation, bool) {
+func detectContextMutation(engine, body string) (contextMutation, bool) {
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" || trimmed[0] != '/' {
 		return contextMutation{}, false
@@ -66,7 +92,7 @@ func detectContextMutation(agentKind, body string) (contextMutation, bool) {
 	}
 	token := trimmed[:end]
 
-	switch agentKind {
+	switch engine {
 	case "claude-code":
 		switch token {
 		case "/compact":

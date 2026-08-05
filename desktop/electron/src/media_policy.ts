@@ -18,6 +18,19 @@ export const MEDIA_SCHEME = 'termipod-media';
 /// scheme to media means a bug in that path cannot turn it into a general file
 /// reader. `.mp4` covers every LeRobot dataset seen so far; the rest are here
 /// because a dataset that used them would otherwise fail for no good reason.
+///
+/// The image / audio / PDF rows are Inspect's preview needs, not Replay's. They
+/// widen WHAT is served, never WHERE it is read from: the path still has to
+/// clear `mediaPathOf` (absolute, normalized) or `mediaSftpOf`, and the scheme
+/// is still reachable only from the app's own renderer session. Every type here
+/// is one a `<video>` / `<audio>` / `<img>` / `<iframe>` decodes natively, so
+/// nothing added needs a parser of ours.
+///
+/// **Deliberately absent: `.svg` and `.html`.** Both are active documents —
+/// scripts, external fetches, same-origin reach into this scheme — and serving
+/// them here would hand a file the renderer merely *pointed at* the app
+/// session's privileges. Inspect already shows SVG as text, which is the honest
+/// view of a file that is markup.
 export const MEDIA_TYPES: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.m4v': 'video/mp4',
@@ -25,6 +38,26 @@ export const MEDIA_TYPES: Record<string, string> = {
   '.webm': 'video/webm',
   '.mkv': 'video/x-matroska',
   '.avi': 'video/x-msvideo',
+  '.ogv': 'video/ogg',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+  '.oga': 'audio/ogg',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.aac': 'audio/aac',
+  '.opus': 'audio/opus',
+  '.pdf': 'application/pdf',
 };
 
 /// Largest file this scheme will open. Robot video is minutes of small frames —

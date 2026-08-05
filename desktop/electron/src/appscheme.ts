@@ -16,36 +16,17 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stat } from 'node:fs/promises';
 import { APP_SCHEME } from './schemes';
+import { buildCsp } from './csp';
 
 // APP_ORIGIN is re-exported so existing importers (main.ts, hubcors.ts) are
 // unchanged; the scheme registration itself now lives in schemes.ts.
 export { APP_ORIGIN } from './schemes';
 
-// Carried over from tauri.conf.json's CSP, with two deliberate changes for the
-// Electron shell: `script-src`/`style-src`/etc. are unchanged, but `connect-src`
-// drops the Tauri `ipc:`/`http://ipc.localhost` origins and instead allows
-// http(s)/ws(s) so the renderer can talk to the (user-configured, arbitrary
-// host) hub directly — the renderer-direct transport that replaces the Rust
-// `hub_request*`/`hub_sse_*` proxies (plan §7 rows 1–2). `frame-src … drawio:`
-// is preserved for the embedded draw.io editor.
-const CSP = [
-  "default-src 'self'",
-  // The figure renderers are local, trusted, bundled app code that need JS
-  // features `'self'` alone forbids: graphviz (@hpcc-js/wasm) instantiates
-  // WebAssembly → `'wasm-unsafe-eval'`; vega compiles expressions via the
-  // Function constructor → `'unsafe-eval'`. Without these the webview blocks
-  // them and the figure shows the CSP-violation text (the `sha256-…` lines).
-  "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline' blob:",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data: blob:",
-  "media-src 'self' blob: https:",
-  "worker-src 'self' blob:",
-  "connect-src 'self' https: http: ws: wss: data: blob:",
-  "frame-src 'self' https: http: data: blob: drawio:",
-  "object-src 'none'",
-  "base-uri 'self'",
-].join('; ');
+// The policy itself lives in `csp.ts` — it is pure, so `node --test` can assert
+// that every scheme this app serves is actually reachable under it. That split
+// exists because the previous inline constant was unassertable, and an
+// unassertable CSP is how the media scheme shipped without being listed in one.
+const CSP = buildCsp();
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

@@ -15,6 +15,21 @@ export function useAgents(): UseQueryResult<Entity[]> {
   });
 }
 
+/// The agent-family registry — engine capabilities as DATA (ADR-010): which
+/// driving modes a family supports and which prompt modalities it accepts on
+/// each. Not polled: it changes only when an operator edits a family, and the
+/// composers that gate on it would rather be a refresh behind than re-fetch a
+/// static list every few seconds. `['agent-families']` is the key AgentSpawn
+/// and AdminCockpit already use, so all four share one request.
+export function useAgentFamilies(): UseQueryResult<Entity[]> {
+  const client = useSession((s) => s.client);
+  return useQuery({
+    queryKey: ['agent-families'],
+    enabled: client !== null,
+    queryFn: () => client!.listAgentFamilies(),
+  });
+}
+
 export function useHosts(): UseQueryResult<Entity[]> {
   const client = useSession((s) => s.client);
   return useQuery({

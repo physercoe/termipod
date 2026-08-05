@@ -4,7 +4,12 @@ import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { VoiceSession } from '../voice/session';
 import { Icon } from './Icon';
-import { checkAddable, classify, compose, nextId, stage, type Pending } from './attach';
+import { CAPS, checkAddable, classify, compose, nextId, stage, type Pending } from './attach';
+import {
+  anyAttachable,
+  attachAllowed,
+  type PromptCapabilities,
+} from '../state/promptCapabilities.ts';
 import { activeSlashMatch, type SlashMatch } from './slashCommands';
 
 function mmss(total: number): string {
@@ -50,6 +55,7 @@ export function Composer({
   inject,
   injectImage,
   annotate,
+  capabilities,
 }: {
   onSend: (body: string, att: InputAttachments) => Promise<void>;
   /// When set, typing `@` opens a file picker over `items`; a pick inserts
@@ -80,6 +86,12 @@ export function Composer({
   /// The D2 "Ask agent" trigger (annotation overlay), shown only when the
   /// UI-context-sharing toggle is on — the AgentCompanion wires it.
   annotate?: { title: string; onClick: () => void };
+  /// What the bound agent can actually be handed (F3). Omitted means an
+  /// ungated composer — the standalone/assistant surfaces, which have no agent
+  /// record to resolve against. When present, kinds the engine can't take are
+  /// refused with the materialize hint instead of silently uploading, and the
+  /// attach button disappears when it can take nothing at all.
+  capabilities?: PromptCapabilities;
 }): JSX.Element {
   const t = useT();
   const [draft, setDraftRaw] = useState('');
@@ -143,6 +155,15 @@ export function Composer({
   useEffect(() => {
     if (injectImage === null || injectImage === undefined || injectImage.id === lastImageRef.current) return;
     lastImageRef.current = injectImage.id;
+    // The same gate `addFiles` runs (F3): an annotation crop is an image
+    // arriving by another door, and staging it for an engine whose
+    // `prompt_image` is false sends bytes the model never sees. The note is
+    // held back with it — "the circled area" with no image attached would be
+    // the same false claim in text.
+    if (capabilities !== undefined && !attachAllowed('image', capabilities)) {
+      setErr(t('composer.kindUnsupported').replace('{name}', injectImage.name).replace('{kind}', 'image'));
+      return;
+    }
     setStaged((prev) => [
       ...prev,
       {
@@ -302,6 +323,14 @@ export function Composer({
         setErr(t('composer.unsupported').replace('{name}', file.name));
         continue;
       }
+      // The engine can't take this modality on the rung it is running.
+      // Refusing here — with the fallback named — beats sending it: the hub
+      // would accept the bytes and the agent would answer about a file it
+      // never received (F3).
+      if (capabilities !== undefined && !attachAllowed(kind, capabilities)) {
+        setErr(t('composer.kindUnsupported').replace('{name}', file.name).replace('{kind}', kind));
+        continue;
+      }
       const reason = checkAddable(file, kind, acc);
       if (reason !== null) {
         setErr(reason);
@@ -341,6 +370,23 @@ export function Composer({
     }
   }
 
+  // With no capability info the composer stays as it was (ungated). With it,
+  // an engine that takes no binary input loses the button entirely — a picker
+  // whose every result is refused is worse than no picker.
+  const canAttach = capabilities === undefined || anyAttachable(capabilities);
+  const acceptFilter =
+    capabilities === undefined
+      ? undefined
+      : [
+          ...(capabilities.image ? CAPS.image.mimes : []),
+          ...(capabilities.pdf ? CAPS.pdf.mimes : []),
+          ...(capabilities.audio ? CAPS.audio.mimes : []),
+          ...(capabilities.video ? CAPS.video.mimes : []),
+          // Text rides the body as a fenced block, so it needs no engine
+          // capability and is always offered.
+          'text/*',
+        ].join(',');
+
   return (
     <div className="composer-wrap">
       {err !== null && <div className="composer-err error">{err}</div>}
@@ -365,17 +411,23 @@ export function Composer({
           type="file"
           multiple
           hidden
+          // Narrow the picker to what this engine takes, so a refusal is rare
+          // rather than the normal outcome of opening it. `accept` is a hint
+          // browsers let the user override, which is why addFiles re-checks.
+          accept={acceptFilter}
           onChange={(e) => void addFiles(e.target.files)}
         />
-        <button
-          className="attach-btn"
-          title={t('composer.attach')}
-          aria-label={t('composer.attach')}
-          onClick={() => fileRef.current?.click()}
-          disabled={busy}
-        >
-          <Icon name="plus" size={16} />
-        </button>
+        {canAttach && (
+          <button
+            className="attach-btn"
+            title={t('composer.attach')}
+            aria-label={t('composer.attach')}
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+          >
+            <Icon name="plus" size={16} />
+          </button>
+        )}
         {annotate !== undefined && (
           <button
             className="attach-btn"

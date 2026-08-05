@@ -6,9 +6,11 @@ import { isShell } from '../platform';
 import { appendEvent, followAgent } from '../state/agentSource';
 import { useAgentSource } from '../state/useAgentSource';
 import { useAnnotation } from '../state/annotation';
+import { agentEngine } from '../state/agentEngine';
 import { loadCompanionBinding } from '../state/companionBinding';
+import { drivingModeOf, promptCapabilities } from '../state/promptCapabilities';
 import { useUiContext } from '../state/uiContext';
-import { useAgents, useAttention } from '../hub/queries';
+import { useAgentFamilies, useAgents, useAttention } from '../hub/queries';
 import { useWorkspace } from '../state/workspace';
 import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '../state/workspaceFiles';
 import { Composer, type InjectImage } from './Composer';
@@ -65,6 +67,7 @@ export function AgentCompanion({
   // Pending approvals this agent raised — rendered inline (R1); the dock stays
   // the cross-agent aggregator over the same rows.
   const attentionQ = useAttention();
+  const familiesQ = useAgentFamilies();
   const agents = agentsQ.data ?? [];
   const [agentId, setAgentId] = useState<string>(() =>
     // The dock companion's key falls back to the retired per-surface mounts'
@@ -194,6 +197,23 @@ export function AgentCompanion({
     });
     return () => handle.close();
   }, [source, agentId, companionMode]);
+
+  // F3 — the bound agent's prompt modalities, resolved from the family
+  // registry. Engine from `backend.kind` (a steward's own kind is its
+  // template) and mode from the hub's RESOLVED `mode`. Ungated (undefined)
+  // until the registry resolves — the gate is for an engine the registry SAYS
+  // takes nothing, not for the moment nothing can be said; refusing on a
+  // registry that is loading or unreachable would kill the annotation crop
+  // and the attach button on no knowledge at all. A loaded list that does not
+  // name this engine still resolves to "nothing attachable".
+  const capabilities = useMemo(() => {
+    if (familiesQ.data === undefined) return undefined;
+    const agent = agents.find((x) => str(x, 'id') === agentId);
+    // The bound agent not being in the list yet is the same unknown: its
+    // record loading is not its engine declining.
+    if (agent === undefined) return undefined;
+    return promptCapabilities(agentEngine(agent), drivingModeOf(agent), familiesQ.data);
+  }, [agents, agentId, familiesQ.data]);
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
 
@@ -396,6 +416,7 @@ export function AgentCompanion({
       )}
       <Composer
         onSend={send}
+        capabilities={capabilities}
         draftKey={agentId !== '' ? `companion.${agentId}` : undefined}
         mention={
           folder !== null && wsFiles.length > 0

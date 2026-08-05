@@ -137,6 +137,36 @@ transport rung (lane T), never the renderer's ceiling.
   (`lib/widgets/image_attach/composer_image_attach.dart`). Port the
   gate (flags ride `session.init` / family lookup); disabled kinds
   show the materialize-fallback hint instead of silently uploading.
+  - *As built:* `state/promptCapabilities.ts` — the desktop port of
+    mobile's `_resolvePromptFlag`, joining the engine family and the
+    RESOLVED driving mode against `GET /agent-families`. Three layers:
+    the picker's `accept` narrows to what the engine takes, `addFiles`
+    re-checks (browsers let the user override `accept`), and the attach
+    button disappears entirely when the engine takes no binary input —
+    a picker whose every result is refused is worse than no picker.
+    Wired into **both** Composer mounts, AgentTranscript and
+    AgentCompanion.
+  - ★ *The flags were not on the wire.* `handleListAgentFamilies`
+    published `prompt_image` and nothing else, so **every client's PDF /
+    audio / video gate resolved false for every family** — the
+    affordances artifact-type-registry W7.2 shipped could never light
+    up, on desktop or mobile. Invisible by construction: "this engine
+    doesn't accept PDFs" and "the hub didn't tell you" are the same
+    absent map on the wire. All four maps now publish, pinned by a test
+    that asserts against the SHIPPED registry rather than a fixture.
+  - *Engine from `backend.kind`* (R2's `agentEngine`), not `agent.kind`.
+    Mobile passes `agent.kind` here and gets away with it only because
+    mobile-spawned agents carry the engine there; a template-spawned
+    steward carries its persona, matches no family, and silently loses
+    every attach affordance. **Mobile follow-up**, recorded not fixed —
+    it is a one-line change in `agent_compose.dart` but this machine has
+    no Flutter toolchain to verify it.
+  - *`text` is never gated:* it is inlined into the body as a fenced
+    block, so it rides the ordinary text channel every engine has.
+  - *Not gated on `session.init`* as the plan's parenthetical suggests:
+    the family registry is the only place the per-mode flags exist, and
+    `session.init` carries none of them. Checked both channels before
+    choosing.
 - **F4 — user-level MCP reseed for claude/codex.** Generalize
   `desktop/electron/src/kimimcp.ts` (kimi-only today) so the
   UI-sharing toggle also deep-merges/removes the additive

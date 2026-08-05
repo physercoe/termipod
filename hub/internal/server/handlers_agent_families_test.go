@@ -268,3 +268,72 @@ func TestAgentFamilies_RejectsBadName(t *testing.T) {
 		}
 	}
 }
+
+// modalityPayload reads the four prompt_* capability maps off the list
+// response. They are what every client's composer gates its attach
+// affordances on, and this endpoint is the only place they are published.
+type modalityPayload struct {
+	Families []struct {
+		Family string          `json:"family"`
+		Image  map[string]bool `json:"prompt_image"`
+		PDF    map[string]bool `json:"prompt_pdf"`
+		Audio  map[string]bool `json:"prompt_audio"`
+		Video  map[string]bool `json:"prompt_video"`
+	} `json:"families"`
+}
+
+// TestAgentFamilies_ListPublishesEveryModalityFlag — vision-parity F3.
+//
+// The list handler published `prompt_image` and nothing else, so every
+// client's PDF / audio / video gate resolved false for every family: the
+// affordances artifact-type-registry W7.2 shipped could never light up. The
+// failure was invisible because "this engine doesn't accept PDFs" and "the
+// hub didn't tell you" are the same absent map on the wire.
+//
+// Asserted against the SHIPPED registry rather than a fixture: the bug was
+// that real data never reached the client, and a hand-built family would have
+// passed the broken handler just as happily.
+func TestAgentFamilies_ListPublishesEveryModalityFlag(t *testing.T) {
+	c := newE2E(t)
+	defer restoreDefaultRegistry(t)
+
+	listURL := c.srv.URL + "/v1/teams/" + c.teamID + "/agent-families"
+	status, raw := rawCallRaw(t, c.token, listURL, "GET", "", nil)
+	if status != 200 {
+		t.Fatalf("GET list = %d body=%s", status, raw)
+	}
+	var list modalityPayload
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, f := range list.Families {
+		seen[f.Family] = true
+		switch f.Family {
+		case "claude-code":
+			// PDF on the same modes as image (claude takes a `document`
+			// content block); audio/video are not accepted at all.
+			if !f.Image["M2"] {
+				t.Errorf("claude-code prompt_image[M2] = false; want true")
+			}
+			if !f.PDF["M2"] {
+				t.Errorf("claude-code prompt_pdf[M2] = false — the flag the registry ships is not reaching the wire")
+			}
+		case "gemini-cli":
+			// The only engine that accepts audio and video, and only on M1.
+			if !f.PDF["M1"] || !f.Audio["M1"] || !f.Video["M1"] {
+				t.Errorf("gemini-cli M1 modality flags = pdf:%v audio:%v video:%v; want all true",
+					f.PDF["M1"], f.Audio["M1"], f.Video["M1"])
+			}
+			if f.Audio["M2"] || f.Video["M2"] {
+				t.Errorf("gemini-cli M2 must not claim audio/video: audio:%v video:%v", f.Audio["M2"], f.Video["M2"])
+			}
+		}
+	}
+	for _, want := range []string{"claude-code", "gemini-cli"} {
+		if !seen[want] {
+			t.Fatalf("%s missing from the list response: %s", want, raw)
+		}
+	}
+}

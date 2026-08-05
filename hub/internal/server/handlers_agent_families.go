@@ -86,7 +86,17 @@ func (s *Server) handleListAgentFamilies(w http.ResponseWriter, r *http.Request)
 			"incompatibilities":   v.Family.Incompatibilities,
 			"source":              string(v.Source),
 			"runtime_mode_switch": v.Family.RuntimeModeSwitch,
-			"prompt_image":        v.Family.PromptImage,
+			// All four modality maps, not just images. Publishing only
+			// `prompt_image` meant every client's PDF / audio / video gate
+			// resolved false for every family — the affordances
+			// artifact-type-registry W7.2 shipped could not light up, and
+			// nothing reported a problem because "not supported" and "not
+			// published" are the same absent map on the wire. The composers
+			// read this endpoint and nothing else.
+			"prompt_image": v.Family.PromptImage,
+			"prompt_pdf":   v.Family.PromptPDF,
+			"prompt_audio": v.Family.PromptAudio,
+			"prompt_video": v.Family.PromptVideo,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"families": out})

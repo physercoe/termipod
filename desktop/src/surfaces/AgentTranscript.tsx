@@ -5,7 +5,9 @@ import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
-import { foldTranscriptStats } from '../state/transcriptStats';
+import { agentEngine } from '../state/agentEngine';
+import { compactCommandFor, contextFill, foldTranscriptStats } from '../state/transcriptStats';
+import { ContextRing } from '../ui/ContextRing';
 import type { InputAttachments } from '../hub/client';
 import { Composer } from '../ui/Composer';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -368,6 +370,15 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
       .join('\n')}\n\n`;
     setQuoteSignal({ text: quoted, id: quoteIdRef.current });
   }, []);
+  // The context ring's high-fill shortcut (R2): stage the engine's compaction
+  // command in the draft through the same injection channel a quote uses. It
+  // is staged, never sent — a client that decided on its own to truncate the
+  // agent's memory would be making a call that is the user's, and the slash
+  // picker and the annotation crop already set that rule.
+  const injectCommand = useCallback((command: string): void => {
+    quoteIdRef.current += 1;
+    setQuoteSignal({ text: `${command} `, id: quoteIdRef.current });
+  }, []);
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
   const { resultById, updateById, nameById, callIds } = useToolMaps(feed);
@@ -421,6 +432,13 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // want the agent's lifecycle status, not just the feed — deferred.) The fold
   // lives in state/transcriptStats so its subagent guard (#374) is unit-tested.
   const stats = useMemo(() => foldTranscriptStats(feed), [feed]);
+  // Context-window fill (R2), the desktop side of a parity miss mobile's
+  // telemetry strip closed releases ago. Undefined whenever either half is
+  // unreported — an empty ring would claim "0% full".
+  const fill = useMemo(() => contextFill(stats), [stats]);
+  // `backend.kind`, not `agent.kind` — see agentEngine. Only engines whose
+  // compaction command the hub recognizes get the shortcut on the ring.
+  const compactCommand = useMemo(() => compactCommandFor(agentEngine(agentQ.data)), [agentQ.data]);
 
   // A tool_result folded into its matching tool_call — not rendered on its own.
   const isFolded = (ev: FeedEvent): boolean => {
@@ -1087,6 +1105,30 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
               </span>
             </>
           )}
+          {fill !== undefined && (
+            <>
+              <span className="ts-sep">·</span>
+              <span
+                className={`ts-ctx ctx-${fill.band}`}
+                title={t('ctx.title')
+                  .replace('{used}', String(fill.used))
+                  .replace('{total}', String(fill.window))
+                  .replace('{pct}', `${Math.round(fill.pct * 100)}%`)}
+              >
+                {t('ctx.label')} {fmtTok(fill.used)}/{fmtTok(fill.window)} · {Math.round(fill.pct * 100)}%
+              </span>
+            </>
+          )}
+          {stats.costUsd !== undefined && stats.costUsd > 0 && (
+            <>
+              <span className="ts-sep">·</span>
+              {/* Engine-reported, summed from turn.result — never the digest's
+                  imputed figure, which is labeled where it is shown. */}
+              <span className="ts-cost" title={t('ctx.costTitle')}>
+                ${stats.costUsd.toFixed(stats.costUsd >= 1 ? 2 : 4)}
+              </span>
+            </>
+          )}
           {stats.elapsed !== undefined && (
             <>
               <span className="ts-sep">·</span>
@@ -1200,6 +1242,15 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
           {/* P2 state dock — live mode only, outside the virtual list,
               directly above the composer. */}
           <StateDock model={stateDock} />
+          {/* R2 — the ring sits in the composer's own row, not the header
+              strip, because its question ("is there room for this prompt?")
+              is asked while typing. The strip keeps the same numbers as text
+              for anyone reading rather than glancing. */}
+          {fill !== undefined && (
+            <div className="composer-gauge">
+              <ContextRing fill={fill} compactCommand={compactCommand} onCompact={injectCommand} />
+            </div>
+          )}
           <Composer
             onSend={send}
             generating={generating}

@@ -2,7 +2,7 @@
 
 > **Type:** plan
 > **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
-> W2 opened with E2. Principal review done
+> W2 in progress (E2, R2). Principal review done
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -324,6 +324,51 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   running sum where the engine ships it, else digest/imputed only
   (labeled, D-4). A `/compact`-style affordance appears at high fill
   (verb exists: `context.compacted` mutation path).
+  - *As built:* the fold lives in `state/transcriptStats.ts` (already the
+    desktop mirror of mobile's `FeedTelemetry`, already unit-tested for
+    the #374 subagent guard) and grew `contextWindow` / `contextUsed` /
+    `costUsd`, plus a `contextFill` band helper at **mobile's**
+    thresholds (70 / 90) so one session reads the same on both clients.
+    The ring is `ui/ContextRing.tsx` in the composer's own row; the
+    status strip carries the same numbers as text.
+  - *The load-bearing distinction:* `usage` carries **two different
+    quantities** depending on producer, told apart by the `cumulative`
+    marker (a STRING `"true"` — the profile grammar has only string
+    literals). Codex reports the whole session and its fill is
+    `last_total_tokens`; claude reports one API call and its fill is
+    `input + cache_read + cache_create`, the number claude's own
+    `/context` prints. Reading a codex event as a claude one is the
+    v1.0.712 mobile regression (a ~19K session showing 169K), so the
+    test names it. Capacity falls back to the dominant model on
+    `turn.result.by_model`, and antigravity's `status_line` nest is
+    read because that engine ships tokens nowhere else.
+  - *No ring without both halves:* capacity alone would draw an empty
+    circle, which reads as "0% full" rather than "not reported" (D-4).
+  - *The compact shortcut is engine-gated and stages, never sends.*
+    `compactCommandFor` keys on exactly the table
+    `server/context_mutation.go` keys on — claude `/compact`, gemini
+    `/compress` — because those are the commands the hub recognizes and
+    records as a `context.compacted` marker. **Codex is outside it**, so
+    codex sessions get the ring without the shortcut; a button that
+    might do nothing and leaves no trace either way is worse than no
+    button. The command lands in the draft through the same injection
+    channel a quote uses: truncating an agent's memory is the user's
+    call, and the slash picker and annotation crop already set that
+    rule.
+  - *The engine comes from `backend.kind`, not `agent.kind`* — new
+    `state/agentEngine.ts`, because a steward's kind is its template and
+    reading it as the engine would silently disable engine-gated
+    affordances for exactly the agents the Companion is built around
+    (mobile learned this at `agent_compose.dart:158-161`). **F3 wants
+    the same helper.**
+  - *Adjacent fix, same decision:* `SessionsPanel` rendered
+    `session_cost_usd_imputed` as a bare `$x.xx`. D-4 says the one
+    sanctioned approximation is labeled wherever it is shown, so it now
+    carries a `~` and says what it is on hover. `RunReport`'s `cost_usd`
+    was checked and is the engine-reported sum, not imputed — correctly
+    unlabeled.
+  - *Mobile counterpart:* **already shipped** — this closes the parity
+    miss from mobile's side, it does not open one.
 - **R3 — turn footers + compaction dividers.** `turn.result` is in
   `ALWAYS_HIDDEN_KINDS`; render it instead as a quiet per-turn footer
   (duration · msgs · cost when present) under the closing assistant

@@ -1030,6 +1030,64 @@
   padding: var(--spacing-s12);
   align-items: center;
 }
+
+/* R2 context ring — a gauge in the composer's own row, right-aligned so it
+   sits over the send button rather than competing with the input's left edge.
+   The row only exists when the fold has both numbers, so there is no empty
+   state to style. */
+.composer-gauge {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--spacing-s4) var(--spacing-s12) 0;
+}
+.ctx-ring {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.ctx-ring-btn {
+  padding: 2px 6px;
+  border-radius: var(--radius-stadium);
+  cursor: pointer;
+}
+.ctx-ring-btn:hover {
+  background: var(--surface);
+}
+.ctx-ring-track {
+  stroke: var(--border);
+}
+/* Fill colour is the band, and only the band: the ring states how full the
+   window is, which is a fact, and says nothing about whether that is good. */
+.ctx-ring-fill {
+  stroke: var(--ok);
+  stroke-linecap: round;
+}
+.ctx-warn .ctx-ring-fill {
+  stroke: var(--warn);
+}
+.ctx-high .ctx-ring-fill {
+  stroke: var(--danger);
+}
+.ctx-high .ctx-ring-pct {
+  color: var(--danger);
+}
+/* The same reading as text in the status strip, for anyone who wants the
+   numbers rather than the glance. */
+.transcript-status .ts-ctx {
+  font-family: var(--font-mono, monospace);
+}
+.transcript-status .ts-ctx.ctx-warn {
+  color: var(--warn);
+}
+.transcript-status .ts-ctx.ctx-high {
+  color: var(--danger);
+}
+.transcript-status .ts-cost {
+  font-family: var(--font-mono, monospace);
+}
 /* `@`-mention file picker: floats above the composer input. */
 .mention-pop {
   position: absolute;

@@ -423,7 +423,16 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
                       <span className="session-row-sub muted small">
                         {status}
                         {scope !== '' ? ` · ${scope}` : ''}
-                        {cost !== undefined ? ` · $${cost.toFixed(cost >= 1 ? 2 : 4)}` : ''}
+                        {/* `session_cost_usd_imputed` is the hub's priced
+                            estimate for engines that report no cost, so it
+                            carries a `~` and says so on hover — the one
+                            sanctioned approximation has to look like one
+                            wherever it is shown (companion plan D-4). */}
+                        {cost !== undefined ? (
+                          <span title={t('sessions.costImputed')}> · ~${cost.toFixed(cost >= 1 ? 2 : 4)}</span>
+                        ) : (
+                          ''
+                        )}
                         {id !== '' ? ' · ' : ''}
                         {id !== '' && <span className="mono">{shortId(id)}</span>}
                       </span>

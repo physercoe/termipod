@@ -1,9 +1,10 @@
 # Frame profiles — authoring guide
 
 > **Type:** reference
-> **Status:** Current (2026-04-29)
+> **Status:** Current (2026-08-05)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.347
+> **Last verified vs code:** 2026.730.1231-alpha — `payload_lists` re-read
+> against `profile_translate.go` at that tip
 
 **TL;DR.** A frame profile is a YAML block that tells the host-runner
 how to translate one engine's stream-json output into the hub's typed
@@ -153,7 +154,12 @@ one that *does* fall through: it returns its argument when present and
         source: <expr>        # must resolve to a map
         fields:               # evaluated per value ($. = that value)
           out_name: <expr>
-    # OR (mutually exclusive with payload / payload_maps):
+    payload_lists:            # optional: fields whose value is a list
+      field_name:             # re-shaped per element, order kept
+        source: <expr>        # must resolve to an array
+        fields:               # evaluated per element ($. = that element)
+          out_name: <expr>
+    # OR (mutually exclusive with payload / payload_maps / payload_lists):
     payload_expr: <expr>      # whole-payload passthrough; result must be a map
   sub_rules:                  # only meaningful with for_each
     - match: { ... }
@@ -185,6 +191,37 @@ rule's own scope. An absent source **omits the field entirely** rather
 than emitting `{}` — "no per-model data" and "data for zero models" are
 different claims. Values that aren't objects are skipped, so one
 malformed entry can't void the map.
+
+**`payload_lists`** is the array twin, and it is **not** `for_each`:
+`for_each` turns an array into N *events*, `payload_lists` turns an
+array into one *field*. Reach for it when the elements are a collection
+the renderer draws as a unit — a plan's steps, a todo list — so that
+emitting a row per element would be a different transcript, not a
+differently-shaped one.
+
+```yaml
+payload_lists:
+  entries:
+    source: "$.params.plan"
+    fields:
+      content: "$.step"
+      status:  "$.status"
+```
+
+Same scope rules and the same absent-vs-empty line as `payload_maps`,
+with one addition: an **empty** source array *is* projected, to an empty
+list. "The agent published a plan with no steps" is a claim the engine
+made; "the frame carried no plan" is not. Elements that aren't objects
+are skipped, which shortens the list rather than holding a gap — a
+projection declares the shape it produces, and there is no honest
+placeholder for an element that can't take it.
+
+Both projections rename **fields**. Neither renames **values** — the
+grammar has no comparisons or ternaries (§3), so an engine whose enum
+spelling differs from the vocabulary's (codex's plan status
+`inProgress` vs `in_progress`) is normalized in its driver, not here.
+If you find yourself wanting a value map in YAML, that is the follow-up
+ADR §3 describes, not coalesce hackery.
 
 **Choosing `payload` vs `payload_expr`:**
 
@@ -444,4 +481,10 @@ Use those to triage before editing.
 - Canonical example profile: `hub/internal/agentfamilies/agent_families.yaml`
   (the `claude-code` entry's `frame_profile` block)
 - Schema sidecar: `hub/internal/agentfamilies/agent_families.schema.json`
-  (use with editor LSP for autocomplete + validation)
+  (use with editor LSP for autocomplete + validation). Nothing at
+  runtime reads it — the loader is `yaml.Unmarshal` — so it drifted
+  silently twice before `schema_coverage_test.go` started asserting
+  that every `yaml:` tag the loader accepts is a property the schema
+  declares. Adding a field to `families.go` without adding it here
+  makes the schema reject the *correct* YAML, which teaches authors to
+  ignore it; that test is what stops it.

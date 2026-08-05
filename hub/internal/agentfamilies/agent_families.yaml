@@ -655,10 +655,18 @@ families:
 
         # ── turn/completed  →  turn.result ───────────────────────
         # Maps onto the same canonical kind claude's profile emits.
-        # Field set is sparser than claude — codex doesn't ship
-        # cost_usd or duration_ms via this notification (token
-        # usage rides on thread/tokenUsage/updated separately) —
-        # absent fields land as nil and the renderer hides them.
+        # Field set is sparser than claude — codex ships no cost_usd
+        # here (token usage rides on thread/tokenUsage/updated
+        # separately) and absent fields land as nil, which the
+        # renderer hides.
+        #
+        # duration_ms comes from the engine's own measurement
+        # (`Turn.durationMs`, "duration between turn start and
+        # completion in milliseconds, if known" — codex-cli 0.133.0
+        # app-server schema). It is nullable, and older codex builds
+        # predate the field entirely; AppServerDriver fills the gap
+        # from its own turn/started→turn/completed wall clock rather
+        # than letting the turn footer lose its duration (E2b).
         - match: { method: turn/completed }
           emit:
             kind: turn.result
@@ -666,6 +674,7 @@ families:
             payload:
               turn_id:        "$.params.turn.id"
               status:         "$.params.turn.status"
+              duration_ms:    "$.params.turn.durationMs"
               terminal_reason: "$.params.turn.error.message"
 
         # ── turn/diff/updated  →  system ─────────────────────────
@@ -678,15 +687,34 @@ families:
             producer: agent
             payload_expr: "$.params"
 
-        # ── turn/plan/updated  →  system ─────────────────────────
-        # Codex's planning surface; we echo it as system. A future
-        # wedge could promote this to its own kind once the mobile
-        # plan-renderer lands.
+        # ── turn/plan/updated  →  plan ───────────────────────────
+        # Codex's planning surface, promoted out of the system raw
+        # dump it used to be (vision-parity E2a) — both clients have
+        # rendered `kind: plan` since the ACP driver landed, and the
+        # Todos dock chip reads the same `entries[]`.
+        #
+        # Codex names a step `step`; the vocabulary (set by ACP, which
+        # got here first) names it `content`. payload_lists does that
+        # rename declaratively so the typed payload never carries the
+        # engine's own field names — the E1c lesson, one dimension
+        # over. Status is renamed by AppServerDriver, not here: codex
+        # spells the middle state `inProgress` where the vocabulary
+        # says `in_progress`, and the grammar has no value mapping
+        # (§3 of frame-profiles.md: no comparisons, no ternaries).
+        # `priority` is ACP-only — absent, not synthesized (D-4).
         - match: { method: turn/plan/updated }
           emit:
-            kind: system
+            kind: plan
             producer: agent
-            payload_expr: "$.params"
+            payload:
+              turn_id:     "$.params.turnId"
+              explanation: "$.params.explanation"
+            payload_lists:
+              entries:
+                source: "$.params.plan"
+                fields:
+                  content: "$.step"
+                  status:  "$.status"
 
         # ── item/started  +  params.item.type=agentMessage  →  ──
         # *Skipped*: agentMessage's content arrives via deltas we

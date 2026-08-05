@@ -2,6 +2,7 @@ package hostrunner
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/termipod/hub/internal/agentfamilies"
@@ -53,7 +54,10 @@ func TestProfile_Codex_TranslatesAppServerNotifications(t *testing.T) {
 		{"turn/started", ""}:                            "system",
 		{"turn/completed", ""}:                          "turn.result",
 		{"turn/diff/updated", ""}:                       "system",
-		{"turn/plan/updated", ""}:                       "system",
+		// Promoted out of the system raw dump by vision-parity E2a —
+		// `plan` is a kind both clients have rendered since the ACP
+		// driver landed.
+		{"turn/plan/updated", ""}:                       "plan",
 		{"item/started", "agentMessage"}:                "system",
 		{"item/started", "commandExecution"}:            "tool_call",
 		{"item/started", "fileChange"}:                  "tool_call",
@@ -272,6 +276,76 @@ func TestProfile_Codex_PayloadFields(t *testing.T) {
 		if got[0].Payload[k] != want {
 			t.Errorf("usage.%s = %v; want %v", k, got[0].Payload[k], want)
 		}
+	}
+
+	// turn/plan/updated → the typed `plan` shape both clients render:
+	// `entries[]` of `{content, status}`. Codex calls the text `step`,
+	// so this assertion is the whole point of the rule — passing the
+	// list through verbatim would leave every plan row blank, and
+	// nothing upstream would report an error.
+	//
+	// Statuses stay in codex's spelling here: the profile does the
+	// field rename, AppServerDriver does the value rename (see
+	// TestAppServer_PlanEventsAreCanonicalAndChained). Splitting the
+	// assertion the same way the code splits keeps a failure pointing
+	// at the layer that owns it.
+	planUpdated := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "turn/plan/updated",
+		"params": map[string]any{
+			"threadId":    "thr_xyz",
+			"turnId":      "turn_001",
+			"explanation": "sequencing the refactor",
+			"plan": []any{
+				map[string]any{"step": "read auth.go", "status": "completed"},
+				map[string]any{"step": "refactor middleware", "status": "inProgress"},
+			},
+		},
+	}
+	got = ApplyProfile(planUpdated, profile)
+	if len(got) != 1 || got[0].Kind != "plan" {
+		t.Fatalf("turn/plan/updated: want one plan, got %+v", got)
+	}
+	if got[0].Payload["turn_id"] != "turn_001" {
+		t.Errorf("plan.turn_id = %v; want turn_001", got[0].Payload["turn_id"])
+	}
+	if got[0].Payload["explanation"] != "sequencing the refactor" {
+		t.Errorf("plan.explanation = %v; want the prose codex sent",
+			got[0].Payload["explanation"])
+	}
+	wantEntries := []any{
+		map[string]any{"content": "read auth.go", "status": "completed"},
+		map[string]any{"content": "refactor middleware", "status": "inProgress"},
+	}
+	if !reflect.DeepEqual(got[0].Payload["entries"], wantEntries) {
+		t.Errorf("plan.entries = %#v; want %#v", got[0].Payload["entries"], wantEntries)
+	}
+
+	// turn/completed → turn.result. duration_ms comes off the wire
+	// (codex `Turn.durationMs`); the driver only fills it when codex
+	// left it null, so the profile must lift it or every turn footer
+	// on a modern codex loses a number the engine already measured.
+	turnCompleted := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "turn/completed",
+		"params": map[string]any{
+			"threadId": "thr_xyz",
+			"turn": map[string]any{
+				"id":         "turn_001",
+				"status":     "completed",
+				"durationMs": float64(4312),
+			},
+		},
+	}
+	got = ApplyProfile(turnCompleted, profile)
+	if len(got) != 1 || got[0].Kind != "turn.result" {
+		t.Fatalf("turn/completed: want one turn.result, got %+v", got)
+	}
+	if got[0].Payload["duration_ms"] != float64(4312) {
+		t.Errorf("turn.result.duration_ms = %v; want 4312", got[0].Payload["duration_ms"])
+	}
+	if got[0].Payload["turn_id"] != "turn_001" || got[0].Payload["status"] != "completed" {
+		t.Errorf("turn.result = %#v; want turn_001/completed", got[0].Payload)
 	}
 }
 

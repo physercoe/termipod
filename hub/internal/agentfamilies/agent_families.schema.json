@@ -57,8 +57,31 @@
           "type": "string",
           "enum": ["", "legacy", "profile", "both"],
           "description": "Selects which translator the host-runner uses. Empty/'legacy' (default) → hardcoded translate(); 'profile' → ApplyProfile authoritative; 'both' → profile authoritative + legacy shadow with divergence logging (ADR-010 Phase 1.6 canary)."
-        }
+        },
+        "default_auth_method": {
+          "type": "string",
+          "description": "Family-level fallback for the ACP `authenticate` method id when the steward template doesn't specify one (ADR-021 D3). Empty means no default — the driver falls through to the first non-interactive method, or raises an attention_request when only interactive ones exist."
+        },
+        "runtime_mode_switch": {
+          "type": "object",
+          "description": "How runtime mode/model switching dispatches, per driving mode (ADR-021 D4). A mode this family hasn't declared is treated as 'unsupported' so the picker degrades safely.",
+          "propertyNames": { "enum": ["M1", "M2", "M4"] },
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["rpc", "respawn", "per_turn_argv", "unsupported"]
+          }
+        },
+        "prompt_image": { "$ref": "#/$defs/ModalitySupport" },
+        "prompt_pdf": { "$ref": "#/$defs/ModalitySupport" },
+        "prompt_audio": { "$ref": "#/$defs/ModalitySupport" },
+        "prompt_video": { "$ref": "#/$defs/ModalitySupport" }
       }
+    },
+    "ModalitySupport": {
+      "type": "object",
+      "description": "Per-driving-mode support for one prompt modality (ADR-021 D5 / artifact-type-registry W7.2). Keyed by mode because an engine can accept a modality on one wire and strip it on another (gemini-cli: images on M1, not M2). Composers gate their attach affordance on this; the hub validates MIME + caps regardless. Missing key = not supported.",
+      "propertyNames": { "enum": ["M1", "M2", "M4"] },
+      "additionalProperties": { "type": "boolean" }
     },
     "Incompat": {
       "type": "object",
@@ -147,17 +170,53 @@
           "description": "Map of output field → expression. Expressions are evaluated in the rule's scope (inner if inside for_each, outer via $$.) and resolved to the agent_event row's payload_json. Mutually exclusive with payload_expr.",
           "additionalProperties": { "type": "string" }
         },
+        "payload_maps": {
+          "type": "object",
+          "description": "Payload fields whose value is an object KEYED BY DATA (claude's modelUsage, keyed by model id). Each source value is re-shaped through `fields` while the source's keys are preserved. Merged with payload; a plain payload field wins a name collision. Mutually exclusive with payload_expr.",
+          "additionalProperties": { "$ref": "#/$defs/Projection" }
+        },
+        "payload_lists": {
+          "type": "object",
+          "description": "Payload fields whose value is an ARRAY of engine-shaped objects that stay one list (codex's turn/plan/updated steps). Each element is re-shaped through `fields`, order preserved. Not for_each — for_each turns an array into N events, this turns an array into one field. Merged with payload; a plain payload field wins a name collision. Mutually exclusive with payload_expr.",
+          "additionalProperties": { "$ref": "#/$defs/Projection" }
+        },
         "payload_expr": {
           "type": "string",
-          "description": "Single expression yielding the *entire* payload (whole-payload passthrough). Used when the legacy translator passes the raw frame as payload — system fallback, error, deprecated completion alias. Must resolve to a map; non-map values yield an empty payload defensively. Mutually exclusive with payload (payload_expr wins if both are set).",
+          "description": "Single expression yielding the *entire* payload (whole-payload passthrough). Used when the legacy translator passes the raw frame as payload — system fallback, error, deprecated completion alias. Must resolve to a map; non-map values yield an empty payload defensively. Mutually exclusive with payload / payload_maps / payload_lists (payload_expr wins if both are set).",
           "pattern": "^\\$\\$?\\..*"
         }
       },
       "oneOf": [
-        { "not": { "required": ["payload", "payload_expr"] } },
-        { "required": ["payload"], "not": { "required": ["payload_expr"] } },
-        { "required": ["payload_expr"], "not": { "required": ["payload"] } }
+        {
+          "required": ["payload_expr"],
+          "not": {
+            "anyOf": [
+              { "required": ["payload"] },
+              { "required": ["payload_maps"] },
+              { "required": ["payload_lists"] }
+            ]
+          }
+        },
+        { "not": { "required": ["payload_expr"] } }
       ]
+    },
+    "Projection": {
+      "type": "object",
+      "required": ["source", "fields"],
+      "additionalProperties": false,
+      "description": "Re-shapes a collection element-wise through one field expression map. Used by payload_maps (over a map's values) and payload_lists (over an array's elements). An absent or wrong-typed source omits the payload field entirely; elements that aren't objects are skipped.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Expression resolving to the collection to walk — a map for payload_maps, an array for payload_lists.",
+          "pattern": "^\\$\\$?\\..*"
+        },
+        "fields": {
+          "type": "object",
+          "description": "Map of output field → expression, evaluated once per element with that element as the inner scope ($.) and the rule's own scope as the outer scope ($$.).",
+          "additionalProperties": { "type": "string" }
+        }
+      }
     }
   }
 }

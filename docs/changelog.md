@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-30)
+> **Status:** Current (2026-08-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.730.1231-alpha
+> **Last verified vs code:** 2026.805.1022-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -38,6 +38,85 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## 2026.805.1022-alpha — 2026-08-05
+
+**A server-side release: the hub grows environments, a datasets catalog, MCP
+2026-07-28 compatibility and a corrected agent-event vocabulary.** Almost
+everything below is hub or host-runner work driving the desktop control plane —
+the phone is unchanged this cycle apart from two strings.
+
+**All three lanes are cut at this version** — `mobile-v2026.805.1022-alpha`,
+`hub-v2026.805.1022-alpha`, `host-v2026.805.1022-alpha` — carrying 17 hub
+commits since `2026.730.1231-alpha`. The desktop workbench cuts separately at
+`2026.805.1022` ([`changelog-desktop.md`](changelog-desktop.md)).
+
+> ⚠ **Operators must redeploy the hub and host-runner binaries.** The
+> 2026.730.1231 section said the same thing about its own 51 commits; if that
+> redeploy has not happened, this cut compounds it and nothing server-side in
+> either section is live.
+
+> **Mobile is a formality this cycle.** The only change under `lib/` since the
+> last tag is two localization strings from #493. Mobile shares one version with
+> hub and host by design (`make bump` writes both files), so the lane is cut to
+> keep the three in lockstep — not because the app changed.
+
+### Added
+- **The Environment entity (E2a).** Environments become first-class rows with
+  CRUD and `env_ref` resolution, so a spawn can name a prepared environment
+  instead of restating it. Distinct from env profiles, which stay as they were.
+  (#479)
+- **`datasets_*` MCP tools.** `datasets_list` / `datasets_get` /
+  `datasets_episodes` / `datasets_episode_series` on the read side and
+  `datasets_register` / `refresh` / `update` / `export` on the write side —
+  Replay's catalog was previously reachable only through the UI, so an agent
+  could see a dataset existed and not read it. (#513, coworking J1+J2)
+- **Decision records.** A `decision_record` entity so a comparison's outcome is
+  a durable row rather than a screenshot, backing the desktop comparison wall.
+  (#509, Worker C B1)
+- **MCP 2026-07-28 compatibility (ADR-063).** `MCP-Protocol-Version` headers,
+  `resultType` stamping, cacheable list results (`ttlMs` + `cacheScope`),
+  `server/discover` on all four servers, per-request `_meta` tolerance,
+  annotations dual-published, and `structuredContent` alongside text. Relay
+  header stamping rides along. (#495, lane U + B2)
+- **Hub-relayed desktop UI context (D5) and agent pointing (D6).** The hub
+  carries the desktop's UI context between agent and surface, and an agent can
+  point at what it means — ref-chips plus `ui_highlight`. (#490, `b9802e36`)
+- **kimi 0.31 wire events.** Cancel, compaction, and the plan / swarm /
+  permission-mode events are now mapped, so a kimi session's transcript stops
+  losing them to `kind=raw`. (#486)
+- **Frame profiles are interpreted in two languages.** The ADR-010 rule
+  language now has a TypeScript interpreter alongside the Go one, pinned to it
+  by a generated fixture that fails when stale. Authors get a new required step
+  in `reference/frame-profiles.md` §6. (#526, vision-parity L2)
+
+### Changed
+- **claude M2's event vocabulary is complete.** `thinking` blocks emit
+  `thought` instead of falling to `kind=raw`; `usage` events carry
+  `context_window`; the profile translator's `by_model` camelCase passthrough
+  is normalized, which had been silently zeroing per-model stats whenever the
+  profile path was active. (#500, vision-parity E1)
+- **codex plans become plan cards, and turns report their duration.**
+  `turn/plan/updated` is promoted from a raw system dump to the `plan` kind
+  both clients already render, and `turn.result` carries `duration_ms` — lifted
+  from codex's own `Turn.durationMs` where present, with a driver-side wall
+  clock as the fallback. (#520, vision-parity E2)
+- **Turn footers and compaction dividers.** The transcript marks where a turn
+  ended and where context was compacted — the marker stewards never had.
+  (#522, vision-parity R3)
+- **Composer attachments are gated on engine capability.** The attach
+  affordance appears only where the engine can actually take one, instead of
+  offering an action that fails downstream. (#523, vision-parity F3)
+- **Raw panes run in their derived workdir**, and the audit event names the
+  right class. (`ea5926f8`)
+
+### Fixed
+- **Orphaned agents on a dead host no longer block its deletion.** A host whose
+  agents were left behind could not be removed, which is exactly the state a
+  dead host is in. (#493)
+- **Three W1 wedges restored to `main`.** GitHub merged them into their base
+  branches rather than `main`, so the code was "merged" and absent; recovered
+  and re-landed. (#515)
 
 ## 2026.730.1231-alpha — 2026-07-30
 

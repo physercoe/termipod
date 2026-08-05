@@ -1,9 +1,9 @@
 # Desktop Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-07-30)
+> **Status:** Current (2026-08-05)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.730.1242 / electron-v2026.730.1242-alpha
+> **Last verified vs code:** desktop 2026.805.1022 / electron-v2026.805.1022-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -38,6 +38,83 @@ This complements:
 - [`decisions/`](decisions/) — append-only ADRs (ADR-050 workbench, ADR-051 tokens, ADR-052 vault, ADR-053 references, ADR-055 Electron)
 
 ---
+
+## 2026.805.1022 — 2026-08-05
+
+**The agent becomes a co-worker in the local tabs.** It can now read and write
+Author documents, render them, drive the editors live, point at what it means,
+and open a surface by name — each behind a consent class rather than synthetic
+input (ADR-064). Alongside that, the Companion gets the telemetry a session
+actually needs: a context ring, engine-reported cost, turn footers, inline
+approval cards. `electron-v2026.805.1022-alpha`, 36 desktop commits since
+`2026.730.1242`.
+
+### Added
+- **`author_*` — the agent co-authors documents.** `author_read`,
+  `author_apply`, `author_render` and `author_guide`, with a consent card
+  granting a per-(agent, target, session) lease rather than bearer scope. A
+  malformed write refuses with the validator's diagnosis and changes nothing.
+  (#505, #517, #518, coworking lane A + C1 + D1)
+- **Live-apply adapters, so an external write reaches the mounted editor.**
+  Diagram and canvas first (#504), then excalidraw, tables and figures — a
+  table reconcile so an agent's write lands in the grid the user is looking at,
+  and a figure dry-run render before commit. (#516, coworking B1–B5)
+- **`author_apply mode:'ops'` — ID-addressed diagram edits.** Add/update/delete
+  by cell id with cascade, all-or-nothing: the first failing op aborts the
+  batch and the document is never touched, because a partially applied batch is
+  a document the user did not ask for. (#517, coworking D1)
+- **`desktop_open` — the navigate class.** An agent can bring a surface
+  forward by name instead of describing where to click. (#519, coworking H1–H3)
+- **The comparison wall + decision records.** A runs table, extremes,
+  config comparer with smoothing, group-by and seed aggregation — and the
+  outcome saved as a decision record. (#509, #514, Worker C lane A + B1)
+- **Inline approval and question cards.** A parked approval or an agent's
+  question surfaces as a card in the transcript instead of only in an
+  attention list. (#501, vision-parity R1)
+- **Context ring + engine-reported cost.** The Companion shows how much of the
+  window a session has used and what the engine says it cost. (#521,
+  vision-parity R2)
+- **Turn footers and compaction dividers** in the transcript. (#522,
+  vision-parity R3)
+- **Media previews in Inspect.** Images, video and audio stream through the
+  media scheme; PDFs render through Read's pdf.js canvas. (#525)
+- **Steward spawn sheet**, template-driven, from the Navigator rail. (#485)
+- **Frame-profile interpreter in TypeScript**, pinned to the hub's Go one by a
+  generated fixture — groundwork for running agents locally. (#526,
+  vision-parity L2)
+
+### Changed
+- **The assistant dock is unified**, and no longer hostage to kimi's
+  lifecycle: kimi-web and Companion are tabs in one dock, the old surface
+  mounts are retired, and the Companion survives kimi being closed. (#483,
+  #498, vision-parity F1)
+- **Annotation targets became an ordered list** rather than a single
+  registration that the last caller clobbered. (#499, vision-parity F2)
+- **Composer attachments are gated on engine capability** — the affordance
+  appears only where the engine can take one. (#523, vision-parity F3)
+- **The draw.io XML validator is vendored** from next-ai-draw-io (Apache-2.0,
+  see NOTICE). Upstream's `autoFixXml` was deliberately **not** ported: its
+  last-resort loop deletes cells until the document parses, which is right when
+  an LLM generated the diagram and wrong when the user owns it. (#505,
+  coworking C1)
+
+### Fixed
+- **Inspect no longer crashes on any file that isn't UTF-8 text.** Opening an
+  mp4 produced a raw decoder `TypeError`; media is now classified by extension
+  before any read, and a binary that genuinely cannot preview says so by name.
+  ★ The same fix added the media scheme to the renderer CSP — it had never been
+  there, which means **Replay's episode video grid had never played**: every
+  URL the scheme produced was refused before its handler ran, silently, with no
+  build, test or lint saying anything. (#525)
+- **SSH reconnect rebinds its tab** instead of hiding behind the dead one, and
+  saved connections appear on Save. (#496, `88087a3e`)
+- **An overflowing Author tree scrolls** instead of crushing its rows. (#484)
+- **`ui_screenshot` dismiss no longer FK-violates.** (`f7da605f`)
+- **The `.deb` ships a setuid `chrome-sandbox` plus an AppArmor userns
+  profile**, so it launches on distributions that restrict unprivileged user
+  namespaces. (#512)
+- **`node_modules` symlinks are untracked**, with a lint so it cannot recur.
+  (#491, #492)
 
 ## 2026.730.1242 — 2026-07-30
 

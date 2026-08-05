@@ -2,8 +2,10 @@
 
 > **Type:** plan
 > **Status:** In flight (2026-08-04) — ADR-064 accepted 2026-08-02, so
-> the contract is settled and principal review is done; W1 merged
-> 2026-08-04 (#503–#508), lane J1 next off it, then W2 per issue #494
+> the contract is settled and principal review is done. W1 merged
+> 2026-08-04 (#503–#508, restored by #515); W2 is part-landed — J1–J2
+> (#513), B3–B5 (#516), D1 — with C2/C3, `author_render` and H1–H3 to
+> go per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
 > the authoring audits
@@ -44,10 +46,19 @@ excluded. Investigation record:
     shipped; `author_render` was already W2 in §11, and `author_guide`
     followed it there because its whole content is C2 + C3, both W2 — a
     guide verb with nothing to answer is a catalog entry that teaches an
-    agent to stop asking. `mode` is `'replace' | 'append'`; `'ops'` is
-    lane D and is refused **by name** (`INVALID_PARAMS`) rather than
-    falling back to replace, which would commit an operation list as the
-    document body.
+    agent to stop asking. `mode` was `'replace' | 'append'` in W1, with
+    `'ops'` refused **by name** (`INVALID_PARAMS`) rather than falling
+    back to replace, which would commit an operation list as the
+    document body; **D1 added `'ops'`** and the by-name refusal now
+    covers any fourth spelling.
+  - *As built (D1):* the schema marks **neither `body` nor `operations`
+    required**, and the xor is enforced in the handler instead.
+    Expressing "one or the other" in JSON Schema needs `oneOf`, and a
+    strict client that cannot compose it drops the whole tool rather
+    than the constraint — while a handler refusal can also say which
+    argument this mode wanted. Sending both is refused rather than
+    resolved: honouring one silently picks for a model that has not
+    decided, and the argument we would have to drop is a whole document.
   - *As built:* the gate set is now `DESKTOP_GATED_TOOL_NAMES`
     (`UI_TOOL_NAMES ∪ AUTHOR_TOOL_NAMES`) and the catalog filter +
     `tunnelClassForTool` read from it, so the next lane that adds a
@@ -316,6 +327,51 @@ the same registry, not new plumbing.
 ## 4. Lane D — Author op modes beyond replace
 
 - **D1** — diagram `mode:'ops'` (ID-based add/update/delete + cascade).
+  - *As built* (`state/drawioOps.ts`): the grammar, the id-match rule,
+    the cascade and the root-cell protection are upstream's
+    (`applyDiagramOperations`); the implementation is not a port, for
+    two reasons that share a root — our caller writes into a document
+    the USER owns, where upstream's writes into one an LLM just
+    generated.
+    - **All-or-nothing.** Upstream applies what it can and returns the
+      failures alongside the result, so a five-op batch with one bad id
+      still writes four changes. Here the first failing op aborts the
+      batch and `doc.body` is never touched: a partially applied batch
+      is a document the user did not ask for, and "some errors" is not
+      what an agent needs to hear about it. Same judgement C1 made
+      about `autoFixXml`.
+    - **Not a DOM round trip.** `XMLSerializer` rewrites attribute
+      order, self-closing form, the declaration and whitespace, so a
+      one-cell edit comes back differing on nearly every line — into
+      the user's linked file, the revert diff and whatever VCS they
+      keep it under. This edits the document as TEXT at element
+      granularity, so every byte outside the named cells survives.
+      That also makes the module DOM-free, which is why the piece
+      deciding what gets deleted from a user's diagram has unit tests
+      at all: `DOMParser` does not exist under `node --test`.
+    - The DOM still gets the last word — the composed body goes back
+      through `validateAuthorBody` → `prepareDiagramBody` →
+      `validateMxCell`, so ops are not a way around the validation the
+      replace path gets.
+  - *Three rules upstream's context did not need:*
+    **(a)** a multi-page `<mxfile>` is refused rather than half-served
+    — draw.io scopes ids per page, so `querySelector('root')` silently
+    edits page one and reports success for a cell the user is looking
+    at on page three; **(b)** `<object>`-wrapped cells are addressable,
+    because indexing `mxCell` only makes every cell with custom
+    properties invisible, and "not found" for a box on screen is the
+    least useful refusal available; **(c)** a delete naming a cell an
+    earlier op in the same batch already cascaded away is a no-op,
+    while one naming an id that never existed is an error — upstream
+    skips every miss silently and so reports success for a typo.
+  - *Also:* deleting a cell takes the whitespace it sat on but not a
+    comment above it; the CASCADE is reported to the agent rather than
+    `console.log`ged, because deleting one box can remove six cells;
+    the approval card counts CHANGES for this mode, since 340 bytes of
+    op payload reads as a trivial edit next to a rewrite's byte count.
+  - `merge` (B1's deferred draw.io action) stays unused: it can only
+    add, so delete-with-cascade cannot be expressed with it. Ops
+    resolve to a complete body and ride B1's existing `load`.
 - **D2** — canvas node/edge ops mapped onto `Board`.
 - **D3** — excalidraw/table stay replace-only until demand exists;
   the cap is stated in the tool description.
@@ -552,8 +608,8 @@ Read/Inspect/Replay. A5 is in W1 by necessity, not by size: it is the
 one item here that closes a data-loss window the wave itself opens.
 **W2** = B3–B5 + D1 + C2 + C3 + `author_render` + **H1–H3** + **J1–J2**
 → all Author kinds; navigation; Replay agent-reachable. *J1–J2 merged
-2026-08-04 (#513); B3–B5 followed. Remaining: D1, C2, C3,
-`author_render`, H1–H3.*
+2026-08-04 (#513); B3–B5 followed (#516); D1 after them. Remaining: C2,
+C3, `author_render`, H1–H3.*
 **W3** = **I1–I4** + J3 + K (as its own plan's waves) + D2 + E1–E3.
 **W4** = I5 + F1 + polish + the K2 arrange write if demand holds.
 

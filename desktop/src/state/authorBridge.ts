@@ -23,6 +23,7 @@
 ///
 /// `authorBridgeHost.ts` does the store work and the wiring.
 import { composeAuthorBody, rendersFromBody, validateAuthorBody, type AuthorApplyMode } from './authorBody.ts';
+import { diagramOpsBytes, narrowDiagramOperations, type DiagramOperation } from './drawioOps.ts';
 import type { ApplyOutcome } from './liveApply.ts';
 import type { AgentEdit } from './agentEdits.ts';
 import type { Doc, DocKind } from './documents.ts';
@@ -45,6 +46,10 @@ export interface AuthorRequest {
   documentId: string | null;
   mode: AuthorApplyMode;
   body: string;
+  /// D1's structured edits. Empty for every other mode — an op list that arrived
+  /// with `mode:'replace'` is not silently honoured, because the caller asked
+  /// for a whole-body write and that is what it gets.
+  operations: readonly DiagramOperation[];
   reason: string;
   /// The agent's handle as the tool call carried it — display text for the
   /// agent-edit chip, never trusted as an identity.
@@ -63,7 +68,16 @@ export interface AuthorDocLine {
 export type AuthorResult =
   | { ok: true; op: 'resolve'; document: AuthorDocLine }
   | { ok: true; op: 'read'; document: AuthorDocLine & { spec: string | null; body: string }; documents: AuthorDocLine[] }
-  | { ok: true; op: 'apply'; document: AuthorDocLine; state: 'applied_live' | 'applied_store_only'; bytes: number }
+  | {
+      ok: true;
+      op: 'apply';
+      document: AuthorDocLine;
+      state: 'applied_live' | 'applied_store_only';
+      bytes: number;
+      /// What the composed body does not say — today, which cells an op batch
+      /// touched and which the cascade took with them (D1).
+      note?: string;
+    }
   | { ok: false; code: string; message: string };
 
 /// The largest body an agent may commit in one call. A document is prose or a
@@ -86,13 +100,21 @@ export function asAuthorRequest(value: unknown): AuthorRequest | null {
   const op = str(v.op);
   if (id === '' || (op !== 'read' && op !== 'resolve' && op !== 'apply')) return null;
   const documentId = str(v.document_id);
-  const mode = v.mode === 'append' ? 'append' : 'replace';
+  const mode = v.mode === 'append' ? 'append' : v.mode === 'ops' ? 'ops' : 'replace';
+  // Narrowed again on this side of the IPC boundary even though main narrowed
+  // the same argument: these entries carry XML fragments that came from an
+  // agent, and this store takes nothing on trust from a channel an agent's
+  // input reached (the `agentHighlight.ts` discipline). A batch that does not
+  // narrow here becomes an empty one, which `composeAuthorBody` refuses by name
+  // rather than treating as "nothing to do".
+  const narrowed = mode === 'ops' ? narrowDiagramOperations(v.operations) : null;
   return {
     id,
     op,
     documentId: documentId === '' ? null : documentId,
     mode,
     body: str(v.body),
+    operations: narrowed !== null && narrowed.ok ? narrowed.ops : [],
     reason: str(v.reason),
     by: str(v.by),
   };
@@ -203,7 +225,9 @@ export function figureRefusal(spec: string, e: unknown): string {
 ///
 ///   1. resolve the target — a document that is gone fails before anything;
 ///   2. cap the size;
-///   3. compose (`replace` / `append`);
+///   3. compose (`replace` / `append` / `ops`) — `ops` is the only mode whose
+///      result depends on the document, and it is composed against the body
+///      resolved in step 1, never against the one the agent last read;
 ///   4. validate the RESULT through the kind's parser, and for a figure also
 ///      through its RENDERER (B5) — a figure body is source for mermaid or
 ///      graphviz, and no parser we own can judge it;
@@ -236,15 +260,20 @@ export async function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): Pr
 
   // The size gate is first among the write checks: a body over the cap is
   // refused without composing, validating or parsing it, so a runaway agent
-  // costs one comparison.
-  if (req.body.length > AUTHOR_BODY_MAX) {
+  // costs one comparison. For an op batch the same cap counts the fragments the
+  // agent sent — the document's own bytes are not the caller's cost, and
+  // charging a batch for the diagram it edits would refuse a one-cell tweak on a
+  // large drawing, which is the case `ops` exists to serve.
+  const sent = req.mode === 'ops' ? diagramOpsBytes(req.operations) : req.body.length;
+  if (sent > AUTHOR_BODY_MAX) {
     return refuse(
       'BODY_TOO_LARGE',
-      `body is ${String(req.body.length)} bytes; the cap is ${String(AUTHOR_BODY_MAX)} — a document is prose or a drawing, not a dataset`,
+      `${req.mode === 'ops' ? 'these operations carry' : 'body is'} ${String(sent)} bytes; the cap is ${String(AUTHOR_BODY_MAX)} — a document is prose or a drawing, not a dataset`,
     );
   }
-  const composed = composeAuthorBody(doc.kind, req.mode, doc.body, req.body);
+  const composed = composeAuthorBody(doc.kind, doc.body, { mode: req.mode, body: req.body, operations: req.operations });
   if (!composed.ok) return refuse(composed.code, composed.message);
+  const note = composed.note;
   const checked = validateAuthorBody(doc.kind, composed.body);
   if (!checked.ok) return refuse(checked.code, checked.message);
   const next = checked.body;
@@ -254,7 +283,7 @@ export async function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): Pr
   // Ahead of the dry run on purpose — re-rendering a body the document already
   // has cannot change the answer, and for mermaid or vega it is not cheap.
   if (next === doc.body) {
-    return { ok: true, op: 'apply', document: line, state: 'applied_live', bytes: next.length };
+    return { ok: true, op: 'apply', document: line, state: 'applied_live', bytes: next.length, ...(note !== undefined ? { note } : {}) };
   }
 
   // B5: the figure dry run. Every other kind has a parser we own, and
@@ -292,5 +321,12 @@ export async function executeAuthorRequest(req: AuthorRequest, io: AuthorIO): Pr
     at: io.now(),
   });
   io.update(doc.id, next);
-  return { ok: true, op: 'apply', document: line, state: applyStateFor(outcome, doc.kind), bytes: next.length };
+  return {
+    ok: true,
+    op: 'apply',
+    document: line,
+    state: applyStateFor(outcome, doc.kind),
+    bytes: next.length,
+    ...(note !== undefined ? { note } : {}),
+  };
 }

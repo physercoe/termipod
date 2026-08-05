@@ -36,6 +36,7 @@ import {
 } from './author';
 import type { AuthorBridgeRequest, AuthorBridgeResult } from './browserbridge';
 import type { Handler } from './ipc/dispatch';
+import { diagramOpsBytes, type DiagramOperation } from '../../src/state/drawioOps.ts';
 
 /// Main → renderer requests; renderer → main replies. Mirrors
 /// `src/state/authorBridge.ts`, which is the other end of both.
@@ -76,6 +77,7 @@ interface RendererRequest {
   documentId: string | null;
   mode?: string;
   body?: string;
+  operations?: readonly DiagramOperation[];
   reason?: string;
   by?: string;
 }
@@ -103,6 +105,7 @@ async function askRenderer(req: RendererRequest): Promise<RendererReply> {
     document_id: req.documentId,
     mode: req.mode ?? 'replace',
     body: req.body ?? '',
+    operations: req.operations ?? [],
     reason: req.reason ?? '',
     by: req.by ?? '',
   });
@@ -184,7 +187,8 @@ async function apply(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
       kind,
       mode: req.mode,
       reason: req.reason,
-      bytes: req.body.length,
+      bytes: req.mode === 'ops' ? diagramOpsBytes(req.operations) : req.body.length,
+      operations: req.operations.length,
     });
     const verdict = await approveViaCardWithOption(leg, card, req.agentHandle);
     if (verdict.verdict !== 'approve') {
@@ -207,6 +211,7 @@ async function apply(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
     documentId,
     mode: req.mode,
     body: req.body,
+    operations: req.operations,
     reason: req.reason,
     by: req.agentHandle !== '' ? req.agentHandle : req.agentId,
   });
@@ -221,6 +226,7 @@ async function apply(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
       kind: str(applied.kind, kind),
       state,
       bytes: typeof done.bytes === 'number' ? done.bytes : req.body.length,
+      ...(typeof done.note === 'string' && done.note !== '' ? { note: done.note } : {}),
     }),
   };
 }

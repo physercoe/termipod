@@ -48,6 +48,7 @@ import type { AddressInfo } from 'node:net';
 // loader (which resolves like plain ESM) as well as esbuild.
 import { partitionPolicy } from './webtab_policy.ts';
 import { parseScreenshotArgs } from './uicapture.ts';
+import { narrowDiagramOperations, type DiagramOperation } from '../../src/state/drawioOps.ts';
 
 // ── Targets / backend ────────────────────────────────────────────────────────
 
@@ -258,11 +259,13 @@ export function redactBridgeArgs(tool: string, args: Record<string, unknown>): R
       // 50-entry in-memory buffer AND in a hub agent_events row.
       out[k] = `<redacted ${String(v.length)} chars>`;
     } else if (tool === 'author_apply' && k === 'operations') {
-      // Lane D's structured edits are not accepted yet, but an argument this
-      // module does not implement still reaches the ring — and the ops carry
-      // body fragments, so it is redacted BEFORE the mode exists rather than
-      // after someone notices.
-      out[k] = '<redacted operations>';
+      // D1's structured edits. Same rule as `body`: each op carries a cell's
+      // XML — the user's own drawing — so the ring records that a batch
+      // happened and how big it was, never what was in it. The COUNT is kept
+      // because "one cell" and "forty cells" are different rows to a person
+      // reading the audit view, and neither is content.
+      const n = Array.isArray(v) ? v.length : 0;
+      out[k] = `<redacted ${String(n)} operation${n === 1 ? '' : 's'}>`;
     } else if (tool === 'author_apply' && k === 'reason' && typeof v === 'string') {
       // Kept — it is the whole point of the row — but clipped like a highlight
       // note: the ring must not out-store what the approval card showed.
@@ -518,16 +521,34 @@ export const READ_TOOLS: readonly McpToolDef[] = [
   {
     name: 'author_apply',
     description:
-      'Write into a document open in the TermiPod desktop Author surface. The desktop user approves EVERY call on a card naming the document, and may grant "this document, this session" — so an edit is never silent. `mode:"replace"` sends the whole new body (read it first); `mode:"append"` adds to the end and is markdown-only. The body must parse as its kind or the call is refused with the parser\'s diagnosis and the document is left byte-identical — a malformed diagram or table is never absorbed. The result says where the write landed: `applied_live` (the user is looking at it) or `applied_store_only` (the document holds it but the open editor still shows the old version — say so). Every apply is revertible from a chip on the document tab.',
+      'Write into a document open in the TermiPod desktop Author surface. The desktop user approves EVERY call on a card naming the document, and may grant "this document, this session" — so an edit is never silent. `mode:"replace"` sends the whole new body (read it first); `mode:"append"` adds to the end and is markdown-only; `mode:"ops"` edits a DIAGRAM cell by cell and is what you want for any change to an existing drawing — restating a whole diagram to move one box silently deletes every cell you did not re-emit. Excalidraw, canvas and table documents are replace-only. The body must parse as its kind or the call is refused with the parser\'s diagnosis and the document is left byte-identical — a malformed diagram or table is never absorbed, and one bad operation refuses the whole batch. The result says where the write landed: `applied_live` (the user is looking at it) or `applied_store_only` (the document holds it but the open editor still shows the old version — say so). Every apply is revertible from a chip on the document tab.',
     inputSchema: {
       type: 'object',
       properties: {
         document_id: { type: 'string', description: 'From author_read; omit for the active document.' },
-        mode: { type: 'string', enum: ['replace', 'append'], description: 'replace = the whole body (default); append = markdown only.' },
-        body: { type: 'string', description: 'The new body, in the document kind\'s own format.' },
+        mode: {
+          type: 'string',
+          enum: ['replace', 'append', 'ops'],
+          description: 'replace = the whole body (default); append = markdown only; ops = diagram cell edits, and needs `operations` instead of `body`.',
+        },
+        body: { type: 'string', description: 'The new body, in the document kind\'s own format. Required unless mode is "ops".' },
+        operations: {
+          type: 'array',
+          description:
+            'For mode "ops" only: draw.io cell edits, applied in order against the current diagram. Deleting a vertex also removes its children and any edge attached to it — the result tells you which. Any operation that fails (unknown id, duplicate id, id disagreeing with new_xml) refuses the whole batch and changes nothing.',
+          items: {
+            type: 'object',
+            properties: {
+              operation: { type: 'string', enum: ['add', 'update', 'delete'] },
+              cell_id: { type: 'string', description: 'The id of the cell this operation edits, as it appears in the diagram.' },
+              new_xml: { type: 'string', description: 'The cell\'s full element source, e.g. <mxCell id="n3" …/>. Required for add and update; its id must equal cell_id.' },
+            },
+            required: ['operation', 'cell_id'],
+            additionalProperties: false,
+          },
+        },
         reason: { type: 'string', description: 'One line for the approval card and the revert chip: why this edit.' },
       },
-      required: ['body'],
       additionalProperties: false,
     },
   },
@@ -789,12 +810,17 @@ export type UiHighlightResult = { ok: true; surface: string; ttl_ms: number } | 
 /// the caller's identity and leg attached — the leg decides who asks for
 /// consent (the hub carded a relayed apply before routing it; a local one is
 /// the desktop's to ask).
+export type AuthorApplyMode = 'replace' | 'append' | 'ops';
+
 export interface AuthorBridgeRequest {
   op: 'read' | 'apply';
   /// null = whichever document is active in Author.
   documentId: string | null;
-  mode: 'replace' | 'append';
+  mode: AuthorApplyMode;
   body: string;
+  /// D1's structured diagram edits — populated for `mode:'ops'` and empty for
+  /// every other mode. Narrowed here and again renderer-side.
+  operations: readonly DiagramOperation[];
   reason: string;
   agentId: string;
   agentHandle: string;
@@ -1372,23 +1398,43 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
         throw new BridgeError('AUTHOR_UNAVAILABLE', 'this desktop build cannot reach its Author documents');
       }
       const documentId = typeof args.document_id === 'string' && args.document_id !== '' ? args.document_id : null;
-      let mode: 'replace' | 'append' = 'replace';
+      let mode: AuthorApplyMode = 'replace';
       let body = '';
+      let operations: DiagramOperation[] = [];
       let reason = '';
       if (name === 'author_apply') {
-        if (typeof args.body !== 'string') {
-          throw new BridgeError('INVALID_PARAMS', 'body must be a string — the document in its own format');
-        }
         if (args.mode !== undefined) {
-          if (args.mode !== 'replace' && args.mode !== 'append') {
-            // 'ops' is lane D and not implemented. Refusing it by name beats
-            // silently treating it as a replace, which would commit an
-            // operation list as the document body.
-            throw new BridgeError('INVALID_PARAMS', `mode must be 'replace' or 'append' (got '${String(args.mode)}')`);
+          if (args.mode !== 'replace' && args.mode !== 'append' && args.mode !== 'ops') {
+            throw new BridgeError('INVALID_PARAMS', `mode must be 'replace', 'append' or 'ops' (got '${String(args.mode)}')`);
           }
           mode = args.mode;
         }
-        body = args.body;
+        // Which argument carries the write depends on the mode, and the schema
+        // deliberately marks NEITHER required: expressing "body xor operations"
+        // in JSON Schema needs oneOf, and a strict client that cannot compose it
+        // drops the tool rather than the constraint. So the rule is enforced
+        // here, where the refusal can say which argument this mode wanted.
+        if (mode === 'ops') {
+          // The SAME narrowing the renderer runs (`drawioOps.ts` imports
+          // nothing, so both sides can share it). Two narrowings of one payload
+          // that could disagree would be worse than one: this leg's refusal is
+          // the one an agent reads, and the renderer's is the one that decides
+          // what gets written.
+          const narrowed = narrowDiagramOperations(args.operations);
+          if (!narrowed.ok) throw new BridgeError('INVALID_PARAMS', narrowed.message);
+          operations = narrowed.ops;
+          if (typeof args.body === 'string' && args.body !== '') {
+            // Sending both is a model that has not decided which write it is
+            // making. Honouring one silently picks for it, and the one we would
+            // have to drop is a whole document.
+            throw new BridgeError('INVALID_PARAMS', "mode 'ops' takes operations, not body — send one or the other");
+          }
+        } else {
+          if (typeof args.body !== 'string') {
+            throw new BridgeError('INVALID_PARAMS', `body must be a string — the document in its own format (mode '${mode}')`);
+          }
+          body = args.body;
+        }
         reason = typeof args.reason === 'string' ? args.reason : '';
       }
       const res = await deps.authorBridge({
@@ -1396,6 +1442,7 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
         documentId,
         mode,
         body,
+        operations,
         reason,
         agentId: ctx.agentId ?? '',
         agentHandle: ctx.agentHandle ?? '',

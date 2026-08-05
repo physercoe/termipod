@@ -127,12 +127,12 @@ test('author_apply narrows its arguments: body required, mode allowlisted', asyn
   assert.equal(noBody.isError, true);
   assert.match(noBody.content[0]?.text ?? '', /INVALID_PARAMS/);
 
-  // 'ops' is lane D and unimplemented. Refusing it by name is the point: a
-  // fallback to 'replace' would commit an operation list AS the document.
-  const ops = await call(h.deps, 'author_apply', { body: '[]', mode: 'ops' });
-  assert.equal(ops.isError, true);
-  assert.match(ops.content[0]?.text ?? '', /INVALID_PARAMS/);
-  assert.match(ops.content[0]?.text ?? '', /'replace' or 'append'/);
+  // A mode outside the set is refused BY NAME rather than falling back to
+  // 'replace', which would commit whatever the caller sent as the document.
+  const bad = await call(h.deps, 'author_apply', { body: '[]', mode: 'merge' });
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0]?.text ?? '', /INVALID_PARAMS/);
+  assert.match(bad.content[0]?.text ?? '', /'replace', 'append' or 'ops'/);
   assert.equal(h.seen.length, 0, 'a refused argument still reached the provider');
 
   const ok = await call(h.deps, 'author_apply', { body: '# hi', mode: 'append', reason: 'why', document_id: 'doc_a' });
@@ -142,11 +142,43 @@ test('author_apply narrows its arguments: body required, mode allowlisted', asyn
     documentId: 'doc_a',
     mode: 'append',
     body: '# hi',
+    operations: [],
     reason: 'why',
     agentId: 'ag_1',
     agentHandle: 'kimi-1',
     via: 'local',
   });
+});
+
+test("mode 'ops' takes operations, and each entry is narrowed before it is forwarded (D1)", async () => {
+  const h = harness();
+  const ok = await call(h.deps, 'author_apply', {
+    mode: 'ops',
+    document_id: 'doc_a',
+    operations: [{ operation: 'delete', cell_id: 'n1' }, { operation: 'update', cell_id: 'n2', new_xml: '<mxCell id="n2"/>' }],
+  });
+  assert.notEqual(ok.isError, true);
+  assert.equal(h.seen[0]?.mode, 'ops');
+  assert.equal(h.seen[0]?.body, '', 'an ops call must not carry a body downstream');
+  assert.deepEqual(h.seen[0]?.operations, [
+    { operation: 'delete', cell_id: 'n1', new_xml: '' },
+    { operation: 'update', cell_id: 'n2', new_xml: '<mxCell id="n2"/>' },
+  ]);
+
+  // The narrowing message names the entry and the field, because "operations is
+  // invalid" costs a round trip that "operations[0].new_xml is required" does
+  // not.
+  const missing = await call(h.deps, 'author_apply', { mode: 'ops', operations: [{ operation: 'add', cell_id: 'n3' }] });
+  assert.equal(missing.isError, true);
+  assert.match(missing.content[0]?.text ?? '', /operations\[0\]\.new_xml is required/);
+
+  // Both arguments at once is a model that has not decided which write it is
+  // making; honouring one silently picks for it, and the loser is a document.
+  const both = await call(h.deps, 'author_apply', { mode: 'ops', body: '<mxfile/>', operations: [{ operation: 'delete', cell_id: 'n1' }] });
+  assert.equal(both.isError, true);
+  assert.match(both.content[0]?.text ?? '', /operations, not body/);
+
+  assert.equal(h.seen.length, 1, 'a refused ops call still reached the provider');
 });
 
 test('an omitted document_id reaches the provider as null, not as ""', async () => {
@@ -209,12 +241,15 @@ test('the document body never reaches the audit ring', () => {
     document_id: 'doc_a',
     body: 'the user’s entire manuscript',
     reason: 'r'.repeat(400),
-    operations: [{ op: 'add' }],
+    operations: [{ operation: 'add', cell_id: 'n1', new_xml: '<mxCell id="n1" value="the user’s own diagram"/>' }],
   });
   // The ring is 50 entries in memory AND a hub agent_events row. It records
   // that an edit happened and how big it was, never the work itself.
   assert.match(String(args.body), /^<redacted \d+ chars>$/);
-  assert.equal(args.operations, '<redacted operations>');
+  // The COUNT survives — "1 operation" and "40 operations" are different rows
+  // to a person reading the audit view, and neither is content.
+  assert.equal(args.operations, '<redacted 1 operation>');
+  assert.equal(redactBridgeArgs('author_apply', { operations: [1, 2] }).operations, '<redacted 2 operations>');
   assert.equal(args.document_id, 'doc_a', 'the id must survive — it is what makes the row readable');
   assert.ok(String(args.reason).length <= 220);
 });

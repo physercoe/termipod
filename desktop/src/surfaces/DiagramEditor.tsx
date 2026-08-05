@@ -107,10 +107,16 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
         unregister?.();
         unregister = registerLiveApply(doc.id, (body) => {
           if (iframeRef.current === null) return 'rejected';
-          // `load` replaces the sheet wholesale, which is what `mode:'replace'`
-          // means. `merge` is draw.io's additive action and belongs to lane D's
-          // `mode:'ops'` — offering it here without the op grammar would let an
-          // agent append to a diagram while believing it replaced one.
+          // `load` replaces the sheet wholesale — and it is the whole write
+          // path, `mode:'ops'` (D1) included. Ops are resolved to a complete
+          // body BEFORE they get here (`state/drawioOps.ts` edits the document
+          // as text and the result goes through the same validator), so what
+          // arrives is always a finished diagram.
+          //
+          // draw.io's own additive action, `merge`, stays unused on purpose: it
+          // can only add, so the op grammar's delete-with-cascade cannot be
+          // expressed with it — a batch would half-apply through the editor
+          // while the store held the other half.
           post({ action: 'load', autosave: 1, xml: body });
           // draw.io answers a `load` with an autosave, which is what writes the
           // store — so the outcome is "the live editor took it", not "the

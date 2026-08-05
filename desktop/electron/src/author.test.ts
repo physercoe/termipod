@@ -163,3 +163,67 @@ test('the document index marks the active document and survives an empty list', 
   assert.match(text, /doc_b \[diagram] \(active\) Arch/);
   assert.equal(text.split('\n').length, 2);
 });
+
+test("D1: an ops card counts CHANGES, not bytes — they are different agreements", () => {
+  const card = authorApprovalCard({
+    agentId: 'ag_1',
+    agentHandle: 'kimi-1',
+    documentId: 'doc_d',
+    title: 'Architecture',
+    kind: 'diagram',
+    mode: 'ops',
+    reason: 'wire the relay',
+    bytes: 340,
+    operations: 3,
+  });
+  assert.match(card.summary, /wants to edit your diagram document “Architecture” \(3 changes\)/);
+  // 340 bytes of op payload would read as a trivial change on a card whose
+  // whole job is telling a tweak from a rewrite.
+  assert.doesNotMatch(card.summary, /bytes/);
+  assert.equal(card.payload.operations, 3);
+  assert.equal(card.payload.mode, 'ops');
+
+  const one = authorApprovalCard({
+    agentId: 'ag_1',
+    agentHandle: 'kimi-1',
+    documentId: 'doc_d',
+    title: 'A',
+    kind: 'diagram',
+    mode: 'ops',
+    reason: '',
+    bytes: 10,
+    operations: 1,
+  });
+  assert.match(one.summary, /\(1 change\)/);
+  // The whole-body modes keep their byte count, and never grow an ops field.
+  const rewrite = authorApprovalCard({
+    agentId: 'ag_1',
+    agentHandle: 'k',
+    documentId: 'd',
+    title: 'A',
+    kind: 'markdown',
+    mode: 'replace',
+    reason: '',
+    bytes: 90,
+  });
+  assert.match(rewrite.summary, /\(90 bytes\)/);
+  assert.equal(Object.prototype.hasOwnProperty.call(rewrite.payload, 'operations'), false);
+});
+
+test('D1: the apply answer carries what the byte count cannot say', () => {
+  const withNote = applyResultText({
+    documentId: 'doc_d',
+    title: 'Arch',
+    kind: 'diagram',
+    state: 'applied_live',
+    bytes: 900,
+    note: 'deleted n1, e1 (e1 was removed by cascade — connected to a deleted cell)',
+  });
+  // An agent that deletes one box and reports "removed the box" is not lying on
+  // purpose when an edge went with it — it simply was not told.
+  assert.match(withNote, /removed by cascade/);
+  assert.match(withNote, /900 bytes/);
+  // Without a note the sentence is the one lane A shipped, unchanged.
+  const plain = applyResultText({ documentId: 'd', title: 'T', kind: 'markdown', state: 'applied_live', bytes: 12 });
+  assert.match(plain, /^applied_live: 12 bytes written to markdown document/);
+});

@@ -1093,19 +1093,34 @@ func (s *Server) maybeEmitContextMutationMarker(
 	if s.db == nil || agentID == "" {
 		return
 	}
-	var agentKind string
+	var agentKind, backendJSON string
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT kind FROM agents WHERE team_id = ? AND id = ?`,
-		team, agentID).Scan(&agentKind); err != nil {
+		`SELECT kind, COALESCE(backend_json, '{}') FROM agents WHERE team_id = ? AND id = ?`,
+		team, agentID).Scan(&agentKind, &backendJSON); err != nil {
 		return
 	}
-	mut, ok := detectContextMutation(agentKind, body)
+	// `agents.kind` is the ENGINE only for a direct spawn. For a steward it is
+	// the persona template (`steward.general.v1`), and the engine family lives
+	// in `backend_json.kind` — the column spawn writes for exactly this reason
+	// (handlers_agents.go:1567). Keying the command table on `kind` meant a
+	// steward's `/compact` matched nothing and emitted no marker, silently, for
+	// the agent class the product is built around. Fall back to `kind` for rows
+	// written before that column was populated.
+	engine := backendKindOf(backendJSON)
+	if engine == "" {
+		engine = agentKind
+	}
+	mut, ok := detectContextMutation(engine, body)
 	if !ok {
 		return
 	}
 	payload := map[string]any{
-		"verb":       mut.Verb,
+		"verb": mut.Verb,
+		// Both, not one renamed into the other (additive vocabulary): a reader
+		// wants the persona that ran the command AND the engine whose context
+		// it mutated, and existing consumers of `agent_kind` keep their field.
 		"agent_kind": agentKind,
+		"engine":     engine,
 		"trigger":    "user_input",
 		// Note explains the divergence the marker is recording so a
 		// reader scrolling the raw events table doesn't have to

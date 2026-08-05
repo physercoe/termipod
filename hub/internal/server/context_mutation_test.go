@@ -115,3 +115,30 @@ func TestDetectContextMutation_CaseSensitive(t *testing.T) {
 		t.Error("/Compact (titlecase) should not match")
 	}
 }
+
+// TestBackendKindOf_ResolvesTheEngineNotThePersona pins the field the
+// marker path keys on. `agents.kind` is the engine only for a direct
+// spawn; a steward's kind is its persona template, and reading it as
+// the engine is why `/compact` from a steward emitted no marker at all
+// — the failure was silent on both sides (the engine still ran the
+// command; only the transcript lost the boundary).
+func TestBackendKindOf_ResolvesTheEngineNotThePersona(t *testing.T) {
+	if got := backendKindOf(`{"kind":"claude-code"}`); got != "claude-code" {
+		t.Errorf("backendKindOf = %q; want claude-code", got)
+	}
+	// The steward shape the bug turned on: the persona is in `kind` on the
+	// row, the engine only here.
+	if _, ok := detectContextMutation("steward.general.v1", "/compact"); ok {
+		t.Error("a persona template must not match the command table — " +
+			"that is the read that produced no marker")
+	}
+	if _, ok := detectContextMutation(backendKindOf(`{"kind":"claude-code"}`), "/compact"); !ok {
+		t.Error("resolving through backend_json must match")
+	}
+	// Rows written before backend_json was populated fall back to `kind`.
+	for _, in := range []string{"", "{}", `{"kind":""}`, "not json"} {
+		if got := backendKindOf(in); got != "" {
+			t.Errorf("backendKindOf(%q) = %q; want empty so the caller falls back", in, got)
+		}
+	}
+}

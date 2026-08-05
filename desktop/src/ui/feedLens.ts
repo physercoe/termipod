@@ -1,6 +1,10 @@
-import { bool, str, type Entity } from '../hub/types';
+// `.ts` extensions on the runtime imports: without them this module is not
+// resolvable under `node --test`, and its hide rules are exactly the kind that
+// fail invisibly (the row is simply absent, and nothing reports it).
+import { bool, str, type Entity } from '../hub/types.ts';
 import type { FeedEvent } from './EventCard';
-import { callToolId, isGateToolCallName, isToolCallUpdateHidden } from './toolGroups';
+import { callToolId, isGateToolCallName, isToolCallUpdateHidden } from './toolGroups.ts';
+import { isContextBoundarySystem } from './turnMarkers.ts';
 
 /// The transcript "lens" — a family filter over the flat event feed, a
 /// byte-for-byte port of mobile's `FeedLens` (feed_reducer.dart:948) and its
@@ -51,8 +55,14 @@ export function matchesLens(ev: FeedEvent, lens: FeedLens, resultById: Map<strin
 const ALWAYS_HIDDEN_KINDS = new Set([
   'usage',
   'rate_limit',
-  'turn.result',
-  'turn.start', // turn boundary marker — pure telemetry, like turn.result
+  // `turn.result` used to sit here, and that was the divergence: mobile has
+  // never hidden it (`kAgentFeedAlwaysHiddenKinds` — session.init, usage,
+  // rate_limit, status_line, turn.start). It is not telemetry, it is where a
+  // turn ENDED, and without it a long run is one undifferentiated scroll.
+  // R3 renders it as a quiet footer instead (EventCard `turn.result` case).
+  // Hiding was render-only: `agentIsBusy` walks the raw feed, so this changes
+  // no busy inference.
+  'turn.start', // the OPENING marker stays hidden — the footer marks the close
   'status_line',
 ]);
 const VERBOSE_ONLY_KINDS = new Set([
@@ -83,6 +93,12 @@ const VERBOSE_ONLY_KINDS = new Set([
 export function isHiddenInFeed(ev: FeedEvent, verbose: boolean, toolNames?: Map<string, string>): boolean {
   if (ev.kind.startsWith('input.')) return false; // user input always visible
   if (ALWAYS_HIDDEN_KINDS.has(ev.kind)) return true;
+  // A compaction boundary arrives as `system`, and `system` is verbose-only.
+  // It is not lifecycle chatter: it marks the point where the engine's memory
+  // of the conversation stopped matching what is on screen, which is the one
+  // thing a reader most needs to know when scrolling back (R3). Exempt it
+  // BEFORE the verbose tier rather than un-hiding `system` wholesale.
+  if (isContextBoundarySystem(ev.kind, ev.payload)) return false;
   if (ev.kind === 'tool_call') {
     const name = str(ev.payload, 'name');
     if (name !== undefined && isGateToolCallName(name)) return true;

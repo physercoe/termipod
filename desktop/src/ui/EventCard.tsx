@@ -6,6 +6,7 @@ import { Markdown } from './Markdown';
 import { useT, type TLookup } from '../i18n';
 import { arr, bool, num, obj, str, type Entity } from '../hub/types';
 import { callToolId } from './toolGroups';
+import { contextDivider, fmtCost, fmtDuration, turnFooter, type ContextDivider } from './turnMarkers.ts';
 
 // Re-exported from its new home in toolGroups.ts (the P1 tool-lineage
 // substrate) so existing importers keep working.
@@ -486,18 +487,8 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, 
       return <DiffBody p={p} />;
     case 'plan':
       return <PlanBody p={p} />;
-    case 'turn.result': {
-      const status = str(p, 'status') ?? str(p, 'stop_reason') ?? 'done';
-      const dur = num(p, 'duration_ms');
-      const msgs = num(p, 'message_count');
-      return (
-        <div className="ev-turn">
-          {t('insight.turn')} {status}
-          {dur !== undefined && ` · ${dur} ms`}
-          {msgs !== undefined && ` · ${msgs} msgs`}
-        </div>
-      );
-    }
+    case 'turn.result':
+      return <TurnFooterBody p={p} t={t} />;
     case 'usage': {
       const model = str(p, 'model');
       const inTok = num(p, 'input_tokens') ?? 0;
@@ -532,11 +523,24 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, 
           {num(p, 'duration_ms') !== undefined && ` · ${num(p, 'duration_ms')} ms`}
         </div>
       );
-    case 'system':
+    case 'system': {
+      // A compaction boundary is structure, not a notice — it draws a rule.
+      const boundary = contextDivider(ev.kind, p);
+      if (boundary !== undefined) return <ContextDividerBody d={boundary} t={t} />;
       // Prefer the frame's human one-liner when the hub ships one (compacted
       // task_progress mirrors `description` into `text`, #374); fall back to
       // the bare subtype tag.
       return <div className="ev-line muted">{str(p, 'text') ?? str(p, 'subtype') ?? 'event'}</div>;
+    }
+    case 'context.compacted':
+    case 'context.cleared':
+    case 'context.rewound': {
+      // The hub's input-route markers (ADR-014 OQ-4). Until R3 these fell to
+      // the generic payload dump — the one row in the transcript that explains
+      // why the agent stopped remembering, rendered as raw JSON.
+      const d = contextDivider(ev.kind, p);
+      return d !== undefined ? <ContextDividerBody d={d} t={t} /> : <GenericBody ev={ev} />;
+    }
     default: {
       // Any unmapped frame that is thinking-ish (a thinking/reasoning payload
       // field, or a kind like `thinking`) renders as a thought, not a raw
@@ -549,6 +553,58 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, 
       return <GenericBody ev={ev} />;
     }
   }
+}
+
+/// The quiet line under a closed turn (R3). `turn.result` was in the feed's
+/// always-hidden set until now, which is where a whole class of "what did that
+/// turn actually cost me" went: mobile has never hidden it. Duration · msgs ·
+/// cost, each shown only when the engine reported it, and a failed turn says
+/// so — the transcript above it may look identical to a successful one.
+function TurnFooterBody({ p, t }: { p: Entity; t: TLookup }): JSX.Element {
+  const f = turnFooter(p);
+  const parts: string[] = [];
+  if (f.durationMs !== undefined) parts.push(fmtDuration(f.durationMs));
+  if (f.messages !== undefined) parts.push(`${f.messages} ${t('tx.msgs')}`);
+  if (f.costUsd !== undefined) parts.push(fmtCost(f.costUsd));
+  return (
+    <div className={f.failed ? 'ev-turn-foot failed' : 'ev-turn-foot'}>
+      <span className="tf-rule" />
+      <span className="tf-text">
+        {f.failed ? `${t('tx.turnEndedBadly')} ${f.status ?? ''}`.trim() : t('tx.turnEnded')}
+        {parts.length > 0 && ` · ${parts.join(' · ')}`}
+      </span>
+      <span className="tf-rule" />
+    </div>
+  );
+}
+
+/// The compaction / clear / rewind divider (R3): a hairline with a centred
+/// label, because what it marks is a discontinuity in the AGENT's view of the
+/// conversation while the transcript above and below runs continuously. Token
+/// before→after appears only where a producer reports it (kimi's M4 tap does;
+/// claude's `compact_boundary` and the hub's input-route markers do not) —
+/// absent stays absent rather than becoming a zero.
+function ContextDividerBody({ d, t }: { d: ContextDivider; t: TLookup }): JSX.Element {
+  const label = t(`tx.ctx.${d.verb}`);
+  const delta =
+    d.tokensBefore !== undefined && d.tokensAfter !== undefined
+      ? `${d.tokensBefore} → ${d.tokensAfter}`
+      : undefined;
+  // The engine's own word, when it differs from the vocabulary's — gemini
+  // calls it `compress`. On hover, so one label reads the same everywhere.
+  const title = [t('tx.ctx.title'), d.engineVerb !== undefined ? `(${d.engineVerb})` : '', d.summary ?? '']
+    .filter((x) => x !== '')
+    .join(' ');
+  return (
+    <div className="ev-ctx-divider" title={title}>
+      <span className="cd-rule" />
+      <span className="cd-label">
+        {label}
+        {delta !== undefined && <span className="cd-delta"> {delta}</span>}
+      </span>
+      <span className="cd-rule" />
+    </div>
+  );
 }
 
 /// The unmapped-frame fallback: the kind plus a collapsed payload dump. Named

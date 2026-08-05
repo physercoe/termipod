@@ -1747,6 +1747,8 @@ const en: Dict = {
   // an agent's marker from reading as the app talking.
   'highlight.points': '{agent} points here',
   'highlight.goThere': 'Go there',
+  'navigate.opened': '{agent} opened',
+  'navigate.undo': 'Undo',
   'uiref.surfaceOnly': 'Opened the surface — this build can\u2019t jump to the exact item',
 
   'debug.lines_one': '{n} line',
@@ -3844,6 +3846,8 @@ const zh: Dict = {
   'annotate.pointing': '将指给智能体的元素',
   'highlight.points': '{agent} 指向这里',
   'highlight.goThere': '前往',
+  'navigate.opened': '{agent} 打开了',
+  'navigate.undo': '撤销',
   'uiref.surfaceOnly': '已打开对应界面——当前版本无法定位到具体条目',
 
   'debug.lines': '{n} 行',

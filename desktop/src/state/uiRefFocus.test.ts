@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
   removeItem: () => undefined,
 };
 
-const { canFocusUiRef, focusUiRef } = await import('./uiRefFocus.ts');
+const { canFocusUiRef, focusUiRef, focusUiRefWithUndo, isNavigableUrl } = await import('./uiRefFocus.ts');
 const { useWorkbench } = await import('./workbench.ts');
 const { useReplay } = await import('./replay.ts');
 const { useInspect } = await import('./inspect.ts');
@@ -65,4 +65,32 @@ test('debug ref prefers the already-open tab; an unopened file stops at the surf
 test('a bare surface ref switches the job and reports the surface tier', () => {
   assert.equal(focusUiRef({ surface: 'read', params: {} }), 'surface');
   assert.equal(useWorkbench.getState().job, 'read');
+});
+
+// ── Coworking H: the undo half ──────────────────────────────────────────────
+
+test('focusUiRefWithUndo reverses the job, and focusUiRef discards that undo', () => {
+  useWorkbench.getState().setJob('author');
+  const out = focusUiRefWithUndo({ surface: 'compare', params: {} });
+  assert.equal(out.result, 'surface');
+  assert.equal(useWorkbench.getState().job, 'compare');
+  out.undo?.();
+  assert.equal(useWorkbench.getState().job, 'author');
+
+  // The click path is unchanged: a user who clicked a chip is already where
+  // they wanted to be, so the wrapper drops the undo rather than offering one.
+  useWorkbench.getState().setJob('author');
+  assert.equal(focusUiRef({ surface: 'compare', params: {} }), 'surface');
+  assert.equal(useWorkbench.getState().job, 'compare');
+});
+
+test('isNavigableUrl is http(s) only — the earlier of the two walls', () => {
+  // The webview partition enforces the same rule at the guest layer; this one
+  // stops a tab being MINTED for a URL that would then refuse to load.
+  assert.equal(isNavigableUrl('https://example.org'), true);
+  assert.equal(isNavigableUrl('http://example.org'), true);
+  assert.equal(isNavigableUrl('HTTPS://EXAMPLE.ORG'), true);
+  for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'app://shell', 'data:text/html,x', '//example.org', 'example.org']) {
+    assert.equal(isNavigableUrl(bad), false, bad);
+  }
 });

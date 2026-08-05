@@ -44,6 +44,7 @@ import { rerunFetchHandlers } from './rerunfetch';
 import { browserBridgeHandlers } from '../browserbridge_host';
 import { desktopuiHandlers } from '../desktopui';
 import { authorHostHandlers } from '../author_host';
+import { desktopOpenHandlers } from '../desktopopen_host';
 import { annotationHostHandlers } from '../annotation_host';
 
 export interface Ctx {
@@ -86,6 +87,7 @@ const handlers: Record<string, Handler> = {
   ...browserBridgeHandlers,
   ...desktopuiHandlers,
   ...authorHostHandlers,
+  ...desktopOpenHandlers,
   ...annotationHostHandlers,
 };
 

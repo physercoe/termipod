@@ -24,6 +24,14 @@
 //     `desktop_action` card on every single call, and the card says so
 //     — screenshots are the one artifact with no standing consent
 //     (plan §3.3, ADR-062 D-4);
+//   - `desktop_open` (ADR-064 lane H) raises NO card either, and unlike
+//     a highlight it DOES actuate — it moves the user's screen. The
+//     judgement is about what an unwanted call costs: an unwanted write
+//     has changed the user's work, while an unwanted navigation has
+//     changed which tab is in front of them, is attributed by name on a
+//     banner, and is undone by one click on it. Its limits are the
+//     desktop's `navigate` policy column, a per-agent rate limit, that
+//     attribution and that undo;
 //   - `ui_highlight` raises NO card. It is non-actuating annotation —
 //     it draws an attributed glow that expires and takes no action with
 //     the user's authority — so ADR-062 D-5 puts its consent in the
@@ -103,6 +111,23 @@ var desktopUIAnnotateTools = []string{
 	"ui_highlight",
 }
 
+// desktopUINavigateTools MOVE the user's screen (coworking lane H,
+// ADR-064 §6). A fourth list rather than a third value on an existing
+// one, because navigation is its own risk shape: unlike a highlight it
+// does not expire, and unlike an action it costs nothing the user
+// cannot reverse in one click on the banner that names the agent.
+//
+// So it routes immediately like a read — no card — and its
+// counterweights live desktop-side: the `navigate` policy column
+// (OPTIONAL, so terminal/settings/vault are unreachable by having no
+// column rather than a false bit), a per-agent rate limit, attribution
+// and undo. Carding every navigation would make "show me where" cost
+// two round trips and a decision, which is how a useful verb becomes
+// one nobody calls.
+var desktopUINavigateTools = []string{
+	"desktop_open",
+}
+
 var desktopUIActionTools = []string{
 	"ui_screenshot",
 	// ADR-064 lane A: a write into a document the user is authoring.
@@ -120,6 +145,11 @@ func desktopUIToolClass(tool string) string {
 			return "annotate"
 		}
 	}
+	for _, n := range desktopUINavigateTools {
+		if n == tool {
+			return "navigate"
+		}
+	}
 	for _, n := range desktopUIActionTools {
 		if n == tool {
 			return "action"
@@ -129,9 +159,10 @@ func desktopUIToolClass(tool string) string {
 }
 
 func desktopUIToolNames() []string {
-	out := make([]string, 0, len(desktopUIReadTools)+len(desktopUIAnnotateTools)+len(desktopUIActionTools))
+	out := make([]string, 0, len(desktopUIReadTools)+len(desktopUIAnnotateTools)+len(desktopUINavigateTools)+len(desktopUIActionTools))
 	out = append(out, desktopUIReadTools...)
 	out = append(out, desktopUIAnnotateTools...)
+	out = append(out, desktopUINavigateTools...)
 	out = append(out, desktopUIActionTools...)
 	return out
 }
@@ -224,8 +255,8 @@ func (s *Server) mcpDesktopUIInvoke(ctx context.Context, team, agentID string, r
 
 	agentHandle, _ := s.lookupHandleByID(ctx, team, agentID)
 
-	// Reads and annotations route immediately; only ACTION needs a human
-	// decision. A grantable action may ride a prior session grant for THIS
+	// Reads, annotations and navigations route immediately; only ACTION
+	// needs a human decision. A grantable action may ride a prior session grant for THIS
 	// class; ui_screenshot never does.
 	if class == "action" {
 		grantKind := ""

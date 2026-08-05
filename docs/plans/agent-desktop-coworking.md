@@ -4,8 +4,8 @@
 > **Status:** In flight (2026-08-04) — ADR-064 accepted 2026-08-02, so
 > the contract is settled and principal review is done. W1 merged
 > 2026-08-04 (#503–#508, restored by #515); W2 is part-landed — J1–J2
-> (#513), B3–B5 (#516), D1, `author_render` — with C2/C3 and H1–H3 to
-> go per issue #494
+> (#513), B3–B5 (#516), D1, `author_render`, H1–H3 — with C2/C3 to go
+> per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
 > the authoring audits
@@ -495,6 +495,36 @@ Populate every reserved-but-empty policy field
   per-surface `navigate` policy column in `UI_POLICY` (default allow
   for the six local-work rows, structurally absent for
   terminal/settings/vault) — the `annotate` carve-out repeated.
+  - *As built:* the column's type is `navigate?: 'allow'` — **optional,
+    with no `'refuse'` spelling**. That is what makes §12's "absent
+    column, not a false bit" true rather than aspirational: `capture:
+    'refuse'` is one character from `'allow'`, while a missing field has
+    to be added on purpose, and a surface added to the table later is
+    un-navigable until somebody decides otherwise. Pinned in
+    `electron/src/ui_policy.test.ts` (which CI runs) as an exact list,
+    plus a second invariant the type system cannot state: **a row that
+    refuses `capture` is never navigable** — a surface too sensitive to
+    photograph is not one to drop the user into with an agent reading
+    the transcript.
+  - *Deviation:* **eight rows, not six.** `fleet` and `projects` are
+    navigable too. They are hub-native views of entities the agent
+    already addresses by id, they hold nothing the snapshot does not
+    already publish, and "I spawned the worker — here it is" is the same
+    act as "here is the run". The six-row count came from the local-work
+    tab list, which is about where co-authoring happens, not about where
+    an agent may point the user.
+  - *As built:* rate limit **3/min**, half `ui_highlight`'s six. A
+    highlight is a glow the user can ignore; a navigation takes the
+    screen.
+  - *As built:* **no card**, and the reasoning sits beside the class in
+    the Go source. The line ADR-062 draws is describe-vs-act and this is
+    on the acting side, but the line that decides CONSENT is what an
+    unwanted call costs: an unwanted `author_apply` has changed the
+    user's work; an unwanted `desktop_open` has changed which tab is in
+    front of them, names the agent on a banner, and is undone by one
+    click. Carding every navigation makes "show me where" cost two round
+    trips and a decision, which is how a useful verb becomes one nobody
+    calls.
 - **H2** — the address space is the existing UIRef grammar
   (`uiRef.ts:10-12`); execution reuses `focusUiRef`/`focusEntity`
   (`uiRefFocus.ts:42-79`) with two consumer extensions: `replay.cursor`
@@ -504,11 +534,43 @@ Populate every reserved-but-empty policy field
   non-root paths still refuse). A visible dismissable toast attributes
   every navigation ("<agent> opened …" + undo-focus), mirroring
   highlight attribution.
+  - *As built:* a **banner, not a toast** (`AgentNavigateBanner`). A
+    toast auto-clears, and an undo that vanishes while the user is still
+    working out what happened is an undo for whoever was watching. It
+    stays until dismissed or used, and sits top-centre rather than in
+    the corner where transient markers live.
+  - *As built:* `focusUiRef` grew a sibling, `focusUiRefWithUndo`,
+    rather than a new return type — the two component call sites are
+    user CLICKS on a chip, and a user who clicked is already where they
+    wanted to be. The undo is honest about its depth: the workbench job
+    always reverts, a Read tab this call OPENED is closed again, an
+    Inspect tab it merely focused hands focus back, and a Replay handoff
+    a surface has already consumed cannot be un-consumed — only the job
+    returns.
+  - **The two deeper consumer extensions did NOT ship here.**
+    `replay.cursor` seek needs `ReplayTarget` to carry a cursor and
+    `EpisodePlayer` to honour it; `debug` open-under-a-pinned-root needs
+    a pending-open handoff that `DebugSurface` consumes (the tree's open
+    path is `onPick` inside a component, not a store action). Both are
+    the same shape as `useReplay.openRegistered`, both are their own
+    wedge, and the class is useful without them because `focusUiRef`
+    already lands the user on the surface and opens what it can. Left as
+    the **H2 tail** — W3.
 - **H3** — `inspect_open` is NOT a separate tool — `desktop_open` with
   a `ui://debug?file=…&kind=…` ref covers it; likewise
   `ui://read?url=…` opens a web tab (the one Read entity agents can
   drive but not open — `ReadSurface.tsx:1865`), gated by the same
   navigate bit.
+  - *As built:* the `ui://read?url=` half shipped. A URL already open is
+    FOCUSED rather than opened twice — a second copy of a page the user
+    already has is the wrong reading of "show me this" — and a
+    non-http(s) URL mints no tab at all. That last check is the earlier
+    of two walls: the webview partition refuses the navigation anyway
+    (`webtab_policy.ts` `allowTopFrame`), but without this one a
+    `file://` or `javascript:` ref would still create a tab that then
+    fails to load, and the user would be looking at a broken tab an
+    agent opened.
+  - The `ui://debug?file=` half is the H2 tail above.
 
 ## 7. Lane J — Replay hub tools (the catalog gap)
 
@@ -654,9 +716,10 @@ Read/Inspect/Replay. A5 is in W1 by necessity, not by size: it is the
 one item here that closes a data-loss window the wave itself opens.
 **W2** = B3–B5 + D1 + C2 + C3 + `author_render` + **H1–H3** + **J1–J2**
 → all Author kinds; navigation; Replay agent-reachable. *J1–J2 merged
-2026-08-04 (#513); B3–B5 followed (#516); then D1 and `author_render`.
-Remaining: C2, C3, H1–H3.*
-**W3** = **I1–I4** + J3 + K (as its own plan's waves) + D2 + E1–E3.
+2026-08-04 (#513); B3–B5 followed (#516); then D1, `author_render`, H1–H3.
+Remaining: C2, C3 — plus the H2 tail, moved to W3.*
+**W3** = **I1–I4** + J3 + K (as its own plan's waves) + D2 + E1–E3 + the
+**H2 tail** (`replay.cursor` seek, `debug` open-under-a-pinned-root).
 **W4** = I5 + F1 + polish + the K2 arrange write if demand holds.
 
 ## 12. Review anchors

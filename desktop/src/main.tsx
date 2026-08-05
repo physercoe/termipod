@@ -76,6 +76,11 @@ async function boot(): Promise<void> {
   // before parking on a reply, so it is registered unconditionally.
   const { initAuthorBridge } = await import('./state/authorBridgeHost');
   initAuthorBridge();
+  // Coworking H: perform `desktop_open` orders. The one channel here that
+  // MOVES the user's screen, so the executor also raises the attributed banner
+  // that carries the undo.
+  const { initAgentNavigate } = await import('./state/agentNavigateHost');
+  initAgentNavigate();
 }
 
 void boot();

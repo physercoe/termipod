@@ -802,6 +802,13 @@ func buildNativeTools() []nativeTool {
 				"ui_highlight points the user at something on their own screen — an ephemeral, " +
 				"attributed marker over a UIRef, non-actuating (it never focuses, scrolls, clicks " +
 				"or types) and needing no approval; the user's click is the only actuator. " +
+				"desktop_open BRINGS them there instead of pointing — it switches surface and " +
+				"opens the entity a UIRef names. It actuates, so it is attributed on a banner " +
+				"naming the caller, undoable from that banner, and rate-limited; Terminal, " +
+				"Settings and the vault cannot be opened at all. Its result says whether the " +
+				"reference resolved to the entity or only to the surface — pass that on rather " +
+				"than claiming you opened something you did not. Prefer ui_highlight when " +
+				"pointing is enough: taking someone's screen is not free. " +
 				"author_read returns a document open in the desktop's Author surface (markdown, " +
 				"draw.io diagram, JSON Canvas board, table, figure source or Excalidraw scene) with " +
 				"its full body plus the index of every open document; author_render draws one of " +

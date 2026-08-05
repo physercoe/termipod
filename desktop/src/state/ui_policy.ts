@@ -15,10 +15,13 @@
 ///     projection, as dot paths into RawFocus (empty = existence only —
 ///     the snapshot degrades to `{surface, captured_at}`);
 ///   - `capture`:   may pixels of this surface ever be captured (D3);
-///   - `highlight`: may an agent draw a pointing annotation over it (D6).
-/// Only `snapshot` has a consumer in D1; the other two are the frame the
-/// later wedges fill. Vault refuses everything, always; settings declares
-/// its existence but refuses pixel capture (a capture shows its values).
+///   - `highlight`: may an agent draw a pointing annotation over it (D6);
+///   - `navigate`:  may an agent bring the user here (lane H, `desktop_open`)
+///     — the one OPTIONAL column, because its absence is how a surface says no.
+/// All four have consumers now — `snapshot` since D1, `capture` in D3's
+/// screenshot gate, `highlight` in D6's pointing gate, `navigate` in lane H's
+/// `desktop_open`. Vault refuses everything, always; settings declares its
+/// existence but refuses pixel capture (a capture shows its values).
 ///
 /// This module is deliberately dependency-free (like webtab_policy.ts): the
 /// renderer publisher and the node --test suites import it without dragging
@@ -152,6 +155,23 @@ export interface UiPolicyRow {
   readonly snapshot: readonly string[];
   readonly capture: UiPolicyBit;
   readonly highlight: UiPolicyBit;
+  /// May an agent BRING THE USER HERE (coworking lane H, `desktop_open`)?
+  ///
+  /// The only column whose sole value is `'allow'`, and the absence is the
+  /// point: `capture: 'refuse'` and `highlight: 'refuse'` are false bits that a
+  /// careless edit flips true, while "terminal, settings and vault cannot be
+  /// navigated to" is written here as *no field at all*. A surface added to
+  /// this table later is therefore un-navigable until somebody decides
+  /// otherwise, rather than inheriting a default nobody thought about
+  /// (ADR-064 §12: "structurally cannot address terminal/settings/vault —
+  /// absent column, not a false bit").
+  ///
+  /// Navigation is the only capability in this table that ACTUATES: it changes
+  /// what is on the user's screen without their click. Its counterweights are
+  /// this column, the per-agent rate limit, and the attributed banner with an
+  /// undo — not a card, because an interruption the user can reverse in one
+  /// click is not the same risk class as a write into their work.
+  readonly navigate?: 'allow';
 }
 
 /// The rows mirror the §3.2 "Surface coverage" matrix exactly. `settings`
@@ -159,22 +179,35 @@ export interface UiPolicyRow {
 /// are existence-only by row, and — because the ACTIVE surface's row gates
 /// the whole projection — nothing else leaks while one of them is focused.
 export const UI_POLICY: Readonly<Record<string, UiPolicyRow>> = {
-  fleet: { snapshot: ['agent.id', 'agent.handle', 'agent.session_id'], capture: 'allow', highlight: 'allow' },
-  projects: { snapshot: ['project.project_id', 'project.task_id'], capture: 'allow', highlight: 'allow' },
+  fleet: { snapshot: ['agent.id', 'agent.handle', 'agent.session_id'], capture: 'allow', highlight: 'allow', navigate: 'allow' },
+  projects: { snapshot: ['project.project_id', 'project.task_id'], capture: 'allow', highlight: 'allow', navigate: 'allow' },
   read: {
     snapshot: ['tabs.kind', 'tabs.title', 'tabs.url', 'tabs.path', 'tab.kind', 'tab.title', 'tab.url', 'tab.path'],
     capture: 'allow',
     highlight: 'allow',
+    navigate: 'allow',
   },
-  author: { snapshot: ['document.id', 'document.title'], capture: 'allow', highlight: 'allow' },
+  author: { snapshot: ['document.id', 'document.title'], capture: 'allow', highlight: 'allow', navigate: 'allow' },
   debug: {
     snapshot: ['inspect_tabs.kind', 'inspect_tabs.path', 'inspect.path', 'inspect.selection'],
     capture: 'allow',
     highlight: 'allow',
+    navigate: 'allow',
   },
-  compare: { snapshot: ['compare.left', 'compare.right'], capture: 'allow', highlight: 'allow' },
-  replay: { snapshot: ['replay.dataset_id', 'replay.episode_id', 'replay.cursor'], capture: 'allow', highlight: 'allow' },
-  record: { snapshot: ['record.record_id'], capture: 'allow', highlight: 'allow' },
+  compare: { snapshot: ['compare.left', 'compare.right'], capture: 'allow', highlight: 'allow', navigate: 'allow' },
+  replay: {
+    snapshot: ['replay.dataset_id', 'replay.episode_id', 'replay.cursor'],
+    capture: 'allow',
+    highlight: 'allow',
+    navigate: 'allow',
+  },
+  record: { snapshot: ['record.record_id'], capture: 'allow', highlight: 'allow', navigate: 'allow' },
+  // No `navigate`. Terminal is the breakglass layer and Settings holds the
+  // values every other rule protects; both are excluded from this whole
+  // capability set by design (ADR-062 §3.8), and a surface an agent may not
+  // photograph is not one it may drop the user into either. `kimiweb` and
+  // `vault` are pseudo-surfaces with no workbench job behind them, so a
+  // navigate could not resolve even if the bit were here.
   terminal: { snapshot: ['terminal.pane_id', 'terminal.agent_id'], capture: 'allow', highlight: 'allow' },
   settings: { snapshot: [], capture: 'refuse', highlight: 'allow' },
   kimiweb: { snapshot: ['kimiweb.url'], capture: 'allow', highlight: 'allow' },

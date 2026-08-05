@@ -70,6 +70,8 @@ import {
   type UiCaptureResult,
   type UiHighlightRequest,
   type UiHighlightResult,
+  type DesktopOpenRequest,
+  type DesktopOpenResult,
 } from './browserbridge';
 import { authorLeases } from './author';
 import { policyForGuest } from './webtab';
@@ -303,6 +305,17 @@ export function setUiHighlightProvider(p: UiHighlightProvider): void {
   uiHighlightProvider = p;
 }
 
+/// Coworking lane H: the navigate provider (desktopopen_host.ts), registered
+/// the same way and for the same reason — it needs this module's window handle
+/// and toggle, and this module must not import it back.
+type DesktopOpenProvider = (req: DesktopOpenRequest) => Promise<DesktopOpenResult>;
+
+let desktopOpenProvider: DesktopOpenProvider | null = null;
+
+export function setDesktopOpenProvider(p: DesktopOpenProvider): void {
+  desktopOpenProvider = p;
+}
+
 /// Coworking A2: the Author co-authoring provider (author_host.ts), registered
 /// the same way and for the same reason — it needs this module's hub context
 /// and desktopui.ts's sharing gate, so it plugs itself in instead of being
@@ -357,6 +370,10 @@ async function enable(): Promise<void> {
       uiHighlightProvider !== null
         ? uiHighlightProvider(req)
         : Promise.resolve<UiHighlightResult>({ ok: false, code: 'UI_UNAVAILABLE', message: 'the highlight provider is not wired' }),
+    openDesktop: (req) =>
+      desktopOpenProvider !== null
+        ? desktopOpenProvider(req)
+        : Promise.resolve<DesktopOpenResult>({ ok: false, code: 'UI_UNAVAILABLE', message: 'the navigate provider is not wired' }),
     authorBridge: (req) =>
       authorBridgeProvider !== null
         ? authorBridgeProvider(req)

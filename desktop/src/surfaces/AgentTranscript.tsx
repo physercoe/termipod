@@ -5,7 +5,9 @@ import type { SseHandle } from '../hub/sse';
 import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { useAgentFamilies } from '../hub/queries';
 import { agentEngine } from '../state/agentEngine';
+import { drivingModeOf, promptCapabilities } from '../state/promptCapabilities';
 import { compactCommandFor, contextFill, foldTranscriptStats } from '../state/transcriptStats';
 import { ContextRing } from '../ui/ContextRing';
 import type { InputAttachments } from '../hub/client';
@@ -439,6 +441,16 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // `backend.kind`, not `agent.kind` — see agentEngine. Only engines whose
   // compaction command the hub recognizes get the shortcut on the ring.
   const compactCommand = useMemo(() => compactCommandFor(agentEngine(agentQ.data)), [agentQ.data]);
+  // F3 — what this agent can actually be handed. The registry is a small,
+  // rarely-changing list; a stale answer here would offer an affordance the
+  // engine refuses, so it is fetched rather than assumed, and until it lands
+  // `promptCapabilities` answers "nothing" (the attach button is absent for
+  // that moment rather than offering a channel we can't vouch for).
+  const familiesQ = useAgentFamilies();
+  const capabilities = useMemo(
+    () => promptCapabilities(agentEngine(agentQ.data), drivingModeOf(agentQ.data), familiesQ.data ?? []),
+    [agentQ.data, familiesQ.data],
+  );
 
   // A tool_result folded into its matching tool_call — not rendered on its own.
   const isFolded = (ev: FeedEvent): boolean => {
@@ -1257,6 +1269,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
             onStop={() => void cancelTurn()}
             inject={quoteSignal}
             slashCommands={slashCommands}
+            capabilities={capabilities}
           />
         </>
       )}

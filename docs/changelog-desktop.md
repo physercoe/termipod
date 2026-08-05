@@ -39,6 +39,33 @@ This complements:
 
 ---
 
+## Unreleased
+
+### Added
+- **`author_guide` — the agent looks up a format before it writes one.**
+  `author_apply` refuses a malformed body rather than repairing it, which is
+  only a fair trade if the rules are readable somewhere cheaper than a failed
+  write. One topic per call, so asking about tables costs nothing for the
+  diagram material. Covers all six document kinds — draw.io body structure,
+  `mode:'ops'`, layout and edge routing, JSON Canvas and our `x-termipod`
+  fields, the table schema, the Excalidraw discriminator, every figure spec —
+  plus **30 vendored draw.io shape libraries** (AWS, Azure, GCP, Cisco,
+  Kubernetes, BPMN and more), with `filter` to narrow the large ones. Gated by
+  the same UI-sharing toggle as its siblings, and deliberately not audited: it
+  reads nothing about the user. (coworking C2 + C3)
+
+### Changed
+- **The UI-sharing consent text now lists all eight gated tools.** It had said
+  "four things" since the first Author lane and had never been updated for
+  `author_render` or `desktop_open` — so the sentence understated what the
+  toggle grants. Both dicts.
+
+### Fixed
+- The `2026.805.1022` entry below listed `author_guide` among the verbs that
+  shipped in it. It did not exist until now; the other three did.
+
+---
+
 ## 2026.805.1022 — 2026-08-05
 
 **The agent becomes a co-worker in the local tabs.** It can now read and write
@@ -51,9 +78,9 @@ approval cards. `electron-v2026.805.1022-alpha`, 36 desktop commits since
 
 ### Added
 - **`author_*` — the agent co-authors documents.** `author_read`,
-  `author_apply`, `author_render` and `author_guide`, with a consent card
-  granting a per-(agent, target, session) lease rather than bearer scope. A
-  malformed write refuses with the validator's diagnosis and changes nothing.
+  `author_apply` and `author_render`, with a consent card granting a
+  per-(agent, target, session) lease rather than bearer scope. A malformed
+  write refuses with the validator's diagnosis and changes nothing.
   (#505, #517, #518, coworking lane A + C1 + D1)
 - **Live-apply adapters, so an external write reaches the mounted editor.**
   Diagram and canvas first (#504), then excalidraw, tables and figures — a

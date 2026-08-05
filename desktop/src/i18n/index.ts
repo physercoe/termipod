@@ -552,7 +552,7 @@ const en: Dict = {
   'assistant.bridgeStopped': 'bridge not running',
   'assistant.uiContextToggle': 'Share UI context and Author documents with agents',
   'assistant.uiContextBlurb':
-    'Off by default. When on, agents on this host (the embedded kimi web panel and local kimi-code sessions) get four things in their MCP catalog. ui_get_focus: what you are looking at, as a compact snapshot — the active surface, its open tab, the focused agent, the Inspect file path + selection. ui_highlight: an attributed marker they can draw on your screen, which expires and clicks nothing. ui_screenshot: a picture of this window, approved by you on every single call. author_read / author_apply: the documents open in Author — they can read the text you are writing, and edit it only after you approve a card naming that document; you can allow one document for the session, every edit is revertible from a chip on its tab, and turning this off drops those permissions. Never shared: message bodies, vault contents, settings values.',
+    'Off by default. When on, agents on this host (the embedded kimi web panel and local kimi-code sessions) get eight tools in their MCP catalog. ui_get_focus: what you are looking at, as a compact snapshot — the active surface, its open tab, the focused agent, the Inspect file path + selection. ui_screenshot: a picture of this window, approved by you on every single call. ui_highlight: an attributed marker they can draw on your screen, which expires and clicks nothing. desktop_open: brings a surface forward by name — it moves your attention, never your data. author_read / author_render: the documents open in Author — they can read the text you are writing, and render one to a picture. author_apply: edits a document, and only after you approve a card naming it; you can allow one document for the session, every edit is revertible from a chip on its tab, and turning this off drops those permissions. author_guide: static reference text on the document formats, which reads nothing about you. Never shared: message bodies, vault contents, settings values.',
   'assistant.bridgeAudit': 'Recent bridge actions',
   'assistant.bridgeAuditBlurb': 'Last 50 action calls (this app run). Typed text is redacted; each call is mirrored to the hub as an agent event when signed in.',
   'assistant.bridgeAuditEmpty': 'no action calls yet',
@@ -2694,7 +2694,7 @@ const zh: Dict = {
   'assistant.bridgeStopped': '桥接未运行',
   'assistant.uiContextToggle': '与智能体共享界面上下文与创作文档',
   'assistant.uiContextBlurb':
-    '默认关闭。开启后，本机上的智能体（内嵌 kimi web 面板与本地 kimi-code 会话）的 MCP 目录中会出现四项能力。ui_get_focus：你正在看什么，返回一份紧凑快照 — 当前工作面、打开的标签页、聚焦的智能体、检视中的文件路径与选区。ui_highlight：在你屏幕上画出的署名标记，会自动消失，且不会点击任何东西。ui_screenshot：本窗口的截图，每一次调用都需要你批准。author_read / author_apply：创作面中打开的文档 — 它们可以读取你正在写的正文，而编辑必须先由你批准一张写明该文档的卡片；你可以在本次会话中放行某一份文档，每次编辑都能从文档标签上的标记撤回，关闭此开关即收回这些授权。永不共享：消息正文、保险库内容、设置项的值。',
+    '默认关闭。开启后，本机上的智能体（内嵌 kimi web 面板与本地 kimi-code 会话）的 MCP 目录中会出现八项工具。ui_get_focus：你正在看什么，返回一份紧凑快照 — 当前工作面、打开的标签页、聚焦的智能体、检视中的文件路径与选区。ui_screenshot：本窗口的截图，每一次调用都需要你批准。ui_highlight：在你屏幕上画出的署名标记，会自动消失，且不会点击任何东西。desktop_open：按名称把某个工作面切到前台 — 它移动的是你的注意力，而不是你的数据。author_read / author_render：创作面中打开的文档 — 它们可以读取你正在写的正文，也可以把文档渲染成图片。author_apply：编辑文档，且必须先由你批准一张写明该文档的卡片；你可以在本次会话中放行某一份文档，每次编辑都能从文档标签上的标记撤回，关闭此开关即收回这些授权。author_guide：关于文档格式的静态参考资料，不会读取任何与你有关的信息。永不共享：消息正文、保险库内容、设置项的值。',
   'assistant.bridgeAudit': '最近桥接操作',
   'assistant.bridgeAuditBlurb': '最近 50 次操作调用（本次应用运行期间）。输入的文本已脱敏；登录后每次调用都会作为智能体事件镜像到枢纽。',
   'assistant.bridgeAuditEmpty': '暂无操作调用',

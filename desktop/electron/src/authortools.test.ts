@@ -83,7 +83,18 @@ test('every author tool lives in READ_TOOLS, so a read-scoped agent can reach th
   assert.ok(names.includes('author_read'));
   assert.ok(names.includes('author_apply'));
   assert.ok(names.includes('author_render'));
-  assert.deepEqual([...AUTHOR_TOOL_NAMES].sort(), ['author_apply', 'author_read', 'author_render']);
+  assert.ok(names.includes('author_guide'));
+  assert.deepEqual([...AUTHOR_TOOL_NAMES].sort(), ['author_apply', 'author_guide', 'author_read', 'author_render']);
+});
+
+test('author_guide is gated but not audited, because it discloses nothing', () => {
+  // It rides the same toggle as its siblings — one capability sentence — but
+  // the audit log answers "what did an agent learn about me?", and this verb
+  // answers with static reference text identical for every caller. Rows that
+  // disclose nothing make the rows that do harder to find.
+  assert.ok(DESKTOP_GATED_TOOL_NAMES.has('author_guide'));
+  assert.equal(DESKTOP_AUDITED_TOOL_NAMES.has('author_guide'), false);
+  assert.equal(DESKTOP_ACTION_TOOL_NAMES.has('author_guide'), false);
 });
 
 test('the sharing toggle hides BOTH author tools from every catalog', async () => {
@@ -107,12 +118,36 @@ test('the gate lives at the tool too, not only in the catalog filter', async () 
   // A stateless caller can call a tool it never listed. The hub tunnel leg does
   // exactly that.
   const off = harness({ sharing: false });
-  for (const name of ['author_read', 'author_apply']) {
-    const out = await call(off.deps, name, { body: 'x' });
+  for (const name of ['author_read', 'author_apply', 'author_guide']) {
+    const out = await call(off.deps, name, { body: 'x', kind: 'diagram' });
     assert.equal(out.isError, true, name);
     assert.match(out.content[0]?.text ?? '', /UI_UNAVAILABLE/, name);
   }
   assert.equal(off.seen.length, 0, 'the provider was reached with sharing off');
+});
+
+test('author_guide answers from main, with no provider and no document', async () => {
+  // The distinction that puts it in its own dispatcher arm: the other three
+  // verbs are about a document that exists and need the renderer, so a build
+  // with no provider refuses them. A guide that went unavailable with no
+  // window open would be missing exactly when an agent is working out what to
+  // send.
+  const none = harness({ provider: false });
+  const idx = await call(none.deps, 'author_guide', { kind: 'diagram' });
+  assert.notEqual(idx.isError, true);
+  assert.match(idx.content[0]?.text ?? '', /shapes/);
+
+  const lib = await call(none.deps, 'author_guide', { kind: 'diagram', topic: 'aws4', filter: 'lambda' });
+  assert.match(lib.content[0]?.text ?? '', /lambda/);
+
+  // And it never reaches the author provider, even when there is one.
+  const on = harness();
+  await call(on.deps, 'author_guide', { kind: 'table' });
+  assert.equal(on.seen.length, 0, 'author_guide reached the document provider');
+
+  const bad = await call(none.deps, 'author_guide', { kind: 'spreadsheet' });
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0]?.text ?? '', /UNKNOWN_KIND/);
 });
 
 test('a build with no provider refuses instead of pretending', async () => {

@@ -37,6 +37,7 @@ import {
 import type { AuthorBridgeRequest, AuthorBridgeResult } from './browserbridge';
 import type { Handler } from './ipc/dispatch';
 import { diagramOpsBytes, type DiagramOperation } from '../../src/state/drawioOps.ts';
+import { RENDER_TRANSPORT_TIMEOUT_MS } from '../../src/state/renderDeadlines.ts';
 
 /// Main → renderer requests; renderer → main replies. Mirrors
 /// `src/state/authorBridge.ts`, which is the other end of both.
@@ -46,6 +47,12 @@ export const AUTHOR_REQUEST_EVENT = 'desktopui_author_request';
 /// plus a parse, short enough that a wedged renderer does not hold the agent's
 /// tool call open. The APPROVAL wait is not inside this window — it happens
 /// between two renderer calls, on the card's own (much longer) deadline.
+///
+/// A RENDER is the exception and gets `RENDER_TRANSPORT_TIMEOUT_MS`: it
+/// legally contains a whole draw.io export (its own 20s deadline) plus
+/// rasterizing, and a transport that gives up first would turn the adapter's
+/// specific diagnosis into a generic timeout while stranding the one-in-flight
+/// export lock past the call it served.
 const RENDERER_TIMEOUT_MS = 15_000;
 
 interface Pending {
@@ -87,7 +94,7 @@ type RendererReply = Record<string, unknown> | null;
 
 /// One round trip. `null` means the renderer never answered — the caller turns
 /// that into a refusal, never into a "maybe it worked".
-async function askRenderer(req: RendererRequest): Promise<RendererReply> {
+async function askRenderer(req: RendererRequest, timeoutMs = RENDERER_TIMEOUT_MS): Promise<RendererReply> {
   const wc = shellWebContents();
   if (wc === null) return null;
   if (!hasSubscriber(wc, AUTHOR_REQUEST_EVENT)) return null;
@@ -97,7 +104,7 @@ async function askRenderer(req: RendererRequest): Promise<RendererReply> {
     const timer = setTimeout(() => {
       pending.delete(id);
       resolve(null);
-    }, RENDERER_TIMEOUT_MS);
+    }, timeoutMs);
     pending.set(id, { resolve, timer });
   });
   emit(wc, AUTHOR_REQUEST_EVENT, {
@@ -171,7 +178,7 @@ async function read(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
 /// between resolving the target and doing the work, so the renderer resolves and
 /// draws in the same call.
 async function render(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
-  const reply = await askRenderer({ op: 'render', documentId: req.documentId, format: req.format });
+  const reply = await askRenderer({ op: 'render', documentId: req.documentId, format: req.format }, RENDER_TRANSPORT_TIMEOUT_MS);
   if (reply === null || reply.ok !== true) return rendererRefusal(reply, 'AUTHOR_UNAVAILABLE', NO_RENDERER);
   const image = (reply.image ?? {}) as Record<string, unknown>;
   const base64 = str(image.base64);

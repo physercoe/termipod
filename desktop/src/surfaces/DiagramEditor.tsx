@@ -5,6 +5,7 @@ import { isShell } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { registerLiveApply } from '../state/liveApply';
 import { registerLiveRender } from '../state/liveRender';
+import { EXPORT_TIMEOUT_MS } from '../state/renderDeadlines';
 import { svgFromDataUri } from '../state/renderDoc';
 import { proxyForConnection } from '../state/proxy';
 
@@ -31,11 +32,9 @@ interface DrawioStatus {
 // pin would deadlock the embed protocol.
 const DRAWIO_ORIGIN = 'drawio://localhost';
 
-/// How long an `author_render` export may take before the caller is told the
-/// editor did not answer. Generous — draw.io rasterizes a large sheet on the
-/// main thread — and bounded, because the alternative is an agent's tool call
-/// parked on an iframe that will never reply.
-const EXPORT_TIMEOUT_MS = 20_000;
+// EXPORT_TIMEOUT_MS bounds the export wait; it lives in renderDeadlines.ts
+// beside the render leg's transport deadline, which must outlast it — see the
+// invariant note there.
 
 function drawioBase(): string {
   return `${DRAWIO_ORIGIN}/`;
@@ -191,7 +190,7 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
       unregisterRender?.();
       // A caller parked on an export must not outlive the editor it is waiting
       // on: unmounting is a definite answer, and a rejected promise reaches the
-      // agent as a refusal rather than as this call's 15s renderer deadline.
+      // agent as a refusal rather than as the render leg's transport deadline.
       settleExport(new Error('the diagram editor closed before the export finished'));
     };
   }, [status?.installed, doc.id, update]);

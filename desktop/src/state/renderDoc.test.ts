@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { EXPORT_TIMEOUT_MS, RENDER_TRANSPORT_TIMEOUT_MS } from './renderDeadlines.ts';
 import {
   decodeDataUri,
   mimeForFormat,
@@ -118,4 +119,14 @@ test('svgFromDataUri handles both encodings and rejects the wrong type', () => {
   const notSvg = svgFromDataUri('data:image/svg+xml;base64,aGVsbG8=', decode);
   assert.equal(notSvg.ok, false);
   if (!notSvg.ok) assert.match(notSvg.message, /not an SVG document/);
+});
+
+test('the render transport deadline outlasts the export deadline', () => {
+  // The adapter's timeout message ("draw.io did not answer within 20s") is
+  // only ever composed for an agent if main is still listening when it fires.
+  // If this inverts, every slow export reports the generic transport timeout
+  // instead, and the one-in-flight export lock outlives the call it served —
+  // a retry inside the gap is told an export is in flight that nobody is
+  // waiting on.
+  assert.ok(RENDER_TRANSPORT_TIMEOUT_MS > EXPORT_TIMEOUT_MS);
 });

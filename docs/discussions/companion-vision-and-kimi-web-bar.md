@@ -282,6 +282,11 @@ JSON-RPC server that happens to listen on stdio (and, since 2026-03,
 WebSocket) — architecturally **kap-server's twin**. Claude is the odd
 one out: no daemon exists; its native shape is spawn-per-session.
 
+> **Corrected 2026-08-05 — see §11.** A `claude daemon` does exist,
+> and already did when this was written. The conclusion holds on a
+> different fact: it exits when the last client disconnects, so it is
+> not a client-outliving session server.
+
 **The hub-optional consequence.** "Local" for the Companion means it
 must work with no hub at all — the hub is one *source*, chosen for
 remote hosts, fleet, and durable state, never a prerequisite. The
@@ -318,3 +323,66 @@ claude-code and codex as a transport lane. Related reading:
 [codex-m2-app-server-surface-audit.md](codex-m2-app-server-surface-audit.md),
 [../plans/desktop-ui-context-and-pointing.md](../plans/desktop-ui-context-and-pointing.md),
 [../plans/agent-transcript-redesign.md](../plans/agent-transcript-redesign.md).
+
+## 11. Addendum (2026-08-05) — claude has a daemon; §9's conclusion outlives its premise
+
+Appended rather than edited in place: this doc is a `snapshot`, so §9
+stays as the 2026-07-31 record and the correction sits below it. §10's
+resolution is unchanged.
+
+**§9 says "no daemon exists" for claude. That is false, and it was
+false when written.** Verified on claude-code 2.1.220 (daemon 2.1.208,
+Linux):
+
+- `claude daemon` is a real command surface — `run`, `status`, `logs`,
+  `stop [--any] [--keep-workers]`, `uninstall` (launchctl/systemd).
+- Supervisor state lives at `~/.claude/daemon.status.json` (pid +
+  worker map) and `~/.claude/daemon/` (`control.key`, `dispatch/`,
+  `roster.json`), with a control socket under
+  `/tmp/cc-daemon-<uid>/<hash>/control.sock`.
+- Its log shows it supervising background workers (adopt, respawn,
+  prewarm, orphan reap), self-restarting when the binary upgrades, and
+  refreshing the subscription OAuth token cross-process.
+- `control.key` is dated 2026-07-05 and the log runs from 2026-07-12 —
+  **the daemon predates §9 by weeks.** This was not drift. The absence
+  was asserted without being searched for, which is the same defect
+  class the repo's conventions name: an absence you haven't grepped
+  for is a guess.
+
+**The conclusion survives, for a sharper reason than the one given.**
+`claude daemon --help` states that service install is disabled in this
+version and that "the daemon runs on demand and exits when the last
+client disconnects." That is exactly the property §9's table credits
+kap-server with and M2 with lacking — *server outlives clients*. A
+supervisor that dies with its last client cannot be the durable
+session server L3 needs, whatever else it does. Whether interactive
+sessions are attachable through its control socket is **unverified,
+and should stay out of planning either way**: the socket is
+undocumented, key-gated and version-coupled, so building on it would
+be a private-API dependency on a moving target.
+
+So the claim to carry forward is not "no daemon exists" but **"no
+attachable, client-outliving session server is offered"**. D-8
+("we build one") is unchanged; only its justification is repaired.
+
+**Two related corrections to §9's SDK picture**, same date, same
+source (`code.claude.com/docs/en/agent-sdk/`):
+
+- The Agent SDK now ships the session catalog L3 would otherwise
+  hand-roll: `listSessions()`, `getSessionMessages()`,
+  `getSessionInfo()`, `renameSession()`, `tagSession()`,
+  `deleteSession()`, `forkSession()`, `listSubagents()`. The docs name
+  our own use case — build "custom session pickers, cleanup logic, or
+  transcript viewers". A local session picker is therefore adoption,
+  not construction.
+- The experimental V2 session API (`createSession()` with a
+  send/stream pattern) was **removed** in TypeScript Agent SDK
+  0.3.142. The vendor tried a session-object API and pulled it, which
+  is independent support for §9's reading that claude's native shape
+  is spawn-per-session.
+- `SessionStore` (`append`/`load` required; `listSessions`,
+  `listSessionSummaries`, `delete`, `listSubkeys` optional) is a
+  supported transcript mirror for cross-host resume — adjacent to
+  ADR-057 teleport, but a *mirror*, not a replacement: the subprocess
+  still writes local disk first, and it cannot be combined with file
+  checkpointing.

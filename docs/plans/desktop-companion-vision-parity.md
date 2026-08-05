@@ -262,6 +262,21 @@ transport rung (lane T), never the renderer's ceiling.
   service rebinds via engine-native resume + log replay. Emits the
   lane-E corrected shapes from day one (`thought`, `context_window` on
   `usage`, normalized `by_model`).
+  - *Constraint (2026-08-05) — resolve claude's config root, never
+    assume it.* `CLAUDE_CONFIG_DIR` relocates claude's entire home, so
+    the service reads it before falling back to `~/.claude`, and
+    treats that root as **per-account, not per-machine**: a director
+    running work and personal claude.ai logins has N roots, and
+    "sessions on this machine" is the union over the roots they have
+    configured, not one directory walk. Auth follows the root — a
+    **subscription** session authenticates from
+    `<root>/.credentials.json` with an OAuth token a live supervisor
+    refreshes, so a child spawned with a rewritten or scrubbed env
+    loses its login where an API-key child would not notice. The
+    service must therefore pass the root through to every child it
+    spawns, and must not treat "no API key" as "not signed in". See
+    the standing bug class in §6 — the same gap is already shipped in
+    Go, and L3 only inherits it.
 - **L4 — codex via the vendor's service (D-8: use theirs when it
   exists).** Prefer **WebSocket attach** to a `codex app-server`
   daemon — spawn it detached if absent, authenticate with its bearer
@@ -594,6 +609,33 @@ service (LAN/mobile clients are a recorded follow-up, not this plan).
   fixtures per `docs/reference/frame-profiles.md`; the fallback rule
   (unmatched → `raw`) means a mis-written rule fails silent — pin with
   fixtures, not eyeballs.
+- **Engine store roots are env-relocatable, and we honour none of it**
+  (found 2026-08-05). `CLAUDE_CONFIG_DIR` moves claude's whole home —
+  transcripts, settings, `.credentials.json`, the `claude daemon`
+  roster — off `~/.claude`. `grep -rn CLAUDE_CONFIG_DIR` across Go, TS
+  and Dart returns nothing, so `ProjectDirFor` hardcodes `.claude`
+  (`drivers/local_log_tail/claude_code/pathresolver.go:33`) and both
+  its consumers — the M4 tail (`claude_code/adapter.go:307`) and
+  teleport engine-state pack/restore
+  (`hostrunner/teleport_state.go:63,145`) — resolve a path that cannot
+  exist for such a user. It fails **silent**: no error, a tail that
+  never fires, a bundle that packs nothing. It lands on
+  **subscription** users first — the variable's main real-world use is
+  running two claude.ai accounts side by side, which an API-key user
+  has no reason to do, so reading the SDK docs alone understates who
+  is affected. Any lane-L wedge that resolves an engine path resolves
+  the root first; the shipped-Go fix is its own ticket, not L3's.
+- **The same resolver's slug rule is narrower than the vendor
+  documents.** `EncodeProjectDir` replaces path separators only
+  (`pathresolver.go:24`); Anthropic's docs state the encoding replaces
+  *every non-alphanumeric* character, which would diverge on any cwd
+  containing `_` or `.`. Every slug observable here (`ls
+  ~/.claude/projects/`) holds nothing but separators and
+  alphanumerics, so the sample the rule was derived from cannot tell
+  the two rules apart — the defect class is a resolver generalised
+  from a degenerate observation. Settle it with one experiment before
+  L3 depends on it: run a claude session in a path containing `_` and
+  read back the directory name it creates.
 
 ## 7. Acceptance
 

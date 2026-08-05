@@ -200,12 +200,19 @@ export function AgentCompanion({
 
   // F3 — the bound agent's prompt modalities, resolved from the family
   // registry. Engine from `backend.kind` (a steward's own kind is its
-  // template) and mode from the hub's RESOLVED `mode`. An agent the list
-  // hasn't caught up with yet resolves to "nothing attachable", which hides
-  // the button rather than offering a channel the engine may refuse.
+  // template) and mode from the hub's RESOLVED `mode`. Ungated (undefined)
+  // until the registry resolves — the gate is for an engine the registry SAYS
+  // takes nothing, not for the moment nothing can be said; refusing on a
+  // registry that is loading or unreachable would kill the annotation crop
+  // and the attach button on no knowledge at all. A loaded list that does not
+  // name this engine still resolves to "nothing attachable".
   const capabilities = useMemo(() => {
+    if (familiesQ.data === undefined) return undefined;
     const agent = agents.find((x) => str(x, 'id') === agentId);
-    return promptCapabilities(agentEngine(agent), drivingModeOf(agent), familiesQ.data ?? []);
+    // The bound agent not being in the list yet is the same unknown: its
+    // record loading is not its engine declining.
+    if (agent === undefined) return undefined;
+    return promptCapabilities(agentEngine(agent), drivingModeOf(agent), familiesQ.data);
   }, [agents, agentId, familiesQ.data]);
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);

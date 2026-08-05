@@ -443,12 +443,18 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   const compactCommand = useMemo(() => compactCommandFor(agentEngine(agentQ.data)), [agentQ.data]);
   // F3 — what this agent can actually be handed. The registry is a small,
   // rarely-changing list; a stale answer here would offer an affordance the
-  // engine refuses, so it is fetched rather than assumed, and until it lands
-  // `promptCapabilities` answers "nothing" (the attach button is absent for
-  // that moment rather than offering a channel we can't vouch for).
+  // engine refuses, so it is fetched rather than assumed. Until it RESOLVES
+  // the composer stays ungated (undefined): the gate exists for the engine
+  // the registry says takes no images, not for the moment we cannot say — a
+  // registry that is loading, absent or erroring would otherwise refuse a
+  // user-armed crop and hide the attach button on no knowledge at all. Once
+  // the list is in, an engine it does not name still resolves to "nothing".
   const familiesQ = useAgentFamilies();
   const capabilities = useMemo(
-    () => promptCapabilities(agentEngine(agentQ.data), drivingModeOf(agentQ.data), familiesQ.data ?? []),
+    () =>
+      familiesQ.data === undefined || agentQ.data === undefined
+        ? undefined
+        : promptCapabilities(agentEngine(agentQ.data), drivingModeOf(agentQ.data), familiesQ.data),
     [agentQ.data, familiesQ.data],
   );
 

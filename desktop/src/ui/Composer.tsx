@@ -155,6 +155,15 @@ export function Composer({
   useEffect(() => {
     if (injectImage === null || injectImage === undefined || injectImage.id === lastImageRef.current) return;
     lastImageRef.current = injectImage.id;
+    // The same gate `addFiles` runs (F3): an annotation crop is an image
+    // arriving by another door, and staging it for an engine whose
+    // `prompt_image` is false sends bytes the model never sees. The note is
+    // held back with it — "the circled area" with no image attached would be
+    // the same false claim in text.
+    if (capabilities !== undefined && !attachAllowed('image', capabilities)) {
+      setErr(t('composer.kindUnsupported').replace('{name}', injectImage.name).replace('{kind}', 'image'));
+      return;
+    }
     setStaged((prev) => [
       ...prev,
       {

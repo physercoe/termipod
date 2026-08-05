@@ -392,7 +392,7 @@ func TestPreTrustWorkspaceClaudeCode_FreshFile(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
-	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+	if err := preTrustWorkspaceClaudeCode(workdir, ""); err != nil {
 		t.Fatalf("preTrust: %v", err)
 	}
 
@@ -439,7 +439,7 @@ func TestPreTrustWorkspaceClaudeCode_PreservesOtherKeys(t *testing.T) {
 	}
 
 	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
-	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+	if err := preTrustWorkspaceClaudeCode(workdir, ""); err != nil {
 		t.Fatalf("preTrust: %v", err)
 	}
 
@@ -490,7 +490,7 @@ func TestPreTrustWorkspaceClaudeCode_AlreadyTrusted_NoMutation(t *testing.T) {
 	}
 	statBefore, _ := os.Stat(filepath.Join(home, ".claude.json"))
 
-	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+	if err := preTrustWorkspaceClaudeCode(workdir, ""); err != nil {
 		t.Fatalf("preTrust: %v", err)
 	}
 
@@ -528,5 +528,68 @@ func TestCmdContainsResumeFlag(t *testing.T) {
 				t.Errorf("cmdContainsResumeFlag(%q) = %v, want %v", tc.cmd, got, tc.want)
 			}
 		})
+	}
+}
+
+// $CLAUDE_CONFIG_DIR relocates claude's whole config home. The trust
+// file must follow it — and must NOT fall back to the default profile's
+// `~/.claude.json`, which belongs to a different claude.ai account.
+// Relocation exists precisely so two accounts don't share state; the
+// same file holds the OAuth session.
+func TestClaudeUserConfigPath_FollowsRelocatedRoot(t *testing.T) {
+	const home = "/home/dana"
+
+	cases := []struct {
+		name       string
+		configHome string
+		want       string
+	}{
+		{"default root keeps the sibling layout", "/home/dana/.claude", "/home/dana/.claude.json"},
+		{"empty falls back to the default", "", "/home/dana/.claude.json"},
+		{"relocated root owns its own file", "/home/dana/.claude-work", "/home/dana/.claude-work/.claude.json"},
+		{"root outside home still owns it", "/srv/profiles/work", "/srv/profiles/work/.claude.json"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeUserConfigPath(tc.configHome, home); got != tc.want {
+				t.Errorf("claudeUserConfigPath(%q, %q) = %q, want %q",
+					tc.configHome, home, got, tc.want)
+			}
+		})
+	}
+}
+
+// End-to-end for the relocated case: the trust grant lands in the
+// relocated profile and the default profile's file is never created.
+func TestPreTrustWorkspaceClaudeCode_RelocatedConfigHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configHome := filepath.Join(home, ".claude-work")
+	if err := os.MkdirAll(configHome, 0o755); err != nil {
+		t.Fatalf("mkdir config home: %v", err)
+	}
+
+	workdir := "/home/dana/hub-work/abcd1234/@steward.x"
+	if err := preTrustWorkspaceClaudeCode(workdir, configHome); err != nil {
+		t.Fatalf("preTrust: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(configHome, ".claude.json"))
+	if err != nil {
+		t.Fatalf("trust file not written under the relocated root: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	projects, _ := cfg["projects"].(map[string]any)
+	entry, _ := projects[workdir].(map[string]any)
+	if entry == nil || entry["hasTrustDialogAccepted"] != true {
+		t.Fatalf("workdir not trusted in the relocated profile: %+v", cfg)
+	}
+
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("default profile's ~/.claude.json was touched (err=%v); "+
+			"a relocated spawn must not write into another account's config", err)
 	}
 }

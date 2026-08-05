@@ -604,7 +604,11 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       properties: {
         kind: {
           type: 'string',
-          enum: ['markdown', 'diagram', 'canvas', 'table', 'figure', 'excalidraw'],
+          // Derived, not written out: guide.test.ts pins GUIDE_KINDS to DocKind,
+          // so a seventh kind gets a guide — but a literal here would stay six
+          // long and a schema-validating client would refuse the kind the
+          // handler serves. The offer surface must not be able to drift.
+          enum: [...GUIDE_KINDS],
           description: 'The document kind to explain.',
         },
         topic: { type: 'string', description: 'A topic within the kind; omit for the index of topics.' },

@@ -50,7 +50,7 @@ jgraph/drawio's own Apache-2.0 shape data. The directory is unmodified,
 so it can be diffed against upstream directly; the corrections we serve
 on top of it (a scraping artifact removed, an index rebuilt from the
 files that exist, a stated count of what each file enumerates) live in
-`gen-shapes.mjs` and are documented there.
+`gen-shapes.ts` and are documented there.
 
 `desktop/electron/src/authorguide/guides.ts` adapts the layout and
 edge-routing rules from that project's `lib/system-prompts.ts` for the

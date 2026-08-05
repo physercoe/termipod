@@ -232,9 +232,14 @@ func buildEmit(emit agentfamilies.Emit, inner, outer map[string]any) EmittedEven
 			payload = map[string]any{}
 		}
 	} else {
-		payload = make(map[string]any, len(emit.Payload)+len(emit.PayloadMaps))
+		payload = make(map[string]any, len(emit.Payload)+len(emit.PayloadMaps)+len(emit.PayloadLists))
 		for name, proj := range emit.PayloadMaps {
 			if v := projectMap(proj, inner, outer); v != nil {
+				payload[name] = v
+			}
+		}
+		for name, proj := range emit.PayloadLists {
+			if v := projectList(proj, inner, outer); v != nil {
 				payload[name] = v
 			}
 		}
@@ -279,6 +284,35 @@ func projectMap(proj agentfamilies.MapProjection, inner, outer map[string]any) m
 			fields[f] = profile_eval.Eval(expr, val, inner)
 		}
 		out[key] = fields
+	}
+	return out
+}
+
+// projectList resolves a ListProjection: walk the source array in
+// order, re-shape each element through the projection's field
+// expressions, return one list. Returns nil when the source is absent
+// or isn't an array, so the caller omits the field entirely — same
+// absent-vs-empty distinction projectMap draws.
+//
+// An empty source array *is* projected (to an empty list): "the agent
+// published a plan with no steps" is a claim the engine made, unlike a
+// missing field.
+func projectList(proj agentfamilies.ListProjection, inner, outer map[string]any) []any {
+	src, ok := profile_eval.Eval(proj.Source, inner, outer).([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]any, 0, len(src))
+	for _, raw := range src {
+		elem, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		fields := make(map[string]any, len(proj.Fields))
+		for f, expr := range proj.Fields {
+			fields[f] = profile_eval.Eval(expr, elem, inner)
+		}
+		out = append(out, fields)
 	}
 	return out
 }

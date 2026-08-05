@@ -7,6 +7,13 @@
 # Append real captures from a `codex app-server --listen stdio://`
 # session as that surface stabilizes — see the codex parity test's
 # operator workflow comment for the recording recipe.
+#
+# The turn/completed and turn/plan/updated rows were widened to the
+# full notification shape from the vendor's own generated schema
+# (`codex app-server generate-json-schema`, codex-cli 0.133.0) rather
+# than from a capture: TurnCompletedNotification carries threadId and
+# Turn.durationMs, TurnPlanUpdatedNotification carries threadId and an
+# optional explanation. Authored-from-schema, not recorded.
 
 # 1. Thread lifecycle
 {"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"thr_abc","preview":"Working on the auth refactor","ephemeral":false,"modelProvider":"gpt-5.4","createdAt":"2026-04-29T10:00:00Z"}}}
@@ -14,7 +21,7 @@
 
 # 2. Turn lifecycle
 {"jsonrpc":"2.0","method":"turn/started","params":{"turn":{"id":"turn_001","status":"inProgress","items":[]}}}
-{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_001","status":"completed"}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr_test","turn":{"id":"turn_001","status":"completed","durationMs":4312}}}
 
 # 3. Item lifecycle — agentMessage (text reply)
 {"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_msg_1","type":"agentMessage"}}}
@@ -53,7 +60,7 @@
 
 # 9. Diff and plan updates
 {"jsonrpc":"2.0","method":"turn/diff/updated","params":{"threadId":"thr_abc","turnId":"turn_001","diff":"--- a/src/auth.go\n+++ b/src/auth.go\n@@ ..."}}
-{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"turnId":"turn_001","plan":[{"step":"read auth.go","status":"completed"},{"step":"refactor middleware","status":"inProgress"}]}}
+{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"thr_test","turnId":"turn_001","explanation":"sequencing the refactor","plan":[{"step":"read auth.go","status":"completed"},{"step":"refactor middleware","status":"inProgress"}]}}
 
 # 10. Forward-compat: unprofiled method falls through to kind=raw
 {"jsonrpc":"2.0","method":"item/reasoning/textDelta","params":{"itemId":"item_msg_1","contentIndex":0,"delta":"Thinking about... "}}

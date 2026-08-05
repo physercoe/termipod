@@ -293,6 +293,12 @@ type Emit struct {
 	// the two never name the same field in practice, and if they did,
 	// Payload wins (it is the simpler declaration).
 	PayloadMaps map[string]MapProjection `yaml:"payload_maps,omitempty" json:"payload_maps,omitempty"`
+	// PayloadLists is the array twin of PayloadMaps: a payload field whose
+	// value is a LIST of engine-shaped objects that need re-shaping
+	// element-wise while staying one list — codex's `turn/plan/updated`
+	// plan steps are the motivating case. Same merge rule as PayloadMaps
+	// (Payload wins a name collision).
+	PayloadLists map[string]ListProjection `yaml:"payload_lists,omitempty" json:"payload_lists,omitempty"`
 }
 
 // MapProjection re-shapes every VALUE of a source map through one field
@@ -313,6 +319,33 @@ type MapProjection struct {
 	Source string `yaml:"source" json:"source"`
 	// Fields is evaluated once per value, with that value as the inner
 	// scope and the rule's own scope as the outer scope (`$$.`).
+	Fields map[string]string `yaml:"fields" json:"fields"`
+}
+
+// ListProjection re-shapes every ELEMENT of a source array through one
+// field expression map, preserving order and producing a single list.
+//
+// It is the array twin of MapProjection, and it is *not* Rule.ForEach:
+// for_each turns an array into N events, ListProjection turns an array
+// into one payload field. A todo list is one thing the renderer draws
+// as a unit — emitting a row per step would be a different transcript.
+//
+// Without it a profile can only pass such a list through verbatim,
+// which ships the engine's own element field names (codex's `step`)
+// where the typed vocabulary promises ours (`content`) — the same
+// silent-mismatch class MapProjection was added for, one dimension
+// over: nothing errors, the consumer just renders empty rows.
+//
+// Elements that aren't objects are skipped, matching MapProjection, so
+// one malformed entry can't void the list. That shortens the list
+// rather than holding a gap — a projection declares the shape it
+// produces, and there is no honest placeholder for an element that
+// can't take it.
+type ListProjection struct {
+	// Source is an expression resolving to the array to walk.
+	Source string `yaml:"source" json:"source"`
+	// Fields is evaluated once per element, with that element as the
+	// inner scope and the rule's own scope as the outer scope (`$$.`).
 	Fields map[string]string `yaml:"fields" json:"fields"`
 }
 

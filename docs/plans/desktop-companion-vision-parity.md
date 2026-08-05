@@ -1,8 +1,8 @@
 # Desktop Companion vision parity — kimi-web's bar on our data scheme
 
 > **Type:** plan
-> **Status:** In flight (2026-08-02) — W1 landing in wedge order §4;
-> principal review done
+> **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
+> W2 opened with E2. Principal review done
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -234,6 +234,52 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   already tracks `turnID` at start (`driver_appserver.go:1486-1511`);
   measure wall-clock driver-side. Leave `cost_usd` absent (D-4;
   imputed cost covers the digest).
+  - *As built:* both halves landed, with **one premise corrected**.
+    (b) assumed codex ships no duration on this notification; it does
+    — `Turn.durationMs`, "if known", confirmed against `codex
+    app-server generate-json-schema` on codex-cli 0.133.0, the same
+    build `discussions/codex-m2-app-server-surface-audit.md` was
+    verified against. The engine's own measurement is the better
+    number, so the profile lifts it and the driver's wall clock became
+    the **fallback** for null / older builds. It is deliberately
+    narrow: keyed to the turn id it timed, so a host-runner that
+    restarted mid-turn reports nothing rather than a plausible number
+    measured from "when I started watching" (D-4).
+  - *As built:* (a) needed a grammar addition. The snapshot shape is a
+    LIST of engine-shaped objects (codex names a step `step`; the
+    vocabulary, set by ACP, says `content`), and the grammar could
+    only pass such a list through verbatim — the exact failure
+    `payload_maps` was added for in E1(c), one dimension over. Added
+    **`payload_lists`** (`agentfamilies.ListProjection`), the array
+    twin: element-wise field rename, order preserved, absent source
+    omits the field, empty source projects to empty. Documented in
+    `reference/frame-profiles.md` §4.
+  - *Split, deliberately:* the profile renames **fields**, the driver
+    renames **values**. Codex spells the middle status `inProgress`
+    where the vocabulary says `in_progress`, and the expression
+    grammar has no comparisons by design (§3 of the reference). Both
+    clients read an unrecognized status as "not started", so without
+    the rename every running step would have rendered as unstarted
+    with nothing reporting an error. The driver owns it because the
+    driver already owns this event's chain root — `message_id` +
+    `partial` are per-turn state no YAML rule can hold. **L2/L4 must
+    port `canonicalPlanStatus` + `finishPlanEvent` + the turn clock**
+    along with the interpreter; they are the codex entry in D-7's
+    "driver-side imperative supplements" list.
+  - *No client change:* `plan` has been a first-class kind on both
+    clients since the ACP driver landed — desktop `PlanBody` /
+    `deriveStateDock`, mobile `sessionTodos` — and both busy-inference
+    allowlists already carry it, so the promotion moves codex from a
+    verbose-only `system` dump onto the existing card and the Todos
+    chip with no consumer edit. Mobile counterpart: **ships with it**,
+    same events.
+  - *Adjacent fix:* `agent_families.schema.json` had never been
+    updated for `payload_maps` (E1c) or the family-level `prompt_*` /
+    `runtime_mode_switch` / `default_auth_method` fields, so with
+    `additionalProperties: false` it rejected the shipped YAML on five
+    families. Nothing at runtime reads it, which is why it rotted;
+    `schema_coverage_test.go` now asserts every `yaml:` tag the loader
+    accepts is a schema property, and the reverse.
 - **E3 — streaming tool output (`tool_call_update` with content).**
   Today the kind exists only from the ACP driver, and codex's
   `item/*/outputDelta` is swallowed by the delta filter

@@ -170,6 +170,28 @@ type AppServerDriver struct {
 	turnIDMu sync.RWMutex
 	turnID   string
 
+	// turnClockID / turnClockAt are the fallback source for
+	// turn.result.duration_ms (E2b). `turn/started` stamps them;
+	// unlike turnID they are NOT cleared on completion, because the
+	// turn.result that needs them is translated *after* the clear.
+	// The next turn/started overwrites both, so at most one turn's
+	// clock is ever held. turnClockID is what makes the pair safe:
+	// a duration is only filled in for the turn we actually timed.
+	turnClockMu sync.Mutex
+	turnClockID string
+	turnClockAt time.Time
+
+	// planChainTurnID / planChainMsgID are the per-turn chain root for
+	// codex `plan` events, the same trick driver_acp.go uses for ACP
+	// plan updates: every notification is a FULL snapshot of the todo
+	// list, so without a stable message_id the clients render one card
+	// per snapshot instead of one card that updates. Codex names the
+	// turn on the notification itself, so the chain is keyed by turn
+	// id rather than reset by a turn-boundary hook.
+	planChainMu     sync.Mutex
+	planChainTurnID string
+	planChainMsgID  string
+
 	// shutdownCh is closed by Stop to fail in-flight calls fast
 	// instead of waiting on CallTimeout.
 	shutdownCh chan struct{}
@@ -1492,6 +1514,7 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 						d.turnIDMu.Lock()
 						d.turnID = id
 						d.turnIDMu.Unlock()
+						d.startTurnClock(id)
 					}
 				}
 			case "turn/completed", "turn/failed":
@@ -1526,8 +1549,121 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 	}
 	evts := ApplyProfile(frame, d.FrameProfile)
 	for _, e := range evts {
+		// Two supplements the frame profile can't express, applied to
+		// the shape it produced rather than beside it: both need
+		// driver-held state (a per-turn chain root, a wall clock) and
+		// one needs a value mapping the expression grammar has no
+		// operator for. Kept here, at the single seam every profile
+		// event passes through, so there is one answer to "what is the
+		// final shape of a codex event".
+		switch e.Kind {
+		case "plan":
+			d.finishPlanEvent(e.Payload)
+		case "turn.result":
+			d.fillTurnDuration(e.Payload)
+		}
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
 	}
+}
+
+// startTurnClock records when a turn began so fillTurnDuration can
+// answer for engines (or builds) that don't report `durationMs`.
+func (d *AppServerDriver) startTurnClock(turnID string) {
+	d.turnClockMu.Lock()
+	d.turnClockID = turnID
+	d.turnClockAt = time.Now()
+	d.turnClockMu.Unlock()
+}
+
+// fillTurnDuration supplies turn.result.duration_ms when codex didn't
+// (E2b). The engine's own `Turn.durationMs` wins whenever it is
+// present — it measures the turn, not the notification round trip —
+// and this only covers the two cases where the field is nil: codex
+// said "not known", or the build predates the field.
+//
+// The measurement is deliberately narrow: it is filled in ONLY for the
+// turn whose `turn/started` this driver actually saw. After a
+// host-runner restart mid-turn the clock is empty and the field stays
+// nil, because a duration measured from "when I started watching" is a
+// different quantity wearing the same name (D-4: degrade to absence,
+// never to a plausible-looking number).
+func (d *AppServerDriver) fillTurnDuration(payload map[string]any) {
+	if payload == nil || payload["duration_ms"] != nil {
+		return
+	}
+	turnID, _ := payload["turn_id"].(string)
+	if turnID == "" {
+		return
+	}
+	d.turnClockMu.Lock()
+	started, at := d.turnClockID, d.turnClockAt
+	d.turnClockMu.Unlock()
+	if started != turnID || at.IsZero() {
+		return
+	}
+	payload["duration_ms"] = time.Since(at).Milliseconds()
+}
+
+// finishPlanEvent completes a codex `plan` payload the profile built:
+// canonical entry statuses, plus the per-turn chain root (message_id +
+// partial) that collapses a turn's N plan snapshots into one card that
+// updates instead of N cards (agent-transcript-redesign §6 P1).
+func (d *AppServerDriver) finishPlanEvent(payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	if entries, ok := payload["entries"].([]any); ok {
+		for _, raw := range entries {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if s, ok := entry["status"].(string); ok {
+				entry["status"] = canonicalPlanStatus(s)
+			}
+		}
+	}
+	// Prefer the turn the notification names (codex marks turnId
+	// required on TurnPlanUpdatedNotification); fall back to the turn
+	// the driver is tracking. With neither, mint a fresh id per
+	// snapshot: N cards is a worse transcript than one, but folding
+	// snapshots we can't prove belong together would overwrite one
+	// turn's plan with another's and lose the first outright.
+	turnID, _ := payload["turn_id"].(string)
+	if turnID == "" {
+		turnID = d.TurnID()
+	}
+	payload["partial"] = true
+	if turnID == "" {
+		payload["message_id"] = newMessageID()
+		return
+	}
+	d.planChainMu.Lock()
+	if turnID != d.planChainTurnID || d.planChainMsgID == "" {
+		d.planChainTurnID = turnID
+		d.planChainMsgID = newMessageID()
+	}
+	payload["message_id"] = d.planChainMsgID
+	d.planChainMu.Unlock()
+}
+
+// canonicalPlanStatus maps codex's TurnPlanStepStatus spelling onto the
+// vocabulary's. The enum is {pending, inProgress, completed}
+// (codex-cli 0.133.0 app-server schema); ACP got to `plan` first and
+// spells the middle state `in_progress`, which is what both clients'
+// renderers and the Todos rollup match on. Two of the three already
+// agree, so this is one rename — but the one that would fail silently:
+// an unrecognized status renders as an unstarted step, so a running
+// step would have shown as not-yet-started on every codex turn.
+//
+// Unknown values pass through untouched. A future codex status this
+// build has never seen is data we shouldn't rewrite; the clients treat
+// it as "not started", which is the safe read.
+func canonicalPlanStatus(status string) string {
+	if status == "inProgress" {
+		return "in_progress"
+	}
+	return status
 }
 
 // sessionInitInputs collects the per-spawn session-init data sourced

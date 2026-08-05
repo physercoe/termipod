@@ -1,0 +1,256 @@
+{
+  "family": "gemini-cli",
+  "corpus": "corpus.jsonl",
+  "profile": {
+    "description": "gemini-cli stream-json (`gemini -p ... --output-format\nstream-json`) → typed agent_events. ADR-013 is the\nauthoritative design.\n\nDispatch is on the top-level `type` field. Most-specific match\nwins (largest match-keyset; declaration order on ties).\n\nAssistant text emission (verified against gemini-cli@0.41.2):\nthe engine emits ONLY streaming chunks with `delta: true` —\nthere is no final `delta: false` consolidation frame. We match\n`delta: true` and emit a `text` event per chunk; the mobile\ntranscript renderer concatenates consecutive text/agent events\nfrom the same turn into one bubble. The earlier ADR-013 D7\nplan to emit on `delta: false` matched a protocol shape gemini\nnever actually shipped.\n\nUser echoes (role=user) still fall through to ApplyProfile's\nkind=raw fallback — the user's prompt is already in agent_events\nfrom the mobile POST, and re-emitting as text would duplicate\nthe bubble.\n\npermission_prompt is unsupported on gemini (ADR-013 D4): the CLI\noffers only flag-time `--yolo` / `--approval-mode` and no\nin-stream gate. Stewards route risky decisions through\nrequest_approval (turn-based, vendor-neutral) instead.\n",
+    "profile_version": 1,
+    "rules": [
+      {
+        "match": {
+          "type": "init"
+        },
+        "emit": {
+          "kind": "session.init",
+          "producer": "agent",
+          "payload": {
+            "model": "$.model",
+            "session_id": "$.session_id",
+            "timestamp": "$.timestamp"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "tool_use"
+        },
+        "emit": {
+          "kind": "tool_call",
+          "producer": "agent",
+          "payload": {
+            "id": "$.tool_id",
+            "input": "$.parameters",
+            "name": "$.tool_name",
+            "timestamp": "$.timestamp"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "tool_result"
+        },
+        "emit": {
+          "kind": "tool_result",
+          "producer": "agent",
+          "payload": {
+            "content": "$.output",
+            "status": "$.status",
+            "timestamp": "$.timestamp",
+            "tool_use_id": "$.tool_id"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "result"
+        },
+        "emit": {
+          "kind": "turn.result",
+          "producer": "agent",
+          "payload": {
+            "by_model": "$.stats.models",
+            "duration_ms": "$.stats.duration_ms",
+            "input_tokens": "$.stats.input_tokens",
+            "output_tokens": "$.stats.output_tokens",
+            "stats": "$.stats",
+            "status": "$.status",
+            "timestamp": "$.timestamp",
+            "tool_calls": "$.stats.tool_calls",
+            "total_tokens": "$.stats.total_tokens"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "error"
+        },
+        "emit": {
+          "kind": "error",
+          "producer": "agent",
+          "payload_expr": "$."
+        }
+      }
+    ]
+  },
+  "events": [
+    [
+      {
+        "kind": "session.init",
+        "producer": "agent",
+        "payload": {
+          "model": "gemini-2.5-pro",
+          "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "timestamp": "2026-04-29T10:00:00Z"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "content": "hello",
+          "delta": false,
+          "role": "user",
+          "timestamp": "2026-04-29T10:00:01Z",
+          "type": "message"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "content": "Hi",
+          "delta": true,
+          "role": "assistant",
+          "timestamp": "2026-04-29T10:00:02Z",
+          "type": "message"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "content": "Hi there!",
+          "delta": false,
+          "role": "assistant",
+          "timestamp": "2026-04-29T10:00:03Z",
+          "type": "message"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "call_001",
+          "input": {
+            "path": "README.md"
+          },
+          "name": "read_file",
+          "timestamp": "2026-04-29T10:00:04Z"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_result",
+        "producer": "agent",
+        "payload": {
+          "content": "# termipod\n",
+          "status": "success",
+          "timestamp": "2026-04-29T10:00:05Z",
+          "tool_use_id": "call_001"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "call_002",
+          "input": {
+            "command": "ls"
+          },
+          "name": "shell",
+          "timestamp": "2026-04-29T10:00:06Z"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_result",
+        "producer": "agent",
+        "payload": {
+          "content": "permission denied",
+          "status": "error",
+          "timestamp": "2026-04-29T10:00:07Z",
+          "tool_use_id": "call_002"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "error",
+        "producer": "agent",
+        "payload": {
+          "message": "transient network error",
+          "severity": "warning",
+          "timestamp": "2026-04-29T10:00:08Z",
+          "type": "error"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "turn.result",
+        "producer": "agent",
+        "payload": {
+          "by_model": {
+            "gemini-2.5-flash-lite": {
+              "cached": 0,
+              "input": 787,
+              "input_tokens": 787,
+              "output_tokens": 28,
+              "total_tokens": 881
+            },
+            "gemini-3-flash-preview": {
+              "cached": 0,
+              "input": 19033,
+              "input_tokens": 19033,
+              "output_tokens": 12,
+              "total_tokens": 19595
+            }
+          },
+          "duration_ms": 40219,
+          "input_tokens": 19820,
+          "output_tokens": 40,
+          "stats": {
+            "cached": 0,
+            "duration_ms": 40219,
+            "input": 19820,
+            "input_tokens": 19820,
+            "models": {
+              "gemini-2.5-flash-lite": {
+                "cached": 0,
+                "input": 787,
+                "input_tokens": 787,
+                "output_tokens": 28,
+                "total_tokens": 881
+              },
+              "gemini-3-flash-preview": {
+                "cached": 0,
+                "input": 19033,
+                "input_tokens": 19033,
+                "output_tokens": 12,
+                "total_tokens": 19595
+              }
+            },
+            "output_tokens": 40,
+            "tool_calls": 0,
+            "total_tokens": 20476
+          },
+          "status": "success",
+          "timestamp": "2026-04-29T10:00:09Z",
+          "tool_calls": 0,
+          "total_tokens": 20476
+        }
+      }
+    ]
+  ]
+}

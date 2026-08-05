@@ -1,0 +1,559 @@
+{
+  "family": "claude-code",
+  "corpus": "corpus.jsonl",
+  "profile": {
+    "description": "claude-code stream-json → typed agent_events.\nMost-specific match wins (largest match-keyset); ties fire in\ndeclaration order. Inside for_each, $.foo is the element and\n$$.foo is the parent frame. a || b returns the first non-nil\nterm; trailing literal acts as default.\n",
+    "profile_version": 1,
+    "rules": [
+      {
+        "match": {
+          "subtype": "init",
+          "type": "system"
+        },
+        "emit": {
+          "kind": "session.init",
+          "producer": "agent",
+          "payload": {
+            "agents": "$.agents",
+            "cwd": "$.cwd",
+            "fast_mode_state": "$.fast_mode_state || $.fastModeState",
+            "mcp_servers": "$.mcp_servers || $.mcpServers",
+            "model": "$.model",
+            "output_style": "$.output_style || $.outputStyle",
+            "permission_mode": "$.permissionMode || $.permission_mode",
+            "plugins": "$.plugins",
+            "session_id": "$.session_id",
+            "skills": "$.skills",
+            "slash_commands": "$.slash_commands || $.slashCommands",
+            "tools": "$.tools",
+            "version": "$.claude_code_version || $.version"
+          }
+        }
+      },
+      {
+        "match": {
+          "subtype": "rate_limit_event",
+          "type": "system"
+        },
+        "emit": {
+          "kind": "rate_limit",
+          "producer": "agent",
+          "payload": {
+            "is_using_overage": "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage",
+            "overage_status": "$.rate_limit_info.overageStatus || $.overageStatus || $.overage_status",
+            "reason": "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason",
+            "resets_at": "$.rate_limit_info.resetsAt || $.resetsAt || $.resets_at",
+            "status": "$.rate_limit_info.status || $.status",
+            "window": "$.rate_limit_info.rateLimitType || $.rateLimitType || $.rate_limit_type"
+          }
+        }
+      },
+      {
+        "match": {
+          "subtype": "task_progress",
+          "type": "system"
+        },
+        "emit": {
+          "kind": "system",
+          "producer": "agent",
+          "payload": {
+            "description": "$.description",
+            "last_tool_name": "$.last_tool_name",
+            "subtype": "$.subtype",
+            "task_id": "$.task_id",
+            "text": "$.description"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "system"
+        },
+        "emit": {
+          "kind": "system",
+          "producer": "agent",
+          "payload_expr": "$."
+        }
+      },
+      {
+        "match": {
+          "type": "rate_limit_event"
+        },
+        "emit": {
+          "kind": "rate_limit",
+          "producer": "agent",
+          "payload": {
+            "is_using_overage": "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage",
+            "overage_status": "$.rate_limit_info.overageStatus || $.overageStatus || $.overage_status",
+            "reason": "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason",
+            "resets_at": "$.rate_limit_info.resetsAt || $.resetsAt || $.resets_at",
+            "status": "$.rate_limit_info.status || $.status",
+            "window": "$.rate_limit_info.rateLimitType || $.rateLimitType || $.rate_limit_type"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "assistant"
+        },
+        "for_each": "$.message.content",
+        "emit": {
+          "kind": ""
+        },
+        "sub_rules": [
+          {
+            "match": {
+              "type": "text"
+            },
+            "emit": {
+              "kind": "text",
+              "producer": "agent",
+              "payload": {
+                "message_id": "$$.message.id",
+                "text": "$.text"
+              }
+            }
+          },
+          {
+            "match": {
+              "type": "tool_use"
+            },
+            "emit": {
+              "kind": "tool_call",
+              "producer": "agent",
+              "payload": {
+                "id": "$.id",
+                "input": "$.input",
+                "name": "$.name"
+              }
+            }
+          },
+          {
+            "match": {
+              "type": "thinking"
+            },
+            "emit": {
+              "kind": "thought",
+              "producer": "agent",
+              "payload": {
+                "marker_only": "absent($.thinking)",
+                "message_id": "$$.message.id",
+                "signature_present": "present($.signature)",
+                "text": "nonempty($.thinking) || \"Thinking…\""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "match": {
+          "type": "assistant"
+        },
+        "when_present": "$.message.usage",
+        "emit": {
+          "kind": "usage",
+          "producer": "agent",
+          "payload": {
+            "cache_create": "$.message.usage.cache_creation_input_tokens || $.message.usage.cache_create",
+            "cache_read": "$.message.usage.cache_read_input_tokens || $.message.usage.cache_read",
+            "input_tokens": "$.message.usage.input_tokens",
+            "message_id": "$.message.id",
+            "model": "$.message.model",
+            "output_tokens": "$.message.usage.output_tokens",
+            "service_tier": "$.message.usage.service_tier"
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "user"
+        },
+        "for_each": "$.message.content",
+        "emit": {
+          "kind": ""
+        },
+        "sub_rules": [
+          {
+            "match": {
+              "type": "tool_result"
+            },
+            "emit": {
+              "kind": "tool_result",
+              "producer": "agent",
+              "payload": {
+                "content": "$.content",
+                "is_error": "$.is_error",
+                "tool_use_id": "$.tool_use_id"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "match": {
+          "type": "result"
+        },
+        "emit": {
+          "kind": "turn.result",
+          "producer": "agent",
+          "payload": {
+            "cost_usd": "$.total_cost_usd || $.cost_usd",
+            "duration_ms": "$.duration_ms",
+            "fast_mode_state": "$.fast_mode_state || $.fastModeState",
+            "num_turns": "$.num_turns",
+            "permission_denials": "$.permission_denials",
+            "terminal_reason": "$.terminal_reason || $.subtype"
+          },
+          "payload_maps": {
+            "by_model": {
+              "source": "$.modelUsage || $.model_usage",
+              "fields": {
+                "cache_create": "$.cacheCreationInputTokens || $.cache_creation_input_tokens",
+                "cache_read": "$.cacheReadInputTokens || $.cache_read_input_tokens",
+                "context_window": "$.contextWindow || $.context_window",
+                "cost_usd": "$.costUSD || $.cost_usd",
+                "input": "$.inputTokens || $.input_tokens",
+                "max_output_tokens": "$.maxOutputTokens || $.max_output_tokens",
+                "output": "$.outputTokens || $.output_tokens"
+              }
+            }
+          }
+        }
+      },
+      {
+        "match": {
+          "type": "result"
+        },
+        "emit": {
+          "kind": "completion",
+          "producer": "agent",
+          "payload_expr": "$."
+        }
+      },
+      {
+        "match": {
+          "type": "error"
+        },
+        "emit": {
+          "kind": "error",
+          "producer": "agent",
+          "payload_expr": "$."
+        }
+      }
+    ]
+  },
+  "events": [
+    [
+      {
+        "kind": "session.init",
+        "producer": "agent",
+        "payload": {
+          "agents": [
+            "@code",
+            "@docs"
+          ],
+          "cwd": "/tmp/wt",
+          "fast_mode_state": null,
+          "mcp_servers": [
+            {
+              "name": "git"
+            }
+          ],
+          "model": "claude-opus-4-7",
+          "output_style": "default",
+          "permission_mode": "acceptEdits",
+          "plugins": [],
+          "session_id": "sess-abc",
+          "skills": [],
+          "slash_commands": [
+            "/help",
+            "/compact"
+          ],
+          "tools": [
+            "Read",
+            "Write",
+            "Bash"
+          ],
+          "version": "1.5.0"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "rate_limit",
+        "producer": "agent",
+        "payload": {
+          "is_using_overage": null,
+          "overage_status": null,
+          "reason": null,
+          "resets_at": "2026-04-29T08:00:00Z",
+          "status": "allowed",
+          "window": "5h"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "agent": "researcher",
+          "description": "investigate stale sessions",
+          "subtype": "task_started",
+          "task_id": "brgb0gz57",
+          "type": "system"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "patch": {
+            "is_backgrounded": true
+          },
+          "subtype": "task_updated",
+          "task_id": "brgb0gz57",
+          "type": "system"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "message": "agent paused for input",
+          "subtype": "task_notification",
+          "task_id": "brgb0gz57",
+          "type": "system"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "description": "investigate stale sessions",
+          "last_tool_name": "Bash",
+          "subtype": "task_progress",
+          "task_id": "brgb0gz57",
+          "text": "investigate stale sessions"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "rate_limit",
+        "producer": "agent",
+        "payload": {
+          "is_using_overage": null,
+          "overage_status": null,
+          "reason": null,
+          "resets_at": "2026-04-29T13:00:00Z",
+          "status": "warn",
+          "window": "5h"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "rate_limit",
+        "producer": "agent",
+        "payload": {
+          "is_using_overage": false,
+          "overage_status": null,
+          "reason": "org_level_disabled_until",
+          "resets_at": 1777443000,
+          "status": "allowed",
+          "window": "five_hour"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {
+          "message_id": "msg_text_only",
+          "text": "Reading the file."
+        }
+      }
+    ],
+    [
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {
+          "message_id": "msg_with_tool",
+          "text": "I'll read it."
+        }
+      },
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "toolu_1",
+          "input": {
+            "file_path": "/etc/hosts"
+          },
+          "name": "Read"
+        }
+      },
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "cache_create": 80,
+          "cache_read": 9100,
+          "input_tokens": 120,
+          "message_id": "msg_with_tool",
+          "model": "claude-opus-4-7",
+          "output_tokens": 40,
+          "service_tier": "standard"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_result",
+        "producer": "agent",
+        "payload": {
+          "content": "127.0.0.1 localhost",
+          "is_error": false,
+          "tool_use_id": "toolu_1"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "turn.result",
+        "producer": "agent",
+        "payload": {
+          "cost_usd": 0.0123,
+          "duration_ms": 4500,
+          "fast_mode_state": null,
+          "num_turns": 3,
+          "permission_denials": [],
+          "terminal_reason": "success"
+        }
+      },
+      {
+        "kind": "completion",
+        "producer": "agent",
+        "payload": {
+          "duration_ms": 4500,
+          "num_turns": 3,
+          "permission_denials": [],
+          "subtype": "success",
+          "total_cost_usd": 0.0123,
+          "type": "result"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "error",
+        "producer": "agent",
+        "payload": {
+          "code": "ECONNREFUSED",
+          "error": "connection refused",
+          "type": "error"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "data": "hypothetical future shape",
+          "session_id": "sess-x",
+          "type": "telemetry_v2"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "thought",
+        "producer": "agent",
+        "payload": {
+          "marker_only": true,
+          "message_id": "msg_thinking_signed",
+          "signature_present": true,
+          "text": "Thinking…"
+        }
+      },
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {
+          "message_id": "msg_thinking_signed",
+          "text": "Done."
+        }
+      }
+    ],
+    [
+      {
+        "kind": "thought",
+        "producer": "agent",
+        "payload": {
+          "marker_only": false,
+          "message_id": "msg_thinking_text",
+          "signature_present": false,
+          "text": "Let me check the file first."
+        }
+      }
+    ],
+    [
+      {
+        "kind": "turn.result",
+        "producer": "agent",
+        "payload": {
+          "by_model": {
+            "claude-opus-4-7": {
+              "cache_create": 120,
+              "cache_read": 9000,
+              "context_window": 1000000,
+              "cost_usd": 0.42,
+              "input": 1200,
+              "max_output_tokens": 64000,
+              "output": 340
+            }
+          },
+          "cost_usd": 0.42,
+          "duration_ms": 8100,
+          "fast_mode_state": null,
+          "num_turns": 5,
+          "permission_denials": [],
+          "terminal_reason": "success"
+        }
+      },
+      {
+        "kind": "completion",
+        "producer": "agent",
+        "payload": {
+          "duration_ms": 8100,
+          "modelUsage": {
+            "claude-opus-4-7": {
+              "cacheCreationInputTokens": 120,
+              "cacheReadInputTokens": 9000,
+              "contextWindow": 1000000,
+              "costUSD": 0.42,
+              "inputTokens": 1200,
+              "maxOutputTokens": 64000,
+              "outputTokens": 340
+            }
+          },
+          "num_turns": 5,
+          "permission_denials": [],
+          "subtype": "success",
+          "total_cost_usd": 0.42,
+          "type": "result"
+        }
+      }
+    ]
+  ]
+}

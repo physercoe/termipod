@@ -1,0 +1,1463 @@
+[
+  {
+    "name": "rules/empty-profile-falls-back-to-raw",
+    "why": "a profile with no rules keeps the bytes rather than dropping the frame",
+    "profile": {
+      "profile_version": 1,
+      "rules": []
+    },
+    "frame": {
+      "n": 1,
+      "type": "surprise"
+    },
+    "events": [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "n": 1,
+          "type": "surprise"
+        }
+      }
+    ]
+  },
+  {
+    "name": "rules/no-match-falls-back-to-raw",
+    "why": "an unprofiled frame type stays in the transcript verbatim (ADR-010 D5)",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "known"
+          },
+          "emit": {
+            "kind": "text"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "n": 1,
+      "type": "unknown"
+    },
+    "events": [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "n": 1,
+          "type": "unknown"
+        }
+      }
+    ]
+  },
+  {
+    "name": "match/empty-matches-anything",
+    "why": "an empty match is a catch-all at the lowest possible specificity",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "emit": {
+            "kind": "catchall",
+            "payload": {
+              "t": "$.type"
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "whatever"
+    },
+    "events": [
+      {
+        "kind": "catchall",
+        "producer": "agent",
+        "payload": {
+          "t": "whatever"
+        }
+      }
+    ]
+  },
+  {
+    "name": "match/empty-loses-to-a-keyed-rule",
+    "why": "specificity is keyset size, so a catch-all sits dormant when a real rule matches",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "emit": {
+            "kind": "catchall"
+          }
+        },
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "specific"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "specific",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "match/most-specific-wins",
+    "why": "two keys beat one; the one-key rule does not also fire",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "system"
+          },
+          "emit": {
+            "kind": "system"
+          }
+        },
+        {
+          "match": {
+            "subtype": "init",
+            "type": "system"
+          },
+          "emit": {
+            "kind": "session.init"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "subtype": "init",
+      "type": "system"
+    },
+    "events": [
+      {
+        "kind": "session.init",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "match/ties-fire-in-declaration-order",
+    "why": "an assistant frame's text walk and its usage rule both fire, in order",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "first"
+          }
+        },
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "second"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "first",
+        "producer": "agent",
+        "payload": {}
+      },
+      {
+        "kind": "second",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "match/absent-key-does-not-match",
+    "why": "a match key the frame lacks fails rather than comparing against nil",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "missing": "x",
+            "type": "a"
+          },
+          "emit": {
+            "kind": "no"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "type": "a"
+        }
+      }
+    ]
+  },
+  {
+    "name": "match/dotted-key-walks-nested-objects",
+    "why": "JSON-RPC envelopes dispatch on a discriminator one level down",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "commandExecution"
+          },
+          "emit": {
+            "kind": "tool_call",
+            "payload": {
+              "id": "$.params.item.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "agentMessage"
+          },
+          "emit": {
+            "kind": "system"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "id": "c1",
+          "type": "commandExecution"
+        }
+      }
+    },
+    "events": [
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "c1"
+        }
+      }
+    ]
+  },
+  {
+    "name": "match/dotted-key-missing-depth-fails",
+    "why": "a dotted key that runs out of object mid-walk does not match",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "method": "m",
+            "params.item.type": "x"
+          },
+          "emit": {
+            "kind": "no"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "method": "m",
+      "params": {
+        "item": "not-an-object"
+      }
+    },
+    "events": [
+      {
+        "kind": "raw",
+        "producer": "agent",
+        "payload": {
+          "method": "m",
+          "params": {
+            "item": "not-an-object"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "when-present/gated-off-emits-nothing-not-raw",
+    "why": "the author chose to skip; that is not the same as no rule matching",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "when_present": "$.usage",
+          "emit": {
+            "kind": "usage",
+            "payload": {
+              "in": "$.usage.input"
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": []
+  },
+  {
+    "name": "when-present/gated-on",
+    "why": "the same rule fires once the gated field arrives",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "when_present": "$.usage",
+          "emit": {
+            "kind": "usage",
+            "payload": {
+              "in": "$.usage.input"
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a",
+      "usage": {
+        "input": 12
+      }
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "in": 12
+        }
+      }
+    ]
+  },
+  {
+    "name": "when-present/empty-string-is-present-enough",
+    "why": "when_present gates on non-nil, not on non-empty — an empty string passes",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "when_present": "$.s",
+          "emit": {
+            "kind": "gated"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "s": "",
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "gated",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "for-each/dispatches-sub-rules-per-element",
+    "why": "the canonical assistant content walk: text and tool_use from one frame",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "assistant"
+          },
+          "for_each": "$.message.content",
+          "emit": {
+            "kind": "unused"
+          },
+          "sub_rules": [
+            {
+              "match": {
+                "type": "text"
+              },
+              "emit": {
+                "kind": "text",
+                "payload": {
+                  "message_id": "$$.message.id",
+                  "text": "$.text"
+                }
+              }
+            },
+            {
+              "match": {
+                "type": "tool_use"
+              },
+              "emit": {
+                "kind": "tool_call",
+                "payload": {
+                  "id": "$.id",
+                  "name": "$.name"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "frame": {
+      "message": {
+        "content": [
+          {
+            "text": "hi",
+            "type": "text"
+          },
+          {
+            "id": "t1",
+            "name": "Read",
+            "type": "tool_use"
+          },
+          {
+            "type": "unprofiled",
+            "x": 1
+          }
+        ],
+        "id": "msg_1"
+      },
+      "type": "assistant"
+    },
+    "events": [
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {
+          "message_id": "msg_1",
+          "text": "hi"
+        }
+      },
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "t1",
+          "name": "Read"
+        }
+      }
+    ]
+  },
+  {
+    "name": "for-each/non-array-source-emits-nothing",
+    "why": "a for_each whose source is a scalar is skipped, not raw-fallen-back",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "for_each": "$.items",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "emit": {
+                "kind": "el"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "frame": {
+      "items": "not-an-array",
+      "type": "a"
+    },
+    "events": []
+  },
+  {
+    "name": "for-each/missing-source-emits-nothing",
+    "why": "same for an absent source",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "for_each": "$.items",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "emit": {
+                "kind": "el"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": []
+  },
+  {
+    "name": "for-each/skips-non-object-elements",
+    "why": "a string in an array of blocks is skipped rather than emitted empty",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "for_each": "$.items",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "emit": {
+                "kind": "el",
+                "payload": {
+                  "v": "$.v"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "frame": {
+      "items": [
+        {
+          "v": 1
+        },
+        "scalar",
+        null,
+        [
+          2
+        ],
+        {
+          "v": 3
+        }
+      ],
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "el",
+        "producer": "agent",
+        "payload": {
+          "v": 1
+        }
+      },
+      {
+        "kind": "el",
+        "producer": "agent",
+        "payload": {
+          "v": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "for-each/without-sub-rules-emits-the-rules-own-emit",
+    "why": "less common but supported: one event per element from the rule itself",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "for_each": "$.items",
+          "emit": {
+            "kind": "el",
+            "payload": {
+              "parent": "$$.type",
+              "v": "$.v"
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "items": [
+        {
+          "v": 1
+        },
+        {
+          "v": 2
+        }
+      ],
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "el",
+        "producer": "agent",
+        "payload": {
+          "parent": "a",
+          "v": 1
+        }
+      },
+      {
+        "kind": "el",
+        "producer": "agent",
+        "payload": {
+          "parent": "a",
+          "v": 2
+        }
+      }
+    ]
+  },
+  {
+    "name": "for-each/first-matching-sub-rule-wins",
+    "why": "per element only one sub-rule fires, even when two match",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "for_each": "$.items",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "emit": {
+                "kind": "first"
+              }
+            },
+            {
+              "match": {
+                "type": "x"
+              },
+              "emit": {
+                "kind": "second"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "frame": {
+      "items": [
+        {
+          "type": "x"
+        }
+      ],
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "first",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "for-each/sub-rule-when-present-gates",
+    "why": "a gated sub-rule drops its element without dropping the others",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "for_each": "$.items",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "when_present": "$.v",
+              "emit": {
+                "kind": "el",
+                "payload": {
+                  "v": "$.v"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "frame": {
+      "items": [
+        {
+          "v": 1
+        },
+        {
+          "other": 2
+        },
+        {
+          "v": 3
+        }
+      ],
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "el",
+        "producer": "agent",
+        "payload": {
+          "v": 1
+        }
+      },
+      {
+        "kind": "el",
+        "producer": "agent",
+        "payload": {
+          "v": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "emit/kindless-rule-emits-nothing",
+    "why": "a rule with no emit kind is a no-op, not a raw fallback",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": ""
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": []
+  },
+  {
+    "name": "emit/producer-defaults-to-agent",
+    "why": "the historical attribution for agent-output frames",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "text"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "emit/producer-can-be-overridden",
+    "why": "lifecycle frames mark themselves producer=system",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "system"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "system",
+        "producer": "system",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "payload/missing-fields-are-null-not-absent",
+    "why": "a nil field is a key carrying null; dropping it would be a different event",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "text",
+            "payload": {
+              "missing": "$.nope",
+              "there": "$.x"
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a",
+      "x": "v"
+    },
+    "events": [
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {
+          "missing": null,
+          "there": "v"
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-expr/passes-the-whole-frame",
+    "why": "the legacy translator's raw-frame passthrough",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "system",
+            "payload_expr": "$."
+          }
+        }
+      ]
+    },
+    "frame": {
+      "nested": {
+        "k": "v"
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "nested": {
+            "k": "v"
+          },
+          "type": "a"
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-expr/non-map-yields-empty-payload",
+    "why": "defensive rather than a panic; surfaces as a parity finding",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "system",
+            "payload_expr": "$.s"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "s": "scalar",
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "payload-expr/beats-payload-when-both-set",
+    "why": "documented precedence for a profile that declares both",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "system",
+            "payload": {
+              "k": "\"from-payload\""
+            },
+            "payload_expr": "$.obj"
+          }
+        }
+      ]
+    },
+    "frame": {
+      "obj": {
+        "k": "from-expr"
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "k": "from-expr"
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-maps/projects-values-and-keeps-keys",
+    "why": "claude's modelUsage: keyed by data, re-shaped per value",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "usage",
+            "payload_maps": {
+              "by_model": {
+                "source": "$.modelUsage || $.model_usage",
+                "fields": {
+                  "input": "$.inputTokens || $.input_tokens",
+                  "output": "$.outputTokens"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "modelUsage": {
+        "opus": {
+          "inputTokens": 10,
+          "outputTokens": 4
+        },
+        "sonnet": {
+          "input_tokens": 7
+        }
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "by_model": {
+            "opus": {
+              "input": 10,
+              "output": 4
+            },
+            "sonnet": {
+              "input": 7,
+              "output": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-maps/absent-source-omits-the-field",
+    "why": "no per-model data and data for zero models are different claims",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "usage",
+            "payload_maps": {
+              "by_model": {
+                "source": "$.modelUsage",
+                "fields": {
+                  "input": "$.i"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "payload-maps/empty-source-projects-an-empty-map",
+    "why": "present but empty is the engine's claim, and it survives",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "usage",
+            "payload_maps": {
+              "by_model": {
+                "source": "$.modelUsage",
+                "fields": {
+                  "input": "$.i"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "modelUsage": {},
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "by_model": {}
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-maps/skips-non-object-values",
+    "why": "one malformed entry cannot void the whole map",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "usage",
+            "payload_maps": {
+              "by_model": {
+                "source": "$.m",
+                "fields": {
+                  "input": "$.i"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "m": {
+        "alsoBad": [
+          1
+        ],
+        "bad": "scalar",
+        "good": {
+          "i": 1
+        }
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "by_model": {
+            "good": {
+              "input": 1
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-maps/outer-scope-is-the-rules-own",
+    "why": "inside fields, $. is the value and $$. is the rule's scope",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "usage",
+            "payload_maps": {
+              "by_model": {
+                "source": "$.m",
+                "fields": {
+                  "frame_type": "$$.type",
+                  "input": "$.i"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "m": {
+        "opus": {
+          "i": 1
+        }
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "by_model": {
+            "opus": {
+              "frame_type": "a",
+              "input": 1
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-lists/projects-elements-in-order",
+    "why": "codex's plan steps: one field, not N events",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "plan",
+            "payload_lists": {
+              "entries": {
+                "source": "$.params.plan",
+                "fields": {
+                  "content": "$.step",
+                  "status": "$.status"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "params": {
+        "plan": [
+          {
+            "status": "completed",
+            "step": "one"
+          },
+          {
+            "status": "inProgress",
+            "step": "two"
+          }
+        ]
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "plan",
+        "producer": "agent",
+        "payload": {
+          "entries": [
+            {
+              "content": "one",
+              "status": "completed"
+            },
+            {
+              "content": "two",
+              "status": "inProgress"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-lists/empty-source-projects-an-empty-list",
+    "why": "a plan with no steps is a claim the engine made, unlike a missing field",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "plan",
+            "payload_lists": {
+              "entries": {
+                "source": "$.plan",
+                "fields": {
+                  "content": "$.step"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "plan": [],
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "plan",
+        "producer": "agent",
+        "payload": {
+          "entries": []
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload-lists/absent-source-omits-the-field",
+    "why": "the frame carried no plan at all",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "plan",
+            "payload_lists": {
+              "entries": {
+                "source": "$.plan",
+                "fields": {
+                  "content": "$.step"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "plan",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "payload-lists/non-array-source-omits-the-field",
+    "why": "a scalar where a list was declared is absent, not empty",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "plan",
+            "payload_lists": {
+              "entries": {
+                "source": "$.plan",
+                "fields": {
+                  "content": "$.step"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "plan": "not-a-list",
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "plan",
+        "producer": "agent",
+        "payload": {}
+      }
+    ]
+  },
+  {
+    "name": "payload-lists/skips-non-object-elements",
+    "why": "the list shortens rather than holding a gap: no honest placeholder exists",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "plan",
+            "payload_lists": {
+              "entries": {
+                "source": "$.plan",
+                "fields": {
+                  "content": "$.step"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "plan": [
+        {
+          "step": "one"
+        },
+        "scalar",
+        null,
+        {
+          "step": "two"
+        }
+      ],
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "plan",
+        "producer": "agent",
+        "payload": {
+          "entries": [
+            {
+              "content": "one"
+            },
+            {
+              "content": "two"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "payload/plain-field-wins-a-projection-collision",
+    "why": "the simpler declaration wins; a profile declaring both has a bug",
+    "profile": {
+      "profile_version": 0,
+      "rules": [
+        {
+          "match": {
+            "type": "a"
+          },
+          "emit": {
+            "kind": "usage",
+            "payload": {
+              "by_model": "\"plain\""
+            },
+            "payload_maps": {
+              "by_model": {
+                "source": "$.m",
+                "fields": {
+                  "i": "$.i"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frame": {
+      "m": {
+        "opus": {
+          "i": 1
+        }
+      },
+      "type": "a"
+    },
+    "events": [
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "by_model": "plain"
+        }
+      }
+    ]
+  }
+]

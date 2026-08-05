@@ -1,0 +1,657 @@
+{
+  "scopes": {
+    "frame": {
+      "__proto__": "own-property",
+      "a": "alpha",
+      "arr": [
+        {
+          "name": "first"
+        },
+        {
+          "name": "second"
+        }
+      ],
+      "empty": "",
+      "emptyArr": [],
+      "emptyObj": {},
+      "f": false,
+      "nested": {
+        "deep": {
+          "leaf": "found"
+        }
+      },
+      "nullv": null,
+      "nums": [
+        10,
+        20,
+        30
+      ],
+      "obj": {
+        "k": "v"
+      },
+      "t": true,
+      "weird.key": "dotted-literal",
+      "zero": 0
+    },
+    "parent": {
+      "a": "outer-alpha",
+      "message": {
+        "id": "msg_42"
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "path/simple",
+      "expr": "$.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "path/nested",
+      "expr": "$.nested.deep.leaf",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "found"
+    },
+    {
+      "name": "path/missing",
+      "expr": "$.nope",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "path/missing-midway",
+      "expr": "$.nested.nope.leaf",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "path/through-null",
+      "expr": "$.nullv.leaf",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "path/scope-itself",
+      "expr": "$.",
+      "inner": "frame",
+      "outer": "parent",
+      "result": {
+        "__proto__": "own-property",
+        "a": "alpha",
+        "arr": [
+          {
+            "name": "first"
+          },
+          {
+            "name": "second"
+          }
+        ],
+        "empty": "",
+        "emptyArr": [],
+        "emptyObj": {},
+        "f": false,
+        "nested": {
+          "deep": {
+            "leaf": "found"
+          }
+        },
+        "nullv": null,
+        "nums": [
+          10,
+          20,
+          30
+        ],
+        "obj": {
+          "k": "v"
+        },
+        "t": true,
+        "weird.key": "dotted-literal",
+        "zero": 0
+      }
+    },
+    {
+      "name": "path/object",
+      "expr": "$.obj",
+      "inner": "frame",
+      "outer": "parent",
+      "result": {
+        "k": "v"
+      }
+    },
+    {
+      "name": "path/array",
+      "expr": "$.nums",
+      "inner": "frame",
+      "outer": "parent",
+      "result": [
+        10,
+        20,
+        30
+      ]
+    },
+    {
+      "name": "path/no-dollar-prefix",
+      "expr": "a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "path/dotted-key-is-not-one-key",
+      "expr": "$.weird.key",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/first",
+      "expr": "$.arr[0].name",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "first"
+    },
+    {
+      "name": "index/second",
+      "expr": "$.arr[1].name",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "second"
+    },
+    {
+      "name": "index/out-of-bounds",
+      "expr": "$.arr[2]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/negative",
+      "expr": "$.arr[-1]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/scalar-element",
+      "expr": "$.nums[1]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": 20
+    },
+    {
+      "name": "index/into-non-array",
+      "expr": "$.obj[0]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/unclosed",
+      "expr": "$.arr[0",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/empty",
+      "expr": "$.arr[]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/non-numeric",
+      "expr": "$.arr[x]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/sign-prefix",
+      "expr": "$.nums[+1]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": 20
+    },
+    {
+      "name": "index/leading-zero",
+      "expr": "$.nums[01]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": 20
+    },
+    {
+      "name": "index/padded",
+      "expr": "$.nums[ 1 ]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/trailing-space",
+      "expr": "$.nums[1 ]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/hex-literal",
+      "expr": "$.nums[0x1]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "index/underscore-separator",
+      "expr": "$.nums[1_0]",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "scope/outer",
+      "expr": "$$.message.id",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "msg_42"
+    },
+    {
+      "name": "scope/outer-missing",
+      "expr": "$$.nope",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "scope/inner-not-outer",
+      "expr": "$.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "scope/outer-shadows",
+      "expr": "$$.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "outer-alpha"
+    },
+    {
+      "name": "js-trap/constructor",
+      "expr": "$.constructor",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "js-trap/toString",
+      "expr": "$.toString",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "js-trap/own-proto-key",
+      "expr": "$.__proto__",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "own-property"
+    },
+    {
+      "name": "coalesce/first-wins",
+      "expr": "$.a || $.nope",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "coalesce/falls-through",
+      "expr": "$.nope || $.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "coalesce/default-literal",
+      "expr": "$.nope || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "fallback"
+    },
+    {
+      "name": "coalesce/empty-string-wins",
+      "expr": "$.empty || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": ""
+    },
+    {
+      "name": "coalesce/zero-wins",
+      "expr": "$.zero || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": 0
+    },
+    {
+      "name": "coalesce/false-wins",
+      "expr": "$.f || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "coalesce/null-value-falls-through",
+      "expr": "$.nullv || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "fallback"
+    },
+    {
+      "name": "coalesce/three-terms",
+      "expr": "$.nope || $.alsoNope || $.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "coalesce/all-missing",
+      "expr": "$.nope || $.alsoNope",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "literal/plain",
+      "expr": "\"hello\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "hello"
+    },
+    {
+      "name": "literal/empty",
+      "expr": "\"\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": ""
+    },
+    {
+      "name": "literal/escaped-quote",
+      "expr": "\"say \\\"hi\\\"\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "say \"hi\""
+    },
+    {
+      "name": "literal/tab",
+      "expr": "\"a\\tb\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "a\tb"
+    },
+    {
+      "name": "literal/backslash",
+      "expr": "\"\\\\\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "\\"
+    },
+    {
+      "name": "literal/unicode-escape",
+      "expr": "\"\\u0041\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "A"
+    },
+    {
+      "name": "literal/hex-ascii-escape",
+      "expr": "\"\\x41\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "A"
+    },
+    {
+      "name": "literal/astral-escape",
+      "expr": "\"\\U0001F600\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "😀"
+    },
+    {
+      "name": "literal/bell",
+      "expr": "\"\\a\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "\u0007"
+    },
+    {
+      "name": "literal/bad-escape",
+      "expr": "\"\\z\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "literal/single-quote-escape",
+      "expr": "\"\\'\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "literal/lone-surrogate",
+      "expr": "\"\\ud800\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "literal/unterminated",
+      "expr": "\"oops",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "present/string",
+      "expr": "present($.a)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "present/empty-string",
+      "expr": "present($.empty)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/zero",
+      "expr": "present($.zero)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "present/false",
+      "expr": "present($.f)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/true",
+      "expr": "present($.t)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "present/missing",
+      "expr": "present($.nope)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/null",
+      "expr": "present($.nullv)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/empty-array",
+      "expr": "present($.emptyArr)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/empty-object",
+      "expr": "present($.emptyObj)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/array",
+      "expr": "present($.nums)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "present/outer",
+      "expr": "present($$.message)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "absent/missing",
+      "expr": "absent($.nope)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "absent/string",
+      "expr": "absent($.a)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/never-falls-through",
+      "expr": "present($.nope) || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "absent/never-falls-through",
+      "expr": "absent($.a) || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/coalesce-inside-parens",
+      "expr": "present($.nope || $.a)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": true
+    },
+    {
+      "name": "present/both-missing-inside-parens",
+      "expr": "present($.nope || $.alsoNope)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": false
+    },
+    {
+      "name": "present/unclosed-is-a-bad-path",
+      "expr": "present($.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "nonempty/present",
+      "expr": "nonempty($.a)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "nonempty/empty-falls-through",
+      "expr": "nonempty($.empty) || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "fallback"
+    },
+    {
+      "name": "nonempty/empty-alone",
+      "expr": "nonempty($.empty)",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "nonempty/zero-is-present",
+      "expr": "nonempty($.zero) || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": 0
+    },
+    {
+      "name": "nonempty/empty-array-falls-through",
+      "expr": "nonempty($.emptyArr) || \"fallback\"",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "fallback"
+    },
+    {
+      "name": "whitespace/padded",
+      "expr": "  $.a  ",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "whitespace/padded-coalesce",
+      "expr": "$.nope   ||   $.a",
+      "inner": "frame",
+      "outer": "parent",
+      "result": "alpha"
+    },
+    {
+      "name": "empty/expression",
+      "expr": "",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "empty/whitespace-only",
+      "expr": "   ",
+      "inner": "frame",
+      "outer": "parent",
+      "result": null
+    },
+    {
+      "name": "scope/outer-is-nil-outside-for-each",
+      "expr": "$$.a",
+      "inner": "frame",
+      "outer": "",
+      "result": null
+    }
+  ]
+}

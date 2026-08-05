@@ -37,6 +37,7 @@ import {
 import type { AuthorBridgeRequest, AuthorBridgeResult } from './browserbridge';
 import type { Handler } from './ipc/dispatch';
 import { diagramOpsBytes, type DiagramOperation } from '../../src/state/drawioOps.ts';
+import { RENDER_TRANSPORT_TIMEOUT_MS } from '../../src/state/renderDeadlines.ts';
 
 /// Main → renderer requests; renderer → main replies. Mirrors
 /// `src/state/authorBridge.ts`, which is the other end of both.
@@ -46,6 +47,12 @@ export const AUTHOR_REQUEST_EVENT = 'desktopui_author_request';
 /// plus a parse, short enough that a wedged renderer does not hold the agent's
 /// tool call open. The APPROVAL wait is not inside this window — it happens
 /// between two renderer calls, on the card's own (much longer) deadline.
+///
+/// A RENDER is the exception and gets `RENDER_TRANSPORT_TIMEOUT_MS`: it
+/// legally contains a whole draw.io export (its own 20s deadline) plus
+/// rasterizing, and a transport that gives up first would turn the adapter's
+/// specific diagnosis into a generic timeout while stranding the one-in-flight
+/// export lock past the call it served.
 const RENDERER_TIMEOUT_MS = 15_000;
 
 interface Pending {
@@ -73,11 +80,12 @@ export const authorHostHandlers: Record<string, Handler> = {
 };
 
 interface RendererRequest {
-  op: 'read' | 'resolve' | 'apply';
+  op: 'read' | 'resolve' | 'apply' | 'render';
   documentId: string | null;
   mode?: string;
   body?: string;
   operations?: readonly DiagramOperation[];
+  format?: string;
   reason?: string;
   by?: string;
 }
@@ -86,7 +94,7 @@ type RendererReply = Record<string, unknown> | null;
 
 /// One round trip. `null` means the renderer never answered — the caller turns
 /// that into a refusal, never into a "maybe it worked".
-async function askRenderer(req: RendererRequest): Promise<RendererReply> {
+async function askRenderer(req: RendererRequest, timeoutMs = RENDERER_TIMEOUT_MS): Promise<RendererReply> {
   const wc = shellWebContents();
   if (wc === null) return null;
   if (!hasSubscriber(wc, AUTHOR_REQUEST_EVENT)) return null;
@@ -96,7 +104,7 @@ async function askRenderer(req: RendererRequest): Promise<RendererReply> {
     const timer = setTimeout(() => {
       pending.delete(id);
       resolve(null);
-    }, RENDERER_TIMEOUT_MS);
+    }, timeoutMs);
     pending.set(id, { resolve, timer });
   });
   emit(wc, AUTHOR_REQUEST_EVENT, {
@@ -106,6 +114,7 @@ async function askRenderer(req: RendererRequest): Promise<RendererReply> {
     mode: req.mode ?? 'replace',
     body: req.body ?? '',
     operations: req.operations ?? [],
+    format: req.format ?? 'svg',
     reason: req.reason ?? '',
     by: req.by ?? '',
   });
@@ -157,6 +166,35 @@ async function read(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
     ok: true,
     text: `${JSON.stringify(doc, null, 2)}\n\nOpen documents:\n${index}`,
   };
+}
+
+/// `author_render`. No card and no lease: this returns a picture of ONE
+/// document, drawn from that document, and the agent could already have the same
+/// document's source from `author_read` under the same toggle. It is a read that
+/// happens to answer in pixels — not a screenshot, which is a frame of the
+/// user's whole screen and is carded every single time (ADR-062 D-4).
+///
+/// One round trip, not two: unlike `apply` there is nothing to ask the user
+/// between resolving the target and doing the work, so the renderer resolves and
+/// draws in the same call.
+async function render(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
+  const reply = await askRenderer({ op: 'render', documentId: req.documentId, format: req.format }, RENDER_TRANSPORT_TIMEOUT_MS);
+  if (reply === null || reply.ok !== true) return rendererRefusal(reply, 'AUTHOR_UNAVAILABLE', NO_RENDERER);
+  const image = (reply.image ?? {}) as Record<string, unknown>;
+  const base64 = str(image.base64);
+  const mimeType = str(image.mimeType);
+  if (base64 === '' || mimeType === '') {
+    // A reply shaped like a success with no picture in it. Refusing beats
+    // forwarding an empty image block, which a client renders as a broken
+    // graphic and an agent reads as "the document is blank".
+    //
+    // Not unit-tested here — this module imports Electron and `node --test`
+    // cannot load it. The same shape IS pinned one layer out
+    // (`authortools.test.ts`, "a provider that answers ok with no image"),
+    // which is the leg an agent actually reaches; this is the second wall.
+    return { ok: false, code: 'RENDER_FAILED', message: 'the desktop answered without an image' };
+  }
+  return { ok: true, text: str(reply.text, 'rendered'), image: { base64, mimeType } };
 }
 
 async function apply(req: AuthorBridgeRequest): Promise<AuthorBridgeResult> {
@@ -238,7 +276,8 @@ async function authorBridge(req: AuthorBridgeRequest): Promise<AuthorBridgeResul
   if (!isUiSharingEnabled()) {
     return { ok: false, code: 'UI_UNAVAILABLE', message: 'UI context sharing is off on the desktop (Settings → Assistant)' };
   }
-  return req.op === 'read' ? read(req) : apply(req);
+  if (req.op === 'read') return read(req);
+  return req.op === 'render' ? render(req) : apply(req);
 }
 
 setAuthorBridgeProvider(authorBridge);

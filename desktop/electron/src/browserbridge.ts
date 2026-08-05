@@ -552,6 +552,19 @@ export const READ_TOOLS: readonly McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'author_render',
+    description:
+      'Draw a document open in the TermiPod desktop Author surface and return the picture, so you can SEE what you wrote instead of re-reading your own source. Renders figure (mermaid/graphviz/vega-lite), excalidraw and diagram (draw.io) documents; markdown and table are text, and canvas has no renderer yet. Prefer format "svg" — it is smaller than png and you can read it. A diagram is drawn by the draw.io editor itself, so that kind needs the document open in Author; the others render whether or not they are. This is the DOCUMENT as the user sees it, never a screenshot of the app — use ui_screenshot for that.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document_id: { type: 'string', description: 'From author_read; omit for the active document.' },
+        format: { type: 'string', enum: ['svg', 'png'], description: 'svg (default) or png.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 /// The D1/D3/D6 desktop-UI tools, which the sharing toggle gates as a set: off
@@ -561,7 +574,7 @@ export const UI_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_get_focus', 'ui_s
 /// Coworking lane A: the Author co-authoring tools, gated by the SAME toggle.
 /// A separate set because they are a separate capability sentence (write into
 /// my documents vs describe my screen) even though one switch governs both.
-export const AUTHOR_TOOL_NAMES: ReadonlySet<string> = new Set(['author_read', 'author_apply']);
+export const AUTHOR_TOOL_NAMES: ReadonlySet<string> = new Set(['author_read', 'author_apply', 'author_render']);
 
 /// Every tool the desktop's UI-context sharing toggle gates. Off means none of
 /// them appears in any catalog and all of them refuse on call — one switch,
@@ -588,7 +601,7 @@ export const DESKTOP_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set(['ui_scree
 /// `readOnlyHint: true`. Folding it into DESKTOP_ACTION_TOOL_NAMES to get the
 /// audit would have annotated a read as a mutation — the one direction of that
 /// hint that can cause harm (ADR-063 D5).
-export const DESKTOP_AUDITED_TOOL_NAMES: ReadonlySet<string> = new Set([...DESKTOP_ACTION_TOOL_NAMES, 'author_read']);
+export const DESKTOP_AUDITED_TOOL_NAMES: ReadonlySet<string> = new Set([...DESKTOP_ACTION_TOOL_NAMES, 'author_read', 'author_render']);
 
 /// D1: the MCP resource uri mirroring ui_get_focus (ADR-062 D-6). list + read
 /// only — subscriptions are deliberately NOT implemented: the relay forwards
@@ -813,7 +826,7 @@ export type UiHighlightResult = { ok: true; surface: string; ttl_ms: number } | 
 export type AuthorApplyMode = 'replace' | 'append' | 'ops';
 
 export interface AuthorBridgeRequest {
-  op: 'read' | 'apply';
+  op: 'read' | 'apply' | 'render';
   /// null = whichever document is active in Author.
   documentId: string | null;
   mode: AuthorApplyMode;
@@ -821,6 +834,8 @@ export interface AuthorBridgeRequest {
   /// D1's structured diagram edits — populated for `mode:'ops'` and empty for
   /// every other mode. Narrowed here and again renderer-side.
   operations: readonly DiagramOperation[];
+  /// `author_render`'s output format; ignored by the other ops.
+  format: 'svg' | 'png';
   reason: string;
   agentId: string;
   agentHandle: string;
@@ -831,7 +846,9 @@ export interface AuthorBridgeRequest {
 /// parsers and the honesty of the `applied_*` sentence all live on the other
 /// side of the renderer boundary, and re-deriving any of them here would be a
 /// second copy that can disagree with the first.
-export type AuthorBridgeResult = { ok: true; text: string } | { ok: false; code: string; message: string };
+export type AuthorBridgeResult =
+  | { ok: true; text: string; image?: { base64: string; mimeType: string } }
+  | { ok: false; code: string; message: string };
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -1384,10 +1401,11 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
       return textContent(`highlighted ${res.surface} for ${String(Math.round(res.ttl_ms / 1000))}s — the user sees an attributed marker; nothing was focused or clicked`);
     }
     case 'author_read':
+    case 'author_render':
     case 'author_apply': {
-      // One gate and one narrowing for both verbs: they differ in what the
-      // PROVIDER does with them (a read answers, an apply asks the user
-      // first), not in what this module is allowed to accept.
+      // One gate and one narrowing for all three verbs: they differ in what the
+      // PROVIDER does with them (a read answers, a render draws, an apply asks
+      // the user first), not in what this module is allowed to accept.
       if (deps.uiFocusAvailable?.() !== true) {
         throw new BridgeError(
           'UI_UNAVAILABLE',
@@ -1437,18 +1455,35 @@ async function runTool(deps: McpServerDeps, ctx: BridgeRequestContext, name: str
         }
         reason = typeof args.reason === 'string' ? args.reason : '';
       }
+      // `format` is only read for a render, and an unknown value is refused by
+      // name rather than defaulted: an agent that asked for 'jpeg' and silently
+      // got a PNG learns nothing, and the next call asks for 'jpeg' again.
+      let format: 'svg' | 'png' = 'svg';
+      if (name === 'author_render' && args.format !== undefined) {
+        if (args.format !== 'svg' && args.format !== 'png') {
+          throw new BridgeError('INVALID_PARAMS', `format must be 'svg' or 'png' (got '${String(args.format)}')`);
+        }
+        format = args.format;
+      }
       const res = await deps.authorBridge({
-        op: name === 'author_apply' ? 'apply' : 'read',
+        op: name === 'author_apply' ? 'apply' : name === 'author_render' ? 'render' : 'read',
         documentId,
         mode,
         body,
         operations,
+        format,
         reason,
         agentId: ctx.agentId ?? '',
         agentHandle: ctx.agentHandle ?? '',
         via: ctx.via ?? 'local',
       });
       if (!res.ok) throw new BridgeError(res.code, res.message);
+      if (res.image !== undefined) {
+        // Text FIRST, then the image: the caption says which document this is a
+        // picture of, and a client that renders only the leading block still
+        // gets the useful half.
+        return { content: [{ type: 'text', text: res.text }, { type: 'image', data: res.image.base64, mimeType: res.image.mimeType }] };
+      }
       return textContent(res.text);
     }
     default:

@@ -4,7 +4,7 @@
 > **Status:** In flight (2026-08-04) — ADR-064 accepted 2026-08-02, so
 > the contract is settled and principal review is done. W1 merged
 > 2026-08-04 (#503–#508, restored by #515); W2 is part-landed — J1–J2
-> (#513), B3–B5 (#516), D1 — with C2/C3, `author_render` and H1–H3 to
+> (#513), B3–B5 (#516), D1, `author_render` — with C2/C3 and H1–H3 to
 > go per issue #494
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.731 main (`91153552`) — anchors from
@@ -42,15 +42,15 @@ excluded. Investigation record:
   mirroring; `tunnelClassForTool` (`:1346`) → `'desktop'`. Per-kind
   rules ride in tool descriptions (the reference app's
   `display_diagram` description ports near-verbatim).
-  - *As built:* **two tools, not four.** `author_read` + `author_apply`
-    shipped; `author_render` was already W2 in §11, and `author_guide`
-    followed it there because its whole content is C2 + C3, both W2 — a
-    guide verb with nothing to answer is a catalog entry that teaches an
-    agent to stop asking. `mode` was `'replace' | 'append'` in W1, with
-    `'ops'` refused **by name** (`INVALID_PARAMS`) rather than falling
-    back to replace, which would commit an operation list as the
-    document body; **D1 added `'ops'`** and the by-name refusal now
-    covers any fourth spelling.
+  - *As built:* **two tools in W1, three now.** `author_read` +
+    `author_apply` shipped first; `author_render` was already W2 in §11
+    and landed there; `author_guide` followed it to W2 because its whole
+    content is C2 + C3, both W2 — a guide verb with nothing to answer is
+    a catalog entry that teaches an agent to stop asking. `mode` was
+    `'replace' | 'append'` in W1, with `'ops'` refused **by name**
+    (`INVALID_PARAMS`) rather than falling back to replace, which would
+    commit an operation list as the document body; **D1 added `'ops'`**
+    and the by-name refusal now covers any fourth spelling.
   - *As built (D1):* the schema marks **neither `body` nor `operations`
     required**, and the xor is enforced in the handler instead.
     Expressing "one or the other" in JSON Schema needs `oneOf`, and a
@@ -71,6 +71,52 @@ excluded. Investigation record:
     `DESKTOP_AUDITED_TOOL_NAMES` ⊃ `DESKTOP_ACTION_TOOL_NAMES`; the
     audit gate reads the superset, the annotation reads the subset.
     Hub-leg reads stay ring-only as before — the hub routed them.
+  - *As built (`author_render`, W2):* it renders **figure**, **excalidraw**
+    and **diagram**; `markdown`/`table` are text and `canvas` has no
+    exporter (D2's work). Four decisions worth carrying:
+    - **It is a READ, and takes no card**, in both registries
+      (`desktopUIReadTools` hub-side, out of
+      `DESKTOP_ACTION_TOOL_NAMES` desktop-side, `readOnlyHint: true`).
+      The resemblance to `ui_screenshot` is superficial and the
+      difference is structural: a screenshot is a frame of the user's
+      whole SCREEN — hence ADR-062 D-3's surface table and D-4's
+      per-call card with no session grant — while this draws ONE
+      document from its own body, and the caller could already have that
+      document's source from `author_read` under the same toggle. It
+      discloses strictly less than the read does. Audited on every leg,
+      like `author_read`, for the same reason.
+    - **Every kind is drawn by its OWN renderer** — `renderFigure` for
+      figures, the Excalidraw exporters for scenes, draw.io's embed
+      `export` for diagrams. Same judgement as B5's dry run: a second
+      renderer agrees with the user's screen until it does not, and an
+      agent shown a picture nobody else can see is worse off than one
+      shown nothing.
+    - **One rasterizer.** SVG is what every path produces and PNG is
+      that SVG through `svgToPngBase64`, which moved out of
+      `FigureEditor` into `state/renderDocHost.ts` so the picture an
+      agent gets and the file the export button writes are the same
+      function. Excalidraw is the exception, and on merit: its own PNG
+      exporter resolves embedded image files and fonts that an SVG round
+      trip through a canvas silently drops. Agent renders are 1× where
+      the export button is 2× — a retina PNG is four times the tokens
+      for detail nothing downstream reads.
+    - **A diagram needs the document open**, because draw.io owns the
+      model. That is checked BEFORE the render (`hasLiveRender`) rather
+      than inferred from its failure: "no editor is open" has a recovery
+      the agent can name to the user and "the editor could not draw
+      this" does not. New registry `state/liveRender.ts`, sibling of
+      `liveApply` rather than a method on it — `figure` renders without
+      taking a live write and `canvas` takes one without rendering, so
+      one registry would make every adapter declare a capability it does
+      not have.
+  - *Known limits:* the draw.io export leg is **unexercised** — it needs
+    a machine with a display and an installed draw.io. The `export` reply
+    carries no correlation id (verified against drawio.com/doc/faq/embed-mode),
+    so one export is in flight per editor at a time and a second caller is
+    told to retry rather than being handed the first one's answer. Output
+    is capped at 1 MiB of base64: an image lands inline in the agent's
+    context and stays there, so past that the honest answer is "ask for
+    svg".
 - **A2 — renderer author-bridge RPC.** Main has no DOMParser: a
   correlation-id request/response pair over the `bridge:event` plumbing
   (`events.ts:36-39`); main provider = new `McpServerDeps` field
@@ -608,8 +654,8 @@ Read/Inspect/Replay. A5 is in W1 by necessity, not by size: it is the
 one item here that closes a data-loss window the wave itself opens.
 **W2** = B3–B5 + D1 + C2 + C3 + `author_render` + **H1–H3** + **J1–J2**
 → all Author kinds; navigation; Replay agent-reachable. *J1–J2 merged
-2026-08-04 (#513); B3–B5 followed (#516); D1 after them. Remaining: C2,
-C3, `author_render`, H1–H3.*
+2026-08-04 (#513); B3–B5 followed (#516); then D1 and `author_render`.
+Remaining: C2, C3, H1–H3.*
 **W3** = **I1–I4** + J3 + K (as its own plan's waves) + D2 + E1–E3.
 **W4** = I5 + F1 + polish + the K2 arrange write if demand holds.
 

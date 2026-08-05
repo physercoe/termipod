@@ -8,6 +8,10 @@ import { isShell } from '../platform';
 import { toast } from '../state/toast';
 import { useDocuments, type Doc } from '../state/documents';
 import { figureBySpec, FigureRenderError, renderFigure } from '../state/figures';
+// The rasterizer moved to `state/renderDocHost` when `author_render` shipped:
+// the picture an agent is handed and the file this button writes must be the
+// same function, or the two answers drift.
+import { svgToPngBase64 } from '../state/renderDocHost';
 import { Icon } from '../ui/Icon';
 
 /// The J2 Author **figure** editor — a split source ↔ live-preview surface over
@@ -101,42 +105,6 @@ function SourceEditor({ value, onChange, placeholder }: { value: string; onChang
   }, [value]);
 
   return <div className="md-editor figure-source" ref={hostRef} />;
-}
-
-/// Extract the intended pixel size of a rendered figure SVG — its explicit
-/// `width`/`height`, else the `viewBox`, else a default — so `svgToPngBase64` can
-/// size the output canvas. (It formerly also injected explicit width/height into
-/// the `<svg>` to work around WebKit reporting `naturalWidth === 0` for
-/// viewBox-only SVGs; the Electron shell's Chromium rasterizes those via
-/// `drawImage(img, 0, 0, w, h)` with no injection — §7 row 3, pinned in
-/// electron/e2e/app.spec.ts.)
-function svgSize(svg: string): { w: number; h: number } {
-  const vb = /viewBox\s*=\s*["']\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*["']/.exec(svg);
-  const wAttr = /<svg[^>]*\bwidth\s*=\s*["']\s*([\d.]+)(?:px)?\s*["']/.exec(svg);
-  const hAttr = /<svg[^>]*\bheight\s*=\s*["']\s*([\d.]+)(?:px)?\s*["']/.exec(svg);
-  const w = wAttr !== null ? Number(wAttr[1]) : vb !== null ? Number(vb[3]) : 800;
-  const h = hAttr !== null ? Number(hAttr[1]) : vb !== null ? Number(vb[4]) : 600;
-  return { w, h };
-}
-
-/// Rasterize an SVG string to a base64 PNG at `scale`× via an offscreen canvas.
-async function svgToPngBase64(svg: string, scale = 2): Promise<string> {
-  const { w, h } = svgSize(svg);
-  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  const img = new Image();
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error('svg decode failed'));
-    img.src = url;
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(w * scale));
-  canvas.height = Math.max(1, Math.round(h * scale));
-  const ctx = canvas.getContext('2d');
-  if (ctx === null) throw new Error('no 2d context');
-  ctx.scale(scale, scale);
-  ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL('image/png').split(',')[1] ?? '';
 }
 
 export function FigureEditor({ doc }: { doc: Doc }): JSX.Element {

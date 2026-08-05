@@ -404,6 +404,19 @@ func TestDesktopUIAuthorTools_ClassifyByWhatTheyDo(t *testing.T) {
 	if desktopUIToolClass("author_apply") != "action" {
 		t.Errorf("author_apply must be the gated class, got %q", desktopUIToolClass("author_apply"))
 	}
+	// author_render answers in PIXELS and is still a read. The resemblance to
+	// ui_screenshot is what makes this worth pinning: a screenshot is a frame of
+	// the user's whole screen and is carded on every call, while this draws ONE
+	// Author document whose source the same caller could already have fetched
+	// with author_read under the same toggle. Classifying it as an action would
+	// bury it under a card it does not need; the mistake in the other direction
+	// — a screenshot drifting into the read list — is what this pairing guards.
+	if desktopUIToolClass("author_render") != "read" {
+		t.Errorf("author_render must be a read, got %q", desktopUIToolClass("author_render"))
+	}
+	if desktopUIToolClass("ui_screenshot") == desktopUIToolClass("author_render") {
+		t.Error("a screenshot and a document render must not share a class")
+	}
 }
 
 // ── Agent pointing routes without a card (ADR-062 D-5) ───────────────

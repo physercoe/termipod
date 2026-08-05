@@ -4,6 +4,9 @@ import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { useDocuments, type Doc } from '../state/documents';
 import { registerLiveApply } from '../state/liveApply';
+import { registerLiveRender } from '../state/liveRender';
+import { EXPORT_TIMEOUT_MS } from '../state/renderDeadlines';
+import { svgFromDataUri } from '../state/renderDoc';
 import { proxyForConnection } from '../state/proxy';
 
 /// The J2 Author **diagram** editor — an offline draw.io embed. draw.io is
@@ -28,6 +31,10 @@ interface DrawioStatus {
 // it safe to pin below. A non-standard scheme would report `"null"` and the
 // pin would deadlock the embed protocol.
 const DRAWIO_ORIGIN = 'drawio://localhost';
+
+// EXPORT_TIMEOUT_MS bounds the export wait; it lives in renderDeadlines.ts
+// beside the render leg's transport deadline, which must outlast it — see the
+// invariant note there.
 
 function drawioBase(): string {
   return `${DRAWIO_ORIGIN}/`;
@@ -84,6 +91,20 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
   useEffect(() => {
     if (status?.installed !== true) return;
     let unregister: (() => void) | null = null;
+    let unregisterRender: (() => void) | null = null;
+    // The `export` event carries no correlation id (drawio.com/doc/faq/embed-mode
+    // — the reply is `{event:'export', format, data}` and nothing else), so at
+    // most one export may be in flight and a second caller waits for the first
+    // rather than racing it onto the same reply.
+    let pendingExport: { resolve: (svg: string) => void; reject: (e: Error) => void; timer: number } | null = null;
+    function settleExport(err: Error | null, svg?: string): void {
+      const p = pendingExport;
+      if (p === null) return;
+      pendingExport = null;
+      window.clearTimeout(p.timer);
+      if (err !== null) p.reject(err);
+      else p.resolve(svg ?? '');
+    }
     function onMessage(ev: MessageEvent): void {
       const frame = iframeRef.current;
       // Both halves are required. `ev.source` proves the message came from THIS
@@ -92,10 +113,24 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
       // the embed reached could drive `load` — which, once B1's write path
       // exists, means rewriting the user's diagram.
       if (frame === null || ev.source !== frame.contentWindow || ev.origin !== DRAWIO_ORIGIN) return;
-      let msg: { event?: string; xml?: string };
+      let msg: { event?: string; xml?: string; data?: string };
       try {
         msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : (ev.data as typeof msg);
       } catch {
+        return;
+      }
+      if (msg.event === 'export') {
+        // `author_render`'s answer for this kind. draw.io is the only thing that
+        // can rasterize an mxGraph model, so the picture has to come from here;
+        // PNG is NOT asked for, because the app already owns one SVG rasterizer
+        // and a second path through draw.io's export pipeline would be a second
+        // answer to the same question.
+        if (typeof msg.data !== 'string' || msg.data === '') {
+          settleExport(new Error('draw.io returned an empty export'));
+          return;
+        }
+        const out = svgFromDataUri(msg.data, (b64) => atob(b64));
+        settleExport(out.ok ? null : new Error(out.message), out.ok ? out.svg : undefined);
         return;
       }
       if (msg.event === 'init') {
@@ -123,6 +158,22 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
           // document now equals `body`".
           return 'applied_live';
         });
+        // Same reason the write path opens only after `init`: an export posted
+        // before draw.io announces itself is dropped, and the caller would then
+        // wait out the whole deadline for a reply that was never coming.
+        unregisterRender?.();
+        unregisterRender = registerLiveRender(doc.id, async () => {
+          if (iframeRef.current === null) throw new Error('the diagram editor is no longer on screen');
+          if (pendingExport !== null) throw new Error('another export of this diagram is already in flight — retry in a moment');
+          const svg = await new Promise<string>((resolve, reject) => {
+            const timer = window.setTimeout(() => {
+              settleExport(new Error('draw.io did not answer the export within 20s'));
+            }, EXPORT_TIMEOUT_MS);
+            pendingExport = { resolve, reject, timer };
+            post({ action: 'export', format: 'svg' });
+          });
+          return svg;
+        });
       } else if ((msg.event === 'save' || msg.event === 'autosave') && typeof msg.xml === 'string') {
         update(doc.id, { body: msg.xml });
       }
@@ -136,6 +187,11 @@ export function DiagramEditor({ doc }: { doc: Doc }): JSX.Element {
     return () => {
       window.removeEventListener('message', onMessage);
       unregister?.();
+      unregisterRender?.();
+      // A caller parked on an export must not outlive the editor it is waiting
+      // on: unmounting is a definite answer, and a rejected promise reaches the
+      // agent as a refusal rather than as the render leg's transport deadline.
+      settleExport(new Error('the diagram editor closed before the export finished'));
     };
   }, [status?.installed, doc.id, update]);
 

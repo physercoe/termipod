@@ -3,15 +3,18 @@
 > **Type:** reference
 > **Status:** Current (2026-08-05)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** 2026.730.1231-alpha — `payload_lists` re-read
-> against `profile_translate.go` at that tip
+> **Last verified vs code:** 2026.730.1231-alpha — every rule in §3–§4
+> re-derived from `eval.go` + `profile_translate.go` while porting them
+> to TypeScript (§7); the ports are pinned to each other by fixture
 
-**TL;DR.** A frame profile is a YAML block that tells the host-runner
-how to translate one engine's stream-json output into the hub's typed
-agent_event vocabulary. Each rule is a `(match → emit)` pair; an
-expression subset (think JSONata-lite) extracts payload fields from
-the input frame. This page is the canonical authoring reference —
-read the worked examples below before extending or adding a profile.
+**TL;DR.** A frame profile is a YAML block that says how to translate
+one engine's stream-json output into the hub's typed agent_event
+vocabulary. Each rule is a `(match → emit)` pair; an expression subset
+(think JSONata-lite) extracts payload fields from the input frame.
+Two runtimes interpret these rules — the host-runner in Go and the
+desktop Companion in TypeScript — and §7 covers what that costs you as
+an author. This page is the canonical authoring reference; read the
+worked examples below before extending or adding a profile.
 
 ---
 
@@ -465,19 +468,71 @@ maintainer is an AI agent):
 5. **Add a corpus row.** Append the frame + expected output to the
    parity test fixture. The diff test will then enforce that any
    future edit doesn't regress this case.
+6. **Regenerate the cross-language fixture.** A rule edit changes what
+   *both* interpreters must produce (§7), and the checked-in fixture
+   is what pins them together:
+
+       go test ./internal/hostrunner/ -run Fixture -update-frame-fixture
+       cd desktop/electron && npm test
+
+   Skipping this fails `TestFrameProfile_ParityFixtureIsCurrent`, which
+   is the intended behaviour — the fixture going stale is the same
+   event as the two interpreters disagreeing.
 
 If a rule misfires in production, the host-runner's diagnostics
 emit a structured log line `frame_unmatched_total{family}` per
 unmatched frame and a per-rule diff log when running in canary mode.
 Use those to triage before editing.
 
-## 7. References
+## 7. Two interpreters
+
+Profiles are interpreted **twice**, by design. The host-runner reads
+them in Go, and the desktop Companion reads the same YAML in
+TypeScript because it runs agents locally rather than through a hub
+(vision-parity L3/L4). One rule language, two engines interpreting it.
+
+That is the shape that drifts quietly: both implementations stay
+green, both stay plausible, and the transcripts they produce stop
+agreeing on some engine nobody happens to be watching. Nothing about a
+rule edit makes the second interpreter fail.
+
+So neither side is trusted to describe the other. A generated fixture
+records what Go actually produces — the profiles verbatim, every
+corpus frame's events, a set of synthetic rule shapes the shipped
+profiles don't reach, and the expression corners — and the TypeScript
+suite replays the same inputs and diffs. Go owns the answers; TS
+matches them or fails.
+
+| | |
+|---|---|
+| Generator + `-update-frame-fixture` | `hub/internal/hostrunner/profile_fixture_test.go` |
+| Fixtures | `hub/internal/hostrunner/testdata/profiles/{<family>/parity,translate,grammar}.json` |
+| TypeScript interpreter | `desktop/electron/src/frameprofile/` |
+| TypeScript parity suite | `desktop/electron/src/frameprofile/parity.test.ts` |
+
+Two consequences for authors:
+
+- **Match values must be strings.** Go compares them as `any != any`,
+  so a YAML integer never equals a JSON number decoded from a frame and
+  the rule silently never fires; TypeScript has one number type and
+  would match. `TestFrameProfile_MatchValuesAreStrings` fails on a
+  non-string matcher at the moment it's authored, rather than as a
+  transcript that differs on one client.
+- **A value rename is not a profile edit.** The grammar has no
+  comparisons (§3), so an engine whose enum spelling differs from the
+  vocabulary's needs driver-side code — and that code now has to exist
+  on *both* sides. Codex's plan status is the worked example:
+  `canonicalPlanStatus` in `driver_appserver.go` and in
+  `frameprofile/supplements.ts`.
+
+## 8. References
 
 - ADR: `../decisions/010-frame-profiles-as-data.md`
 - Plan: `../plans/frame-profiles-migration.md`
 - Loader: `hub/internal/agentfamilies/families.go`
 - Evaluator: `hub/internal/hostrunner/profile_eval/eval.go`
 - Translator: `hub/internal/hostrunner/profile_translate.go`
+- TypeScript twin: `desktop/electron/src/frameprofile/{eval,translate}.ts`
 - Canonical example profile: `hub/internal/agentfamilies/agent_families.yaml`
   (the `claude-code` entry's `frame_profile` block)
 - Schema sidecar: `hub/internal/agentfamilies/agent_families.schema.json`

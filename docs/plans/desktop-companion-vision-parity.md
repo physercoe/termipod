@@ -2,7 +2,8 @@
 
 > **Type:** plan
 > **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
-> W2 all but L2 landed (E2, R2, R3, F3). Principal review done
+> **W2 complete** (L2, E2, R2, R3, F3). Principal review done. W3 next
+> (L3, E3, E4, R4) — L2 was its blocker
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -206,6 +207,47 @@ transport rung (lane T), never the renderer's ceiling.
   can't express (delta throttle, approval parking, `session.init`
   composition) are enumerated per engine in L3/L4 and covered by
   ported unit tests.
+  - *As built* (`desktop/electron/src/frameprofile/`): `eval.ts` and
+    `translate.ts` are line-comparable ports of `profile_eval/eval.go`
+    and `profile_translate.go`, plus `supplements.ts` for the pure half
+    of the codex D-7 list.
+  - *Parity is generated, not asserted.* "The same corpus fixtures"
+    turned out to be necessary but not sufficient: a corpus proves the
+    ports agree on **what we ship**, and says nothing about the parts of
+    the rule language no profile has reached for yet — an empty
+    catch-all match, a `for_each` over a non-array, a projection whose
+    source is missing. Those are exactly where a second implementation
+    drifts, because nothing exercises them until an engine needs one.
+    So `profile_fixture_test.go` generates three fixtures from what Go
+    actually produces — the corpus (46 frames × 3 families), 37
+    synthetic rule shapes, and 82 expression cases — and fails when they
+    are stale. The TS suite reads the hub's testdata directly rather
+    than a copy, because a copy makes parity a matter of remembering to
+    re-copy, which is the discipline this replaces.
+  - *One divergence found and closed by a test, not by reading.* Go
+    compares match values as `any != any`, so a YAML integer never
+    equals a JSON number decoded from a frame — the rule silently never
+    fires — while TS has one number type and would match; a structured
+    matcher panics the Go comparison outright. Every match value across
+    all three profiles is a string today, which is where the two agree
+    exactly, and `TestFrameProfile_MatchValuesAreStrings` is what keeps
+    that true at authoring time.
+  - *Two deliberate narrowings, recorded rather than papered over.*
+    `strconv.Unquote` resolves `\xHH` and octal escapes to raw BYTES;
+    above 0x7F no UTF-16 string can hold the result, so those are
+    malformed on the TS side instead of silently becoming U+00FF. They
+    are absent from the shared fixture on purpose — recording a
+    divergence there would assert it as parity — and pinned in
+    `eval.test.ts` instead. No shipped literal reaches this.
+  - *Not built, deliberately:* profile **loading**. The interpreter is
+    the wedge; where Electron main gets the rules from (bundled sidecar,
+    hub fetch, `<DataRoot>` overlay) is a choice L3 makes when it has a
+    consumer, and inventing a loader now would ship a second copy of
+    `agent_families.yaml` with nothing reading it.
+  - *Ported from D-7:* `canonicalPlanStatus`. `finishPlanEvent`'s chain
+    root and the turn clock are per-session mutable state, so they land
+    with the codex driver in **L4**, not here — there is no session in a
+    pure translator to hold them.
 - **L3 — the TermiPod local agent service + claude driver (D-8:
   "we build one" where the vendor ships none).** Electron main hosts a
   long-lived local agent service: it owns engine children, keeps a

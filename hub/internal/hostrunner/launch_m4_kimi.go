@@ -103,7 +103,14 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// must exist AND workspaces.json must parse: without the cwd→wd_*
 	// mapping the adapter can never resolve this spawn's session, so
 	// degrade now (pane text) instead of mid-session.
-	storeHome, err := kimicode.StoreHome()
+	// Resolve from the SPAWN's environment first: env-profile vars are
+	// exported ahead of the command below, so an agent can be pointed at
+	// its own store root that host-runner's own environment knows
+	// nothing about. The same root then goes to the adapter (below), so
+	// the gate and the tail can never disagree about which store this
+	// spawn uses — a gate that validates a store the tail never reads
+	// passes for the wrong reason.
+	storeHome, err := kimicode.ResolveStoreHome(spec.EnvVars[kimicode.StoreHomeEnvVar])
 	if err != nil {
 		return nil, fmt.Errorf("kimi wire-tail M4: resolve store home: %w", err)
 	}
@@ -168,6 +175,11 @@ func launchM4KimiWireTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	if err != nil {
 		return nil, fmt.Errorf("kimi wire-tail M4: new adapter: %w", err)
 	}
+	// The root the pre-flight gate just validated. Without this the
+	// adapter re-resolves from os.Getenv alone and would miss a
+	// spawn-level override — silently, since a wire tail that finds no
+	// session looks the same as one whose agent hasn't spoken yet.
+	adapter.StoreHome = storeHome
 
 	driver := &locallogtail.Driver{
 		Config: locallogtail.Config{

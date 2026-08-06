@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	locallogtail "github.com/termipod/hub/internal/drivers/local_log_tail"
 	claudecode "github.com/termipod/hub/internal/drivers/local_log_tail/claude_code"
 )
 
@@ -591,5 +592,81 @@ func TestPreTrustWorkspaceClaudeCode_RelocatedConfigHome(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
 		t.Errorf("default profile's ~/.claude.json was touched (err=%v); "+
 			"a relocated spawn must not write into another account's config", err)
+	}
+}
+
+// The launcher must carry the SPAWN's $CLAUDE_CONFIG_DIR into both
+// consumers — the trust file and the transcript tail. An env profile
+// exports it into the child only, so host-runner's own environment is
+// not the authority.
+//
+// The two roots are inverted so the outcome is unambiguous: HOME points
+// at a default root and the spawn names a different one. Reading the
+// spawn's root is the only way the adapter can end up holding it.
+func TestLaunchM4LocalLogTail_SpawnEnvOverridesConfigHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(claudecode.ConfigHomeEnvVar, "") // host-runner sets nothing
+
+	spawnRoot := filepath.Join(home, ".claude-work")
+	workdir := t.TempDir()
+	projectDir := claudecode.ProjectDirIn(spawnRoot, workdir)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "test-session.jsonl"),
+		[]byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("seed jsonl: %v", err)
+	}
+
+	sp := Spawn{
+		ChildID:  "agent-reloc",
+		Handle:   "@reloc",
+		Kind:     "claude-code",
+		MCPToken: "tok-reloc",
+		SpawnSpec: "backend:\n  cmd: claude\n  default_workdir: " + workdir + "\n" +
+			"env_vars:\n  CLAUDE_CONFIG_DIR: " + spawnRoot + "\n",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := launchM4LocalLogTail(ctx, M4LocalLogTailLaunchConfig{
+		Spawn:            sp,
+		Launcher:         &trackingLauncher{paneID: "%21"},
+		Client:           &recordingAgentPoster{},
+		HubURL:           "http://127.0.0.1:41825",
+		GatewayHubClient: NewClient("http://hub", "host-token", "team-1"),
+	})
+	if err != nil {
+		t.Fatalf("launchM4LocalLogTail: %v", err)
+	}
+	defer func() {
+		if res.Gateway != nil {
+			_ = res.Gateway.Close()
+		}
+		if res.Driver != nil {
+			res.Driver.Stop()
+		}
+	}()
+
+	d, ok := res.Driver.(*locallogtail.Driver)
+	if !ok {
+		t.Fatalf("driver is %T, want *locallogtail.Driver", res.Driver)
+	}
+	a, ok := d.Adapter.(*claudecode.Adapter)
+	if !ok {
+		t.Fatalf("adapter is %T, want *claudecode.Adapter", d.Adapter)
+	}
+	if a.ConfigHome != spawnRoot {
+		t.Errorf("adapter.ConfigHome = %q, want the spawn's root %q", a.ConfigHome, spawnRoot)
+	}
+
+	// The trust grant follows the same root, and the default profile's
+	// file is never created — that file belongs to another account.
+	if _, err := os.Stat(filepath.Join(spawnRoot, ".claude.json")); err != nil {
+		t.Errorf("trust file not written under the spawn's root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("default profile's ~/.claude.json was written (err=%v)", err)
 	}
 }

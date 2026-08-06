@@ -63,10 +63,23 @@ binding). Seed entries prior to that are in
   creates. Every slug observed before the probe held nothing but separators
   and alphanumerics, so the sample the old rule was derived from could not
   discriminate the two rules; the probed pair is now pinned as a regression
-  test. Teleport deliberately still ignores both env vars — it resolves a
+  test.
+- **kimi-code-ts had the same precedence gap, one layer up.** It already
+  honoured `$KIMI_CODE_HOME`, but only from host-runner's own environment,
+  so an env profile that pointed one agent at its own store was invisible
+  to both the M4 pre-flight gate and the wire tail. `ResolveStoreHome` now
+  consults the spawn's value first, and the launcher hands the resolved
+  root to the adapter instead of letting it re-resolve — previously the
+  gate validated one store while the tail could read another, which passes
+  for the wrong reason and then fails silently, since a wire tail with no
+  session looks exactly like an agent that hasn't spoken yet.
+- **Teleport deliberately still ignores both env vars.** It resolves a
   source host and a target host that this process's environment does not
-  describe, so following them is an ADR-057 transport change, tracked
-  alongside the identical `$KIMI_CODE_HOME` limit.
+  describe — an env profile can relocate a root for one agent, and the
+  target is a different machine. Following them means carrying the source's
+  root in the bundle and re-resolving on the target: an ADR-057 transport
+  change, not a resolver fix. Recorded at the call site; identical on both
+  engines, and they should be fixed together.
 
 ---
 

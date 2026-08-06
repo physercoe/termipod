@@ -14,13 +14,22 @@ import (
 	"time"
 )
 
+// StoreHomeEnvVar is kimi's own override for its store root. Named as
+// a constant so call sites and tests can't drift on the spelling —
+// claude's ConfigHomeEnvVar is the same idea for the same reason.
+const StoreHomeEnvVar = "KIMI_CODE_HOME"
+
 // StoreHome returns the root of kimi's local session store:
 // $KIMI_CODE_HOME when set, else ~/.kimi-code. Both kimi-code-ts
 // (verified 0.28.1) and the directory layout in the plan's §2.2 use
 // this root; the env override is kimi's own, honoured so per-spawn
 // isolation and tests can point the adapter at a scratch store.
+//
+// This reads THIS process's environment. A spawn whose env profile
+// sets the variable for the child only is not visible here — see
+// ResolveStoreHome.
 func StoreHome() (string, error) {
-	if dir := strings.TrimSpace(os.Getenv("KIMI_CODE_HOME")); dir != "" {
+	if dir := strings.TrimSpace(os.Getenv(StoreHomeEnvVar)); dir != "" {
 		return dir, nil
 	}
 	home, err := os.UserHomeDir()
@@ -36,6 +45,30 @@ func StoreHome() (string, error) {
 // process's env, so it needs the env-free form.
 func StoreHomeFor(home string) string {
 	return filepath.Join(home, ".kimi-code")
+}
+
+// ResolveStoreHome picks the store root a spawned kimi child will
+// ACTUALLY use, in the order the child itself resolves it:
+//
+//  1. `spawnOverride` — what the spawn exports into the child's
+//     environment. Env-profile vars are exported ahead of the command
+//     (`launch_m4_kimi.go`), and host-runner's own environment never
+//     sees them, so a resolver that consulted only os.Getenv would name
+//     a different store than the child writes to.
+//  2. host-runner's own $KIMI_CODE_HOME, which the child inherits when
+//     the spawn doesn't override it.
+//  3. `<home>/.kimi-code`.
+//
+// Steps 2 and 3 are exactly StoreHome, so this wraps it rather than
+// restating the chain; it keeps StoreHome's error contract for the same
+// reason (a HOME that won't resolve is the caller's problem either
+// way). claude's ResolveConfigHome takes an explicit home instead —
+// its launcher already holds one for the trust file, this one does not.
+func ResolveStoreHome(spawnOverride string) (string, error) {
+	if dir := strings.TrimSpace(spawnOverride); dir != "" {
+		return dir, nil
+	}
+	return StoreHome()
 }
 
 // WorkspaceIDFor derives kimi's wd_* workspace id for a symlink-RESOLVED

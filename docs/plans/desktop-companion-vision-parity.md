@@ -628,12 +628,16 @@ service (LAN/mobile clients are a recorded follow-up, not this plan).
   `ResolveConfigHome`/`ProjectDirIn` in the claude pathresolver, wired
   through the M4 launcher from the **spawn's** env (an env profile
   exports into the child, so host-runner's own `os.Getenv` is not the
-  authority) and into the trust-file path. **Teleport still does not
-  follow the var** — deliberately: it resolves a source host and a
-  target host, neither described by this process's env, so following
-  it means carrying the root in the bundle, an ADR-057 transport
-  change. Same limit on kimi's `$KIMI_CODE_HOME`; fix them together.
-  L3 inherits the resolver, not the gap.
+  authority) and into the trust-file path. **kimi got the same
+  treatment**: it already read `$KIMI_CODE_HOME`, but only from
+  host-runner's env, and its M4 gate and wire tail resolved the root
+  independently — so the gate could validate one store while the tail
+  read another. `ResolveStoreHome` + one resolution handed to both.
+  **Teleport still does not follow either var** — deliberately: it
+  resolves a source host and a target host, neither described by this
+  process's env, so following it means carrying the root in the bundle,
+  an ADR-057 transport change. Identical on both engines; fix them
+  together. L3 inherits the resolver, not the gap.
 - **The same resolver's slug rule was narrower than the vendor's —
   now settled by probe.** `EncodeProjectDir` replaced path separators
   only; the real rule replaces *every non-alphanumeric* character. Run

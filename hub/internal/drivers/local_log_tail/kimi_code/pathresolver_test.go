@@ -267,3 +267,32 @@ func TestResolveWorkdirRoot_ResolvesSymlinks(t *testing.T) {
 		t.Fatalf("ResolveWorkdirRoot(missing) = %q", missing)
 	}
 }
+
+// A spawn can carry its own $KIMI_CODE_HOME through an env profile —
+// exported into the CHILD's environment, where host-runner's own
+// os.Getenv cannot see it. The spawn's value must win, or the tail
+// watches a store the child never writes to.
+func TestResolveStoreHome_SpawnOverrideBeatsProcessEnv(t *testing.T) {
+	t.Setenv(StoreHomeEnvVar, "/host/runner/store")
+
+	got, err := ResolveStoreHome("/spawn/store")
+	if err != nil {
+		t.Fatalf("ResolveStoreHome: %v", err)
+	}
+	if got != "/spawn/store" {
+		t.Errorf("spawn override lost: got %q", got)
+	}
+
+	if got, err = ResolveStoreHome(""); err != nil || got != "/host/runner/store" {
+		t.Errorf("process env ignored: got %q, err %v", got, err)
+	}
+	if got, err = ResolveStoreHome("   "); err != nil || got != "/host/runner/store" {
+		t.Errorf("blank override should not win: got %q, err %v", got, err)
+	}
+
+	t.Setenv(StoreHomeEnvVar, "")
+	t.Setenv("HOME", "/home/erin")
+	if got, err = ResolveStoreHome(""); err != nil || got != "/home/erin/.kimi-code" {
+		t.Errorf("home fallback: got %q, err %v", got, err)
+	}
+}

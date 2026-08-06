@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	locallogtail "github.com/termipod/hub/internal/drivers/local_log_tail"
+	kimicode "github.com/termipod/hub/internal/drivers/local_log_tail/kimi_code"
 )
 
 // seedKimiStoreHome points KIMI_CODE_HOME at a temp dir and (optionally)
@@ -212,5 +215,65 @@ func TestKimiPermissionModeFromCmd(t *testing.T) {
 	}
 	if got := kimiPermissionModeFromCmd("kimi"); got != "interactive" {
 		t.Errorf("got %q, want interactive", got)
+	}
+}
+
+// An env profile can point one agent at its own kimi store, and that
+// value reaches the CHILD only — host-runner's own environment never
+// sees it. The test inverts the two roots so the outcome is unambiguous:
+// the process env names a store with no sessions/ (which the pre-flight
+// gate rejects) and the spawn names a good one. A launch that succeeds
+// can only have used the spawn's value.
+//
+// It also pins the pairing: the gate and the tail must resolve the SAME
+// root. A gate that validates one store while the adapter tails another
+// passes for the wrong reason, and the failure downstream is silent —
+// a wire tail with no session looks exactly like an agent that has not
+// spoken yet.
+func TestLaunchM4KimiWireTail_SpawnEnvOverridesStoreHome(t *testing.T) {
+	seedKimiStoreHome(t, false) // host-runner's env: store with NO sessions/
+
+	spawnStore := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(spawnStore, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(spawnStore, "workspaces.json"),
+		[]byte(`{"version":1,"workspaces":{},"deleted_workspace_ids":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	workdir := t.TempDir()
+	spawn := kimiSpawn("kimi-code-ts", workdir, "kimi --yolo")
+	spawn.SpawnSpec += "env_vars:\n  KIMI_CODE_HOME: " + spawnStore + "\n"
+
+	tl := &trackingLauncher{paneID: "%17"}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := launchM4KimiWireTail(ctx, M4LocalLogTailLaunchConfig{
+		Spawn:    spawn,
+		Launcher: tl,
+		Client:   &recordingAgentPoster{},
+		HubURL:   "http://127.0.0.1:41825",
+	})
+	if err != nil {
+		t.Fatalf("spawn-level KIMI_CODE_HOME ignored — the gate used host-runner's store: %v", err)
+	}
+	defer func() {
+		if res.Driver != nil {
+			res.Driver.Stop()
+		}
+	}()
+
+	d, ok := res.Driver.(*locallogtail.Driver)
+	if !ok {
+		t.Fatalf("driver is %T, want *locallogtail.Driver", res.Driver)
+	}
+	a, ok := d.Adapter.(*kimicode.Adapter)
+	if !ok {
+		t.Fatalf("adapter is %T, want *kimicode.Adapter", d.Adapter)
+	}
+	if a.StoreHome != spawnStore {
+		t.Errorf("adapter.StoreHome = %q, want the spawn's store %q — the gate and the tail disagree",
+			a.StoreHome, spawnStore)
 	}
 }

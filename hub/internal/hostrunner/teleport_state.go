@@ -33,6 +33,18 @@ import (
 // claude-code; T2b (#429) added kimi-code-ts (tree walk + state.json fixup +
 // workspaces.json synthesis); the remaining families slot in behind the same
 // two functions.
+//
+// Known limit — engine store roots are relocatable by env var
+// ($CLAUDE_CONFIG_DIR, $KIMI_CODE_HOME) and teleport does not follow them.
+// Both resolvers are called here in their env-FREE form (ConfigHomeFor,
+// StoreHomeFor) because teleport keys off an explicit host home for the
+// source and the target, and this process's environment describes neither
+// end reliably: an env profile can relocate the root for the agent alone,
+// and the target host is a different machine entirely. Following the var
+// would mean carrying the source's root in the bundle and re-resolving it
+// on the target, which is an ADR-057 transport change, not a resolver fix.
+// So an agent whose root is relocated teleports its worktree but cold-starts
+// its conversation. Same limit on both engines; fix them together.
 
 // engineStateFile is one file in an engine-state bundle: TarName is the
 // host-independent name stored inside the tar, AbsPath is where it lives (pack)

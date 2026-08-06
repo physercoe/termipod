@@ -88,6 +88,14 @@ type Adapter struct {
 	// HomeDir overrides $HOME when resolving the claude project
 	// directory. Zero value = use os.UserHomeDir(); set by tests.
 	HomeDir string
+	// ConfigHome is claude's config root for the child being tailed —
+	// `<HomeDir>/.claude` unless the spawn or host-runner relocated it
+	// via $CLAUDE_CONFIG_DIR. Zero value resolves it here via
+	// ResolveConfigHome, which sees host-runner's env but NOT a
+	// per-spawn override; the M4 launch glue knows the spawn's env and
+	// sets this explicitly. Wrong value = the tail waits on a
+	// directory the child never writes, silently and forever.
+	ConfigHome string
 	// SessionWaitTimeout caps how long Start will poll for the
 	// session JSONL to appear before failing. 0 → 30s. claude-code
 	// typically writes the first event within ~500ms of process
@@ -304,7 +312,11 @@ func (a *Adapter) resolveAndRun(ctx context.Context) {
 		}
 		homeDir = hd
 	}
-	projectDir := ProjectDirFor(homeDir, a.Workdir)
+	configHome := a.ConfigHome
+	if configHome == "" {
+		configHome = ResolveConfigHome("", homeDir)
+	}
+	projectDir := ProjectDirIn(configHome, a.Workdir)
 	// Best-effort mkdir so WaitForSession's first poll can see
 	// the directory; claude-code itself will create it on first
 	// write if missing, but creating it eagerly also covers the

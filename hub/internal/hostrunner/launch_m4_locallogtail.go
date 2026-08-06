@@ -214,7 +214,22 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	// (skips if already accepted); best-effort (a failure just means
 	// the user gets the dialog once and may be unable to dismiss it,
 	// which is still better than failing the spawn outright).
-	if werr := preTrustWorkspaceClaudeCode(workdir); werr != nil {
+	// $CLAUDE_CONFIG_DIR relocates claude's entire config home, and the
+	// CHILD resolves it from its own environment — the spawn's
+	// env-profile vars are exported ahead of the command below, so
+	// host-runner's own environment is not the authority. Resolve once
+	// here and hand the same root to both consumers: the trust file and
+	// the transcript tail. Getting this wrong is silent — the tail waits
+	// on a directory the child never writes to.
+	var claudeConfigHome string
+	if h, herr := os.UserHomeDir(); herr == nil {
+		claudeConfigHome = claudecode.ResolveConfigHome(spec.EnvVars[claudecode.ConfigHomeEnvVar], h)
+	} else {
+		cfg.Log.Warn("locallogtail M4: resolve HOME failed; claude config home falls back to per-consumer defaults",
+			"handle", cfg.Spawn.Handle, "err", herr)
+	}
+
+	if werr := preTrustWorkspaceClaudeCode(workdir, claudeConfigHome); werr != nil {
 		cfg.Log.Warn("locallogtail M4: pre-trust workspace failed; user may see the trust dialog",
 			"handle", cfg.Spawn.Handle, "workdir", workdir, "err", werr)
 	}
@@ -231,6 +246,10 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	if err != nil {
 		return nil, fmt.Errorf("locallogtail M4: new adapter: %w", err)
 	}
+	// Same root the trust file used — see the resolution above. Empty
+	// only when HOME itself failed to resolve, in which case the adapter
+	// falls back to its own (env-consulting) default.
+	adapter.ConfigHome = claudeConfigHome
 	// v1.0.673: on a `--resume` spawn the JSONL file already exists
 	// with the prior session's transcript inline (claude-code APPENDS
 	// to the original `<uuid>.jsonl` on resume rather than minting a
@@ -417,24 +436,28 @@ func cmdContainsResumeFlag(cmd string) bool {
 // keys by absolute path, not prefix, so per-spawn pre-grant is the
 // only path that doesn't require user intervention.
 //
-// Best-effort: a missing ~/.claude.json is treated as the empty config
+// `configHome` is the child's claude config root (see
+// claudeUserConfigPath, which locates the file under it); empty falls
+// back to the `<home>/.claude` default.
+//
+// Best-effort: a missing config file is treated as the empty config
 // (the function creates it with just the projects entry); a malformed
 // one falls through with the parse error and the user gets the dialog
 // this once. The function never returns a launch-blocking error from
 // the caller's perspective — the caller logs and continues either way.
-func preTrustWorkspaceClaudeCode(workdir string) error {
+func preTrustWorkspaceClaudeCode(workdir, configHome string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve HOME: %w", err)
 	}
-	path := filepath.Join(home, ".claude.json")
+	path := claudeUserConfigPath(configHome, home)
 
 	clean := filepath.Clean(workdir)
 
 	cfg := map[string]any{}
 	if b, rerr := os.ReadFile(path); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
 		if jerr := json.Unmarshal(b, &cfg); jerr != nil {
-			return fmt.Errorf("parse existing ~/.claude.json: %w", jerr)
+			return fmt.Errorf("parse existing %s: %w", path, jerr)
 		}
 	}
 
@@ -465,4 +488,35 @@ func preTrustWorkspaceClaudeCode(workdir string) error {
 		return err
 	}
 	return os.WriteFile(path, body, 0o600)
+}
+
+// claudeUserConfigPath resolves the file claude-code keeps per-project
+// trust state in (`projects.<dir>.hasTrustDialogAccepted`).
+//
+// The default layout puts it BESIDE the config home, not inside it:
+// `<home>/.claude.json` next to `<home>/.claude/` (verified on the dev
+// box, and the only layout Anthropic's settings page documents). Under a
+// relocated root we keep it inside that root instead.
+//
+// Note what this deliberately does NOT do: fall back to
+// `<home>/.claude.json` when a relocated root has no config file yet.
+// That file belongs to a DIFFERENT profile — relocation exists so two
+// claude.ai accounts don't share state, and this same file holds the
+// OAuth session. Writing one account's trust grant into the other
+// account's config is a worse outcome than the alternative, which is
+// that the user dismisses one trust dialog by hand. When two failure
+// modes are both possible and one crosses a profile boundary, take the
+// other one.
+//
+// Residual uncertainty, stated because it is not citable: the vendor
+// documents neither $CLAUDE_CONFIG_DIR nor this file's placement under
+// it. It must move with the root — otherwise the two-account recipe
+// could not isolate sessions at all — but "inside the root" is
+// inference, not a quote. Re-probe if the trust dialog shows up on a
+// relocated profile.
+func claudeUserConfigPath(configHome, home string) string {
+	if configHome == "" || configHome == claudecode.ConfigHomeFor(home) {
+		return filepath.Join(home, ".claude.json")
+	}
+	return filepath.Join(configHome, ".claude.json")
 }

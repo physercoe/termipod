@@ -10,28 +10,121 @@ import (
 )
 
 // EncodeProjectDir mirrors claude-code's on-disk encoding for cwd
-// slugs: every path-separator is replaced with `-`. Empirically
-// observed via `ls ~/.claude/projects/`:
+// slugs: EVERY non-alphanumeric character becomes `-`, not just the
+// path separator. Anthropic's session docs state the rule ("the
+// absolute working directory with every non-alphanumeric character
+// replaced by `-`"), and it is verified on-host (2026-08-05) by
+// running a session in a probe directory and reading back the
+// directory claude created:
 //
-//	/home/ubuntu/mux-pod    →    -home-ubuntu-mux-pod
-//	/tmp/foo                →    -tmp-foo
+//	/home/ubuntu/mux-pod           →    -home-ubuntu-mux-pod
+//	/tmp/foo                       →    -tmp-foo
+//	/tmp/scratchpad/enc_probe.v1   →    -tmp-scratchpad-enc-probe-v1
+//
+// The third pair is the one that matters: `_` and `.` both collapse.
+// Until that probe this function replaced separators only, which is
+// indistinguishable from the real rule on every slug we had ever
+// observed — all of them held nothing but separators and
+// alphanumerics — and wrong for any workdir containing `_` or `.`
+// (`my_project`, `repo.git`, `v1.2`). It failed silent: the tail
+// waited forever on a directory claude would never create, and
+// teleport packed an engine-state bundle with nothing in it.
+//
+// Non-ASCII is the one case still unverified. We replace any rune
+// outside [A-Za-z0-9], which matches a JS `replace(/[^a-zA-Z0-9]/g,
+// '-')` over BMP code points (claude-code is TypeScript) but not
+// necessarily over surrogate pairs. Re-probe before trusting this for
+// a workdir with non-ASCII characters in it.
 //
 // claude-code resolves project session files under
-// `~/.claude/projects/<slug>/<session-uuid>.jsonl`. Cleans the
+// `<config-home>/projects/<slug>/<session-uuid>.jsonl`. Cleans the
 // input (no trailing slash, collapses doubles) before encoding so
 // `/home/ubuntu/proj/` and `/home/ubuntu/proj` produce the same
 // slug.
 func EncodeProjectDir(cwd string) string {
 	cwd = filepath.Clean(cwd)
-	return strings.ReplaceAll(cwd, string(filepath.Separator), "-")
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		default:
+			return '-'
+		}
+	}, cwd)
+}
+
+// ConfigHomeEnvVar is the environment variable claude-code reads to
+// relocate its entire config home — sessions, settings, credentials
+// and the `claude daemon` roster all move with it. Anthropic's
+// settings page documents neither the variable nor its blast radius
+// (anthropics/claude-code#33430 asks for that), but the Agent SDK's
+// session docs are explicit that transcripts live under
+// `$CLAUDE_CONFIG_DIR/projects/<encoded-cwd>/` when it is set.
+//
+// Worth knowing who this is for: the variable's dominant real-world
+// use is running two claude.ai accounts (work + personal) side by
+// side, so ignoring it breaks **subscription** users. An API-key user
+// has no reason to set it, which is why reading only the SDK docs —
+// where it reads as a hosting detail — understates the blast radius.
+const ConfigHomeEnvVar = "CLAUDE_CONFIG_DIR"
+
+// ConfigHomeFor is the env-free form: claude-code's config home for a
+// GIVEN home directory, with no environment consulted. Teleport keys
+// everything off an explicit host home (source/target), never off this
+// process's env, so it needs this form — the same split kimi's
+// StoreHome/StoreHomeFor pair makes for the same reason.
+func ConfigHomeFor(home string) string {
+	return filepath.Join(home, ".claude")
+}
+
+// ConfigHome resolves THIS process's config home: $CLAUDE_CONFIG_DIR
+// when set, else `<home>/.claude`.
+func ConfigHome() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv(ConfigHomeEnvVar)); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve HOME: %w", err)
+	}
+	return ConfigHomeFor(home), nil
+}
+
+// ResolveConfigHome picks the config home a spawned claude child will
+// ACTUALLY use, in the order the child itself resolves it:
+//
+//  1. `spawnOverride` — the value the spawn exports into the child's
+//     environment (env-profile vars are exported ahead of the command,
+//     `launch_m4_locallogtail.go`). Host-runner's own environment never
+//     sees this, so a tail that consulted only os.Getenv would resolve
+//     a different directory than the child writes to.
+//  2. host-runner's own `$CLAUDE_CONFIG_DIR`, which the child inherits
+//     when the spawn doesn't override it.
+//  3. `<home>/.claude`.
+func ResolveConfigHome(spawnOverride, home string) string {
+	if dir := strings.TrimSpace(spawnOverride); dir != "" {
+		return dir
+	}
+	if dir := strings.TrimSpace(os.Getenv(ConfigHomeEnvVar)); dir != "" {
+		return dir
+	}
+	return ConfigHomeFor(home)
+}
+
+// ProjectDirIn returns claude-code's per-cwd session directory under an
+// already-resolved config home: `<configHome>/projects/<encoded-cwd>`.
+// Callers that know which root the child uses (the M4 launcher, via
+// ResolveConfigHome) should prefer this over ProjectDirFor.
+func ProjectDirIn(configHome, cwd string) string {
+	return filepath.Join(configHome, "projects", EncodeProjectDir(cwd))
 }
 
 // ProjectDirFor returns the absolute path of claude-code's per-cwd
-// session directory: `<homeDir>/.claude/projects/<encoded-cwd>`.
-// homeDir is typically `os.UserHomeDir()`; tests pass an explicit
-// temp dir.
+// session directory for a given home, ignoring $CLAUDE_CONFIG_DIR:
+// `<homeDir>/.claude/projects/<encoded-cwd>`. This is the env-free
+// form — see ConfigHomeFor for why teleport wants it.
 func ProjectDirFor(homeDir, cwd string) string {
-	return filepath.Join(homeDir, ".claude", "projects", EncodeProjectDir(cwd))
+	return ProjectDirIn(ConfigHomeFor(homeDir), cwd)
 }
 
 // ResolveLatest returns the absolute path of the newest `.jsonl`

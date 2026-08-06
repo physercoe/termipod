@@ -275,8 +275,8 @@ transport rung (lane T), never the renderer's ceiling.
     loses its login where an API-key child would not notice. The
     service must therefore pass the root through to every child it
     spawns, and must not treat "no API key" as "not signed in". See
-    the standing bug class in §6 — the same gap is already shipped in
-    Go, and L3 only inherits it.
+    the standing bug class in §6 — the Go side was fixed 2026-08-05, so
+    L3 ports a resolver that already exists rather than inventing one.
 - **L4 — codex via the vendor's service (D-8: use theirs when it
   exists).** Prefer **WebSocket attach** to a `codex app-server`
   daemon — spawn it detached if absent, authenticate with its bearer
@@ -624,18 +624,33 @@ service (LAN/mobile clients are a recorded follow-up, not this plan).
   running two claude.ai accounts side by side, which an API-key user
   has no reason to do, so reading the SDK docs alone understates who
   is affected. Any lane-L wedge that resolves an engine path resolves
-  the root first; the shipped-Go fix is its own ticket, not L3's.
-- **The same resolver's slug rule is narrower than the vendor
-  documents.** `EncodeProjectDir` replaces path separators only
-  (`pathresolver.go:24`); Anthropic's docs state the encoding replaces
-  *every non-alphanumeric* character, which would diverge on any cwd
-  containing `_` or `.`. Every slug observable here (`ls
-  ~/.claude/projects/`) holds nothing but separators and
-  alphanumerics, so the sample the rule was derived from cannot tell
-  the two rules apart — the defect class is a resolver generalised
-  from a degenerate observation. Settle it with one experiment before
-  L3 depends on it: run a claude session in a path containing `_` and
-  read back the directory name it creates.
+  the root first. *Fixed in Go 2026-08-05:* `ConfigHomeEnvVar` +
+  `ResolveConfigHome`/`ProjectDirIn` in the claude pathresolver, wired
+  through the M4 launcher from the **spawn's** env (an env profile
+  exports into the child, so host-runner's own `os.Getenv` is not the
+  authority) and into the trust-file path. **kimi got the same
+  treatment**: it already read `$KIMI_CODE_HOME`, but only from
+  host-runner's env, and its M4 gate and wire tail resolved the root
+  independently — so the gate could validate one store while the tail
+  read another. `ResolveStoreHome` + one resolution handed to both.
+  **Teleport still does not follow either var** — deliberately: it
+  resolves a source host and a target host, neither described by this
+  process's env, so following it means carrying the root in the bundle,
+  an ADR-057 transport change. Identical on both engines; fix them
+  together. L3 inherits the resolver, not the gap.
+- **The same resolver's slug rule was narrower than the vendor's —
+  now settled by probe.** `EncodeProjectDir` replaced path separators
+  only; the real rule replaces *every non-alphanumeric* character. Run
+  on-host 2026-08-05: a session in `…/scratchpad/enc_probe.v1` created
+  `…-scratchpad-enc-probe-v1`, so `_` and `.` both collapse. Any
+  workdir holding `_` or `.` — `my_project`, `repo.git`, `v1.2` — was
+  resolving to a directory claude never creates, failing exactly as
+  silently as the root gap. Every slug observable before the probe
+  held nothing but separators and alphanumerics, so the sample the
+  rule was derived from **could not discriminate the two rules**;
+  that is the defect class, not the character set. Fixed with the
+  probed pair pinned as a regression test. Non-ASCII remains
+  unverified and is documented as such at the function.
 
 ## 7. Acceptance
 

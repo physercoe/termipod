@@ -516,3 +516,84 @@ func TestAdapter_SynthesisesSessionInitFromFirstUsage(t *testing.T) {
 		}
 	}
 }
+
+// A relocated config home ($CLAUDE_CONFIG_DIR) moves the transcript, and
+// the tail must follow it. This is the silent failure the 2026-08-05 fix
+// closes: before it, the adapter waited on `<home>/.claude/projects/...`
+// forever — no error, no event, just a feed that never starts.
+func TestAdapter_Start_HonoursRelocatedConfigHome(t *testing.T) {
+	cwd := "/home/test/proj"
+	homeDir := t.TempDir()
+	configHome := filepath.Join(homeDir, ".claude-work")
+	projectDir := ProjectDirIn(configHome, cwd)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	jsonl := filepath.Join(projectDir, "sess-relocated.jsonl")
+	writeJSONL(t, jsonl,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"from the work profile"}]}}`,
+	)
+
+	p := &capturingPoster{}
+	a, err := NewAdapter(Config{AgentID: "agent-reloc", Workdir: cwd, Poster: p})
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	a.HomeDir = homeDir
+	a.ConfigHome = configHome
+	a.SessionCutoff = time.Time{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop()
+
+	got := waitForN(t, p, 2, 2*time.Second)
+	txt := firstKind(got, "text")
+	if txt == nil {
+		t.Fatalf("adapter never read the relocated transcript: %+v", got)
+	}
+
+	// And it must not have created or latched onto the default root on the way.
+	if _, err := os.Stat(ConfigHomeFor(homeDir)); !os.IsNotExist(err) {
+		t.Errorf("default config home was touched (err=%v); the spawn's root is the only one in play", err)
+	}
+}
+
+// With no explicit ConfigHome the adapter falls back to ResolveConfigHome,
+// which consults this process's environment — the case where an operator
+// sets $CLAUDE_CONFIG_DIR for the whole host-runner rather than per spawn.
+func TestAdapter_Start_FallsBackToProcessEnvConfigHome(t *testing.T) {
+	cwd := "/home/test/proj"
+	homeDir := t.TempDir()
+	configHome := filepath.Join(homeDir, ".claude-host")
+	projectDir := ProjectDirIn(configHome, cwd)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeJSONL(t, filepath.Join(projectDir, "sess-env.jsonl"),
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"from the host root"}]}}`,
+	)
+	t.Setenv(ConfigHomeEnvVar, configHome)
+
+	p := &capturingPoster{}
+	a, err := NewAdapter(Config{AgentID: "agent-env", Workdir: cwd, Poster: p})
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+	a.HomeDir = homeDir // ConfigHome deliberately left empty
+	a.SessionCutoff = time.Time{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Stop()
+
+	if txt := firstKind(waitForN(t, p, 2, 2*time.Second), "text"); txt == nil {
+		t.Fatal("adapter ignored $CLAUDE_CONFIG_DIR from the process environment")
+	}
+}

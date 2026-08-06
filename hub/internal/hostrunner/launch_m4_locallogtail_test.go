@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	locallogtail "github.com/termipod/hub/internal/drivers/local_log_tail"
 	claudecode "github.com/termipod/hub/internal/drivers/local_log_tail/claude_code"
 )
 
@@ -392,7 +393,7 @@ func TestPreTrustWorkspaceClaudeCode_FreshFile(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
-	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+	if err := preTrustWorkspaceClaudeCode(workdir, ""); err != nil {
 		t.Fatalf("preTrust: %v", err)
 	}
 
@@ -439,7 +440,7 @@ func TestPreTrustWorkspaceClaudeCode_PreservesOtherKeys(t *testing.T) {
 	}
 
 	workdir := "/home/ubuntu/hub-work/abcd1234/@steward.x"
-	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+	if err := preTrustWorkspaceClaudeCode(workdir, ""); err != nil {
 		t.Fatalf("preTrust: %v", err)
 	}
 
@@ -490,7 +491,7 @@ func TestPreTrustWorkspaceClaudeCode_AlreadyTrusted_NoMutation(t *testing.T) {
 	}
 	statBefore, _ := os.Stat(filepath.Join(home, ".claude.json"))
 
-	if err := preTrustWorkspaceClaudeCode(workdir); err != nil {
+	if err := preTrustWorkspaceClaudeCode(workdir, ""); err != nil {
 		t.Fatalf("preTrust: %v", err)
 	}
 
@@ -528,5 +529,144 @@ func TestCmdContainsResumeFlag(t *testing.T) {
 				t.Errorf("cmdContainsResumeFlag(%q) = %v, want %v", tc.cmd, got, tc.want)
 			}
 		})
+	}
+}
+
+// $CLAUDE_CONFIG_DIR relocates claude's whole config home. The trust
+// file must follow it — and must NOT fall back to the default profile's
+// `~/.claude.json`, which belongs to a different claude.ai account.
+// Relocation exists precisely so two accounts don't share state; the
+// same file holds the OAuth session.
+func TestClaudeUserConfigPath_FollowsRelocatedRoot(t *testing.T) {
+	const home = "/home/dana"
+
+	cases := []struct {
+		name       string
+		configHome string
+		want       string
+	}{
+		{"default root keeps the sibling layout", "/home/dana/.claude", "/home/dana/.claude.json"},
+		{"empty falls back to the default", "", "/home/dana/.claude.json"},
+		{"relocated root owns its own file", "/home/dana/.claude-work", "/home/dana/.claude-work/.claude.json"},
+		{"root outside home still owns it", "/srv/profiles/work", "/srv/profiles/work/.claude.json"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeUserConfigPath(tc.configHome, home); got != tc.want {
+				t.Errorf("claudeUserConfigPath(%q, %q) = %q, want %q",
+					tc.configHome, home, got, tc.want)
+			}
+		})
+	}
+}
+
+// End-to-end for the relocated case: the trust grant lands in the
+// relocated profile and the default profile's file is never created.
+func TestPreTrustWorkspaceClaudeCode_RelocatedConfigHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configHome := filepath.Join(home, ".claude-work")
+	if err := os.MkdirAll(configHome, 0o755); err != nil {
+		t.Fatalf("mkdir config home: %v", err)
+	}
+
+	workdir := "/home/dana/hub-work/abcd1234/@steward.x"
+	if err := preTrustWorkspaceClaudeCode(workdir, configHome); err != nil {
+		t.Fatalf("preTrust: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(configHome, ".claude.json"))
+	if err != nil {
+		t.Fatalf("trust file not written under the relocated root: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	projects, _ := cfg["projects"].(map[string]any)
+	entry, _ := projects[workdir].(map[string]any)
+	if entry == nil || entry["hasTrustDialogAccepted"] != true {
+		t.Fatalf("workdir not trusted in the relocated profile: %+v", cfg)
+	}
+
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("default profile's ~/.claude.json was touched (err=%v); "+
+			"a relocated spawn must not write into another account's config", err)
+	}
+}
+
+// The launcher must carry the SPAWN's $CLAUDE_CONFIG_DIR into both
+// consumers — the trust file and the transcript tail. An env profile
+// exports it into the child only, so host-runner's own environment is
+// not the authority.
+//
+// The two roots are inverted so the outcome is unambiguous: HOME points
+// at a default root and the spawn names a different one. Reading the
+// spawn's root is the only way the adapter can end up holding it.
+func TestLaunchM4LocalLogTail_SpawnEnvOverridesConfigHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(claudecode.ConfigHomeEnvVar, "") // host-runner sets nothing
+
+	spawnRoot := filepath.Join(home, ".claude-work")
+	workdir := t.TempDir()
+	projectDir := claudecode.ProjectDirIn(spawnRoot, workdir)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "test-session.jsonl"),
+		[]byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("seed jsonl: %v", err)
+	}
+
+	sp := Spawn{
+		ChildID:  "agent-reloc",
+		Handle:   "@reloc",
+		Kind:     "claude-code",
+		MCPToken: "tok-reloc",
+		SpawnSpec: "backend:\n  cmd: claude\n  default_workdir: " + workdir + "\n" +
+			"env_vars:\n  CLAUDE_CONFIG_DIR: " + spawnRoot + "\n",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := launchM4LocalLogTail(ctx, M4LocalLogTailLaunchConfig{
+		Spawn:            sp,
+		Launcher:         &trackingLauncher{paneID: "%21"},
+		Client:           &recordingAgentPoster{},
+		HubURL:           "http://127.0.0.1:41825",
+		GatewayHubClient: NewClient("http://hub", "host-token", "team-1"),
+	})
+	if err != nil {
+		t.Fatalf("launchM4LocalLogTail: %v", err)
+	}
+	defer func() {
+		if res.Gateway != nil {
+			_ = res.Gateway.Close()
+		}
+		if res.Driver != nil {
+			res.Driver.Stop()
+		}
+	}()
+
+	d, ok := res.Driver.(*locallogtail.Driver)
+	if !ok {
+		t.Fatalf("driver is %T, want *locallogtail.Driver", res.Driver)
+	}
+	a, ok := d.Adapter.(*claudecode.Adapter)
+	if !ok {
+		t.Fatalf("adapter is %T, want *claudecode.Adapter", d.Adapter)
+	}
+	if a.ConfigHome != spawnRoot {
+		t.Errorf("adapter.ConfigHome = %q, want the spawn's root %q", a.ConfigHome, spawnRoot)
+	}
+
+	// The trust grant follows the same root, and the default profile's
+	// file is never created — that file belongs to another account.
+	if _, err := os.Stat(filepath.Join(spawnRoot, ".claude.json")); err != nil {
+		t.Errorf("trust file not written under the spawn's root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("default profile's ~/.claude.json was written (err=%v)", err)
 	}
 }

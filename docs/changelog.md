@@ -39,6 +39,50 @@ binding). Seed entries prior to that are in
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **claude-code M4 tail and teleport resolved the wrong session directory
+  in two ways, both silent.** (1) `$CLAUDE_CONFIG_DIR` relocates claude's
+  entire config home and we honoured it nowhere, so a director running two
+  claude.ai accounts side by side — the variable's main real use, and a
+  subscription-user pattern — got a tail that never fired and an
+  engine-state bundle that packed nothing. The claude path resolver now
+  exposes `ConfigHomeEnvVar` / `ConfigHome` / `ConfigHomeFor` /
+  `ResolveConfigHome` / `ProjectDirIn`, and the M4 launcher resolves the
+  root from the **spawn's** environment first: env-profile vars are
+  exported into the child, so host-runner's own `os.Getenv` is not the
+  authority. The per-project trust file (`.claude.json`) follows the same
+  root, and never falls back across profiles — writing one account's trust
+  grant into another account's config is worse than one trust dialog.
+  (2) `EncodeProjectDir` replaced path separators only; claude replaces
+  **every non-alphanumeric** character, verified on-host by probe
+  (`…/enc_probe.v1` → `…-enc-probe-v1`). Any workdir containing `_` or `.`
+  — `my_project`, `repo.git`, `v1.2` — resolved to a directory claude never
+  creates. Every slug observed before the probe held nothing but separators
+  and alphanumerics, so the sample the old rule was derived from could not
+  discriminate the two rules; the probed pair is now pinned as a regression
+  test.
+- **kimi-code-ts had the same precedence gap, one layer up.** It already
+  honoured `$KIMI_CODE_HOME`, but only from host-runner's own environment,
+  so an env profile that pointed one agent at its own store was invisible
+  to both the M4 pre-flight gate and the wire tail. `ResolveStoreHome` now
+  consults the spawn's value first, and the launcher hands the resolved
+  root to the adapter instead of letting it re-resolve — previously the
+  gate validated one store while the tail could read another, which passes
+  for the wrong reason and then fails silently, since a wire tail with no
+  session looks exactly like an agent that hasn't spoken yet.
+- **Teleport deliberately still ignores both env vars.** It resolves a
+  source host and a target host that this process's environment does not
+  describe — an env profile can relocate a root for one agent, and the
+  target is a different machine. Following them means carrying the source's
+  root in the bundle and re-resolving on the target: an ADR-057 transport
+  change, not a resolver fix. Recorded at the call site; identical on both
+  engines, and they should be fixed together.
+
+---
+
 ## 2026.805.1022-alpha — 2026-08-05
 
 **A server-side release: the hub grows environments, a datasets catalog, MCP

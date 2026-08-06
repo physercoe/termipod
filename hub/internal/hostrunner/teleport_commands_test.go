@@ -322,3 +322,82 @@ func TestTeleportHandoffRoundTrip_Kimi(t *testing.T) {
 		t.Fatalf("state.json workDir not rewritten to target: %s", stRaw)
 	}
 }
+
+// End-to-end through the command layer: the agent's env-profile override
+// reaches the resolver on BOTH ends. The two hosts are given deliberately
+// different relocated roots — `~/.claude-work` on the source is not where
+// the target keeps its store — and the transcript still lands where the
+// target's respawn will look for it.
+//
+// A stray write to either host's DEFAULT root fails the test: on a
+// multi-account host that directory belongs to another claude.ai login.
+func TestTeleportHandoffRoundTrip_RelocatedEngineRoot(t *testing.T) {
+	const sessionID = "12121212-3434-5656-7878-909090909090"
+	const transcript = `{"type":"user","text":"move me, keep my history"}` + "\n"
+
+	srcHome := t.TempDir()
+	remote, srcRepo, srcWt, branch := makeSharedRemoteWorkspaceUnder(t, srcHome)
+
+	// The agent's own root, per its env profile — not <home>/.claude.
+	srcRoot := filepath.Join(srcHome, ".claude-work")
+	dir := claudecode.ProjectDirIn(srcRoot, srcWt)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, sessionID+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envVars := map[string]string{claudecode.ConfigHomeEnvVar: srcRoot}
+
+	store := newMemBlobStore()
+	packRes, err := runHandoffPack(context.Background(), store, srcHome, handoffPackArgs{
+		Engine:          "claude-code",
+		WorktreePath:    srcWt,
+		Repo:            srcRepo,
+		Branch:          branch,
+		Remote:          "origin",
+		EngineSessionID: sessionID,
+		EnvVars:         envVars,
+	})
+	if err != nil {
+		t.Fatalf("pack ignored the agent's relocated root: %v", err)
+	}
+
+	// Target host: different home, and its own root at a different SHAPE.
+	tgtHome := t.TempDir()
+	tgit(t, tgtHome, "clone", remote, filepath.Join(tgtHome, "src"))
+	tgtRoot := filepath.Join(tgtHome, "profiles", "work")
+
+	unpackRes, err := runHandoffUnpack(context.Background(), store, tgtHome, handoffUnpackArgs{
+		Engine:          "claude-code",
+		Repo:            packRes.PortableRepo,
+		WorktreePath:    packRes.PortableWorktreePath,
+		Branch:          branch,
+		Remote:          "origin",
+		ExpectHead:      packRes.HeadSHA,
+		EngineSessionID: sessionID,
+		ManifestSHA:     packRes.ManifestSHA,
+		EnvVars:         map[string]string{claudecode.ConfigHomeEnvVar: tgtRoot},
+	})
+	if err != nil {
+		t.Fatalf("unpack ignored the target's relocated root: %v", err)
+	}
+
+	landed := filepath.Join(claudecode.ProjectDirIn(tgtRoot, unpackRes.WorktreePath), sessionID+".jsonl")
+	got, rerr := os.ReadFile(landed)
+	if rerr != nil {
+		t.Fatalf("transcript not under the target's own root %s: %v", landed, rerr)
+	}
+	if string(got) != transcript {
+		t.Errorf("transcript mismatch: got %q want %q", got, transcript)
+	}
+
+	for _, stray := range []string{
+		filepath.Join(claudecode.ProjectDirFor(tgtHome, unpackRes.WorktreePath), sessionID+".jsonl"),
+		filepath.Join(claudecode.ProjectDirIn(srcRoot, unpackRes.WorktreePath), sessionID+".jsonl"),
+	} {
+		if _, err := os.Stat(stray); err == nil {
+			t.Errorf("engine state also written to %s; it belongs only in the target's own root", stray)
+		}
+	}
+}

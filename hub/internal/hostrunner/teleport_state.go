@@ -34,17 +34,19 @@ import (
 // workspaces.json synthesis); the remaining families slot in behind the same
 // two functions.
 //
-// Known limit — engine store roots are relocatable by env var
-// ($CLAUDE_CONFIG_DIR, $KIMI_CODE_HOME) and teleport does not follow them.
-// Both resolvers are called here in their env-FREE form (ConfigHomeFor,
-// StoreHomeFor) because teleport keys off an explicit host home for the
-// source and the target, and this process's environment describes neither
-// end reliably: an env profile can relocate the root for the agent alone,
-// and the target host is a different machine entirely. Following the var
-// would mean carrying the source's root in the bundle and re-resolving it
-// on the target, which is an ADR-057 transport change, not a resolver fix.
-// So an agent whose root is relocated teleports its worktree but cold-starts
-// its conversation. Same limit on both engines; fix them together.
+// Engine store roots are relocatable by env var ($CLAUDE_CONFIG_DIR,
+// $KIMI_CODE_HOME) and teleport follows them, per engine, on both ends —
+// see resolveEngineRoot. Each side resolves its OWN root and the bundle
+// stays host-independent, so nothing about the source's layout travels: a
+// root at /srv/profiles/work on the source and ~/.claude-work on the target
+// is a normal move, not a special case.
+//
+// An earlier revision of this comment claimed following the var required
+// carrying the source root in the bundle — an ADR-057 transport change.
+// That was wrong, and worth recording as a class: the bundle already
+// speaks host-independent TarNames precisely so each end can re-derive its
+// own absolute paths, which is the same mechanism a relocated root needs.
+// The work was plumbing an override down to two existing resolvers.
 
 // engineStateFile is one file in an engine-state bundle: TarName is the
 // host-independent name stored inside the tar, AbsPath is where it lives (pack)
@@ -63,22 +65,67 @@ func (e errUnsupportedTeleportEngine) Error() string {
 	return "teleport: engine-state snapshot not supported for " + e.engine + " (covered: claude-code, kimi-code-ts)"
 }
 
+// resolveEngineRoot picks the on-disk root of `engine`'s session store on
+// THIS host, in the same order the engine's own launcher resolves it:
+//
+//  1. `override` — the agent's env-profile value for the engine's root
+//     variable, relayed in the pack/unpack args. Per-agent, so neither
+//     host's environment can be asked for it.
+//  2. this host-runner's own environment.
+//  3. `<home>/<engine default>`.
+//
+// The engine→variable mapping lives here rather than in the hub: the hub
+// relays the agent's plain env_vars and stays out of engine specifics, the
+// same division the spawn path already uses.
+//
+// An unsupported engine is the caller's existing refusal, not a silent
+// default — a root guessed for an engine we don't model would pack the
+// wrong bytes.
+func resolveEngineRoot(engine, override, home string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return claudecode.ResolveConfigHome(override, home), nil
+	case "kimi-code-ts":
+		return kimicode.ResolveStoreHomeFor(override, home), nil
+	default:
+		return "", errUnsupportedTeleportEngine{engine}
+	}
+}
+
+// engineRootFromEnvVars extracts the engine's root override from the plain
+// env_vars the hub relayed. Missing/blank → "", which resolveEngineRoot
+// treats as "ask this host" — so a hub that sends nothing (or an older hub
+// that doesn't know the field) degrades to the previous behaviour rather
+// than to a wrong path.
+func engineRootFromEnvVars(engine string, envVars map[string]string) string {
+	switch engine {
+	case "claude-code":
+		return envVars[claudecode.ConfigHomeEnvVar]
+	case "kimi-code-ts":
+		return envVars[kimicode.StoreHomeEnvVar]
+	default:
+		return ""
+	}
+}
+
 // engineStateEntries returns the on-disk files making up `engine`'s session
-// state for (home, workdir, sessionID). TarName is host-independent so the
-// target can re-derive its own AbsPath via engineStateTargetPath.
-func engineStateEntries(engine, home, workdir, sessionID string) ([]engineStateFile, error) {
+// state for (engineRoot, workdir, sessionID). TarName is host-independent so
+// the target can re-derive its own AbsPath via engineStateTargetPath.
+// engineRoot comes from resolveEngineRoot — NOT a host home; the two differ
+// whenever the agent's root is relocated.
+func engineStateEntries(engine, engineRoot, workdir, sessionID string) ([]engineStateFile, error) {
 	switch engine {
 	case "claude-code":
 		if sessionID == "" {
 			return nil, fmt.Errorf("teleport: claude-code needs an engine session id to snapshot")
 		}
-		jsonl := filepath.Join(claudecode.ProjectDirFor(home, workdir), sessionID+".jsonl")
+		jsonl := filepath.Join(claudecode.ProjectDirIn(engineRoot, workdir), sessionID+".jsonl")
 		return []engineStateFile{{TarName: "session.jsonl", AbsPath: jsonl}}, nil
 	case "kimi-code-ts":
 		if sessionID == "" {
 			return nil, fmt.Errorf("teleport: kimi-code-ts needs an engine session id to snapshot")
 		}
-		_, sessionDir, err := kimiSessionDirFor(home, workdir, sessionID)
+		_, sessionDir, err := kimiSessionDirFor(engineRoot, workdir, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +169,9 @@ func engineStateEntries(engine, home, workdir, sessionID string) ([]engineStateF
 }
 
 // kimiSessionDirFor resolves where kimi's on-disk session tree lives for
-// (home, workdir, sessionID): <store>/sessions/<wd_*>/<sessionID>. The wd_*
+// (store, workdir, sessionID): <store>/sessions/<wd_*>/<sessionID>. `store`
+// is the resolved engine root (resolveEngineRoot), which is <home>/.kimi-code
+// only when $KIMI_CODE_HOME and the agent's profile both leave it alone. The wd_*
 // id comes from workspaces.json when kimi has opened this workdir on this
 // host (authoritative — covers any historical id-scheme drift), else from
 // kimi's deterministic id algorithm over the symlink-resolved workdir
@@ -130,8 +179,7 @@ func engineStateEntries(engine, home, workdir, sessionID string) ([]engineStateF
 // same helper answers both sides of a teleport: on the source it finds the
 // tree to pack; on the target it computes where the tree must land so the
 // respawned kimi — which re-derives the SAME id from its cwd — finds it.
-func kimiSessionDirFor(home, workdir, sessionID string) (wdID, sessionDir string, err error) {
-	store := kimicode.StoreHomeFor(home)
+func kimiSessionDirFor(store, workdir, sessionID string) (wdID, sessionDir string, err error) {
 	wdID, err = kimicode.LookupWorkspaceID(store, workdir)
 	if err != nil {
 		if !errors.Is(err, kimicode.ErrNoWorkspace) {
@@ -148,19 +196,19 @@ func kimiSessionDirFor(home, workdir, sessionID string) (wdID, sessionDir string
 // be written on THIS host for (home, workdir, sessionID). Because it re-derives
 // from the target's own home+workdir, the claude cwd→slug remap happens for
 // free.
-func engineStateTargetPath(engine, home, workdir, sessionID, tarName string) (string, error) {
+func engineStateTargetPath(engine, engineRoot, workdir, sessionID, tarName string) (string, error) {
 	switch engine {
 	case "claude-code":
 		if tarName != "session.jsonl" {
 			return "", fmt.Errorf("teleport: unexpected claude-code bundle entry %q", tarName)
 		}
-		return filepath.Join(claudecode.ProjectDirFor(home, workdir), sessionID+".jsonl"), nil
+		return filepath.Join(claudecode.ProjectDirIn(engineRoot, workdir), sessionID+".jsonl"), nil
 	case "kimi-code-ts":
 		rel, ok := strings.CutPrefix(tarName, sessionID+"/")
 		if !ok || rel == "" || rel == ".." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
 			return "", fmt.Errorf("teleport: unexpected kimi-code-ts bundle entry %q", tarName)
 		}
-		_, sessionDir, err := kimiSessionDirFor(home, workdir, sessionID)
+		_, sessionDir, err := kimiSessionDirFor(engineRoot, workdir, sessionID)
 		if err != nil {
 			return "", err
 		}
@@ -175,8 +223,8 @@ func engineStateTargetPath(engine, home, workdir, sessionID, tarName string) (st
 // empty engine state (the target would cold-start, losing the conversation the
 // user expects to continue). Engine JSONL compresses heavily, so gzip keeps the
 // bundle (and thus the number of transport chunks) small.
-func packEngineState(engine, home, workdir, sessionID string) ([]byte, error) {
-	entries, err := engineStateEntries(engine, home, workdir, sessionID)
+func packEngineState(engine, engineRoot, workdir, sessionID string) ([]byte, error) {
+	entries, err := engineStateEntries(engine, engineRoot, workdir, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +270,7 @@ func packEngineState(engine, home, workdir, sessionID string) ([]byte, error) {
 // the target's own engine store (remapped for the target home+workdir). Parent
 // directories are created as needed. An existing file is overwritten — the
 // bundle is authoritative for the session being teleported.
-func restoreEngineState(engine, home, workdir, sessionID string, bundle []byte) error {
+func restoreEngineState(engine, engineRoot, workdir, sessionID string, bundle []byte) error {
 	gz, err := gzip.NewReader(bytes.NewReader(bundle))
 	if err != nil {
 		return fmt.Errorf("teleport: open engine-state gzip: %w", err)
@@ -240,7 +288,7 @@ func restoreEngineState(engine, home, workdir, sessionID string, bundle []byte) 
 		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA { //nolint:staticcheck // TypeRegA for older tars
 			continue
 		}
-		dst, perr := engineStateTargetPath(engine, home, workdir, sessionID, hdr.Name)
+		dst, perr := engineStateTargetPath(engine, engineRoot, workdir, sessionID, hdr.Name)
 		if perr != nil {
 			return perr
 		}
@@ -257,7 +305,7 @@ func restoreEngineState(engine, home, workdir, sessionID string, bundle []byte) 
 		}
 	}
 	if engine == "kimi-code-ts" {
-		if err := finalizeKimiRestore(home, workdir, sessionID); err != nil {
+		if err := finalizeKimiRestore(engineRoot, workdir, sessionID); err != nil {
 			return err
 		}
 	}
@@ -280,8 +328,8 @@ func restoreEngineState(engine, home, workdir, sessionID string, bundle []byte) 
 //  3. session_index.jsonl: append the target-correct {sessionId, sessionDir,
 //     workDir} line so kimi's interactive picker / vis / export stay coherent
 //     (the resume path itself ignores the index — verified).
-func finalizeKimiRestore(home, workdir, sessionID string) error {
-	wdID, sessionDir, err := kimiSessionDirFor(home, workdir, sessionID)
+func finalizeKimiRestore(engineRoot, workdir, sessionID string) error {
+	wdID, sessionDir, err := kimiSessionDirFor(engineRoot, workdir, sessionID)
 	if err != nil {
 		return err
 	}
@@ -289,10 +337,10 @@ func finalizeKimiRestore(home, workdir, sessionID string) error {
 	if err := rewriteKimiStateJSON(sessionDir, root); err != nil {
 		return err
 	}
-	if err := ensureKimiWorkspaceEntry(kimicode.StoreHomeFor(home), wdID, root); err != nil {
+	if err := ensureKimiWorkspaceEntry(engineRoot, wdID, root); err != nil {
 		return err
 	}
-	return appendKimiSessionIndex(kimicode.StoreHomeFor(home), sessionID, sessionDir, root)
+	return appendKimiSessionIndex(engineRoot, sessionID, sessionDir, root)
 }
 
 // rewriteKimiStateJSON patches the restored state.json in place, preserving

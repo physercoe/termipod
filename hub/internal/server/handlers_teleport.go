@@ -47,6 +47,19 @@ type teleportSpecView struct {
 	Backend struct {
 		DefaultWorkdir string `yaml:"default_workdir"`
 	} `yaml:"backend"`
+	// EnvVars is the session's PLAIN env-profile vars. Teleport relays them
+	// to both hosts so each resolves the engine's session root the way the
+	// child does: an agent can carry its own $CLAUDE_CONFIG_DIR /
+	// $KIMI_CODE_HOME, which neither host's own environment knows about, and
+	// without it the source packs from the wrong root and the target restores
+	// to one the respawn will never read.
+	//
+	// Read from the SESSION's live spawn spec rather than the project's env
+	// profile: this is what the agent actually ran with, and it is the same
+	// spec the target respawn replays, so both ends agree by construction.
+	// Secrets are not here by design — they ride the sealed envelope
+	// (ADR-056 D-5), and host-runner reads only the engine's root key.
+	EnvVars map[string]string `yaml:"env_vars"`
 }
 
 func (s *Server) handleTeleportSession(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +222,9 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost, rese
 		"engine":            kind.String,
 		"engine_session_id": engineSessionID.String,
 	}
+	if len(wv.EnvVars) > 0 {
+		packArgs["env_vars"] = wv.EnvVars
+	}
 	if worktreeMode {
 		packArgs["worktree_path"] = worktreePath.String
 		packArgs["repo"] = wv.Worktree.Repo
@@ -252,6 +268,11 @@ func (s *Server) teleportSession(ctx context.Context, team, id, targetHost, rese
 		"engine":            kind.String,
 		"engine_session_id": engineSessionID.String,
 		"manifest_sha":      pack.ManifestSHA,
+	}
+	// Same override to the target: it resolves its OWN absolute root from it,
+	// so the two hosts need not share a layout — only the agent's intent.
+	if len(wv.EnvVars) > 0 {
+		unpackArgs["env_vars"] = wv.EnvVars
 	}
 	if worktreeMode {
 		unpackArgs["repo"] = pack.PortableRepo

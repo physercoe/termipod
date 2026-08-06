@@ -633,11 +633,15 @@ service (LAN/mobile clients are a recorded follow-up, not this plan).
   host-runner's env, and its M4 gate and wire tail resolved the root
   independently — so the gate could validate one store while the tail
   read another. `ResolveStoreHome` + one resolution handed to both.
-  **Teleport still does not follow either var** — deliberately: it
-  resolves a source host and a target host, neither described by this
-  process's env, so following it means carrying the root in the bundle,
-  an ADR-057 transport change. Identical on both engines; fix them
-  together. L3 inherits the resolver, not the gap.
+  **Teleport follows both vars too** (2026-08-06): `resolveEngineRoot`
+  on each end, with the hub relaying the session's plain `env_vars` so a
+  per-agent override reaches hosts that cannot know it. Each end
+  resolves its own absolute root, so the hosts need not share a layout.
+  *This corrects the line that stood here for a day* — it called that an
+  ADR-057 transport change needing the source root in the bundle. It
+  isn't: host-independent entry names already exist so each end
+  re-derives its own paths, which is exactly what a relocated root
+  needs. L3 inherits the resolver, and no gap.
 - **The same resolver's slug rule was narrower than the vendor's —
   now settled by probe.** `EncodeProjectDir` replaced path separators
   only; the real rule replaces *every non-alphanumeric* character. Run

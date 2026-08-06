@@ -33,6 +33,15 @@ type handoffPackArgs struct {
 	Branch          string `json:"branch"`
 	Remote          string `json:"remote"`
 	EngineSessionID string `json:"engine_session_id"`
+	// EnvVars is the agent's PLAIN env-profile vars, relayed by the hub so
+	// this host can resolve the engine's session root the same way the
+	// child does — an agent can be pointed at its own $CLAUDE_CONFIG_DIR /
+	// $KIMI_CODE_HOME, which no host's own environment knows about. Only
+	// the engine's root key is read (engineRootFromEnvVars); secrets never
+	// travel here — they ride the sealed envelope (ADR-056 D-5). Absent (an
+	// older hub) → resolution falls back to this host's env, i.e. the
+	// previous behaviour.
+	EnvVars map[string]string `json:"env_vars"`
 }
 
 type handoffPackResult struct {
@@ -66,6 +75,10 @@ type handoffUnpackArgs struct {
 	// WorkdirManifestSHA is the non-worktree workdir bundle (T2a), restored
 	// before the engine state.
 	WorkdirManifestSHA string `json:"workdir_manifest_sha"`
+	// EnvVars mirrors handoffPackArgs.EnvVars — the TARGET resolves its own
+	// root from the same agent override, so a source at /srv/profiles/work
+	// and a target at ~/.claude-work both land correctly.
+	EnvVars map[string]string `json:"env_vars"`
 }
 
 type handoffUnpackResult struct {
@@ -116,11 +129,15 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 	if args.Engine == "" {
 		return handoffPackResult{}, fmt.Errorf("teleport pack: engine is required")
 	}
+	engineRoot, err := resolveEngineRoot(args.Engine, engineRootFromEnvVars(args.Engine, args.EnvVars), home)
+	if err != nil {
+		return handoffPackResult{}, err
+	}
 	switch {
 	case args.WorktreePath != "":
-		return packWorktreeSession(ctx, store, home, args)
+		return packWorktreeSession(ctx, store, home, engineRoot, args)
 	case args.Workdir != "":
-		return packNonWorktreeSession(ctx, store, home, args)
+		return packNonWorktreeSession(ctx, store, home, engineRoot, args)
 	default:
 		return handoffPackResult{}, fmt.Errorf("teleport pack: worktree_path or workdir is required")
 	}
@@ -128,7 +145,7 @@ func runHandoffPack(ctx context.Context, store handoff.BlobStore, home string, a
 
 // packWorktreeSession is the T1 path: git push the worktree branch + tar the
 // engine state keyed on the worktree cwd.
-func packWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffPackArgs) (handoffPackResult, error) {
+func packWorktreeSession(ctx context.Context, store handoff.BlobStore, home, engineRoot string, args handoffPackArgs) (handoffPackResult, error) {
 	head, branch, err := gitCommitAndPush(ctx, args.WorktreePath, args.Branch, args.Remote)
 	if err != nil {
 		return handoffPackResult{}, err
@@ -136,7 +153,7 @@ func packWorktreeSession(ctx context.Context, store handoff.BlobStore, home stri
 	// For a worktree session the engine cwd IS the worktree path, so it is also
 	// the workdir the resolver keys the engine store on.
 	engineSHA, err := chunkBundle(ctx, store, "engine state", func() ([]byte, error) {
-		return packEngineState(args.Engine, home, args.WorktreePath, args.EngineSessionID)
+		return packEngineState(args.Engine, engineRoot, args.WorktreePath, args.EngineSessionID)
 	})
 	if err != nil {
 		return handoffPackResult{}, err
@@ -159,7 +176,7 @@ func packWorktreeSession(ctx context.Context, store handoff.BlobStore, home stri
 
 // packNonWorktreeSession is the T2a path: no git, so tar the workdir tree AND
 // the engine state (both keyed on the workdir).
-func packNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffPackArgs) (handoffPackResult, error) {
+func packNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home, engineRoot string, args handoffPackArgs) (handoffPackResult, error) {
 	workdir, err := expandHomeWith(args.Workdir, home)
 	if err != nil {
 		return handoffPackResult{}, err
@@ -171,7 +188,7 @@ func packNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home s
 		return handoffPackResult{}, err
 	}
 	engineSHA, err := chunkBundle(ctx, store, "engine state", func() ([]byte, error) {
-		return packEngineState(args.Engine, home, workdir, args.EngineSessionID)
+		return packEngineState(args.Engine, engineRoot, workdir, args.EngineSessionID)
 	})
 	if err != nil {
 		return handoffPackResult{}, err
@@ -216,11 +233,17 @@ func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string,
 	if args.EngineSessionID == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: engine_session_id is required")
 	}
+	// The root the RESPAWN will read from — resolved on this host, from this
+	// agent's override, so it need not equal the source's path at all.
+	engineRoot, err := resolveEngineRoot(args.Engine, engineRootFromEnvVars(args.Engine, args.EnvVars), home)
+	if err != nil {
+		return handoffUnpackResult{}, err
+	}
 	switch {
 	case args.WorktreePath != "":
-		return unpackWorktreeSession(ctx, store, home, args)
+		return unpackWorktreeSession(ctx, store, home, engineRoot, args)
 	case args.Workdir != "":
-		return unpackNonWorktreeSession(ctx, store, home, args)
+		return unpackNonWorktreeSession(ctx, store, home, engineRoot, args)
 	default:
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: worktree_path or workdir is required")
 	}
@@ -228,7 +251,7 @@ func runHandoffUnpack(ctx context.Context, store handoff.BlobStore, home string,
 
 // unpackWorktreeSession is the T1 path: git fetch+add the worktree, then restore
 // the engine state at the worktree cwd.
-func unpackWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
+func unpackWorktreeSession(ctx context.Context, store handoff.BlobStore, home, engineRoot string, args handoffUnpackArgs) (handoffUnpackResult, error) {
 	if args.Repo == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: repo is required for a worktree session")
 	}
@@ -247,7 +270,7 @@ func unpackWorktreeSession(ctx context.Context, store handoff.BlobStore, home st
 	if err != nil {
 		return handoffUnpackResult{}, err
 	}
-	if err := restoreEngineState(args.Engine, home, worktreePath, args.EngineSessionID, engine); err != nil {
+	if err := restoreEngineState(args.Engine, engineRoot, worktreePath, args.EngineSessionID, engine); err != nil {
 		return handoffUnpackResult{}, err
 	}
 	// Return the TARGET-absolute worktree path so the hub records the session's
@@ -261,7 +284,7 @@ func unpackWorktreeSession(ctx context.Context, store handoff.BlobStore, home st
 // unpackNonWorktreeSession is the T2a path: restore the workdir tar first, then
 // the engine state on top of it (both at the target-anchored workdir). The
 // respawn re-derives the same workdir on the target, so the hub records no path.
-func unpackNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home string, args handoffUnpackArgs) (handoffUnpackResult, error) {
+func unpackNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home, engineRoot string, args handoffUnpackArgs) (handoffUnpackResult, error) {
 	if args.WorkdirManifestSHA == "" {
 		return handoffUnpackResult{}, fmt.Errorf("teleport unpack: workdir_manifest_sha is required for a non-worktree session")
 	}
@@ -280,7 +303,7 @@ func unpackNonWorktreeSession(ctx context.Context, store handoff.BlobStore, home
 	if err != nil {
 		return handoffUnpackResult{}, err
 	}
-	if err := restoreEngineState(args.Engine, home, workdir, args.EngineSessionID, engine); err != nil {
+	if err := restoreEngineState(args.Engine, engineRoot, workdir, args.EngineSessionID, engine); err != nil {
 		return handoffUnpackResult{}, err
 	}
 	return handoffUnpackResult{

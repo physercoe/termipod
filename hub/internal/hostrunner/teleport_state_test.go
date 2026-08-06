@@ -35,7 +35,7 @@ func TestPackRestoreEngineState_ClaudeRemapsAcrossHosts(t *testing.T) {
 	srcWorkdir := "/home/ubuntu/proj-a/wt-worker-1"
 	writeClaudeSession(t, srcHome, srcWorkdir, sessionID, content)
 
-	bundle, err := packEngineState("claude-code", srcHome, srcWorkdir, sessionID)
+	bundle, err := packEngineState("claude-code", claudecode.ConfigHomeFor(srcHome), srcWorkdir, sessionID)
 	if err != nil {
 		t.Fatalf("packEngineState: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestPackRestoreEngineState_ClaudeRemapsAcrossHosts(t *testing.T) {
 	// the target's resolver-derived path (different slug), not the source's.
 	tgtHome := t.TempDir()
 	tgtWorkdir := "/data/agents/proj-a/wt-worker-1" // different cwd → different slug
-	if err := restoreEngineState("claude-code", tgtHome, tgtWorkdir, sessionID, bundle); err != nil {
+	if err := restoreEngineState("claude-code", claudecode.ConfigHomeFor(tgtHome), tgtWorkdir, sessionID, bundle); err != nil {
 		t.Fatalf("restoreEngineState: %v", err)
 	}
 
@@ -68,11 +68,11 @@ func TestPackRestoreEngineState_ClaudeRemapsAcrossHosts(t *testing.T) {
 
 func TestPackEngineState_MissingSessionFails(t *testing.T) {
 	home := t.TempDir()
-	if _, err := packEngineState("claude-code", home, "/w/d", "no-such-session"); err == nil {
+	if _, err := packEngineState("claude-code", claudecode.ConfigHomeFor(home), "/w/d", "no-such-session"); err == nil {
 		t.Fatal("expected error for missing session id")
 	}
 	// A real id whose file doesn't exist also fails.
-	if _, err := packEngineState("claude-code", home, "/w/d", "deadbeef"); err == nil {
+	if _, err := packEngineState("claude-code", claudecode.ConfigHomeFor(home), "/w/d", "deadbeef"); err == nil {
 		t.Fatal("expected error for missing session file")
 	}
 }
@@ -85,7 +85,7 @@ func TestEngineState_UnsupportedEngine(t *testing.T) {
 	// the engine switch (a nil bundle fails earlier, in the gzip reader).
 	home := t.TempDir()
 	writeClaudeSession(t, home, "/w/d", "s", "x\n")
-	bundle, err := packEngineState("claude-code", home, "/w/d", "s")
+	bundle, err := packEngineState("claude-code", claudecode.ConfigHomeFor(home), "/w/d", "s")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestRestoreEngineState_OverwritesExisting(t *testing.T) {
 	srcHome := t.TempDir()
 	srcWorkdir := "/src/wt"
 	writeClaudeSession(t, srcHome, srcWorkdir, sessionID, "new\n")
-	bundle, err := packEngineState("claude-code", srcHome, srcWorkdir, sessionID)
+	bundle, err := packEngineState("claude-code", claudecode.ConfigHomeFor(srcHome), srcWorkdir, sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestRestoreEngineState_OverwritesExisting(t *testing.T) {
 	tgtWorkdir := "/tgt/wt"
 	// Pre-existing stale file at the target path.
 	writeClaudeSession(t, tgtHome, tgtWorkdir, sessionID, "stale\n")
-	if err := restoreEngineState("claude-code", tgtHome, tgtWorkdir, sessionID, bundle); err != nil {
+	if err := restoreEngineState("claude-code", claudecode.ConfigHomeFor(tgtHome), tgtWorkdir, sessionID, bundle); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(claudecode.ProjectDirFor(tgtHome, tgtWorkdir), sessionID+".jsonl"))
@@ -177,7 +177,7 @@ func TestPackRestoreEngineState_KimiRemapsAcrossHosts(t *testing.T) {
 	}
 	srcStore, srcWdID, _ := writeKimiSession(t, srcHome, srcWorkdir, sessionID)
 
-	bundle, err := packEngineState("kimi-code-ts", srcHome, srcWorkdir, sessionID)
+	bundle, err := packEngineState("kimi-code-ts", kimicode.StoreHomeFor(srcHome), srcWorkdir, sessionID)
 	if err != nil {
 		t.Fatalf("packEngineState: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestPackRestoreEngineState_KimiRemapsAcrossHosts(t *testing.T) {
 	if err := os.MkdirAll(tgtWorkdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := restoreEngineState("kimi-code-ts", tgtHome, tgtWorkdir, sessionID, bundle); err != nil {
+	if err := restoreEngineState("kimi-code-ts", kimicode.StoreHomeFor(tgtHome), tgtWorkdir, sessionID, bundle); err != nil {
 		t.Fatalf("restoreEngineState: %v", err)
 	}
 
@@ -282,12 +282,12 @@ func TestPackEngineState_KimiMissingSessionFails(t *testing.T) {
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := packEngineState("kimi-code-ts", home, workdir, ""); err == nil {
+	if _, err := packEngineState("kimi-code-ts", kimicode.StoreHomeFor(home), workdir, ""); err == nil {
 		t.Fatal("expected error for empty session id")
 	}
 	// A real-looking id whose tree doesn't exist also fails (no silent
 	// cold-start on the target).
-	if _, err := packEngineState("kimi-code-ts", home, workdir, "session_deadbeef-dead-beef-beef-deadbeefdead"); err == nil {
+	if _, err := packEngineState("kimi-code-ts", kimicode.StoreHomeFor(home), workdir, "session_deadbeef-dead-beef-beef-deadbeefdead"); err == nil {
 		t.Fatal("expected error for missing kimi session dir")
 	}
 }
@@ -295,10 +295,10 @@ func TestPackEngineState_KimiMissingSessionFails(t *testing.T) {
 // TestKimiRestore_RejectsForeignEntry guards the tarName shape check: entries
 // not under <sessionID>/ (or traversal attempts) are refused.
 func TestKimiRestore_RejectsForeignEntry(t *testing.T) {
-	if _, err := engineStateTargetPath("kimi-code-ts", t.TempDir(), "/w/d", "session_a", "session_b/state.json"); err == nil {
+	if _, err := engineStateTargetPath("kimi-code-ts", kimicode.StoreHomeFor(t.TempDir()), "/w/d", "session_a", "session_b/state.json"); err == nil {
 		t.Fatal("expected error for foreign session prefix")
 	}
-	if _, err := engineStateTargetPath("kimi-code-ts", t.TempDir(), "/w/d", "session_a", "session_a/../../etc/passwd"); err == nil {
+	if _, err := engineStateTargetPath("kimi-code-ts", kimicode.StoreHomeFor(t.TempDir()), "/w/d", "session_a", "session_a/../../etc/passwd"); err == nil {
 		t.Fatal("expected error for traversal")
 	}
 }
@@ -342,5 +342,116 @@ func TestKimiSessionIndexAppend_IsIdempotent(t *testing.T) {
 	// OTHER reader matching kimi's order also finds ours.
 	if !strings.Contains(string(data), `{"sessionId":"session_new","sessionDir":"/s/new","workDir":"/w"}`) {
 		t.Fatalf("appended line not in kimi's field order:\n%s", data)
+	}
+}
+
+// resolveEngineRoot is the whole point of the 2026-08-06 change: each side of
+// a teleport resolves its OWN root, in the same order the engine's launcher
+// does. An unsupported engine must error rather than guess — a root guessed
+// for an engine we don't model would pack the wrong bytes and report success.
+func TestResolveEngineRoot_PrecedencePerEngine(t *testing.T) {
+	t.Setenv(claudecode.ConfigHomeEnvVar, "/host/claude")
+	t.Setenv(kimicode.StoreHomeEnvVar, "/host/kimi")
+
+	cases := []struct {
+		engine, override, want string
+	}{
+		{"claude-code", "/agent/claude", "/agent/claude"}, // agent override wins
+		{"claude-code", "", "/host/claude"},               // then this host's env
+		{"kimi-code-ts", "/agent/kimi", "/agent/kimi"},
+		{"kimi-code-ts", "", "/host/kimi"},
+	}
+	for _, c := range cases {
+		got, err := resolveEngineRoot(c.engine, c.override, "/home/frank")
+		if err != nil || got != c.want {
+			t.Errorf("resolveEngineRoot(%q, %q) = %q, %v; want %q", c.engine, c.override, got, err, c.want)
+		}
+	}
+
+	t.Setenv(claudecode.ConfigHomeEnvVar, "")
+	t.Setenv(kimicode.StoreHomeEnvVar, "")
+	for engine, want := range map[string]string{
+		"claude-code":  "/home/frank/.claude",
+		"kimi-code-ts": "/home/frank/.kimi-code",
+	} {
+		got, err := resolveEngineRoot(engine, "", "/home/frank")
+		if err != nil || got != want {
+			t.Errorf("resolveEngineRoot(%q, \"\") = %q, %v; want %q", engine, got, err, want)
+		}
+	}
+
+	if _, err := resolveEngineRoot("codex", "", "/home/frank"); err == nil {
+		t.Error("an engine we do not model must refuse, not default to a guessed root")
+	}
+}
+
+// The hub relays the agent's whole plain env_vars map; host-runner reads only
+// the key its engine uses. Keeping the engine→variable mapping here rather
+// than in the hub is the same division the spawn path uses.
+func TestEngineRootFromEnvVars_ReadsOnlyItsOwnKey(t *testing.T) {
+	env := map[string]string{
+		"CLAUDE_CONFIG_DIR": "/c",
+		"KIMI_CODE_HOME":    "/k",
+		"PATH":              "/usr/bin",
+	}
+	if got := engineRootFromEnvVars("claude-code", env); got != "/c" {
+		t.Errorf("claude-code = %q, want /c", got)
+	}
+	if got := engineRootFromEnvVars("kimi-code-ts", env); got != "/k" {
+		t.Errorf("kimi-code-ts = %q, want /k", got)
+	}
+	if got := engineRootFromEnvVars("codex", env); got != "" {
+		t.Errorf("unmodelled engine = %q, want empty", got)
+	}
+	if got := engineRootFromEnvVars("claude-code", nil); got != "" {
+		t.Errorf("nil env (an older hub) = %q, want empty so this host's env decides", got)
+	}
+}
+
+// The property that makes this a plumbing change and not a transport change:
+// the two hosts need not share a layout. The source keeps its store at one
+// relocated root, the target at a differently-shaped one, and the bundle —
+// whose TarNames are host-independent — carries nothing about either.
+func TestPackRestoreEngineState_ClaudeAcrossDIFFERENTRelocatedRoots(t *testing.T) {
+	const sessionID = "99999999-8888-7777-6666-555555555555"
+	const content = `{"type":"assistant","text":"survives the move"}` + "\n"
+
+	srcHome := t.TempDir()
+	srcRoot := filepath.Join(srcHome, ".claude-work") // ~/.claude-work
+	srcWorkdir := "/home/ubuntu/proj-a/wt-1"
+	dir := claudecode.ProjectDirIn(srcRoot, srcWorkdir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, sessionID+".jsonl"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := packEngineState("claude-code", srcRoot, srcWorkdir, sessionID)
+	if err != nil {
+		t.Fatalf("packEngineState from a relocated source root: %v", err)
+	}
+
+	tgtHome := t.TempDir()
+	tgtRoot := filepath.Join(tgtHome, "profiles", "work") // deliberately NOT ~/.claude-work
+	tgtWorkdir := "/srv/agents/proj-a/wt-1"
+	if err := restoreEngineState("claude-code", tgtRoot, tgtWorkdir, sessionID, bundle); err != nil {
+		t.Fatalf("restoreEngineState into a relocated target root: %v", err)
+	}
+
+	landed := filepath.Join(claudecode.ProjectDirIn(tgtRoot, tgtWorkdir), sessionID+".jsonl")
+	got, rerr := os.ReadFile(landed)
+	if rerr != nil {
+		t.Fatalf("engine state not at the target's own root %s: %v", landed, rerr)
+	}
+	if string(got) != content {
+		t.Errorf("content mismatch: got %q, want %q", got, content)
+	}
+
+	// It must not have landed in the target's DEFAULT root — that is another
+	// profile's directory, and on a multi-account host another account's.
+	stray := filepath.Join(claudecode.ProjectDirFor(tgtHome, tgtWorkdir), sessionID+".jsonl")
+	if _, err := os.Stat(stray); err == nil {
+		t.Errorf("engine state written to the default root %s; a relocated session must stay in its own profile", stray)
 	}
 }

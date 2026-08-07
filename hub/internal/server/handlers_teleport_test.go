@@ -397,3 +397,76 @@ func TestTeleportSession_RefusesOfflineTarget(t *testing.T) {
 		t.Fatalf("teleport to unregistered host: want 409, got %d", status)
 	}
 }
+
+// The relay is the hub's whole contribution to the engine-root fix: the
+// session spec's plain env_vars must reach BOTH host commands, because a
+// per-agent $CLAUDE_CONFIG_DIR / $KIMI_CODE_HOME is a value neither host's
+// own environment can supply. Nothing downstream can catch a miss — the
+// host falls back to its own environment and packs the DEFAULT root, which
+// is precisely the silent cold-start the fix closes. So the relay is
+// pinned here at the hub layer: dropping either packArgs/unpackArgs
+// assignment, or typo-ing teleportSpecView's `env_vars` yaml tag, fails
+// this test rather than degrading silently.
+func TestTeleportSession_RelaysEnvVarsToBothHostCommands(t *testing.T) {
+	oldPoll := teleportCmdPoll
+	teleportCmdPoll = 10 * time.Millisecond
+	defer func() { teleportCmdPoll = oldPoll }()
+
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-src")
+	seedTestHost(t, s, defaultTeamID, "host-tgt", "gpu-box")
+
+	// The agent carries a relocated engine root in its PLAIN env_vars.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":         "relocated-root",
+			"agent_id":      agentID,
+			"worktree_path": "/home/src/hub-work/team/pid/worker",
+			"spawn_spec_yaml": "kind: claude-code\n" +
+				"backend:\n  cmd: claude\n" +
+				"env_vars:\n  CLAUDE_CONFIG_DIR: /srv/profiles/work\n" +
+				"worktree:\n  repo: /home/src/repos/proj\n  branch: hub/worker\n",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open session: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/stop", nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", status, body)
+	}
+
+	stop := fakeHost(t, s, "/data/agents/hub-work/team/pid/worker")
+	defer stop()
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/teleport",
+		map[string]any{"target_host_id": "host-tgt"})
+	if status != http.StatusOK {
+		t.Fatalf("teleport: %d %s", status, body)
+	}
+
+	// Both ends, because each resolves its OWN root from the override: a
+	// miss on pack reads the wrong source store, a miss on unpack restores
+	// where the target respawn will never look.
+	for _, kind := range []string{"session_handoff_pack", "session_handoff_unpack"} {
+		var argsJSON string
+		if err := s.db.QueryRow(
+			`SELECT args_json FROM host_commands WHERE kind = ?`, kind).Scan(&argsJSON); err != nil {
+			t.Fatalf("%s row: %v", kind, err)
+		}
+		var args struct {
+			EnvVars map[string]string `json:"env_vars"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			t.Fatalf("%s args: %v", kind, err)
+		}
+		if got := args.EnvVars["CLAUDE_CONFIG_DIR"]; got != "/srv/profiles/work" {
+			t.Errorf("%s env_vars[CLAUDE_CONFIG_DIR] = %q, want /srv/profiles/work", kind, got)
+		}
+	}
+}

@@ -71,6 +71,22 @@ func ResolveStoreHome(spawnOverride string) (string, error) {
 	return StoreHome()
 }
 
+// ResolveStoreHomeFor is ResolveStoreHome against an EXPLICIT home rather
+// than this process's: same override → env → default chain, but the last
+// rung is StoreHomeFor(home) instead of os.UserHomeDir(). Teleport needs
+// this form because it names a host home explicitly on both ends of a
+// move. Mirrors claude's ResolveConfigHome, which takes the home for the
+// same reason.
+func ResolveStoreHomeFor(spawnOverride, home string) string {
+	if dir := strings.TrimSpace(spawnOverride); dir != "" {
+		return dir
+	}
+	if dir := strings.TrimSpace(os.Getenv(StoreHomeEnvVar)); dir != "" {
+		return dir
+	}
+	return StoreHomeFor(home)
+}
+
 // WorkspaceIDFor derives kimi's wd_* workspace id for a symlink-RESOLVED
 // absolute root. Algorithm verified on-host against kimi-code 0.28.1
 // (ticket #429): "wd_" + sanitized basename + "_" + hex(sha256(root))[:12].

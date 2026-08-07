@@ -73,13 +73,24 @@ binding). Seed entries prior to that are in
   gate validated one store while the tail could read another, which passes
   for the wrong reason and then fails silently, since a wire tail with no
   session looks exactly like an agent that hasn't spoken yet.
-- **Teleport deliberately still ignores both env vars.** It resolves a
-  source host and a target host that this process's environment does not
-  describe — an env profile can relocate a root for one agent, and the
-  target is a different machine. Following them means carrying the source's
-  root in the bundle and re-resolving on the target: an ADR-057 transport
-  change, not a resolver fix. Recorded at the call site; identical on both
-  engines, and they should be fixed together.
+- **Teleport follows both env vars too, on both ends.** A session whose
+  engine root was relocated used to move its worktree and cold-start its
+  conversation: the source packed from `<home>/.claude` (or `~/.kimi-code`)
+  and found nothing, or the target restored where the respawn would never
+  look. `resolveEngineRoot` applies the same override → host env → home
+  default chain the launchers use, and the hub relays the session's plain
+  `env_vars` to both host commands, so a per-agent override is visible to
+  hosts whose own environments know nothing about it. Each end resolves its
+  OWN absolute root, so the two hosts need not share a layout — a store at
+  `/srv/profiles/work` on the source and `~/.claude-work` on the target is
+  an ordinary move. **Correction:** this entry previously called that an
+  ADR-057 transport change requiring the source's root to travel in the
+  bundle. It is not one. The bundle already speaks host-independent entry
+  names precisely so each end re-derives its own absolute paths — the same
+  mechanism a relocated root needs — so the work was plumbing an override
+  into two existing resolvers, with no wire-format change and an additive,
+  backward-compatible command argument (an older hub sends nothing and the
+  host falls back to its own environment).
 
 ---
 

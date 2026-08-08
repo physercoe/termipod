@@ -1,0 +1,39 @@
+# Overlay config — everything termipod-specific about pane-state detection.
+#
+# The vendored manifests under ../vendor/ are byte-exact copies of herdr's at
+# commit 6f311498 and are NEVER hand-edited (plan D-1), so they can be diffed
+# against upstream on a re-vendor. Anything of ours lives here: this file, and
+# any `<id>.toml` in this directory, which replaces the vendored manifest of
+# the same id ENTIRELY.
+#
+# `engines` binds an agent family — the value in `agents.kind` for a worker —
+# to a manifest id. It is here and not in a vendored file because upstream's
+# ids are not our family names (plan D-3).
+#
+# An UNMAPPED family gets no evaluation at all. That is the point: classifying
+# an engine with another engine's rules produces confident, wrong attention,
+# which is worse than the silence we have today. An id that names no manifest
+# fails validation loudly rather than being dropped.
+
+engines:
+  # Verified mappings — the manifest's rules were written for the same CLI we
+  # spawn.
+  claude-code: claude
+  codex: codex
+  antigravity: agy
+  gemini-cli: gemini
+
+  # kimi-code-ts is deliberately ABSENT, for the same reason it is unmapped in
+  # the resume recipe table (hub/internal/resumerecipes/recipes.yaml): upstream
+  # detects a CLI it calls `kimi`, and nobody has confirmed that is our
+  # compiled-TypeScript Kimi CLI (ADR-054) rather than the Python one that was
+  # retired. Screen rules are more version-fragile than a resume flag, so the
+  # bar for mapping it is a capture from a real kimi-code-ts pane, not a name
+  # match. Until then it keeps the structured M4 adapter it already has, which
+  # is a better signal than any manifest.
+  #
+  # The remaining vendored manifests (amp, cline, cursor, devin, droid, grok,
+  # hermes, kilo, kimi, kiro, maki, opencode, pi, qodercli, copilot) are loaded
+  # and testable but map to no family — we cannot spawn those engines yet. They
+  # are data waiting for a family registration, exactly as the plan's scope
+  # note describes for the resume recipes.

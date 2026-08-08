@@ -47,6 +47,13 @@ type PaneDriver struct {
 	// SendKeys lets tests inject a fake for tmux send-keys; nil defaults
 	// to the real tmuxSendKeys below. Used by Input (P1.8) for M4 input.
 	SendKeys PaneSendKeysFunc
+	// Tmux is the general tmux seam, needed for the buffer subcommands the
+	// multi-line paste path uses. nil defaults to a real exec — except when
+	// SendKeys is stubbed, where it refuses instead (see tmuxFn).
+	Tmux PaneTmuxFunc
+	// PasteSettle is the pause between paste-buffer and Enter. 0 takes
+	// defaultPasteSettle; set a tiny value in tests so they don't sleep.
+	PasteSettle time.Duration
 	// Workdir is the agent's cwd, when the runner could derive one. A
 	// pane is a terminal — there is no image channel into it at all —
 	// so an annotation image is materialized here and its path named in
@@ -212,6 +219,110 @@ func tmuxSendKeys(ctx context.Context, paneID, text string, literal bool) error 
 	return exec.CommandContext(ctx, "tmux", args...).Run()
 }
 
+// PaneTmuxFunc is the general tmux seam — the buffer subcommands the paste
+// path needs cannot be expressed through PaneSendKeysFunc's (text, literal)
+// shape. nil defaults to a real `tmux` exec.
+type PaneTmuxFunc func(ctx context.Context, args ...string) error
+
+func tmuxRun(ctx context.Context, args ...string) error {
+	return exec.CommandContext(ctx, "tmux", args...).Run()
+}
+
+// paneInputInlineMax is the body size below which input takes the cheap
+// send-keys path. Matches the adapters' threshold so the generic driver and
+// the per-engine adapters make the same call for the same body.
+const paneInputInlineMax = 512
+
+// defaultPasteSettle is the pause between pasting a body and sending Enter,
+// so the TUI has ingested the text before it is asked to submit. herdr waits
+// 300 ms on its own paste path; the per-engine adapters send Enter
+// immediately, which is a race we have not seen bite them but which the
+// generic path — serving TUIs nobody wrote an adapter for — should not take.
+const defaultPasteSettle = 300 * time.Millisecond
+
+// tmuxFn resolves the general tmux seam.
+//
+// The nil-SendKeys case is the ordinary one. When a harness has stubbed
+// SendKeys but NOT Tmux, we refuse rather than falling through to a real
+// `tmux` exec: a test that thinks it is isolated must not reach the
+// machine's tmux server, and on a developer box that server is the one the
+// human is sitting in.
+func (d *PaneDriver) tmuxFn() PaneTmuxFunc {
+	if d.Tmux != nil {
+		return d.Tmux
+	}
+	if d.SendKeys != nil {
+		return func(_ context.Context, args ...string) error {
+			return fmt.Errorf("pane driver: tmux %q needed but only the SendKeys seam was stubbed; "+
+				"set PaneDriver.Tmux too", strings.Join(args, " "))
+		}
+	}
+	return tmuxRun
+}
+
+// sendBody delivers one body to the pane and submits it.
+//
+// Short single-line bodies keep the original two-call shape
+// (`send-keys -l <body>`, `send-keys Enter`) — unchanged, and what the
+// existing tests pin.
+//
+// Anything multi-line or long goes through tmux's named-buffer paste, the
+// path the claude-code / kimi / antigravity adapters already use:
+//
+//	tmux set-buffer   -b <name> <body>
+//	tmux paste-buffer -b <name> -d -r -p -t <pane>
+//	tmux send-keys              -t <pane> Enter
+//
+// Before this, the generic path sent a multi-line body with a single
+// `send-keys -l`, so the pane's line discipline submitted at the FIRST
+// newline and the remaining lines landed as separate turns — the same defect
+// the adapters were fixed for, still live for every engine without one.
+//
+// `-r` is load-bearing: without it tmux rewrites each LF in the buffer to a
+// CR keystroke, which is exactly the multiple-submissions bug in another
+// costume. `-d` drops the buffer so concurrent inputs don't stack. `-p`
+// brackets the paste **only if the application asked for bracketed paste**
+// (tmux(1): "paste bracket control codes are inserted around the buffer if
+// the application has requested bracketed paste mode") — so a TUI that
+// requested it stops line-editing the pasted body, and one that did not is
+// unaffected.
+func (d *PaneDriver) sendBody(ctx context.Context, send PaneSendKeysFunc, body string) error {
+	if len(body) <= paneInputInlineMax && !strings.ContainsAny(body, "\n\r") {
+		if err := send(ctx, d.PaneID, body, true); err != nil {
+			return err
+		}
+		return send(ctx, d.PaneID, "Enter", false)
+	}
+
+	run := d.tmuxFn()
+	// Buffer names are [A-Za-z0-9_-]; pane ids arrive as `%NN`.
+	bufName := "paneinput_" + strings.NewReplacer("%", "", ":", "_", ".", "_").Replace(d.PaneID)
+	if err := run(ctx, "set-buffer", "-b", bufName, body); err != nil {
+		return fmt.Errorf("pane driver: set-buffer: %w", err)
+	}
+	if err := run(ctx, "paste-buffer", "-b", bufName, "-d", "-r", "-p", "-t", d.PaneID); err != nil {
+		// Best-effort cleanup so a failed paste doesn't leave a buffer for
+		// the next call to inherit.
+		_ = run(ctx, "delete-buffer", "-b", bufName)
+		return fmt.Errorf("pane driver: paste-buffer: %w", err)
+	}
+	if settle := d.pasteSettle(); settle > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(settle):
+		}
+	}
+	return send(ctx, d.PaneID, "Enter", false)
+}
+
+func (d *PaneDriver) pasteSettle() time.Duration {
+	if d.PasteSettle != 0 {
+		return d.PasteSettle
+	}
+	return defaultPasteSettle
+}
+
 // Input implements Inputter for M4. Translations:
 //   - text:     send-keys -l <body>; send-keys Enter
 //   - cancel:   send-keys C-c  (tmux interprets the keyname)
@@ -253,10 +364,7 @@ func (d *PaneDriver) Input(ctx context.Context, kind string, payload map[string]
 		if body == "" {
 			return fmt.Errorf("pane driver: text input missing body")
 		}
-		if err := send(ctx, d.PaneID, body, true); err != nil {
-			return err
-		}
-		return send(ctx, d.PaneID, "Enter", false)
+		return d.sendBody(ctx, send, body)
 	case "cancel":
 		return send(ctx, d.PaneID, "C-c", false)
 	case "approval":
@@ -269,10 +377,9 @@ func (d *PaneDriver) Input(ctx context.Context, kind string, payload map[string]
 		if note != "" {
 			body = decision + ": " + note
 		}
-		if err := send(ctx, d.PaneID, body, true); err != nil {
-			return err
-		}
-		return send(ctx, d.PaneID, "Enter", false)
+		// An approval note is operator-authored free text and can carry a
+		// newline as easily as a prompt can, so it takes the same path.
+		return d.sendBody(ctx, send, body)
 	case "attach":
 		docID, _ := payload["document_id"].(string)
 		if docID == "" {
@@ -281,10 +388,7 @@ func (d *PaneDriver) Input(ctx context.Context, kind string, payload map[string]
 		// Leave the operator a visible marker instead of silently
 		// no-oping; they can paste the referenced content themselves.
 		text := "# attach requested: document_id=" + docID
-		if err := send(ctx, d.PaneID, text, true); err != nil {
-			return err
-		}
-		return send(ctx, d.PaneID, "Enter", false)
+		return d.sendBody(ctx, send, text)
 	default:
 		return fmt.Errorf("pane driver: unsupported input kind %q", kind)
 	}

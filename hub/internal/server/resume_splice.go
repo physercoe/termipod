@@ -92,6 +92,13 @@ func rewriteResumeFlag(cmd string, e resumerecipes.Engine, ref resumerecipes.Ses
 	tokens := strings.Fields(strings.TrimSpace(cmd))
 	binIdx := -1
 	for i, t := range tokens {
+		// `cd <dir>`'s operand is a directory, not an invocation — and a
+		// workdir named after the engine (`cd ~/w/claude && claude …`) would
+		// otherwise match on its path suffix and take the flag, breaking the
+		// whole command (`cd` refuses extra arguments).
+		if i > 0 && tokens[i-1] == "cd" {
+			continue
+		}
 		if isBinToken(t, e.Bin) || (e.WindowsBin != "" && isBinToken(t, e.WindowsBin)) {
 			binIdx = i
 			break

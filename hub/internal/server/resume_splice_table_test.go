@@ -183,6 +183,35 @@ func TestRewriteResumeFlag_FindsBinAfterAPrefix(t *testing.T) {
 	}
 }
 
+// TestRewriteResumeFlag_WorkdirNamedAfterEngineIsNotTheBin — the bin scan
+// suffix-matches path tokens, and specs commonly lead with `cd <workdir> &&`.
+// A workdir that happens to be named after the engine must not take the flag:
+// `cd /w/claude --resume <id>` is not a resume, it is a spawn that dies on
+// `cd: too many arguments`.
+func TestRewriteResumeFlag_WorkdirNamedAfterEngineIsNotTheBin(t *testing.T) {
+	tbl := resumerecipes.MustLoad()
+	ref, _ := resumerecipes.NewID("s-1")
+	for _, tc := range []struct{ engine, cmd, want string }{
+		{"claude", "cd /home/u/projects/claude && claude --model x",
+			"cd /home/u/projects/claude && claude --resume s-1 --model x"},
+		{"agy", "cd ~/hub-work/agy && agy --yolo",
+			"cd ~/hub-work/agy && agy --conversation s-1 --yolo"},
+	} {
+		e, _ := tbl.EngineByID(tc.engine)
+		got, ok := rewriteResumeFlag(tc.cmd, e, ref)
+		if !ok || got != tc.want {
+			t.Errorf("%s: got (%q, %v), want %q", tc.engine, got, ok, tc.want)
+		}
+	}
+	// When the ONLY match is cd's operand there is no invocation to splice —
+	// refuse rather than corrupt the cd.
+	e, _ := tbl.EngineByID("claude")
+	in := "cd /home/u/projects/claude && make run"
+	if got, ok := rewriteResumeFlag(in, e, ref); ok || got != in {
+		t.Errorf("cd-operand-only cmd was rewritten: (%q, %v)", got, ok)
+	}
+}
+
 func TestRewriteResumeFlag_StripsPriorFlagBeforeSplicing(t *testing.T) {
 	e, _ := resumerecipes.MustLoad().EngineByID("claude")
 	ref, _ := resumerecipes.NewID("new")

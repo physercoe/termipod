@@ -5,8 +5,16 @@
 > [`discussions/herdr-runtime-borrows.md`](../discussions/herdr-runtime-borrows.md)
 > (B1 flagship + B2/B3/B4/B5 independents). The vendor-vs-fork call is
 > made: the director chose **vendor-plus-overlay** (2026-08-08); D-1
-> records it. Lane P is the core; lanes R/W/I are independent and can
+> records it. Lane P is the core; lanes N/S/Q are independent and can
 > interleave with other work.
+> *Review pass 2026-08-08 renamed the independent lanes* — `R1`→**N1**,
+> `W1`/`W2`→**S1**/**S2**, `I1`→**Q1**. `W*` is reserved repo-wide for
+> *waves*, and this plan's §5 uses "wave" in its own text; `R1` and `I1`
+> already name other wedges in the two live desktop plans
+> ([vision-parity](desktop-companion-vision-parity.md) R1 shipped as the
+> approval cards, [coworking](agent-desktop-coworking.md) I1 is the Read
+> push channel). P/N/S/Q are unused elsewhere: **P** reads the pane,
+> **Q** writes to it, **N** is native resume, **S** is settle semantics.
 > **Audience:** principal · contributors
 > **Last verified vs code:** main `e498416d` (2026-08-08;
 > `hub/internal/hostrunner/idle.go`, `driver_pane.go`,
@@ -25,9 +33,9 @@ semantics, posting state as agent events; **P3** blocked→attention
 with rule-id evidence, retiring `IdleDetector` for covered agents,
 and capture-cost gating; **P4** an explain verb + Inspect surface;
 **P5** hub-distributed manifest updates with herdr's tamper-evidence
-rule. Independent lanes: **R1** the 16-engine native-resume recipe
-table (feeds teleport respawn + vision-parity L3/L4), **W1/W2**
-prompt-effect two-phase waits and the done-until-seen bit, **I1**
+rule. Independent lanes: **N1** the 16-engine native-resume recipe
+table (feeds teleport respawn + vision-parity L3/L4), **S1/S2**
+prompt-effect two-phase waits and the done-until-seen bit, **Q1**
 pane-input hardening (`paste-buffer -p`, generic multi-line path).
 
 ## 1. Context and grounding
@@ -114,6 +122,13 @@ pane-input hardening (`paste-buffer -p`, generic multi-line path).
   No new tables; no new attention kind unless P3 review finds `idle`
   semantically wrong for "blocked on approval" (decide in-wedge
   against [attention-kinds.md](../reference/attention-kinds.md)).
+  *Open at P2 review:* `panestate` is a **new agent-event producer**
+  landing while [vision-parity](desktop-companion-vision-parity.md)
+  lane E is normalizing that same feed, and that plan binds new
+  producers to emit the corrected shapes natively rather than be
+  fixed up later. Its payloads are state classifications, not
+  tool/turn events, so the overlap is expected to be the envelope and
+  not the content — but nobody has checked, and P2 is the moment to.
 - **D-7 — distribution starts embedded, hub later.** P1 embeds
   vendor + overlay via `go:embed`; binary upgrades ship rule fixes.
   P5 adds hub-distributed updates with herdr's exact hardening:
@@ -201,7 +216,7 @@ reload-without-restart proven in an integration test.
 
 ## 4. Independent lanes
 
-### R1 — native-resume recipe table (B2)
+### N1 — native-resume recipe table (B2)
 
 A per-engine resume-recipe table (engine kind → argv template +
 session-ref validation: ids ≤512 bytes no control chars, paths
@@ -211,12 +226,30 @@ plus the dedupe rule: one session ref resumes once per restore pass.
 Scope note: recipes for engines we cannot yet spawn are data + tests
 only (they wait for their family registration); the table is exactly
 the resume-command column vision-parity L3/L4 needs.
+
+**The consumer is in another language — so the table ships as data,
+not as Go.** L3's local agent service lives in Electron main
+(TypeScript) and rebinds across app restarts by engine-native resume;
+it cannot call a Go table, only re-derive one. A Go-only N1 therefore
+*guarantees* the second copy rather than preventing it — the failure
+[vision-parity L1](desktop-companion-vision-parity.md) already names
+in the neighbouring case ("inventing a loader now would ship a second
+copy of `agent_families.yaml` with nothing reading it"). Follow the
+**L2 recipe** instead, which shipped this exact shape in #526: the
+recipes live in a checked-in data file, the Go table and any TS reader
+both load it, and one shared fixture corpus pins both — parity by
+construction, not by discipline. Whether the file is a new one or a
+`resume:` block on the existing families YAML is an in-wedge call;
+shipping the knowledge as Go literals is not.
 **Acceptance:** claude/kimi paths keep their existing behavior
 (regression-pinned); shell-quoting test with a hostile session id;
 recipe table pinned against
-[session-state doc](../discussions/herdr-runtime-borrows.md) §4.
+[session-state doc](../discussions/herdr-runtime-borrows.md) §4;
+recipes are data with a language-neutral fixture corpus, and the Go
+loader is tested against that corpus (so an L3/L4 TS reader can be
+pinned to the same file without re-deriving anything).
 
-### W1 — prompt-effect two-phase wait (B3)
+### S1 — prompt-effect two-phase wait (B3)
 
 The steward/A2A "message an agent, await outcome" path gains herdr's
 two-phase shape: baseline = latest agent-event id before submit;
@@ -231,7 +264,7 @@ via the baseline; stalled prompt fails in ~5 s with the distinct
 error; long-running phase 2 unaffected by client HTTP timeouts
 (poll-based, per attention-kinds §connection-pinned-waits guidance).
 
-### W2 — done-until-seen (B3 tail)
+### S2 — done-until-seen (B3 tail)
 
 One bit: a session whose agent went idle after its last user-visible
 focus shows as **done** (finished, unseen) in fleet board / desktop
@@ -242,7 +275,7 @@ finds one); rollups sort done > blocked > working > idle.
 table-driven tests; desktop marks seen on session focus only (reads
 via CLI/API do not).
 
-### I1 — pane-input hardening (B4)
+### Q1 — pane-input hardening (B4)
 
 Generic `PaneDriver.Input` gains the adapters' named-buffer paste
 path for multi-line/long bodies; all paste paths gain `-p` (tmux
@@ -255,11 +288,24 @@ existing single-line fast path unchanged.
 
 ## 5. Ordering and dependencies
 
-P1 → P2 → P3 → P4; P5 after P3 (any time). R1, W1, W2, I1 are
-independent of lane P and each other; I1 is the smallest and can land
-first. Suggested first wave: **P1 + I1 + R1** (pure library + two
+P1 → P2 → P3 → P4; P5 after P3 (any time). N1, S1, S2, Q1 are
+independent of lane P and each other; Q1 is the smallest and can land
+first. Suggested first wave: **P1 + Q1 + N1** (pure library + two
 small independents), then P2+P3 as the user-visible wave, then
-P4/P5/W1/W2.
+P4/P5/S1/S2.
+
+**Against the two live desktop plans.** This is a third parallel
+track, not a competitor for their files: lane P is host-runner Go
+aimed at engines *without* a structured driver, while coworking W3
+(I1–I4, J3, K, D2, E1–E3, H2 tail) is client-side and vision-parity W3
+(L3, E3, E4, R4) is Electron plus hub event vocabulary. One edge
+crosses: **N1 feeds vision-parity L3 (W3) and L4 (W4)**. It does not
+block them — vision-parity's stated gates are L1 before L3/L4 and L2
+before L3, both shipped — but L3's hardest hidden requirement is
+rebinding across app restarts by engine-native resume, which is
+exactly what N1 tabulates. Landing N1 first turns that sub-problem
+into a lookup, and N1 is independent of lane P, so it can be pulled
+forward without dragging the manifest work along.
 
 Device-verify debt this plan creates (recorded now): live-TUI
 verification of P2/P3 against real codex/cursor/gemini panes on a
@@ -297,4 +343,9 @@ in the standing device-verify queue.
 - [attention-kinds.md](../reference/attention-kinds.md) — D-6's
   target rails.
 - [`desktop-companion-vision-parity.md`](desktop-companion-vision-parity.md)
-  — R1's consumer (L3/L4 resume commands).
+  — N1's consumer (L3/L4 resume commands), and lane E's event feed
+  that D-6's `panestate` producer joins.
+- [`agent-desktop-coworking.md`](agent-desktop-coworking.md) — the
+  other live plan this one runs beside; no shared surface, but its
+  `I1` and vision-parity's `R1` are why this plan's independents are
+  lettered N/S/Q (see the status block).

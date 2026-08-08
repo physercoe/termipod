@@ -277,6 +277,17 @@ transport rung (lane T), never the renderer's ceiling.
     spawns, and must not treat "no API key" as "not signed in". See
     the standing bug class in §6 — the Go side was fixed 2026-08-05, so
     L3 ports a resolver that already exists rather than inventing one.
+  - *Cross-plan input (2026-08-08) — the resume command is tabulated
+    elsewhere.* "Rebind across a full app restart via engine-native
+    resume" needs a per-engine resume recipe, and
+    [`pane-state-manifests.md`](pane-state-manifests.md) **N1** builds
+    exactly that table (16 field-verified recipes, replacing the ad-hoc
+    knowledge in `driver_exec_resume.go` / teleport respawn). It is not
+    a blocker — L3's gates are L1 and L2, both shipped — but N1 first
+    turns this sub-problem into a lookup. N1 is specified to ship the
+    recipes as **data with a language-neutral fixture corpus** (the L2
+    recipe) precisely so this service can read the same file instead of
+    re-deriving a second copy in TypeScript.
 - **L4 — codex via the vendor's service (D-8: use theirs when it
   exists).** Prefer **WebSocket attach** to a `codex app-server`
   daemon — spawn it detached if absent, authenticate with its bearer
@@ -285,13 +296,20 @@ transport rung (lane T), never the renderer's ceiling.
   fallback rung only. Text-delta throttle port, parked
   approvals/elicitations surface directly as R1 cards (no attention
   table locally), `turn/interrupt` cancel, `.codex/config.toml`
-  seeding.
+  seeding. The spawn-fallback rung takes its resume argv from the same
+  N1 table L3 reads.
 
 ### Lane E — event-vocabulary gaps (hub; verified per-driver)
 
 Local drivers (L3/L4) are new code and must emit the corrected shapes
 below natively; the wedges here fix the **hub** producers so both
-sources stay byte-compatible.
+sources stay byte-compatible. *A third new producer is inbound
+(2026-08-08):* [`pane-state-manifests.md`](pane-state-manifests.md)
+P2 adds a `panestate` emitter to this same feed. Its payloads are
+screen-state classifications rather than tool/turn events, so the
+overlap is expected to be the envelope only — but "new code emits the
+corrected shapes natively" binds it too, and that is a P2-review
+check nobody has run yet.
 
 Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
 `driver_appserver.go`, claude M4 = `drivers/local_log_tail/claude_code/`.
@@ -570,6 +588,13 @@ Each wedge is a separate PR with the standard review pass. Lane E
 before its lane-R consumer in every pair (E1→R2, E3→R4); L1 before
 any L3/L4, L2 before L3. Lane L can also accelerate independently —
 the renderer consumes one shape regardless of source (D-7).
+
+One edge arrives from outside this plan:
+[`pane-state-manifests.md`](pane-state-manifests.md) **N1** (the
+native-resume recipe table) feeds L3 and L4. It gates neither — both
+of L3's stated blockers shipped in W2 — but it is the cheapest
+de-risk of L3's restart-rebind leg, and it is independent of that
+plan's core lane, so it can be pulled forward on its own.
 
 ## 5. Non-goals (recorded so they don't creep)
 

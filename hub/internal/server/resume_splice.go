@@ -3,35 +3,62 @@ package server
 import (
 	"strings"
 
+	"github.com/termipod/hub/internal/resumerecipes"
 	"gopkg.in/yaml.v3"
 )
 
-// spliceClaudeResume rewrites the rendered spawn_spec_yaml so its
-// `backend.cmd` carries `--resume <id>` immediately after the `claude`
-// binary token, letting the spawned process reattach to its prior
-// engine session. ADR-014.
+// spliceResume threads a captured engine session id back into a rendered
+// spawn spec so the respawned agent reattaches instead of cold-starting.
 //
-// Behaviour:
-//   - sessionID empty → return spec unchanged.
-//   - YAML parse fails or `backend.cmd` missing → return spec
-//     unchanged. The resume still proceeds (cold-start) — better than
-//     a 500.
-//   - cmd already contains `--resume <sessionID>` → idempotent no-op.
-//   - cmd contains a different `--resume <other>` → strip the prior
-//     flag (handles edge cases where the rendered cmd was carried over
-//     from a debug template) and splice in the current one.
-//   - cmd doesn't start with the token `claude` → leave it alone. We
-//     only know how to splice claude-code's flag shape; other engines
-//     should be wired through their own driver-side resume mechanism
-//     (gemini's --resume, codex's thread/resume).
+// This is the ONE dispatch. It replaces the two hand-maintained switches that
+// used to live at the resume and spec-mutation call sites; they had already
+// drifted (the spec-mutation copy never grew antigravity's arm, which was
+// latent only because that path gates on flagForField first). Which mechanism
+// a family uses is data — hub/internal/resumerecipes/recipes.yaml — so adding
+// an engine is a row, not an edit in two files someone has to remember.
 //
-// The function preserves comments and ordering on a best-effort basis
-// via yaml.v3's Node API. yaml.v3's Marshal does normalize scalar
-// quoting in some cases; that's acceptable here since the output is
-// only used to seed the next agent_spawns row, never round-tripped
-// against a human-edited template.
-func spliceClaudeResume(specYAML, sessionID string) string {
+// Returns the spec unchanged whenever it cannot act: unknown family, empty id,
+// unparseable YAML, a cmd it doesn't recognise. That is deliberate and
+// pre-existing — a resume that cold-starts loses continuity, which beats a 500
+// that loses the respawn.
+func spliceResume(specYAML, family, sessionID string) string {
 	if specYAML == "" || sessionID == "" {
+		return specYAML
+	}
+	tbl := resumerecipes.MustLoad()
+	fam, ok := tbl.FamilyByName(family)
+	if !ok {
+		return specYAML
+	}
+	switch fam.Mechanism {
+	case resumerecipes.MechanismArgv:
+		e, ok := tbl.EngineByID(fam.Engine)
+		if !ok {
+			return specYAML
+		}
+		return spliceArgvResume(specYAML, e, sessionID)
+	case resumerecipes.MechanismACPLoad, resumerecipes.MechanismAppServer:
+		// The cursor rides the protocol, not the cmd: one top-level YAML
+		// field that ACPDriver reads as session/load and AppServerDriver as
+		// thread/resume.
+		return spliceACPResume(specYAML, sessionID)
+	default:
+		return specYAML
+	}
+}
+
+// spliceArgvResume rewrites `backend.cmd` so it carries the engine's own
+// resume flag right after the binary token. Generalizes what used to be two
+// near-identical functions (claude's `--resume`, agy's `--conversation`); the
+// flag spelling and style now come from the recipe table.
+func spliceArgvResume(specYAML string, e resumerecipes.Engine, sessionID string) string {
+	// Validate before splicing. The id arrives verbatim from the engine's own
+	// session.init payload and lands in a string tmux runs through a shell, so
+	// it is untrusted data in a shell context. An id that fails the envelope
+	// (control characters, over-length) is not quotable into safety — refuse it
+	// and cold-start instead.
+	ref, err := resumerecipes.NewID(sessionID)
+	if err != nil {
 		return specYAML
 	}
 	var root yaml.Node
@@ -42,11 +69,8 @@ func spliceClaudeResume(specYAML, sessionID string) string {
 	if cmdNode == nil {
 		return specYAML
 	}
-	updated, ok := rewriteClaudeResumeFlag(cmdNode.Value, sessionID)
-	if !ok {
-		return specYAML
-	}
-	if updated == cmdNode.Value {
+	updated, ok := rewriteResumeFlag(cmdNode.Value, e, ref)
+	if !ok || updated == cmdNode.Value {
 		return specYAML
 	}
 	cmdNode.Value = updated
@@ -57,46 +81,124 @@ func spliceClaudeResume(specYAML, sessionID string) string {
 	return string(out)
 }
 
-// rewriteClaudeResumeFlag returns the cmd string with `--resume
-// <sessionID>` spliced in after the `claude` binary token, plus a
-// boolean indicating whether the caller should use the result. The
-// boolean is false when the cmd doesn't look like a claude invocation
-// — we don't try to guess where to splice flags for unfamiliar shapes.
-func rewriteClaudeResumeFlag(cmd, sessionID string) (string, bool) {
-	trimmed := strings.TrimSpace(cmd)
-	if trimmed == "" {
+// rewriteResumeFlag strips any prior resume flag for this engine and splices
+// the current one directly after the binary token. Returns false when the cmd
+// carries no recognisable invocation of that binary — we do not guess where to
+// put flags in an unfamiliar command.
+//
+// The binary token is searched for rather than required first, because a cmd
+// may legitimately lead with `cd <workdir> && <bin> …`.
+func rewriteResumeFlag(cmd string, e resumerecipes.Engine, ref resumerecipes.SessionRef) (string, bool) {
+	tokens := strings.Fields(strings.TrimSpace(cmd))
+	binIdx := -1
+	for i, t := range tokens {
+		if isBinToken(t, e.Bin) || (e.WindowsBin != "" && isBinToken(t, e.WindowsBin)) {
+			binIdx = i
+			break
+		}
+	}
+	if binIdx < 0 {
 		return cmd, false
 	}
-	tokens := strings.Fields(trimmed)
-	if len(tokens) == 0 || !isClaudeBin(tokens[0]) {
+	// A subcommand-style recipe (`codex resume <id>`) is a different
+	// invocation, not a flag added to this one — splicing a verb into a cmd
+	// that already carries flags would produce something the engine rejects.
+	// No family maps to argv with this style today; refuse rather than guess.
+	if e.Style == resumerecipes.StyleSubcommand {
 		return cmd, false
 	}
-	// Strip any existing --resume <value> pair. The cmd we read from
-	// `sessions.spawn_spec_yaml` is the original rendered template, so
-	// in steady state this is a no-op; the strip is here for the rare
-	// case where an operator hand-edited a template to bake one in.
-	stripped := make([]string, 0, len(tokens)+2)
-	stripped = append(stripped, tokens[0])
+
+	head := tokens[:binIdx+1]
+	tail := make([]string, 0, len(tokens))
 	skip := false
-	for _, tok := range tokens[1:] {
+	for _, tok := range tokens[binIdx+1:] {
 		if skip {
 			skip = false
 			continue
 		}
-		if tok == "--resume" {
+		if tok == e.Token {
 			skip = true
 			continue
 		}
-		if strings.HasPrefix(tok, "--resume=") {
+		if strings.HasPrefix(tok, e.Token+"=") {
 			continue
 		}
-		stripped = append(stripped, tok)
+		tail = append(tail, tok)
 	}
-	// Splice --resume <id> directly after the bin token.
-	out := make([]string, 0, len(stripped)+2)
-	out = append(out, stripped[0], "--resume", sessionID)
-	out = append(out, stripped[1:]...)
-	return strings.Join(out, " "), true
+
+	argv, err := e.Argv(ref, "linux")
+	if err != nil {
+		return cmd, false
+	}
+	// argv[0] is the bin, which the cmd already has (possibly as an absolute
+	// path we must preserve). Take the flag tokens and shell-quote the parts
+	// that need it — cmd is a shell string, not an argv slice.
+	spliced := make([]string, 0, len(tokens)+2)
+	spliced = append(spliced, head...)
+	for _, a := range argv[1:] {
+		spliced = append(spliced, quoteResumeArg(a, e.Token))
+	}
+	spliced = append(spliced, tail...)
+	return strings.Join(spliced, " "), true
+}
+
+// quoteResumeArg quotes the value half of a resume argument. For flag_pair the
+// whole token is the value; for flag_equals the `--flag=` prefix must stay
+// outside the quotes so the engine still parses it as that flag.
+func quoteResumeArg(arg, token string) string {
+	if value, ok := strings.CutPrefix(arg, token+"="); ok {
+		return token + "=" + resumerecipes.ShellQuote(value)
+	}
+	return resumerecipes.ShellQuote(arg)
+}
+
+// isBinToken reports whether tok names the given binary — bare, or an
+// absolute/relative path ending in it.
+func isBinToken(tok, bin string) bool {
+	if tok == bin {
+		return true
+	}
+	if idx := strings.LastIndex(tok, "/"); idx >= 0 && tok[idx+1:] == bin {
+		return true
+	}
+	return false
+}
+
+// spliceClaudeResume splices `--resume <id>` into backend.cmd for the
+// claude-code family. ADR-014.
+//
+// Thin wrapper over the table-driven path: the flag spelling now comes from
+// the `claude` recipe rather than from a literal here. Kept as a named
+// function because its behaviour is pinned by tests that predate the table.
+//
+// Behaviour (unchanged):
+//   - sessionID empty → spec unchanged.
+//   - YAML parse fails or `backend.cmd` missing → spec unchanged. The resume
+//     still proceeds (cold-start) — better than a 500.
+//   - cmd already carries `--resume <sessionID>` → idempotent no-op.
+//   - cmd carries a different `--resume <other>` → prior flag stripped.
+//   - cmd names no `claude` binary → left alone.
+//
+// The function preserves comments and ordering on a best-effort basis via
+// yaml.v3's Node API. yaml.v3's Marshal does normalize scalar quoting in some
+// cases; that's acceptable here since the output only seeds the next
+// agent_spawns row, never a human-edited template.
+func spliceClaudeResume(specYAML, sessionID string) string {
+	return spliceResume(specYAML, "claude-code", sessionID)
+}
+
+// rewriteClaudeResumeFlag is the cmd-level half of spliceClaudeResume, kept
+// for the tests that exercise it directly.
+func rewriteClaudeResumeFlag(cmd, sessionID string) (string, bool) {
+	ref, err := resumerecipes.NewID(sessionID)
+	if err != nil {
+		return cmd, false
+	}
+	e, ok := resumerecipes.MustLoad().EngineByID("claude")
+	if !ok {
+		return cmd, false
+	}
+	return rewriteResumeFlag(cmd, e, ref)
 }
 
 // spliceACPResume injects (or replaces) a top-level `resume_session_id`
@@ -172,104 +274,12 @@ func spliceACPResume(specYAML, sessionID string) string {
 	return string(out)
 }
 
-// spliceAntigravityResume rewrites backend.cmd so it carries
-// `--conversation <id>` immediately after the `agy` binary token, letting
-// the respawned process reattach to its prior conversation (ADR-035 D8).
-// agy resumes interactively via this flag; the headless `-p` form hangs,
-// so the M4 launch path (which drives agy interactively) is the only one
-// that uses this. Defensive shape mirrors spliceClaudeResume.
+// spliceAntigravityResume splices `--conversation <id>` into backend.cmd for
+// the antigravity family (ADR-035 D8). agy resumes interactively via this
+// flag; the headless `-p` form hangs, so the M4 launch path is the only one
+// that uses it. Thin wrapper over the table-driven path, same as claude's.
 func spliceAntigravityResume(specYAML, sessionID string) string {
-	if specYAML == "" || sessionID == "" {
-		return specYAML
-	}
-	var root yaml.Node
-	if err := yaml.Unmarshal([]byte(specYAML), &root); err != nil {
-		return specYAML
-	}
-	cmdNode := findScalar(&root, "backend", "cmd")
-	if cmdNode == nil {
-		return specYAML
-	}
-	updated, ok := rewriteAntigravityResumeFlag(cmdNode.Value, sessionID)
-	if !ok || updated == cmdNode.Value {
-		return specYAML
-	}
-	cmdNode.Value = updated
-	out, err := yaml.Marshal(&root)
-	if err != nil {
-		return specYAML
-	}
-	return string(out)
-}
-
-// rewriteAntigravityResumeFlag splices `--conversation <id>` after the
-// `agy` bin token, stripping any prior --conversation pair. Returns false
-// when the cmd doesn't look like an agy invocation (we don't guess where
-// to splice flags for unfamiliar shapes). The cmd commonly leads with a
-// `cd <workdir> && agy …` prefix, so we scan for the `agy` token rather
-// than requiring it be first.
-func rewriteAntigravityResumeFlag(cmd, sessionID string) (string, bool) {
-	tokens := strings.Fields(strings.TrimSpace(cmd))
-	binIdx := -1
-	for i, t := range tokens {
-		if isAgyBin(t) {
-			binIdx = i
-			break
-		}
-	}
-	if binIdx < 0 {
-		return cmd, false
-	}
-	// Strip any existing --conversation <value> / --conversation=<value>
-	// that appears after the bin token.
-	out := make([]string, 0, len(tokens)+2)
-	out = append(out, tokens[:binIdx+1]...)
-	skip := false
-	for _, tok := range tokens[binIdx+1:] {
-		if skip {
-			skip = false
-			continue
-		}
-		if tok == "--conversation" {
-			skip = true
-			continue
-		}
-		if strings.HasPrefix(tok, "--conversation=") {
-			continue
-		}
-		out = append(out, tok)
-	}
-	// Splice --conversation <id> directly after the bin token.
-	spliced := make([]string, 0, len(out)+2)
-	spliced = append(spliced, out[:binIdx+1]...)
-	spliced = append(spliced, "--conversation", sessionID)
-	spliced = append(spliced, out[binIdx+1:]...)
-	return strings.Join(spliced, " "), true
-}
-
-// isAgyBin returns true when tok names the Antigravity CLI — bare `agy`
-// or an absolute path ending in `/agy`.
-func isAgyBin(tok string) bool {
-	if tok == "agy" {
-		return true
-	}
-	if idx := strings.LastIndex(tok, "/"); idx >= 0 && tok[idx+1:] == "agy" {
-		return true
-	}
-	return false
-}
-
-// isClaudeBin returns true when tok names the claude-code CLI. Allows
-// either the bare `claude` or an absolute path ending in `/claude`,
-// the two shapes templates ship today.
-func isClaudeBin(tok string) bool {
-	if tok == "claude" {
-		return true
-	}
-	if idx := strings.LastIndex(tok, "/"); idx >= 0 && tok[idx+1:] == "claude" {
-		return true
-	}
-	return false
+	return spliceResume(specYAML, "antigravity", sessionID)
 }
 
 // findScalar walks a yaml document tree to a scalar node by following

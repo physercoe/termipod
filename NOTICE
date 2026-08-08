@@ -59,3 +59,24 @@ names, its "no wrapper tags" rule and its ban on XML comments were NOT
 carried over: all three describe upstream's own pipeline and are untrue
 here, where every document level is normalised on the way in and the
 `ops` path preserves comments.
+
+---
+
+This product includes software developed by the herdr project.
+Original project: herdr (https://github.com/herdrdev/herdr)
+Copyright 2025-2026 herdr contributors
+Licensed under the Apache License, Version 2.0.
+
+The `engines:` half of `hub/internal/resumerecipes/recipes.yaml` transcribes
+the native-resume recipe table from that project's `src/agent_resume.rs`
+(fn `plan`) at commit 6f311498aeeb27c0973781961ef94e8d0016ed17 (v0.8.0) —
+16 engine CLIs, each with the flag or subcommand that reattaches to a prior
+session — together with the session-reference validation envelope
+(`MAX_SESSION_ID_LEN` 512, `MAX_SESSION_PATH_LEN` 4096, control-character
+screening, absolute-path requirement) and the restore-time dedupe key.
+
+The transcription is data, not code: the Go evaluator, the shell-quoting
+layer, the family mapping and the per-row provenance and verification grades
+are ours. The `gemini` row is ours as well and has no upstream counterpart.
+`hub/internal/resumerecipes/recipes_test.go` pins each transcribed row to the
+upstream argv so a re-vendor can be diffed.

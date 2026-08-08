@@ -1,0 +1,284 @@
+# Native-resume recipes — how each engine CLI reattaches to a prior session.
+#
+# Plan: docs/plans/pane-state-manifests.md N1 (was R1 before the 2026-08-08
+# review pass). Reference: docs/reference/engine-resume-recipes.md.
+#
+# WHY THIS IS DATA AND NOT GO. The hub is not the only consumer: the desktop
+# Companion's local agent service (vision-parity L3/L4) runs in Electron main
+# and rebinds sessions across app restarts by engine-native resume. It cannot
+# call a Go table, only re-derive one — so the knowledge lives in this file and
+# both readers load it, pinned by testdata/resume_recipes_fixture.json. Same
+# discipline as the frame-profile parity corpus (vision-parity L2, PR #526).
+#
+# PROVENANCE. Rows marked `source: herdr` are transcribed from
+# https://github.com/herdrdev/herdr `src/agent_resume.rs` at commit
+# 6f311498aeeb27c0973781961ef94e8d0016ed17 (v0.8.0, Apache-2.0) — see NOTICE.
+# Rows marked `source: termipod` are our own, grounded in this repo's code.
+#
+# VERIFICATION is per row and deliberately honest:
+#   probe    — the binary was run on a host and its help output confirmed the
+#              flag. The strongest grade; only these are safe to trust blind.
+#   in-tree  — no binary here, but this repo already ships the recipe and has
+#              tests exercising it, so it is verified by our own code.
+#   vendored — transcribed from herdr only. herdr field-verifies its table, but
+#              we have not run these binaries. Downgrade to `probe` when someone
+#              runs one; do NOT quietly promote.
+# A vendored row that turns out wrong fails SILENTLY (a resume that cold-starts),
+# which is exactly why the grade is recorded per row rather than per file.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# engines — one row per engine CLI. `engine` is the recipe key, NOT our agent
+# family name and NOT `agents.kind`; see `families` below for that mapping.
+#
+# style:
+#   flag_pair    -> [bin, token, value]        e.g. claude --resume <id>
+#   flag_equals  -> [bin, "token=value"]       e.g. copilot --resume=<id>
+#   subcommand   -> [bin, token, value]        e.g. codex resume <id>
+# flag_pair and subcommand build the same argv shape; they stay distinct
+# because they are different things (a flag vs a verb) and a reader rendering
+# a command for a human should be able to tell them apart.
+#
+# ref_kinds: which session-reference kinds the engine accepts.
+#   id   — an opaque session id
+#   path — an absolute path to a session file
+# ---------------------------------------------------------------------------
+engines:
+  - engine: claude
+    bin: claude
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: probe
+    note: >-
+      claude --help on this host (2026-08-08) reports `-r, --resume [value]`
+      ("Resume a conversation by session ID"). Matches what the hub already
+      splices for the claude-code family.
+
+  - engine: codex
+    bin: codex
+    style: subcommand
+    token: "resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: probe
+    note: >-
+      codex resume --help on this host (2026-08-08) reports
+      `codex resume [OPTIONS] [SESSION_ID] [PROMPT]`, SESSION_ID being a
+      "Conversation/session id (UUID) or thread name". This is the CLI rung;
+      our live codex path resumes over app-server `thread/resume` instead —
+      see the `codex` family row.
+
+  - engine: agy
+    bin: agy
+    style: flag_pair
+    token: "--conversation"
+    ref_kinds: [id]
+    source: herdr
+    verified: probe
+    note: >-
+      agy --help on this host (2026-08-08) reports `--conversation` ("Resume a
+      previous conversation by ID"). Matches spliceAntigravityResume and
+      ADR-035 D8. herdr keys this engine `antigravity_cli`; the binary is `agy`.
+
+  - engine: gemini
+    bin: gemini
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: termipod
+    verified: in-tree
+    note: >-
+      Not in herdr's table — ours. The M2 exec-per-turn driver threads
+      `--resume <UUID>` into each turn's argv
+      (hostrunner/driver_exec_resume.go) and the profile corpus at
+      hostrunner/testdata/profiles/gemini/corpus.jsonl documents the shape.
+      gemini-cli is deprecated (ADR-035) but still spawnable.
+
+  - engine: copilot
+    bin: copilot
+    style: flag_equals
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: cursor
+    bin: cursor-agent
+    windows_bin: cursor-agent.cmd
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+    note: >-
+      The only row whose binary differs by platform; herdr selects
+      cursor-agent.cmd on Windows. Recorded because a reader that ignores it
+      builds a command that cannot run there.
+
+  - engine: devin
+    bin: devin
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: droid
+    bin: droid
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: grok
+    bin: grok
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: hermes
+    bin: hermes
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: kilo
+    bin: kilo
+    style: flag_pair
+    token: "--session"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: kimi
+    bin: kimi
+    style: flag_pair
+    token: "--session"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+    note: >-
+      NOT wired to our kimi-code-ts family. See that family's row: whether this
+      is the same binary is unverified, and a wrong resume argv cold-starts
+      silently.
+
+  - engine: mastracode
+    bin: mastracode
+    style: flag_pair
+    token: "--thread"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: omp
+    bin: omp
+    style: flag_equals
+    token: "--resume"
+    ref_kinds: [id, path]
+    source: herdr
+    verified: vendored
+    note: >-
+      Accepts an id prefix or a session path through the same flag; herdr's
+      comment records that omp has no `--session` flag, unlike pi.
+
+  - engine: opencode
+    bin: opencode
+    style: flag_pair
+    token: "--session"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+  - engine: pi
+    bin: pi
+    style: flag_pair
+    token: "--session"
+    ref_kinds: [id, path]
+    source: herdr
+    verified: vendored
+
+  - engine: qodercli
+    bin: qodercli
+    style: flag_pair
+    token: "--resume"
+    ref_kinds: [id]
+    source: herdr
+    verified: vendored
+
+# ---------------------------------------------------------------------------
+# families — how OUR registered agent families resume. `family` is the value in
+# `agents.kind` for a worker (a steward's kind is a persona template, not an
+# engine — see the glossary).
+#
+# mechanism:
+#   argv                     -> spawn the engine's own resume command; `engine`
+#                               names the recipe above.
+#   acp_session_load         -> ACP session/load carries the cursor at the
+#                               protocol level; argv is not the mechanism.
+#   appserver_thread_resume  -> codex app-server `thread/resume` JSON-RPC.
+#
+# An `engine:` here is a claim that our family and that recipe are the same
+# binary. Where that is unverified the field is empty and a consumer gets no
+# argv rather than a guess — a wrong resume command does not error, it silently
+# starts a fresh conversation.
+# ---------------------------------------------------------------------------
+families:
+  - family: claude-code
+    engine: claude
+    mechanism: argv
+    note: >-
+      The hub splices `--resume <id>` into backend.cmd before respawn
+      (server/resume_splice.go, ADR-014).
+
+  - family: antigravity
+    engine: agy
+    mechanism: argv
+    note: ADR-035 D8. agy resumes interactively; the headless -p form hangs.
+
+  - family: gemini-cli
+    engine: gemini
+    mechanism: acp_session_load
+    note: >-
+      The engine HAS an argv recipe, but the hub is not what applies it. The hub
+      injects the ACP `resume_session_id` field (handlers_sessions.go); the M2
+      exec-per-turn driver separately threads `--resume <UUID>` into each turn's
+      argv from a cursor it captured itself (driver_exec_resume.go). So the argv
+      row above documents driver-internal behaviour and feeds L3/L4 — it is not
+      a spawn-time splice, and treating it as one would rewrite a cmd the hub
+      has never rewritten.
+
+  - family: codex
+    engine: codex
+    mechanism: appserver_thread_resume
+    note: >-
+      Live path is app-server `thread/resume` (driver_appserver.go), fed by the
+      top-level `resume_session_id` spec field. The `codex resume <id>` CLI
+      recipe is the spawn-per-session fallback rung that vision-parity L4 names
+      — real, but not what the hub drives today.
+
+  - family: kimi-code
+    engine: ""
+    mechanism: acp_session_load
+    note: >-
+      The retired Python family (#378). No new spawn can carry this kind, but
+      rows persisted before the retirement still resume, so the row stays —
+      dropping it would silently cold-start them.
+
+  - family: kimi-code-ts
+    engine: ""
+    mechanism: acp_session_load
+    note: >-
+      Deliberately unmapped to herdr's `kimi` recipe. Our engine is the
+      compiled-TypeScript Kimi CLI (ADR-054); herdr's `kimi --session <id>` may
+      or may not be the same binary, and no one has run `kimi --help` on a host
+      that has it. Our live path is ACP session/load, so nothing needs the argv
+      today. To map it: probe the binary, then set `engine: kimi` and change
+      that row's `verified` to `probe`.

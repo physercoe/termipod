@@ -249,6 +249,39 @@ recipes are data with a language-neutral fixture corpus, and the Go
 loader is tested against that corpus (so an L3/L4 TS reader can be
 pinned to the same file without re-deriving anything).
 
+**As built (2026-08-08).** `hub/internal/resumerecipes` — `recipes.yaml`
+(17 engines: herdr's 16 at `6f311498` plus `gemini`, which is ours) +
+loader + validation envelope + shell quoting, with
+`testdata/resume_recipes_fixture.json` generated from the table and
+compared on every run. Reference:
+[engine-resume-recipes.md](../reference/engine-resume-recipes.md).
+Four deviations worth recording:
+
+- **The ad-hoc knowledge was not where this plan said.** It named
+  `driver_exec_resume.go` / teleport respawn. `driver_exec_resume.go` is
+  gemini's *per-turn* argv and is correctly driver-internal — untouched.
+  The real site was `server/resume_splice.go` plus **two hand-copied
+  family switches** (`handlers_sessions.go`, which teleport respawn also
+  goes through, and `respawn_with_spec_mutation.go`). Both now call one
+  `spliceResume`.
+- **The two switches had already diverged**: the spec-mutation copy never
+  grew antigravity's arm. Latent, not live — that path returns
+  `errUnknownFamilyField` for any family absent from `flagForField`, and
+  antigravity is absent — but adding antigravity there would have turned
+  it into a silent cold-start on every mode/model flip.
+- **The table refuses two mappings on purpose.** `kimi-code-ts` is NOT
+  wired to herdr's `kimi --session` (unverified that it is the same
+  binary; a wrong recipe cold-starts silently), and `gemini-cli` is
+  `acp_session_load` rather than `argv` because the *hub* injects the ACP
+  field — the argv recipe describes what the M2 driver does per turn.
+  Treating it as a spawn-time splice would rewrite a cmd the hub has
+  never rewritten.
+- **Not done: the dedupe rule is a primitive, not a policy.**
+  `DedupeKey` exists and is tested; nothing consumes it, because there is
+  no single restore-pass owner in our architecture to hang "one ref
+  resumes once" on. Wiring it needs that owner identified first — a
+  separate wedge, not a line in this one.
+
 ### S1 — prompt-effect two-phase wait (B3)
 
 The steward/A2A "message an agent, await outcome" path gains herdr's

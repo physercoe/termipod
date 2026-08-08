@@ -702,26 +702,18 @@ func (s *Server) resumePausedSessionWith(ctx context.Context, team, id string, o
 	// ignore it. Inject regardless of mode — the field is harmless when
 	// the spawn ends up M2 (gemini exec-per-turn captures its own
 	// cursor independently).
+	// Which mechanism each family uses is data, not a switch here:
+	// hub/internal/resumerecipes/recipes.yaml. Codex shares the ACP splice
+	// shape (top-level `resume_session_id`) by design — AppServerDriver reads
+	// SpawnSpec.ResumeSessionID and threads it as the `thread/resume` JSON-RPC
+	// method's `threadId` param (driver_appserver.go::handshake → upstream
+	// `codex-rs/app-server-protocol/src/protocol/common.rs:457`). One YAML
+	// field, two protocol surfaces. kimi-code-ts (ADR-054) rides the same
+	// ACPDriver session/load path; "kimi-code" has a row only for sessions
+	// persisted before the Python family's retirement (#378).
 	specYAML := spawnSpecYAML.String
 	if engineSessionID.Valid && engineSessionID.String != "" {
-		switch deadKind.String {
-		case "claude-code":
-			specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
-		case "gemini-cli", "kimi-code", "kimi-code-ts", "codex":
-			// Codex shares the ACP splice shape (top-level
-			// `resume_session_id` YAML field) by design: AppServerDriver
-			// reads SpawnSpec.ResumeSessionID and threads it as the
-			// `thread/resume` JSON-RPC method's `threadId` param
-			// (driver_appserver.go::handshake → upstream
-			// `codex-rs/app-server-protocol/src/protocol/common.rs:457`).
-			// One YAML field, two protocol surfaces. kimi-code-ts
-			// (ADR-054) rides the same ACPDriver session/load path.
-			// "kimi-code" stays in the arm only for rows persisted
-			// before the Python family's retirement (#378).
-			specYAML = spliceACPResume(specYAML, engineSessionID.String)
-		case "antigravity":
-			specYAML = spliceAntigravityResume(specYAML, engineSessionID.String)
-		}
+		specYAML = spliceResume(specYAML, deadKind.String, engineSessionID.String)
 	}
 
 	// Teleport re-targets the respawn onto the target host + the worktree path

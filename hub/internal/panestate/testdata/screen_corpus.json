@@ -1,5 +1,5 @@
 {
-  "note": "Screen corpus for the pane-state evaluator. Every case is upstream's OWN test screen and expected answer, lifted from herdr src/detect/manifest/tests.rs at commit 6f311498aeeb27c0973781961ef94e8d0016ed17. Running them through this Go port is a CROSS-IMPLEMENTATION parity check, not a self-consistency one: the screens and the answers both come from the reference implementation. Tests that install a synthetic or remote manifest are excluded. Each case's expected rule is read only from the assertions BEFORE the next explain() call in the same test function — reading further attributed one screen's rule id to another. These are observations; regenerating is manual.",
+  "note": "Screen corpus for the pane-state evaluator. Every case is upstream's OWN test screen and expected answer, lifted from herdr src/detect/manifest/tests.rs at commit 6f311498aeeb27c0973781961ef94e8d0016ed17. Running them through this Go port is a CROSS-IMPLEMENTATION parity check, not a self-consistency one: the screens and the answers both come from the reference implementation. Tests that install a synthetic or remote manifest are excluded. Each case's expected rule is read only from the assertions BEFORE the next explain() call in the same test function — reading further attributed one screen's rule id to another. These are observations; regenerating is manual. Review pass 2026-08-08: extended to EVERY eligible test in that file (28 cases) — the first cut omitted the multi-signal cases (blocker-outranks-working, transcript-viewer freeze, OSC-vs-screen preference), which are exactly where a port divergence would matter most.",
   "cases": [
     {
       "name": "devin_manifest_detects_idle_working_and_blocked_states_0",
@@ -140,6 +140,146 @@
       "osc_progress": "",
       "want_state": "idle",
       "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "known_agent_no_match_defaults_to_idle_fallback_0",
+      "manifest": "codex",
+      "test_fn": "known_agent_no_match_defaults_to_idle_fallback",
+      "screen": "ordinary prompt text",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": ""
+    },
+    {
+      "name": "claude_blocker_screen_outranks_stale_osc_progress_0",
+      "manifest": "claude",
+      "test_fn": "claude_blocker_screen_outranks_stale_osc_progress",
+      "screen": "──────────\n  1. Yes\n  2. No\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+      "osc_title": "✳ Task title",
+      "osc_progress": "4;3;",
+      "want_state": "blocked",
+      "want_rule": ""
+    },
+    {
+      "name": "claude_blocker_screen_outranks_osc_idle_title_0",
+      "manifest": "claude",
+      "test_fn": "claude_blocker_screen_outranks_osc_idle_title",
+      "screen": "do you want to proceed?\nbash command: rm -rf /tmp/test\n❯ 1. Yes\n   2. No\n\nEsc to cancel · Tab to amend · ctrl+e to explain\n",
+      "osc_title": "✳ Claude Code",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": ""
+    },
+    {
+      "name": "codex_background_terminal_screen_does_not_override_osc_idle_0",
+      "manifest": "codex",
+      "test_fn": "codex_background_terminal_screen_does_not_override_osc_idle",
+      "screen": "background terminal running · /ps to view · /stop to close\n",
+      "osc_title": "llm-proxy",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_handles_static_osc_title_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_handles_static_osc_title",
+      "screen": "• I’ll run it and wait for completion.\n\n◦ Working (1m 16s • esc to interrupt) · 1 background…\n\n› Use /skills to list available skills\n\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "screen_working_fallback"
+    },
+    {
+      "name": "codex_osc_working_remains_preferred_over_screen_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_working_remains_preferred_over_screen_fallback",
+      "screen": "• Working (4s • esc to interrupt)\n\n› Use /skills to list available skills\n\ngpt-5.6-sol default · /work\n",
+      "osc_title": "⠸ project",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "osc_title_working"
+    },
+    {
+      "name": "codex_screen_blocker_outranks_working_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_blocker_outranks_working_fallback",
+      "screen": "• Working (4s • esc to interrupt)\n› 1. Yes, proceed\nPress enter to confirm or esc to cancel\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": "live_strong_blocker"
+    },
+    {
+      "name": "codex_weak_blocker_outranks_working_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_weak_blocker_outranks_working_fallback",
+      "screen": "• Working (4s • esc to interrupt)\ndo you want to continue? [y/n]\n› Use /skills to list available skills\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": "weak_blocker"
+    },
+    {
+      "name": "codex_transcript_viewer_outranks_working_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_transcript_viewer_outranks_working_fallback",
+      "screen": "• Working (4s • esc to interrupt)\n› transcript\n↑/↓ to scroll · pgup/pgdn to move · home/end to jump · q to quit · esc to edit prev\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "unknown",
+      "want_rule": "transcript_viewer"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_stale_and_prompt_text_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_stale_and_prompt_text",
+      "screen": "◦ Working (1m 16s • esc to interrupt)\n■ Conversation interrupted\n› Use /skills to list available skills\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_stale_and_prompt_text_1",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_stale_and_prompt_text",
+      "screen": "› Explain the text ◦ Working (1m 16s • esc to interrupt)\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_stale_and_prompt_text_2",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_stale_and_prompt_text",
+      "screen": "  ◦ Working (1m 16s • esc to interrupt)\n› Use /skills to list available skills\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_interrupted_short_terminal_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_interrupted_short_terminal",
+      "screen": "◦ Working (1m 16s • esc to interrupt)\n■ Conversation interrupted\n›\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_osc_working_beats_weak_blocker_screen_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_working_beats_weak_blocker_screen",
+      "screen": "do you want to continue? [y/n]\n",
+      "osc_title": "⠋ llm-proxy",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "osc_title_working"
     }
   ]
 }

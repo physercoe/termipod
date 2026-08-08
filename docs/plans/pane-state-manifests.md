@@ -181,13 +181,18 @@ blob SHA, overlay config carrying the family mapping. Four deviations:
 - **An unimplemented region is refused, not emptied.** Upstream resolves
   an unknown region to `""`, which turns a typo or a newer-schema region
   into a rule that silently never fires. Only the 8 region kinds the
-  corpus uses are implemented; the rest fail validation by name. That is
+  vendored manifests use are implemented (plus `bottom_lines(N)`); the
+  rest fail validation by name. That is
   risk 3 in §6 working as intended.
 - **The corpus is upstream's own, and narrower than this line implies.**
-  14 cases (claude, codex, devin) lifted from herdr's tests — screens AND
+  28 cases (claude, codex, devin) lifted from herdr's tests — screens AND
   expected answers — so it is a cross-implementation parity check rather
-  than a self-consistency one. The other 16 manifests get structural
-  coverage (parse + validate + compile + empty-screen fallback) only.
+  than a self-consistency one. (The first cut carried 14; the review pass
+  added the omitted multi-signal cases — blocker-outranks-working,
+  transcript-viewer freeze, OSC-vs-screen preference — which are exactly
+  where a port divergence would matter most. All pass.) The other 16
+  manifests get structural coverage (parse + validate + compile +
+  empty-screen fallback) only.
   Per-agent blocked/working screens for them need real captures and are
   device-verify debt, not something to invent from the rules under test.
 - **A TOML parser was added** (`github.com/BurntSushi/toml` v1.4.0,

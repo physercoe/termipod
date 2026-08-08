@@ -63,9 +63,11 @@ binding). Seed entries prior to that are in
   the one approximation inexact; and an unimplemented region name is
   refused at load instead of resolving to empty text, which is how
   upstream turns a typo into a rule that silently never fires. Verified
-  against 14 of upstream's own test screens — screens and expected answers
-  both — so it is a cross-implementation parity check. No wiring:
-  pane-state-manifests plan P1, D-8 "teeth before wiring".
+  against 28 of upstream's own test screens — screens and expected answers
+  both, including the multi-signal cases (blocker outranks working,
+  transcript-viewer freeze, OSC-vs-screen preference) — so it is a
+  cross-implementation parity check. No wiring: pane-state-manifests plan
+  P1, D-8 "teeth before wiring".
 
 - **Multi-line input to a generic pane arrives as one block.** The M4
   `PaneDriver` — the fallback for every engine without a per-engine adapter

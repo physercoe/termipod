@@ -122,25 +122,18 @@ func (s *Server) respawnWithSpecMutation(
 		return err
 	}
 
-	// 5. Splice the engine_session_id resume cursor (mirrors
-	//    handleResumeSession). Without this the new agent cold-starts
-	//    and the transcript visibly jumps.
+	// 5. Splice the engine_session_id resume cursor (same call handleResumeSession
+	//    makes). Without this the new agent cold-starts and the transcript
+	//    visibly jumps.
+	//
+	//    This used to be a second copy of the family switch, and the copies had
+	//    already diverged: this one never grew antigravity's arm. It was latent
+	//    rather than live — step 2 rejects any family absent from flagForField,
+	//    and antigravity is absent — so an antigravity agent never reached here.
+	//    Adding it to flagForField would have silently turned that into a
+	//    cold-start on every mode/model flip. One table, one dispatch.
 	if engineSessionID.Valid && engineSessionID.String != "" {
-		switch kind.String {
-		case "claude-code":
-			mutated = spliceClaudeResume(mutated, engineSessionID.String)
-		case "gemini-cli", "kimi-code", "kimi-code-ts", "codex":
-			// Codex shares the ACP splice shape (top-level
-			// `resume_session_id` YAML field). AppServerDriver reads
-			// SpawnSpec.ResumeSessionID and threads it into the
-			// `thread/resume` JSON-RPC handshake. Keeps the splice
-			// site engine-neutral; the protocol mapping happens
-			// driver-side. kimi-code-ts (ADR-054) rides the same
-			// ACPDriver session/load path. "kimi-code" stays in the
-			// arm only for rows persisted before the Python family's
-			// retirement (#378) — no new spawns can carry it.
-			mutated = spliceACPResume(mutated, engineSessionID.String)
-		}
+		mutated = spliceResume(mutated, kind.String, engineSessionID.String)
 	}
 
 	// 6. Best-effort host-side terminate command for the running pane;

@@ -41,7 +41,57 @@ binding). Seed entries prior to that are in
 
 ## Unreleased
 
+### Added
+
+- **Native-resume recipes are data, and the hub has one resume dispatch
+  instead of two.** New `hub/internal/resumerecipes`: a table of 17 engine
+  CLIs (how each reattaches to a prior session — `claude --resume <id>`,
+  `codex resume <id>`, `agy --conversation <id>`, `copilot --resume=<id>`,
+  …) plus a mapping from our agent families onto a resume *mechanism*.
+  Sixteen rows are transcribed from herdr @ `6f311498` (Apache-2.0, see
+  NOTICE) and pinned to upstream's argv by test; the `gemini` row is ours.
+  It ships as YAML rather than Go because the declared consumer is the
+  desktop Companion's local agent service (vision-parity L3/L4), which
+  runs in Electron main and could only re-derive a Go table — so a
+  generated fixture (`testdata/resume_recipes_fixture.json`) pins both
+  languages, the way the frame-profile corpus does. Reference:
+  [`engine-resume-recipes.md`](reference/engine-resume-recipes.md).
+  Verification is recorded **per row**: claude / codex / agy were probed
+  by running each binary's `--help` on a host, `gemini` is verified by our
+  own driver, and the other 13 are marked `vendored` — a test fails if a
+  row is promoted without someone running it. Two mappings are refused on
+  purpose: `kimi-code-ts` is not wired to herdr's `kimi --session` (nobody
+  has confirmed it is the same binary, and a wrong recipe cold-starts
+  silently), and `gemini-cli` is a protocol resume rather than argv,
+  because the argv the driver uses is threaded per turn, not spliced at
+  spawn. Pane-state-manifests plan, N1.
+
+### Security
+
+- **A session id from the engine could inject shell into the next
+  respawn.** `engine_session_id` is captured verbatim from the agent's own
+  `session.init` payload with no validation, and the hub splices it into
+  the spawn spec's `backend.cmd` — which tmux runs through a shell. It was
+  joined in unquoted, so an id like `x; rm -rf /` would have executed with
+  the agent's privileges at the next resume, respawn or teleport. Values
+  now pass a validation envelope (non-empty, no control characters, ≤512
+  bytes) and are single-quoted when they contain anything outside a
+  conservative safe set; an id that quoting cannot rescue is refused and
+  the respawn cold-starts, which is what every other failure on that path
+  already does. Ordinary ids — UUIDs, hyphenated slugs — are byte-identical
+  to before, so no live spawn spec changed.
+
 ### Fixed
+
+- **The hub's two resume-dispatch switches had already diverged.**
+  `handlers_sessions.go` (the resume + teleport path) and
+  `respawn_with_spec_mutation.go` (the mode/model picker path) each
+  carried a hand-maintained copy of the engine-family switch, and the
+  second never grew antigravity's arm. Latent rather than live — that path
+  rejects any family absent from `flagForField`, and antigravity is absent
+  — but adding antigravity there would have silently turned every
+  mode/model flip into a cold start. Both now call one `spliceResume`,
+  which reads the mechanism from the recipe table.
 
 - **claude-code M4 tail and teleport resolved the wrong session directory
   in two ways, both silent.** (1) `$CLAUDE_CONFIG_DIR` relocates claude's

@@ -133,7 +133,12 @@ func rewriteResumeFlag(cmd string, e resumerecipes.Engine, ref resumerecipes.Ses
 	// argv[0] is the bin, which the cmd already has (possibly as an absolute
 	// path we must preserve). Take the flag tokens and shell-quote the parts
 	// that need it — cmd is a shell string, not an argv slice.
-	spliced := make([]string, 0, len(tokens)+2)
+	//
+	// Capacity is a hint only (append grows past it), so it is len(tokens)
+	// with no arithmetic: this function's input is attacker-influenced, and
+	// arithmetic on its length is a size computation CodeQL flags as
+	// overflowable. Nothing is bought by the exact figure.
+	spliced := make([]string, 0, len(tokens))
 	spliced = append(spliced, head...)
 	for _, a := range argv[1:] {
 		spliced = append(spliced, quoteResumeArg(a, e.Token))

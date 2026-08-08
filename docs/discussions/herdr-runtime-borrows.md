@@ -1,12 +1,14 @@
 # herdr runtime borrows — what a 25k★ agent multiplexer teaches host-runner
 
 > **Type:** discussion
-> **Status:** Open (2026-08-08) — full code-read of
+> **Status:** Resolved (2026-08-08) — full code-read of
 > [herdrdev/herdr](https://github.com/herdrdev/herdr) @ `6f311498`
 > (2026-08-08, Rust, Apache-2.0 since 0.8.0, ~25.6k★); borrow catalogue
-> ranked, hostrunner-focused per the director's ask. No plan authored
-> yet — the flagship borrow (B1) deserves a director call on scope
-> before wedges are cut.
+> ranked, hostrunner-focused per the director's ask. The B1 scope call
+> is made (vendor-plus-overlay, director 2026-08-08) and the build
+> order is cut into wedges in
+> [`plans/pane-state-manifests.md`](../plans/pane-state-manifests.md);
+> §8 below is superseded by that plan.
 > **Audience:** principal · contributors
 > **Last verified vs code:** main `7088a95e` (2026-08-07)
 > **Freshness:** snapshot (refresh when herdr ships a major detection

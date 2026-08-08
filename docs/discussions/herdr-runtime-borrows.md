@@ -309,6 +309,62 @@ exactly this (mark seen on session focus).
 - **`HERDR_AGENT` wrapper-hint env var.** Spawn specs already declare
   the engine kind; we never guess from process trees.
 
+## 7b. Could herdr replace tmux as the substrate? (director's question, 2026-08-08)
+
+Asked directly: could M4 spawn agents into herdr panes instead of tmux
+panes? **No — and the reasons are structural, not conservatism.**
+
+1. **tmux is the product's substrate, not host-runner's launcher.**
+   The mobile app *is* a tmux viewer over SSH
+   (`lib/providers/tmux_provider.dart` — the MuxPod heritage); the
+   blueprint anchors every agent to "process, MCP client, tmux pane,
+   host-runner" (§ spawn contract); desktop navigation ends in `tmux
+   attach`. Agents spawned into herdr panes vanish from every existing
+   surface; herdr's own attach path would require a herdr client on
+   each of them. That is replacing the product's foundation for zero
+   user-visible gain.
+2. **Restart semantics regress.** The property M4 leans on hardest is
+   that *nothing restarts the tmux server*: host-runner restarts
+   freely and reconciles onto live panes. A herdr server restart kills
+   every pane process; its recovery ladder is (a) experimental,
+   unix-only, ≤64-pane live handoff for planned updates, (b) native
+   resume — a *respawn* with conversation restored, new PID, in-flight
+   work lost, integrated engines only, (c) fresh shells. And herdr
+   restarts are a fact of life: it self-updates, and its protocol gate
+   refuses mismatched attach until the server restarts. A fleet host
+   mid-15-minute build cannot absorb that. tmux updates ~yearly and
+   never demands one.
+3. **Authority collision, not addition.** M4's worth is that state is
+   authored by structured signals (tails + parked hooks). herdr would
+   run its own screen detection and its own claude hook integration
+   beside ours — two steering systems on one agent, the exact "two
+   competing sources of truth" herdr's own authority model forbids.
+   We'd disable its integrations and ignore its states, i.e., use
+   herdr as a dumb PTY holder — tmux with more moving parts.
+4. **Dependency asymmetry.** We consume five boring tmux verbs
+   (new-session / send-keys / paste-buffer / capture-pane / attach)
+   from a decades-stable, universally-packaged tool. herdr is 0.8.0,
+   protocol v20 with hard mismatch refusal, monthly releases, Windows
+   beta, single upstream. That trade replaces our most boring
+   dependency with our most volatile one.
+5. **Everything herdr would add is what B1–B5 already borrow without
+   the dependency** — manifests as vendored data, richer pane reads,
+   prompt/wait semantics, the resume table. The
+   [loop-engineering doctrine](loop-engineering-borrows.md) applies
+   verbatim: borrow the ideas, never the dependency.
+
+**The door left open:** host-runner's `Launcher` /
+`PaneCaptureFunc` / `SendKeys` seams are already injectable, so an
+*optional* herdr pane backend (spawn via `pane.split` + `agent.start`,
+capture via `pane.read`, input via `pane.send_text`) is technically
+straightforward if a director already lives in herdr. Preconditions
+before that earns a wedge: a herdr 1.x protocol-stability commitment,
+a visibility story for herdr panes on mobile/desktop, and actual
+demand. No cheap hybrid exists in the other nesting direction either:
+herdr's detection deliberately does not look inside a tmux running in
+its pane ("Herdr sees `tmux` as the pane process"), so our tmux inside
+herdr panes forfeits exactly the detection we'd be there for.
+
 ## 8. Suggested build order (for director review — not a plan yet)
 
 1. **H1 — evaluator + vendored manifests + fixtures** (B1.1–B1.2, pure

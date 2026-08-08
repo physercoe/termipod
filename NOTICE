@@ -80,3 +80,15 @@ layer, the family mapping and the per-row provenance and verification grades
 are ours. The `gemini` row is ours as well and has no upstream counterpart.
 `hub/internal/resumerecipes/recipes_test.go` pins each transcribed row to the
 upstream argv so a re-vendor can be diffed.
+
+`hub/internal/panestate/manifests/vendor/` is a verbatim copy of that
+project's `src/detect/manifests/` at the same commit — 19 TOML files carrying
+the per-agent screen-state detection rules. The directory is unmodified, so it
+can be diffed against upstream directly; each file is pinned by git blob SHA in
+`hub/internal/panestate/panestate_test.go`, and everything of ours lives in
+`manifests/overlay/`. The rule schema, the validation caps, the region
+vocabulary and the strict-blocked fallback semantics are ported from
+`src/detect/manifest.rs`; the Go evaluator, the Rust-regex-to-RE2 dialect
+translation and the agent-family mapping are ours. The screen corpus in
+`hub/internal/panestate/testdata/screen_corpus.json` is lifted from that
+project's own tests, screens and expected answers together.

@@ -43,6 +43,46 @@ binding). Seed entries prior to that are in
 
 ### Added
 
+- **Declarative pane-state detection (library only).** New
+  `hub/internal/panestate`: an evaluator for herdr's screen-manifest schema
+  plus its 19 per-agent TOMLs, vendored byte-exact at `6f311498`
+  (Apache-2.0, see NOTICE) and pinned by git blob SHA. Rules are data, the
+  same shape as ADR-010 frame profiles, so an engine gains working /
+  blocked / idle detection by adding a TOML rather than a Go adapter — the
+  gap being closed is that `idle.go`'s one regex and 90-second stall is the
+  ONLY signal for every engine without a structured M4 adapter, so codex
+  parked on "Allow command?" raises nothing today. Termipod-specific
+  content lives in `manifests/overlay/`, including the agent-family
+  mapping: `claude-code`, `codex`, `antigravity` and `gemini-cli` are
+  mapped; `kimi-code-ts` is deliberately not, because upstream detects a
+  CLI it calls `kimi` and nobody has confirmed that is our
+  compiled-TypeScript one. Two ports needed judgement and are recorded
+  rather than smoothed over: 9 of 58 vendored regexes do not compile under
+  RE2 (Rust `\uXXXX` escapes and `\p{Alphabetic}`, a binary property Go
+  lacks), so a translation layer rewrites them at compile time and marks
+  the one approximation inexact; and an unimplemented region name is
+  refused at load instead of resolving to empty text, which is how
+  upstream turns a typo into a rule that silently never fires. Verified
+  against 28 of upstream's own test screens — screens and expected answers
+  both, including the multi-signal cases (blocker outranks working,
+  transcript-viewer freeze, OSC-vs-screen preference) — so it is a
+  cross-implementation parity check. No wiring: pane-state-manifests plan
+  P1, D-8 "teeth before wiring".
+
+- **Multi-line input to a generic pane arrives as one block.** The M4
+  `PaneDriver` — the fallback for every engine without a per-engine adapter
+  — sent a body with one `send-keys -l`, so the pane submitted at the first
+  newline and the remaining lines landed as separate turns. It now uses
+  tmux's named-buffer paste (`set-buffer` / `paste-buffer -d -r -p`) with a
+  single explicit Enter, the path the claude-code, kimi and antigravity
+  adapters already took. All four paste paths gained `-p`, which brackets
+  the paste only if the application asked for bracketed paste
+  (tmux(1)) — multi-line prompts stop being edited by the TUI's line
+  discipline. The generic path also waits 300 ms between paste and Enter so
+  the TUI has ingested the text before being asked to submit. Short
+  single-line input keeps the original two-call shape unchanged.
+  Pane-state-manifests plan Q1.
+
 - **Native-resume recipes are data, and the hub has one resume dispatch
   instead of two.** New `hub/internal/resumerecipes`: a table of 17 engine
   CLIs (how each reattaches to a prior session — `claude --resume <id>`,

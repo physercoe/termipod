@@ -113,7 +113,7 @@ func (a *Adapter) inputText(ctx context.Context, p map[string]any) error {
 	if _, err := runner.Run(ctx, "tmux", "set-buffer", "-b", bufName, body); err != nil {
 		return fmt.Errorf("set-buffer: %w", err)
 	}
-	if _, err := runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-r", "-t", a.PaneID); err != nil {
+	if _, err := runner.Run(ctx, "tmux", "paste-buffer", "-b", bufName, "-d", "-r", "-p", "-t", a.PaneID); err != nil {
 		_, _ = runner.Run(ctx, "tmux", "delete-buffer", "-b", bufName)
 		return fmt.Errorf("paste-buffer: %w", err)
 	}

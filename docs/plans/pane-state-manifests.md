@@ -163,6 +163,42 @@ agent's blocked + idle + working forms and the freeze rules;
 mutation-check documented in the PR (a deleted `not` gate or a
 flipped tie-break fails a named fixture); no wiring.
 
+**As built (2026-08-08).** `hub/internal/panestate` — schema + validation
++ region vocabulary + evaluator + loader, 19 vendored TOMLs pinned by git
+blob SHA, overlay config carrying the family mapping. Four deviations:
+
+- **Rust-regex and RE2 are not the same dialect.** 9 of the 58 vendored
+  patterns do not compile in Go: 5 use `\uXXXX` / `\u{XXXX}` escapes and
+  4 use `\p{Alphabetic}`, a Unicode *binary property* RE2 does not
+  support. Rather than edit the vendored files (D-1 forbids it) or drop
+  the rules, `regex_translate.go` rewrites them at compile time and
+  **records each translation**, flagging the inexact one:
+  `\p{Alphabetic}` becomes `[\p{L}\p{Nl}]`, which drops
+  Other_Alphabetic. Every vendored use is `\p{Alphabetic}+\w*ing\b`
+  after a spinner glyph, so the dropped set is unreachable there — but
+  that is a claim about the manifests as they are today, so it is
+  labelled rather than assumed.
+- **An unimplemented region is refused, not emptied.** Upstream resolves
+  an unknown region to `""`, which turns a typo or a newer-schema region
+  into a rule that silently never fires. Only the 8 region kinds the
+  vendored manifests use are implemented (plus `bottom_lines(N)`); the
+  rest fail validation by name. That is
+  risk 3 in §6 working as intended.
+- **The corpus is upstream's own, and narrower than this line implies.**
+  28 cases (claude, codex, devin) lifted from herdr's tests — screens AND
+  expected answers — so it is a cross-implementation parity check rather
+  than a self-consistency one. (The first cut carried 14; the review pass
+  added the omitted multi-signal cases — blocker-outranks-working,
+  transcript-viewer freeze, OSC-vs-screen preference — which are exactly
+  where a port divergence would matter most. All pass.) The other 16
+  manifests get structural coverage (parse + validate + compile +
+  empty-screen fallback) only.
+  Per-agent blocked/working screens for them need real captures and are
+  device-verify debt, not something to invent from the rules under test.
+- **A TOML parser was added** (`github.com/BurntSushi/toml` v1.4.0,
+  BSD-2, zero deps, `go 1.18` so it clears the repo's 1.23 pin). D-1's
+  byte-exact vendoring requires parsing upstream's format.
+
 ### P2 — capture plumbing + state posting
 
 Feed the evaluator from `PaneDriver`'s tick: trim capture to the D-4

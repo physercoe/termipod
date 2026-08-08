@@ -1,0 +1,285 @@
+{
+  "note": "Screen corpus for the pane-state evaluator. Every case is upstream's OWN test screen and expected answer, lifted from herdr src/detect/manifest/tests.rs at commit 6f311498aeeb27c0973781961ef94e8d0016ed17. Running them through this Go port is a CROSS-IMPLEMENTATION parity check, not a self-consistency one: the screens and the answers both come from the reference implementation. Tests that install a synthetic or remote manifest are excluded. Each case's expected rule is read only from the assertions BEFORE the next explain() call in the same test function — reading further attributed one screen's rule id to another. These are observations; regenerating is manual. Review pass 2026-08-08: extended to EVERY eligible test in that file (28 cases) — the first cut omitted the multi-signal cases (blocker-outranks-working, transcript-viewer freeze, OSC-vs-screen preference), which are exactly where a port divergence would matter most.",
+  "cases": [
+    {
+      "name": "devin_manifest_detects_idle_working_and_blocked_states_0",
+      "manifest": "devin",
+      "test_fn": "devin_manifest_detects_idle_working_and_blocked_states",
+      "screen": "─────────────────────────────────────────────────────\n❭ Ask Devin to build features, fix bugs, or work on\n  your code\n─────────────────────────────────────────────────────\nSWE-1.6               Context: 16k / 200k tokens (7%)",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": ""
+    },
+    {
+      "name": "devin_manifest_detects_idle_working_and_blocked_states_1",
+      "manifest": "devin",
+      "test_fn": "devin_manifest_detects_idle_working_and_blocked_states",
+      "screen": "Done.\n\n────────────────────────────────────────────────── (bypass permissions on) ─\n❭\n────────────────────────────────────────────────────────────────────────────\nClaude Opus 4.6 Thinking                                    Context: 38k / 200k tokens (18%)",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "live_prompt_footer"
+    },
+    {
+      "name": "devin_manifest_detects_idle_working_and_blocked_states_2",
+      "manifest": "devin",
+      "test_fn": "devin_manifest_detects_idle_working_and_blocked_states",
+      "screen": "⠀⠀⠀⠀⠀⣴⣾⣶⡄⠀⠀⠀⠀\n⠀⣴⣾⣶⡾⠛⠿⠟⠃⣴⣾⣶⡄  Devin CLI\n⠀⠛⠿⠟⠃⣴⣾⣶⡾⠛⠿⠟⠃  v2026.5.26-8\n⠀⣤⣶⣦⡄⠻⢿⠿⢷⣤⣶⣦⡄\n⠀⠻⢿⠿⢷⣤⣶⣦⡄⠻⢿⠿⠃  Hybrid\n⠀⠀⠀⠀⠀⠻⢿⠿⠃⠀⠀⠀⠀\n\n───────────────────────────\n❭ Ask Devin to build\n  features, fix bugs, or\n  work on your code\n───────────────────────────\nClaude Opus Looking for\n4.6 Thinkingplan mode? /\n            plan",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "welcome_prompt_footer"
+    },
+    {
+      "name": "devin_manifest_detects_idle_working_and_blocked_states_3",
+      "manifest": "devin",
+      "test_fn": "devin_manifest_detects_idle_working_and_blocked_states",
+      "screen": "◔ Reading shell 91b655\n  │ Timeout: 35s\n\n⠀⡆ Running tools · 27s (esc to interrupt)\n─────────────────────────────────────────────────────\n❭ Guide Devin while it works",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": ""
+    },
+    {
+      "name": "devin_manifest_detects_idle_working_and_blocked_states_4",
+      "manifest": "devin",
+      "test_fn": "devin_manifest_detects_idle_working_and_blocked_states",
+      "screen": "Do you trust the authors of this directory?\nFor security, devin should not be run in directories\nwith untrusted content.\n❭ 1 Yes, trust /private/tmp/devin-hook-probe\n· 2 No, exit",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": ""
+    },
+    {
+      "name": "devin_manifest_detects_idle_working_and_blocked_states_5",
+      "manifest": "devin",
+      "test_fn": "devin_manifest_detects_idle_working_and_blocked_states",
+      "screen": "⏺ Running command\n  └ $ sleep 30\n\n❭ 1 Yes  (Approve once)\n· 2 Yes, allow `sleep` commands\n· 3 Yes, always allow `sleep` commands\n· 4 No\n↑↓ select · ↵ confirm · esc cancel",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": ""
+    },
+    {
+      "name": "claude_osc_title_braille_prefix_is_working_0",
+      "manifest": "claude",
+      "test_fn": "claude_osc_title_braille_prefix_is_working",
+      "screen": "",
+      "osc_title": "⠂ project",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "osc_title_working"
+    },
+    {
+      "name": "claude_osc_title_static_prefix_is_idle_0",
+      "manifest": "claude",
+      "test_fn": "claude_osc_title_static_prefix_is_idle",
+      "screen": "",
+      "osc_title": "✳ Claude Code",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "claude_osc_progress_4_3_alone_does_not_force_working_0",
+      "manifest": "claude",
+      "test_fn": "claude_osc_progress_4_3_alone_does_not_force_working",
+      "screen": "",
+      "osc_title": "",
+      "osc_progress": "4;3;",
+      "want_state": "idle",
+      "want_rule": ""
+    },
+    {
+      "name": "claude_osc_progress_4_0_is_idle_0",
+      "manifest": "claude",
+      "test_fn": "claude_osc_progress_4_0_is_idle",
+      "screen": "",
+      "osc_title": "",
+      "osc_progress": "4;0;",
+      "want_state": "idle",
+      "want_rule": "osc_progress_idle"
+    },
+    {
+      "name": "claude_empty_osc_empty_screen_is_idle_fallback_0",
+      "manifest": "claude",
+      "test_fn": "claude_empty_osc_empty_screen_is_idle_fallback",
+      "screen": "",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": ""
+    },
+    {
+      "name": "codex_osc_title_braille_spinner_is_working_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_title_braille_spinner_is_working",
+      "screen": "",
+      "osc_title": "⠋ llm-proxy",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "osc_title_working"
+    },
+    {
+      "name": "codex_osc_title_action_required_is_blocked_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_title_action_required_is_blocked",
+      "screen": "",
+      "osc_title": "[ . ] Action Required | llm-proxy",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": "osc_title_blocked"
+    },
+    {
+      "name": "codex_osc_title_plain_is_idle_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_title_plain_is_idle",
+      "screen": "",
+      "osc_title": "llm-proxy",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "known_agent_no_match_defaults_to_idle_fallback_0",
+      "manifest": "codex",
+      "test_fn": "known_agent_no_match_defaults_to_idle_fallback",
+      "screen": "ordinary prompt text",
+      "osc_title": "",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": ""
+    },
+    {
+      "name": "claude_blocker_screen_outranks_stale_osc_progress_0",
+      "manifest": "claude",
+      "test_fn": "claude_blocker_screen_outranks_stale_osc_progress",
+      "screen": "──────────\n  1. Yes\n  2. No\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+      "osc_title": "✳ Task title",
+      "osc_progress": "4;3;",
+      "want_state": "blocked",
+      "want_rule": ""
+    },
+    {
+      "name": "claude_blocker_screen_outranks_osc_idle_title_0",
+      "manifest": "claude",
+      "test_fn": "claude_blocker_screen_outranks_osc_idle_title",
+      "screen": "do you want to proceed?\nbash command: rm -rf /tmp/test\n❯ 1. Yes\n   2. No\n\nEsc to cancel · Tab to amend · ctrl+e to explain\n",
+      "osc_title": "✳ Claude Code",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": ""
+    },
+    {
+      "name": "codex_background_terminal_screen_does_not_override_osc_idle_0",
+      "manifest": "codex",
+      "test_fn": "codex_background_terminal_screen_does_not_override_osc_idle",
+      "screen": "background terminal running · /ps to view · /stop to close\n",
+      "osc_title": "llm-proxy",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_handles_static_osc_title_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_handles_static_osc_title",
+      "screen": "• I’ll run it and wait for completion.\n\n◦ Working (1m 16s • esc to interrupt) · 1 background…\n\n› Use /skills to list available skills\n\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "screen_working_fallback"
+    },
+    {
+      "name": "codex_osc_working_remains_preferred_over_screen_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_working_remains_preferred_over_screen_fallback",
+      "screen": "• Working (4s • esc to interrupt)\n\n› Use /skills to list available skills\n\ngpt-5.6-sol default · /work\n",
+      "osc_title": "⠸ project",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "osc_title_working"
+    },
+    {
+      "name": "codex_screen_blocker_outranks_working_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_blocker_outranks_working_fallback",
+      "screen": "• Working (4s • esc to interrupt)\n› 1. Yes, proceed\nPress enter to confirm or esc to cancel\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": "live_strong_blocker"
+    },
+    {
+      "name": "codex_weak_blocker_outranks_working_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_weak_blocker_outranks_working_fallback",
+      "screen": "• Working (4s • esc to interrupt)\ndo you want to continue? [y/n]\n› Use /skills to list available skills\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "blocked",
+      "want_rule": "weak_blocker"
+    },
+    {
+      "name": "codex_transcript_viewer_outranks_working_fallback_0",
+      "manifest": "codex",
+      "test_fn": "codex_transcript_viewer_outranks_working_fallback",
+      "screen": "• Working (4s • esc to interrupt)\n› transcript\n↑/↓ to scroll · pgup/pgdn to move · home/end to jump · q to quit · esc to edit prev\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "unknown",
+      "want_rule": "transcript_viewer"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_stale_and_prompt_text_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_stale_and_prompt_text",
+      "screen": "◦ Working (1m 16s • esc to interrupt)\n■ Conversation interrupted\n› Use /skills to list available skills\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_stale_and_prompt_text_1",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_stale_and_prompt_text",
+      "screen": "› Explain the text ◦ Working (1m 16s • esc to interrupt)\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_stale_and_prompt_text_2",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_stale_and_prompt_text",
+      "screen": "  ◦ Working (1m 16s • esc to interrupt)\n› Use /skills to list available skills\ngpt-5.6-sol default · /work\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_screen_working_fallback_ignores_interrupted_short_terminal_0",
+      "manifest": "codex",
+      "test_fn": "codex_screen_working_fallback_ignores_interrupted_short_terminal",
+      "screen": "◦ Working (1m 16s • esc to interrupt)\n■ Conversation interrupted\n›\n",
+      "osc_title": "project",
+      "osc_progress": "",
+      "want_state": "idle",
+      "want_rule": "osc_title_idle"
+    },
+    {
+      "name": "codex_osc_working_beats_weak_blocker_screen_0",
+      "manifest": "codex",
+      "test_fn": "codex_osc_working_beats_weak_blocker_screen",
+      "screen": "do you want to continue? [y/n]\n",
+      "osc_title": "⠋ llm-proxy",
+      "osc_progress": "",
+      "want_state": "working",
+      "want_rule": "osc_title_working"
+    }
+  ]
+}

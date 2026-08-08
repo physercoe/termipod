@@ -119,8 +119,8 @@ func TestHandleInput_TextMultilineUsesAtomicPasteBuffer(t *testing.T) {
 	}
 	// paste-buffer MUST carry -r so tmux doesn't translate the
 	// body's internal LF bytes into CR (Enter) keystrokes.
-	if !equalArgs(calls[1], "tmux", "paste-buffer", "-b", "ccinput_42", "-d", "-r", "-t", "%42") {
-		t.Errorf("call 1 = %+v; want paste-buffer -d -r", calls[1])
+	if !equalArgs(calls[1], "tmux", "paste-buffer", "-b", "ccinput_42", "-d", "-r", "-p", "-t", "%42") {
+		t.Errorf("call 1 = %+v; want paste-buffer -d -r -p", calls[1])
 	}
 	if !equalArgs(calls[2], "tmux", "send-keys", "-t", "%42", "Enter") {
 		t.Errorf("call 2 = %+v; want a single trailing Enter", calls[2])
@@ -144,8 +144,8 @@ func TestHandleInput_TextLongSingleLineUsesPasteBuffer(t *testing.T) {
 	if calls[0].name != "tmux" || calls[0].args[0] != "set-buffer" {
 		t.Errorf("call 0 = %+v; want set-buffer", calls[0])
 	}
-	if !equalArgs(calls[1], "tmux", "paste-buffer", "-b", "ccinput_42", "-d", "-r", "-t", "%42") {
-		t.Errorf("call 1 = %+v; want paste-buffer -d -r", calls[1])
+	if !equalArgs(calls[1], "tmux", "paste-buffer", "-b", "ccinput_42", "-d", "-r", "-p", "-t", "%42") {
+		t.Errorf("call 1 = %+v; want paste-buffer -d -r -p", calls[1])
 	}
 }
 

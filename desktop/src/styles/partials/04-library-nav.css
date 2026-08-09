@@ -195,7 +195,7 @@
 .ref-inspector-empty {
   min-width: 0;
   min-height: 0;
-  background: var(--bg);
+  background: var(--canvas);
 }
 .ref-inspector {
   display: flex;

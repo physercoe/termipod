@@ -876,7 +876,7 @@
   min-height: 0;
   display: flex;
   border-left: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--canvas);
 }
 .reader-side > * {
   flex: 1;

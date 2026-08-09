@@ -57,7 +57,7 @@ func NewIdleDetector(threshold time.Duration) *IdleDetector {
 	return &IdleDetector{Threshold: threshold, Regex: defaultIdleRegex}
 }
 
-type paneState struct {
+type idleProbeState struct {
 	hash         string
 	unchangedAt  time.Time
 	attentionRaisedForHash string
@@ -65,11 +65,11 @@ type paneState struct {
 
 // Inspect takes the latest pane text and a stored state, returns the
 // updated state plus whether a new attention item should be raised.
-func (d *IdleDetector) Inspect(text string, prev paneState, now time.Time) (paneState, bool) {
+func (d *IdleDetector) Inspect(text string, prev idleProbeState, now time.Time) (idleProbeState, bool) {
 	hash := hashText(text)
 	cur := prev
 	if hash != prev.hash {
-		cur = paneState{hash: hash, unchangedAt: now}
+		cur = idleProbeState{hash: hash, unchangedAt: now}
 		return cur, false
 	}
 	// Unchanged — check idle threshold + prompt tail.

@@ -12,7 +12,7 @@ func TestIdleDetector_RaisesOncePerStreak(t *testing.T) {
 	text := "doing work...\ninstall package foo? [yN] "
 
 	// First capture — establishes baseline, never raises.
-	st, raise := d.Inspect(text, paneState{}, base)
+	st, raise := d.Inspect(text, idleProbeState{}, base)
 	if raise {
 		t.Fatalf("should not raise on first observation")
 	}
@@ -43,7 +43,7 @@ func TestIdleDetector_NoRaiseWithoutPromptTail(t *testing.T) {
 	d := NewIdleDetector(1 * time.Millisecond)
 	base := time.Now()
 	text := "compile step 14 of 30: linking..." // no prompt marker
-	st, _ := d.Inspect(text, paneState{}, base)
+	st, _ := d.Inspect(text, idleProbeState{}, base)
 	_, raise := d.Inspect(text, st, base.Add(10*time.Millisecond))
 	if raise {
 		t.Fatalf("compile line should not match idle-prompt regex")
@@ -54,7 +54,7 @@ func TestIdleDetector_ResetOnChange(t *testing.T) {
 	d := NewIdleDetector(5 * time.Millisecond)
 	base := time.Now()
 	prompt := "install? [yN] "
-	st, _ := d.Inspect(prompt, paneState{}, base)
+	st, _ := d.Inspect(prompt, idleProbeState{}, base)
 	st, raised := d.Inspect(prompt, st, base.Add(10*time.Millisecond))
 	if !raised {
 		t.Fatalf("expected raise")

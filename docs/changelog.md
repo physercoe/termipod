@@ -43,6 +43,28 @@ binding). Seed entries prior to that are in
 
 ### Added
 
+- **Pane-state detection is live on the host-runner poll tick.** The
+  evaluator below is now fed from the runner's pane pass: mapped families
+  whose pane has no live state-authoring driver are captured, classified
+  against the vendored manifests, and each transition posts an agent event
+  (kind `pane_state`, producer `system`) carrying `{state, rule_id,
+  manifest_version, previous_state}`. The debounce state machine is ported
+  from herdr's own `agent_detection.rs` — working→plain-idle is held,
+  everything else publishes immediately, a `skip_state_update` rule (the
+  transcript viewer) freezes rather than reclassifies, and a 3-second
+  startup grace keeps an animated splash screen from reading as "working".
+  Two decisions were corrected against the upstream source rather than the
+  plan's prose: the capture geometry is the whole visible viewport (24 rows
+  is upstream's *fallback*, not its contract, so trimming to it would have
+  blinded the rules on any taller pane), and `panestate` cannot be an event
+  *producer* — the event-ingest endpoint accepts only `agent|user|system`,
+  so the classification is a kind. The eligibility gate reads the live driver map
+  instead of the agent's kind, which is what makes it correct for the case
+  that matters: a codex spawn whose M2 launch failed falls back to a raw
+  pane, keeps `kind = codex`, and has nothing reporting its state.
+  `pane_state` joins the verbose-only tier on both clients — an unlisted
+  kind renders as a raw card by default. Plan: pane-state-manifests P2.
+
 - **Declarative pane-state detection (library only).** New
   `hub/internal/panestate`: an evaluator for herdr's screen-manifest schema
   plus its 19 per-agent TOMLs, vendored byte-exact at `6f311498`

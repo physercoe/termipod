@@ -104,6 +104,21 @@ pane-input hardening (`paste-buffer -p`, generic multi-line path).
   region is always empty under tmux — rules referencing it never
   match, which the schema tolerates by design (documented, not
   worked around).
+  - **Corrected at P2 (2026-08-09), against the source rather than
+    this paragraph.** The geometry is *the visible viewport*, not
+    24 rows. Upstream's `ghostty_detection_text` reads
+    `terminal.rows()` and falls back to `DEFAULT_DETECTION_ROWS = 24`
+    only when the row count is unavailable
+    (`src/pane/terminal.rs:2468-2475`). 24 is a fallback, not the
+    contract — so trimming to it would CUT rows the rules were
+    written to see on any pane taller than 24, and the `top_*`
+    region rules are exactly the ones that would go quiet. There is
+    no trim step: `capture-pane -p -J` already returns the visible
+    screen and that IS the contract. (One residual difference is
+    recorded rather than fixed: `-J` joins wrapped lines, so a
+    wrapped line reaches the rules as one long line where upstream
+    sees the wrapped rows. It affects `$`-anchored `line_regex` only,
+    and `-J` is the better input for `contains`.)
 - **D-5 — ported semantics are verbatim, and pinned.** Strict
   blocked; no-match on a known agent = idle labeled
   `default_known_agent_idle_fallback`; `skip_state_update` freezes
@@ -129,6 +144,32 @@ pane-input hardening (`paste-buffer -p`, generic multi-line path).
   fixed up later. Its payloads are state classifications, not
   tool/turn events, so the overlap is expected to be the envelope and
   not the content — but nobody has checked, and P2 is the moment to.
+  - **Checked at P2 (2026-08-09). Three answers, one of which
+    invalidates this decision's wording.**
+    1. **`panestate` cannot be a producer.** The event-ingest
+       endpoint 400s anything outside `agent|user|system`
+       (`hub/internal/server/handlers_agent_events.go:95`); the
+       agent-*input* endpoint has its own closed vocabulary,
+       `user|a2a` (`handlers_agent_input.go:438-445`). Neither has
+       a per-subsystem extension point. The axis answers *whose
+       bytes are these*, and these are host-runner's — so the
+       classification ships as **kind `pane_state`, producer
+       `system`**, the same stamping PaneDriver already uses for its
+       synthesized lifecycle events. This binds lane L3/L4's local
+       drivers too: a new *producer* is not an available extension
+       point on this feed, only a new kind is.
+    2. **Busy inference is safe.** Both clients invert to an
+       allowlist of turn-active kinds (mobile v1.0.721,
+       `kAgentTurnActiveKinds`), so an unlisted kind is no-signal.
+       A `pane_state` row cannot stick the busy pill on.
+    3. **Feed rendering is NOT an allowlist, and that one bites.**
+       An unknown kind renders as a raw card in both modes on both
+       clients. `pane_state` therefore joins the verbose-only tier
+       in both (`desktop/src/ui/feedLens.ts`,
+       `lib/widgets/transcript/feed_reducer.dart`) — same tier as
+       `lifecycle`, since it is an agent state transition rather
+       than turn telemetry, and on a raw pane it is often the only
+       structured signal a reader has.
 - **D-7 — distribution starts embedded, hub later.** P1 embeds
   vendor + overlay via `go:embed`; binary upgrades ship rule fixes.
   P5 adds hub-distributed updates with herdr's exact hardening:
@@ -210,6 +251,73 @@ D-2's authority check and D-3's mapping.
 hysteresis and grace windows with fixture screens; an integration
 test proves a structured-driver agent is never evaluated; events
 carry `{state, rule_id, manifest_version}`.
+
+**As built (2026-08-09).** `hub/internal/hostrunner/panestate_watch.go`
+— eligibility, capture plumbing, the D-5 state machine, and the event.
+All three acceptance clauses met (18 tests; 7 mutations of the new
+guards were introduced and all 7 were caught). Five deviations, each
+because a load-bearing claim in this plan turned out to be secondhand:
+
+- **It is wired into the runner's pane tick, not `PaneDriver`'s.**
+  Three of this plan's own decisions cannot be satisfied from inside a
+  driver: D-3 needs the agent's family, which PaneDriver has no access
+  to (it knows an agent id and a pane id); D-4 wants ONE `list-panes`
+  round-trip covering all panes, which per-driver becomes one per
+  agent; and D-2's ported exception is about panes PaneDriver does not
+  own. The runner tick already enumerates every running pane for the
+  legacy detector, so this adds no new enumeration. P3's IdleDetector
+  retirement and capture-cost gating both live there too.
+- **D-2's authority check asks the driver, not the kind.**
+  `hasStructuredDriver(kind)` — the existing gate — is a proxy for
+  "its adapter reports state", and the proxy is wrong in the case that
+  matters most: a codex spawn whose M2 launch failed walks the mode
+  ladder down to a raw `PaneDriver`, keeps `kind = codex`, and has
+  nothing reporting state at all. The new gate reads the live driver
+  map and treats a bare `*PaneDriver` — and an absent driver, i.e. a
+  pane that outlived a host-runner restart — as no authority. Upstream
+  has the same gate one layer up (`lifecycle_authority_active` short-
+  circuits its loop before the screen is read, `src/pane.rs:807`).
+- **The producer/kind correction** — see D-6 above. `panestate` is not
+  a legal producer value; the event is kind `pane_state`, producer
+  `system`, and both clients' verbose tiers were swept.
+- **The geometry correction** — see D-4 above. No trim.
+- **D-5 was ported from the source, and the prose was one step off.**
+  All four constants check out verbatim
+  (`AGENT_PENDING_IDLE_RECHECK` 100 ms,
+  `AGENT_PENDING_IDLE_CONFIRMATIONS` 3, `AGENT_PENDING_IDLE_CAP`
+  700 ms, `AGENT_STARTUP_GRACE_WINDOW` 3 s) but the *shape* differs
+  from "held 3×100 ms capped 700 ms": the first plain-idle observation
+  arms the hold with **zero** confirmations, so the release lands on
+  the fourth observation, and the cap **releases** the hold rather
+  than bounding it. Which end fires depends entirely on the caller's
+  cadence — upstream polls at 100 ms so the confirmations win; we poll
+  at 3 s so the cap always wins and the hold costs exactly one tick.
+  Both are ported so a future faster tick does not silently change the
+  semantics. Two further findings: upstream publishes on a change to
+  the state **or any of the three `visible_*` hints**, not on the
+  state alone ("blocked, dialog on screen" is a different claim from
+  "blocked, inferred"); and at identification it stores
+  `last_visible_idle = true` while publishing `visible_idle: false`,
+  which we do not copy — storing a hint we never published makes the
+  first real classification emit a redundant idle for a field nobody
+  was told about.
+
+Also renamed: `hostrunner.paneState` → `idleProbeState` (and
+`Runner.panes` → `idleProbes`). The legacy detector's per-pane hash
+bookkeeping was holding the exact term this lane's package owns.
+
+**Not ported, deliberately:** upstream's 800 ms visible-blocker
+re-publish (D-5 already excludes it), its `process_exited` short-
+circuit and `agent_changed` bypass (both structurally false here — a
+respawn mints a new agent id, and process exit is `tickReconcile`'s
+job; they stay in the Go signature so a re-vendor can diff against
+upstream), and the extra tick upstream burns when the grace expires
+(it exists to reset a scan-skip sequence we do not have until P3).
+
+**Still owed:** no engine has been observed live. Every screen in
+these tests is upstream's own; the device-verify debt this lane books
+is unchanged and now also covers "does a real codex pane, captured
+through `capture-pane -p -J`, classify the way the fixture does".
 
 ### P3 — attention + IdleDetector retirement + capture gating
 

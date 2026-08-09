@@ -793,6 +793,12 @@ const _kVerboseOnlyKinds = <String>{
   'completion',
   'raw',
   'system',
+  // pane_state — host-runner's declarative screen classification for
+  // engines with no structured driver (docs/plans/pane-state-manifests.md
+  // P2). Same tier as lifecycle: a state transition of the agent, not
+  // turn telemetry. Verbose rather than always-hidden because on a raw
+  // pane it is often the only structured signal there is.
+  'pane_state',
 };
 
 /// True when [kind] is a verbose-gated family (hidden unless the verbose

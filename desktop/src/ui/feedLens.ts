@@ -69,6 +69,14 @@ const VERBOSE_ONLY_KINDS = new Set([
   'lifecycle',
   'completion',
   'system',
+  // `pane_state` — host-runner's declarative screen classification for engines
+  // with no structured driver (pane-state-manifests P2). Verbose rather than
+  // ALWAYS_HIDDEN: it is the same tier as `lifecycle` (a state transition of
+  // the agent, not telemetry about a turn), and on a raw pane it is often the
+  // only structured signal there is, so a reader debugging one should be able
+  // to reach it. Unknown kinds render as a raw card in both modes, so a new
+  // kind that is not listed here is transcript noise by default.
+  'pane_state',
   'session.init', // "session <model> · N tools" — low signal, reveal on Details
   'thought',
   'thinking',

@@ -71,15 +71,15 @@ func TestLaunchOne_ExecResumeDriver_PatchesStatusRunning(t *testing.T) {
 	t.Cleanup(hub.Close)
 
 	r := &Runner{
-		Client:    NewClient(hub.URL, "tok", "default"),
-		HostID:    "host-x",
-		Launcher:  StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
-		templates: &agentTemplates{},
+		Client:     NewClient(hub.URL, "tok", "default"),
+		HostID:     "host-x",
+		Launcher:   StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
+		templates:  &agentTemplates{},
 	}
 	r.agentPoster = r.Client
 	r.inputs = NewInputRouter(r.Client, r.Log)
@@ -161,11 +161,11 @@ func (s *stubDriver) wasStopped() bool {
 // stopDriver so the driver-owned process is killed via Driver.Stop().
 func TestTerminatePane_PanelessDriverStopsViaRegistry(t *testing.T) {
 	r := &Runner{
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
 	}
 	r.inputs = NewInputRouter(nil, r.Log)
 	stub := &stubDriver{}
@@ -222,11 +222,11 @@ func TestParseSpec_FallbackModes(t *testing.T) {
 // the pane is already gone.
 func TestTerminatePane_PanedDriverAlsoStopped(t *testing.T) {
 	r := &Runner{
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
 	}
 	r.inputs = NewInputRouter(nil, r.Log)
 	stub := &stubDriver{}
@@ -257,11 +257,11 @@ func TestTerminatePane_PanedDriverAlsoStopped(t *testing.T) {
 // command back to pending and spin forever.
 func TestTerminatePane_PanelessNoDriverIsNoop(t *testing.T) {
 	r := &Runner{
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
 	}
 	r.inputs = NewInputRouter(nil, r.Log)
 	cmd := HostCommand{
@@ -312,15 +312,15 @@ func TestLaunchOne_RefusesEmptyBackendCmd(t *testing.T) {
 	t.Cleanup(hub.Close)
 
 	r := &Runner{
-		Client:    NewClient(hub.URL, "tok", "default"),
-		HostID:    "host-x",
-		Launcher:  StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
-		templates: &agentTemplates{},
+		Client:     NewClient(hub.URL, "tok", "default"),
+		HostID:     "host-x",
+		Launcher:   StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
+		templates:  &agentTemplates{},
 	}
 	r.agentPoster = r.Client
 	r.inputs = NewInputRouter(r.Client, r.Log)
@@ -367,15 +367,15 @@ func TestLaunchOne_RawPaneRunsInTheDerivedWorkdir(t *testing.T) {
 	wd := t.TempDir()
 	launcher := &recordingLauncher{pane: "hub-agents:raw-worker.0"}
 	r := &Runner{
-		Client:    NewClient(hub.URL, "tok", "default"),
-		HostID:    "host-x",
-		Launcher:  launcher,
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
-		templates: &agentTemplates{},
+		Client:     NewClient(hub.URL, "tok", "default"),
+		HostID:     "host-x",
+		Launcher:   launcher,
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
+		templates:  &agentTemplates{},
 	}
 	r.agentPoster = r.Client
 	r.inputs = NewInputRouter(r.Client, r.Log)
@@ -439,15 +439,15 @@ func TestLaunchOne_SkipsWhenDriverAlreadyRegistered(t *testing.T) {
 	t.Cleanup(hub.Close)
 
 	r := &Runner{
-		Client:    NewClient(hub.URL, "tok", "default"),
-		HostID:    "host-x",
-		Launcher:  StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		drivers:   map[string]Driver{},
-		tailers:   map[string]*Tailer{},
-		worktrees: map[string]WorktreeSpec{},
-		panes:     map[string]paneState{},
-		templates: &agentTemplates{},
+		Client:     NewClient(hub.URL, "tok", "default"),
+		HostID:     "host-x",
+		Launcher:   StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:    map[string]Driver{},
+		tailers:    map[string]*Tailer{},
+		worktrees:  map[string]WorktreeSpec{},
+		idleProbes: map[string]idleProbeState{},
+		templates:  &agentTemplates{},
 	}
 	r.agentPoster = r.Client
 	r.inputs = NewInputRouter(r.Client, r.Log)

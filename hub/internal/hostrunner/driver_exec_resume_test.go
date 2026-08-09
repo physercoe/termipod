@@ -415,17 +415,43 @@ type recordingPoster struct {
 }
 
 type recordedEvent struct {
+	AgentID  string
 	Kind     string
 	Producer string
 	Payload  map[string]any
 }
 
-func (p *recordingPoster) PostAgentEvent(_ context.Context, _ string, kind, producer string, payload any) error {
+func (p *recordingPoster) PostAgentEvent(_ context.Context, agentID, kind, producer string, payload any) error {
 	pl, _ := payload.(map[string]any)
 	p.mu.Lock()
-	p.events = append(p.events, recordedEvent{Kind: kind, Producer: producer, Payload: pl})
+	p.events = append(p.events, recordedEvent{AgentID: agentID, Kind: kind, Producer: producer, Payload: pl})
 	p.mu.Unlock()
 	return nil
+}
+
+// all / last / reset are the pane-state watcher's read helpers
+// (panestate_watch_test.go); they live on the shared poster so there is one
+// fake, not two.
+func (p *recordingPoster) all() []recordedEvent {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]recordedEvent, len(p.events))
+	copy(out, p.events)
+	return out
+}
+
+func (p *recordingPoster) last() (recordedEvent, bool) {
+	all := p.all()
+	if len(all) == 0 {
+		return recordedEvent{}, false
+	}
+	return all[len(all)-1], true
+}
+
+func (p *recordingPoster) reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = nil
 }
 
 // has returns true if a session.init event with session_id=sid was posted.

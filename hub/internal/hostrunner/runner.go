@@ -103,8 +103,16 @@ type Runner struct {
 	EgressProxyAddr string
 	egressProxy     *egressProxy
 
-	idle  *IdleDetector
-	panes map[string]paneState // keyed by agent id
+	// idle + idleProbes are the pane detector P3 RETIRES: one global prompt
+	// regex plus a 90 s stall, the only state signal for engines with no
+	// structured driver. paneStates is its declarative successor (lane P);
+	// the two cover disjoint pane sets until that retirement lands.
+	idle       *IdleDetector
+	idleProbes map[string]idleProbeState // keyed by agent id
+	// paneStates classifies mapped families' panes against the vendored
+	// screen manifests. nil when the embedded manifests failed to load,
+	// which disables classification rather than the host-runner.
+	paneStates *paneStateWatch
 
 	// pollFail edge-triggers the metric-poll-failure log so a run that
 	// keeps failing logs once on the falling edge (and once on recovery),
@@ -222,8 +230,13 @@ func (a *Runner) defaults() {
 			a.templates = tpl
 		}
 	}
-	if a.panes == nil {
-		a.panes = map[string]paneState{}
+	if a.idleProbes == nil {
+		a.idleProbes = map[string]idleProbeState{}
+	}
+	if a.paneStates == nil {
+		// nil is a valid outcome (manifests failed to load) and disables
+		// classification without disabling the runner.
+		a.paneStates = newPaneStateWatch(a.Log)
 	}
 	if a.tailers == nil {
 		a.tailers = map[string]*Tailer{}
@@ -482,6 +495,16 @@ func (a *Runner) tickIdle(ctx context.Context) {
 		return
 	}
 	now := time.Now()
+
+	// Lane P (P2): declarative classification for the families the vendored
+	// screen manifests cover. It shares this tick's agent list rather than
+	// re-fetching, and covers a set DISJOINT from the older detector below
+	// (the one P3 removes) — every mapped family is a registered agent
+	// family, so the hasStructuredDriver() skip already excludes it here. The two never
+	// scrape the same pane; TestPaneStateFamiliesAreRegisteredAgentFamilies
+	// fails if a mapping is added that breaks that.
+	a.paneStates.tick(ctx, a.agentPoster, agents, a.paneStateAuthority)
+
 	seen := map[string]struct{}{}
 	for _, ag := range agents {
 		seen[ag.ID] = struct{}{}
@@ -493,7 +516,7 @@ func (a *Runner) tickIdle(ctx context.Context) {
 			// false-positive on the always-on chat prompt. Drop any
 			// stored hash so a future regression that re-enables this
 			// path doesn't replay a stale "stuck for hours" baseline.
-			delete(a.panes, ag.ID)
+			delete(a.idleProbes, ag.ID)
 			continue
 		}
 		text, err := runTmux(ctx, "capture-pane", "-p", "-J", "-t", ag.PaneID)
@@ -501,9 +524,9 @@ func (a *Runner) tickIdle(ctx context.Context) {
 			a.Log.Debug("capture for idle failed", "agent", ag.ID, "err", err)
 			continue
 		}
-		prev := a.panes[ag.ID]
+		prev := a.idleProbes[ag.ID]
 		next, raise := a.idle.Inspect(text, prev, now)
-		a.panes[ag.ID] = next
+		a.idleProbes[ag.ID] = next
 		if raise {
 			tail := tailLines(text, 5)
 			_, _ = a.Client.PostAttention(ctx, AttentionIn{
@@ -517,9 +540,9 @@ func (a *Runner) tickIdle(ctx context.Context) {
 	}
 	// Drop state for panes that no longer report running — on respawn the hash
 	// would spuriously match the stale entry and suppress a legit idle alert.
-	for id := range a.panes {
+	for id := range a.idleProbes {
 		if _, ok := seen[id]; !ok {
-			delete(a.panes, id)
+			delete(a.idleProbes, id)
 		}
 	}
 	// Same for tailers: once an agent is no longer in the running set, its
@@ -1123,6 +1146,32 @@ func (a *Runner) hasDriver(agentID string) bool {
 	defer a.agentsMu.Unlock()
 	_, ok := a.drivers[agentID]
 	return ok
+}
+
+// paneStateAuthority reports whether a LIVE in-process driver authors this
+// agent's state — the pane-state plan's D-2 gate.
+//
+// Deliberately not hasStructuredDriver(kind): that asks whether the agent's
+// KIND is a registered family, which is a proxy for "its adapter reports
+// state", and the proxy is wrong in exactly the case that matters. A codex
+// spawn whose M2 launch failed falls back through the mode ladder to a raw
+// PaneDriver (runner.go's `mode == "M4" && drv == nil` branch); its kind is
+// still `codex`, but nothing is reporting state and the screen is the only
+// signal there is. Asking the driver map answers the real question.
+//
+// No driver at all is likewise "no authority": tmux panes outlive the
+// host-runner (reconcile.go's "tail without a driver = crashed" note is the
+// same observation), so an agent from before a restart has a live pane and a
+// dead adapter.
+func (a *Runner) paneStateAuthority(agentID string) bool {
+	a.agentsMu.Lock()
+	defer a.agentsMu.Unlock()
+	d, ok := a.drivers[agentID]
+	if !ok {
+		return false
+	}
+	_, rawPane := d.(*PaneDriver)
+	return !rawPane
 }
 
 // putDriver registers a driver under agentID. Guarded by agentsMu (#77).

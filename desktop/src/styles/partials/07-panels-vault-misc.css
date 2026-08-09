@@ -829,15 +829,18 @@ button.search-result-link:hover {
 .palette {
   width: 560px;
   max-width: 90vw;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-surface);
+  border: var(--hairline) solid var(--glass-rim);
   border-radius: var(--radius-overlay);
   overflow: hidden;
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .palette input {
   width: 100%;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--hairline) solid var(--glass-rim);
   border-radius: 0;
   padding: var(--spacing-s12) var(--spacing-s16);
 }

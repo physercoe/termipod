@@ -19,7 +19,7 @@
   --raised: #2f2f2f;      /* controls and genuinely raised regions */
   --hover: #333333;       /* interactive hover / selected neutral fill */
   --input: #212121;
-  --border: #363636;      /* hairline between tonal zones */
+  --border: #303030;      /* low-contrast hairline between tonal zones */
   --border-strong: #4a4a4a; /* interactive / focus border */
   --text: #ececec;        /* high-contrast ink */
   --text-secondary: #b4b4b4;
@@ -38,6 +38,17 @@
   --accent-text: #f4f4f4;
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+  /* Soft-glass chrome — translucency is intentionally limited to persistent
+   * navigation, toolbar and overlay surfaces. Reading/editing canvases stay
+   * opaque so depth never competes with content. Half-pixel rules render as
+   * true hairlines on Retina displays instead of boxed panel borders. */
+  --hairline: 0.5px;
+  --glass-pane: color-mix(in srgb, var(--canvas) 92%, transparent);
+  --glass-surface: color-mix(in srgb, var(--surface) 90%, transparent);
+  --glass-control: color-mix(in srgb, var(--raised) 88%, transparent);
+  --glass-rim: color-mix(in srgb, var(--text) 10%, transparent);
+  --glass-highlight: color-mix(in srgb, var(--text) 6%, transparent);
+  --glass-filter: blur(20px) saturate(1.08);
   /* semantic state — distinct from the accent hue */
   --ok: var(--color-success);
   --warn: var(--color-warning);
@@ -142,7 +153,7 @@
   --raised: #f4f4f4;
   --hover: #e8e8e8;
   --input: #f7f7f7;
-  --border: #dedede;
+  --border: #e3e3e3;
   --border-strong: #c7c7c7;
   --text: #212121;
   --text-secondary: #5d5d5d;
@@ -153,6 +164,11 @@
   --accent-text: #212121;
   --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
+  --glass-pane: color-mix(in srgb, var(--canvas) 88%, transparent);
+  --glass-surface: color-mix(in srgb, var(--surface) 88%, transparent);
+  --glass-control: color-mix(in srgb, var(--raised) 80%, transparent);
+  --glass-rim: color-mix(in srgb, var(--text) 12%, transparent);
+  --glass-highlight: color-mix(in srgb, var(--surface) 78%, transparent);
   --ok: var(--color-success-on-light);
   --warn: var(--color-on-warning-container-light);
   --danger: var(--color-error);
@@ -322,8 +338,11 @@ pre {
   gap: var(--spacing-s4);
   min-height: 42px;
   padding: var(--spacing-s4) var(--spacing-s12);
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .fleet-toolbar-label {
   font-size: var(--font-size-body-small);
@@ -352,8 +371,10 @@ pre {
   align-items: center;
   gap: var(--spacing-s16);
   padding: 0 var(--spacing-s16);
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 
 .titlebar {
@@ -364,9 +385,10 @@ pre {
 
 .statusbar {
   height: 28px;
-  border-top: 1px solid var(--border);
+  border-top: var(--hairline) solid var(--glass-rim);
   border-bottom: none;
-  background: var(--canvas);
+  background: var(--glass-pane);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -533,13 +555,18 @@ pre {
   color: var(--text-secondary);
   position: sticky;
   top: 0;
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 
 .navigator,
 .dock {
-  background: var(--canvas);
+  background: var(--glass-pane);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 
 /* Empty states are intentionally quiet and composed: a small semantic glyph,
@@ -602,9 +629,9 @@ pre {
   gap: var(--spacing-s8);
   width: 30px;
   padding: var(--spacing-s8) 0;
-  background: var(--canvas);
+  background: var(--glass-pane);
   border: none;
-  border-left: 1px solid var(--border);
+  border-left: var(--hairline) solid var(--glass-rim);
   border-radius: 0;
   color: var(--text-muted);
   cursor: pointer;

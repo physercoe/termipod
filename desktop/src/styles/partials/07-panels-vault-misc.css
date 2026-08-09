@@ -609,8 +609,10 @@ button.search-result-link:hover {
   top: calc(100% + 4px);
   left: 0;
   z-index: var(--z-menu);
-  width: 280px;
+  width: 240px;
   max-width: calc(100vw - 96px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   background: var(--glass-surface);
   border: var(--hairline) solid var(--glass-rim);
   border-radius: var(--radius-card);
@@ -624,6 +626,7 @@ button.search-result-link:hover {
 }
 .switcher-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-s4);
   border-radius: var(--radius-sm);
@@ -633,7 +636,7 @@ button.search-result-link:hover {
   background: var(--hover);
 }
 .switcher-pick {
-  flex: 1;
+  flex: 1 0 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -649,7 +652,19 @@ button.search-result-link:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+  max-width: 100%;
+}
+.switcher-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: 0 var(--spacing-s4) var(--spacing-s4);
+}
+.switcher-menu-status {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: var(--z-menu);
 }
 .switcher-add {
   margin-top: var(--spacing-s4);

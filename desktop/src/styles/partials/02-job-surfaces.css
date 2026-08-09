@@ -156,14 +156,6 @@
   color: var(--text-muted);
   background: transparent;
 }
-/* Profile dropdown opens upward and inward from the bottom bar. */
-.statusbar-hub .switcher-menu {
-  top: auto;
-  bottom: 100%;
-  right: 0;
-  left: auto;
-  margin-bottom: 4px;
-}
 /* Shared inline icon (ui/Icon.tsx): baseline-aligned with adjacent text, never
    shrinks in a flex row, and a hair of optical spacing when it precedes a label. */
 .ui-icon {

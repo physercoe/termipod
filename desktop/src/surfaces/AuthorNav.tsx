@@ -372,8 +372,8 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
       >
         <div className="author-nav-head">
           {onFold !== undefined && (
-            <button className="author-nav-icon" title={t('author.navFold')} onClick={onFold}>
-              <Icon name="chevron-left" size={15} />
+            <button className="pane-toggle author-nav-fold" title={t('author.navFold')} onClick={onFold}>
+              <Icon name="sidebar" size={16} />
             </button>
           )}
           {t('author.navFiles')}

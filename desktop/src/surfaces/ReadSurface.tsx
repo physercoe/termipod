@@ -960,8 +960,8 @@ function Inspector({
     <div className="ref-inspector">
       <div className="ref-tabs">
         {onCollapse !== undefined && (
-          <button className="read-fold" title={t('read.collapse')} onClick={onCollapse}>
-            <Icon name="chevron-right" />
+          <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={onCollapse}>
+            <Icon name="sidebar" size={16} className="mirror-x" />
           </button>
         )}
         {tabs.map((tb) => (
@@ -2387,8 +2387,8 @@ export function ReadSurface(): JSX.Element {
         ) : (
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
-          <button className="read-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
-            <Icon name="chevron-left" />
+          <button className="pane-toggle read-fold read-rail-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
+            <Icon name="sidebar" size={16} />
           </button>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
               has its own scrollbar, and the divider between them drags vertically
@@ -2641,8 +2641,8 @@ export function ReadSurface(): JSX.Element {
             <div className="ref-inspector-empty-wrap">
               <div className="ref-tabs">
                 <span className="spacer" />
-                <button className="read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
-                  <Icon name="chevron-right" />
+                <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
+                  <Icon name="sidebar" size={16} className="mirror-x" />
                 </button>
               </div>
               <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>

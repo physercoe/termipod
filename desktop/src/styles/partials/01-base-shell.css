@@ -427,6 +427,9 @@ pre {
 
 .statusbar {
   height: 28px;
+  position: relative;
+  z-index: var(--z-nav);
+  overflow: visible;
   border-top: var(--hairline) solid var(--glass-rim);
   border-bottom: none;
   background: var(--glass-pane);
@@ -552,20 +555,30 @@ pre {
   white-space: nowrap;
 }
 
-/* Nav fold toggle (left of the Fleet/Projects toolbar). */
-.nav-fold-btn {
+/* One visual language for pane visibility throughout the workbench: a compact
+   28px ghost control with the sidebar glyph. Direction is conveyed by mirroring
+   the glyph for right-hand panes, not by changing button shape or weight. */
+.pane-toggle {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
-  color: var(--text-secondary);
+  padding: 0;
+  color: var(--text-muted);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border: var(--hairline) solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
 }
-.nav-fold-btn:hover {
+.pane-toggle:hover {
   color: var(--text);
-  background: var(--surface);
+  background: var(--hover);
+}
+.nav-fold-btn {
+  color: var(--text-secondary);
 }
 .nav-fold-btn.active {
   color: var(--accent-text);
@@ -646,20 +659,6 @@ pre {
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-s8);
-}
-.dock-fold-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-}
-.dock-fold-btn:hover {
-  color: var(--text);
-  background: var(--surface);
 }
 /* Collapsed dock: a thin vertical rail that re-opens the attention panel; its
    label reads bottom-to-top so the narrow rail stays readable. */

@@ -42,8 +42,8 @@ export function CodeOutline({
   if (symbols.length === 0) return null;
 
   const foldBtn = (
-    <button className="read-fold" title={t('read.collapse')} onClick={() => fold(false)}>
-      <Icon name="chevron-right" size={14} />
+    <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={() => fold(false)}>
+      <Icon name="sidebar" size={16} className="mirror-x" />
     </button>
   );
   const rail = (

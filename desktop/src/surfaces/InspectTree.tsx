@@ -517,7 +517,7 @@ export function InspectTree({
             <Icon name="plus" size={14} />
           </button>
         )}
-        <button className="icon-btn" title={t('nav.collapse')} onClick={onClose}>
+        <button className="pane-toggle" title={t('nav.collapse')} onClick={onClose}>
           <Icon name="sidebar" size={14} />
         </button>
       </div>

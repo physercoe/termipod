@@ -69,7 +69,7 @@ export function MissionLayout({
     <>
       <div className="fleet-toolbar">
         <button
-          className={open ? 'nav-fold-btn active' : 'nav-fold-btn'}
+          className={open ? 'pane-toggle nav-fold-btn active' : 'pane-toggle nav-fold-btn'}
           title={open ? t('nav.collapse') : t('nav.expand')}
           aria-label={open ? t('nav.collapse') : t('nav.expand')}
           aria-pressed={open}
@@ -98,7 +98,7 @@ export function MissionLayout({
               <div className="region-header foldable">
                 <span>{t('region.attention')}</span>
                 <button
-                  className="dock-fold-btn"
+                  className="pane-toggle dock-fold-btn"
                   title={t('nav.collapse')}
                   aria-label={t('nav.collapse')}
                   onClick={toggleDock}

@@ -75,66 +75,14 @@
 .job-icon {
   display: block;
 }
-/* Activity-bar hub slot (top) — the hub identity / connection chrome (profile
-   switcher, or offline + connect), relocated here from the bottom status bar so
-   the hub you're driving leads the top-left. The job list grows to fill and owns
-   the scroll, pinning the Settings tab to the bottom (the VS Code gear idiom). */
-.activity-hub {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--spacing-s4);
-  margin-bottom: var(--spacing-s4);
-  padding-bottom: var(--spacing-s8);
-  border-bottom: var(--hairline) solid var(--glass-rim);
-}
-.activity-brand-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--accent-text);
-  font-size: var(--font-size-body);
-}
-/* Compact the relocated hub chrome to fit the 68px rail: full-width controls,
-   caption type, truncated profile name; the dropdown escapes rightward. */
-.activity-hub .profile-switcher {
-  width: 100%;
-}
-.activity-hub .switcher-pill {
-  width: 100%;
-  justify-content: space-between;
-  padding: 3px var(--spacing-s8);
-  font-size: var(--font-size-caption);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.activity-hub .switcher-menu {
-  left: calc(100% + var(--spacing-s8));
-  top: 0;
-}
-.activity-hub .hub-connect {
-  width: 100%;
-  min-height: var(--control-md);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-s4);
-  padding: 3px var(--spacing-s4);
-  font-size: var(--font-size-caption);
-  color: var(--text-secondary);
-  background: transparent;
-  border-color: transparent;
-}
 .hub-status-dot {
   width: 6px;
   height: 6px;
   border-radius: var(--radius-stadium);
   background: var(--warn);
+}
+.hub-status-dot.online {
+  background: var(--success);
 }
 .activity-jobs {
   flex: 1 1 auto;
@@ -154,6 +102,52 @@
   align-items: center;
   gap: var(--spacing-s12);
 }
+.statusbar-hub-cluster,
+.statusbar-context,
+.statusbar-hub {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.statusbar-hub-cluster {
+  gap: var(--spacing-s8);
+}
+.statusbar-hub {
+  gap: var(--spacing-s4);
+}
+.statusbar-hub .profile-switcher {
+  min-width: 0;
+  max-width: 140px;
+}
+.statusbar-hub .switcher-pill {
+  min-height: 22px;
+  max-width: 140px;
+  padding: 1px var(--spacing-s4);
+  color: var(--text-secondary);
+  font: inherit;
+  background: transparent;
+  border-color: transparent;
+}
+.statusbar-hub .switcher-pill:hover,
+.statusbar-hub .switcher-pill[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--hover);
+}
+.statusbar-hub-connect {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 1px var(--spacing-s4);
+  color: var(--text-secondary);
+  font: inherit;
+  background: transparent;
+  border-color: transparent;
+}
+.statusbar-hub-connect:hover {
+  color: var(--text);
+  background: var(--hover);
+}
 .statusbar-palette {
   font-variant-numeric: tabular-nums;
   font-size: var(--font-size-caption);
@@ -162,15 +156,12 @@
   color: var(--text-muted);
   background: transparent;
 }
-/* The status bar's own controls stay compact so the bar keeps its 28px height. */
-.statusbar .profile-switcher .switcher-pill {
-  padding: 1px 8px;
-  font-size: var(--font-size-caption);
-}
-/* Profile dropdown opens upward from the bottom bar. */
-.statusbar .switcher-menu {
+/* Profile dropdown opens upward and inward from the bottom bar. */
+.statusbar-hub .switcher-menu {
   top: auto;
   bottom: 100%;
+  right: 0;
+  left: auto;
   margin-bottom: 4px;
 }
 /* Shared inline icon (ui/Icon.tsx): baseline-aligned with adjacent text, never

@@ -336,16 +336,20 @@ export function AppShell(): JSX.Element {
     );
   }
 
-  // Hub identity / connection state — lives at the top of the activity bar (the
-  // brand slot) so the hub you're driving is the first thing in the top-left.
+  // Hub identity / connection state is global context, not job navigation. Keep
+  // it beside host telemetry in the persistent status bar; the narrow activity
+  // rail then remains clean beneath the native macOS window controls.
   const hubChrome =
     client === null ? (
-      <button className="hub-connect" title={t('shell.offline')} onClick={() => openConnect()}>
+      <button className="statusbar-hub-connect" title={t('shell.offline')} onClick={() => openConnect()}>
         <span className="hub-status-dot" aria-hidden="true" />
         {t('shell.connect')}
       </button>
     ) : (
-      <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
+      <span className="statusbar-hub">
+        <span className={`hub-status-dot${online ? ' online' : ''}`} aria-hidden="true" />
+        <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
+      </span>
     );
 
   // The command palette shortcut stays in the status bar's right end, showing
@@ -365,7 +369,7 @@ export function AppShell(): JSX.Element {
       )}
 
       <div className="workbench-row">
-        <ActivityBar chrome={hubChrome} />
+        <ActivityBar />
         <main className="workbench-main">
           {/* The terminal lives in an always-mounted panel (its <Screen>s die if
               unmounted); every other job renders in this stack, which the panel
@@ -386,7 +390,7 @@ export function AppShell(): JSX.Element {
         </main>
       </div>
 
-      <StatusBar right={statusChrome} />
+      <StatusBar context={hubChrome} right={statusChrome} />
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}

@@ -1,22 +1,22 @@
-import type { ReactNode } from 'react';
 import { useT } from '../i18n';
 import { isSplitEligible, JOBS, SETTINGS_JOB, useWorkbench, type JobId } from '../state/workbench';
 import { useContextMenu, type MenuItem } from './ContextMenu';
 import { JobIcon } from './JobIcon';
 
-/// The workbench's left rail (VS Code activity-bar idiom): the hub identity /
-/// connection chrome at the top (`chrome` — the profile switcher, relocated here
-/// from the bottom status bar), one button per job in the `JOBS` registry, and the
-/// Settings tab pinned to the bottom (the gear idiom). Icon-forward with a small
-/// label so the jobs stay discoverable; the active job is highlighted and
-/// switching is instant (the surface state lives in each surface, not here).
+/// The workbench's left rail (VS Code activity-bar idiom): one button per job in
+/// the `JOBS` registry, with Settings pinned to the bottom (the gear idiom).
+/// Hub identity belongs to the persistent status bar; keeping it out of this
+/// narrow rail leaves the native macOS controls and job navigation visually
+/// independent. Icon-forward with a small label so the jobs stay discoverable;
+/// the active job is highlighted and switching is instant (surface state lives
+/// in each surface, not here).
 /// The assistant toggle is NOT here — it lives in the status bar as a chip (#460),
 /// keeping the rail purely job navigation.
 ///
 /// Split pane (S2): **Alt-click** or right-click → "Open beside" pins a job as the
 /// secondary pane; the pinned job carries a corner dot. Plain click keeps its
 /// meaning — it switches the active pane's surface, it never pins one.
-export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
+export function ActivityBar(): JSX.Element {
   const t = useT();
   const job = useWorkbench((s) => s.job);
   const secondary = useWorkbench((s) => s.secondary);
@@ -39,9 +39,6 @@ export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
 
   return (
     <nav className="activity-bar" aria-label={t('job.rail')}>
-      <div className="activity-hub" title="TermiPod — Desktop Workbench">
-        {chrome ?? <span className="activity-brand-mark">TP</span>}
-      </div>
       <div className="activity-jobs">
         {JOBS.map((j) => {
           // `beside` = this job IS the pinned secondary; `canOpenBeside` = it

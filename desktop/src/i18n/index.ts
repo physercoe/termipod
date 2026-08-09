@@ -1316,6 +1316,7 @@ const en: Dict = {
 
   'read.modeLibrary': 'Library',
   'read.modeDiscover': 'Discover',
+  'read.modeBrowser': 'Browser',
   'read.libraryActions': 'Library actions',
   'read.importZotero': 'Import Zotero',
   'read.importHint': 'Import a Zotero library (zotero.sqlite) — parsed on-device, nothing uploaded.',
@@ -3447,6 +3448,7 @@ const zh: Dict = {
 
   'read.modeLibrary': '文库',
   'read.modeDiscover': '发现',
+  'read.modeBrowser': '浏览器',
   'read.libraryActions': '文库操作',
   'read.importZotero': '导入 Zotero',
   'read.importHint': '导入 Zotero 文库（zotero.sqlite）— 在本地解析，不会上传任何内容。',

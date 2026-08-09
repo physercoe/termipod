@@ -2082,6 +2082,18 @@ export function ReadSurface(): JSX.Element {
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
   const selectedRef = selected !== null ? references.find((r) => r.id === selected) : undefined;
 
+  function showCollectionMode(next: Mode): void {
+    setActiveTab(null);
+    setMode(next);
+  }
+
+  function showBrowser(): void {
+    if (activeTabObj?.kind === 'web') return;
+    const existing = [...tabs].reverse().find((tb) => tb.kind === 'web');
+    if (existing !== undefined) setActiveTab(existing.id);
+    else openWebTab('');
+  }
+
   // The dock companion's context provider (the unified assistant dock, D2.2 —
   // state/companionContext.ts): the selected paper. Read/Author have no focus
   // event of their own, so the approximation is register on mount + selection
@@ -2240,12 +2252,27 @@ export function ReadSurface(): JSX.Element {
           />
           <input ref={dirRef} type="file" style={{ display: 'none' }} onChange={onPickStorage} />
           <div className="seg">
-            <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
+            <button
+              className={activeTab === null && mode === 'library' ? 'seg-btn active' : 'seg-btn'}
+              onClick={() => showCollectionMode('library')}
+            >
               {t('read.modeLibrary')}
             </button>
-            <button className={mode === 'discover' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('discover')}>
+            <button
+              className={activeTab === null && mode === 'discover' ? 'seg-btn active' : 'seg-btn'}
+              onClick={() => showCollectionMode('discover')}
+            >
               {t('read.modeDiscover')}
             </button>
+            {isShell() && (
+              <button
+                className={activeTabObj?.kind === 'web' ? 'seg-btn active' : 'seg-btn'}
+                title={t('read.openLinkHint')}
+                onClick={showBrowser}
+              >
+                <Icon name="globe" size={13} /> {t('read.modeBrowser')}
+              </button>
+            )}
           </div>
           {client !== null && (
             <button className="import-btn" disabled={syncing} title={t('read.syncHint')} onClick={() => void onSync()}>
@@ -2306,19 +2333,6 @@ export function ReadSurface(): JSX.Element {
                   }}
                 >
                   <Icon name="cloud" size={14} /> {t('read.syncFiles')}
-                </button>
-              )}
-              {isShell() && (
-                <button
-                  className="inspect-menu-item"
-                  role="menuitem"
-                  title={t('read.openLinkHint')}
-                  onClick={() => {
-                    setActionsMenu(false);
-                    openWebTab('');
-                  }}
-                >
-                  <Icon name="globe" size={14} /> {t('read.openLink')}
                 </button>
               )}
             </PopoverMenu>

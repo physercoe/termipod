@@ -14,14 +14,14 @@
   --pane-gap: 1px;
   /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
    * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
-  --bg: #090a0d;          /* app ground */
-  --canvas: #0c0e12;      /* navigator + dock rails */
-  --surface: #111318;     /* cards, panels, popovers */
-  --raised: #171a20;      /* buttons, hover targets, inset controls */
-  --hover: #1c2027;       /* row / interactive hover fill */
-  --input: #0b0c10;
-  --border: #23262d;      /* hairline (Radix step 6/7) */
-  --border-strong: #31363f; /* interactive / focus border (step 8) */
+  --bg: #0a0b0e;          /* content canvas — the darkest, quietest plane */
+  --canvas: #181a20;      /* navigation / inspector panes + persistent chrome */
+  --surface: #13151a;     /* cards and nested panel surfaces */
+  --raised: #1f2229;      /* controls and genuinely raised regions */
+  --hover: #282c35;       /* interactive hover / selected neutral fill */
+  --input: #0e1014;
+  --border: #2a2e36;      /* hairline between tonal zones */
+  --border-strong: #3b414c; /* interactive / focus border */
   --text: #f4f6f8;        /* high-contrast ink */
   --text-secondary: #a7aeba;
   --text-muted: #8b939f;  /* WCAG AA: 4.5:1+ on --surface (was #6a727f ≈3.8:1) */
@@ -138,14 +138,14 @@
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f7f7f8;
-  --canvas: #f1f2f4;
+  --bg: #fafafb;
+  --canvas: #eceef2;
   --surface: #ffffff;
-  --raised: #ffffff;
-  --hover: #e9ebef;
+  --raised: #f5f6f8;
+  --hover: #e2e5eb;
   --input: #f6f7f9;
-  --border: #e6e9ee;
-  --border-strong: #d4d9e1;
+  --border: #dfe3e9;
+  --border-strong: #c8ced8;
   --text: #0f141c;
   --text-secondary: #586173;
   --text-muted: #6b7280;  /* WCAG AA: 4.66:1 on --bg (was #8a93a3 ≈2.91:1) */

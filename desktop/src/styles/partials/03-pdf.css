@@ -102,7 +102,16 @@
    re-opens a collapsed panel; a `read-fold` chevron inside each panel collapses
    it. Widths + fold state persist in localStorage. */
 .read-fold {
-  padding: 0 var(--spacing-s6, 6px);
+  position: absolute;
+  top: var(--spacing-s8);
+  right: var(--spacing-s8);
+  z-index: 2;
+  width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   color: var(--text-muted);
   background: none;
   border: none;
@@ -112,11 +121,7 @@
 }
 .read-fold:hover {
   color: var(--text);
-}
-.read-rail-head {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--spacing-s4) var(--spacing-s4) 0;
+  background: var(--hover);
 }
 .read-pane-expand {
   flex: 0 0 auto;

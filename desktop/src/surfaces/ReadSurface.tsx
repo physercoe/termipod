@@ -2387,11 +2387,9 @@ export function ReadSurface(): JSX.Element {
         ) : (
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
-          <div className="read-rail-head">
-            <button className="read-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
-              <Icon name="chevron-left" />
-            </button>
-          </div>
+          <button className="read-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
+            <Icon name="chevron-left" />
+          </button>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
               has its own scrollbar, and the divider between them drags vertically
               to reallocate height. The tag pane is always present (with its filter

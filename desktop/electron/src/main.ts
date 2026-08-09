@@ -63,6 +63,15 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'TermiPod — Desktop Workbench',
+    // On macOS the native title row duplicated the app's own persistent chrome
+    // and cost ~52px on every workbench. hiddenInset keeps the standard traffic
+    // lights/window behaviour while allowing the app surface to fill that row.
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 14, y: 14 },
+        }
+      : {}),
     icon: ICON,
     backgroundColor: '#0b0b10',
     show: false, // paint-free first frame; reveal on ready-to-show

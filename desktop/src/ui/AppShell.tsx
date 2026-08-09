@@ -357,7 +357,7 @@ export function AppShell(): JSX.Element {
   );
 
   return (
-    <div className="shell">
+    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}`}>
       {client !== null && !online && (
         <div className="offline-banner" role="status" aria-live="polite">
           {t('shell.offlineBanner')}

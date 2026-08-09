@@ -259,6 +259,28 @@ pre {
   min-height: 0;
 }
 
+/* Electron macOS uses BrowserWindow.hiddenInset: content replaces the redundant
+   native title row while the real traffic lights remain. Reserve their compact
+   corner only inside the activity rail; the active workbench toolbar occupies
+   the rest of that same top band. App-region rules preserve native dragging
+   without swallowing clicks on toolbar controls. */
+.shell-macos .activity-bar {
+  padding-top: 46px;
+  -webkit-app-region: drag;
+}
+.shell-macos .fleet-toolbar,
+.shell-macos .surface-head {
+  -webkit-app-region: drag;
+}
+.shell-macos button,
+.shell-macos input,
+.shell-macos select,
+.shell-macos textarea,
+.shell-macos [role='button'],
+.shell-macos [role='tab'] {
+  -webkit-app-region: no-drag;
+}
+
 /* The main middle band: the activity-bar rail + the active job surface. Grows
    to fill between the titlebar and the terminal dock / status bar. */
 .workbench-row {

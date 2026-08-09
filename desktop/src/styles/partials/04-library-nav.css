@@ -4,12 +4,18 @@
    (Zotero-style). See .read-rail-pane + .resize-handle-v. */
 .read-rail {
   flex: 0 0 auto;
+  position: relative;
   background: var(--glass-pane);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+/* The collapse control shares the first collection row instead of consuming an
+   otherwise empty toolbar row. Keep the All-items count clear of the overlay. */
+.read-rail > .read-rail-pane:first-of-type .read-col:first-child {
+  padding-right: 44px;
 }
 /* One scroll pane (collections OR tags). A fixed-height pane (collections, when
    tags are present) carries an inline `height`; `.grow` fills the remaining rail

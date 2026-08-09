@@ -33,6 +33,8 @@ const en: Dict = {
 
   'shell.admin': 'Admin',
   'shell.settings': 'Settings',
+  'shell.hideNavigation': 'Hide navigation',
+  'shell.showNavigation': 'Show navigation',
   'shell.connect': 'Connect',
   'shell.offline': 'Offline',
   'shell.offlineBanner': 'Offline — showing the last synced snapshot.',
@@ -2192,6 +2194,8 @@ const zh: Dict = {
 
   'shell.admin': '管理',
   'shell.settings': '设置',
+  'shell.hideNavigation': '隐藏导航栏',
+  'shell.showNavigation': '显示导航栏',
   'shell.connect': '连接',
   'shell.offline': '离线',
   'shell.offlineBanner': '离线 — 显示上次同步的快照。',

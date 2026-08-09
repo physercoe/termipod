@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { listen } from '../bridge';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { useFocus } from '../state/focus';
@@ -47,6 +48,17 @@ import { StatusBar } from './StatusBar';
 import { SurfaceView } from './SurfaceView';
 import { ToastHost } from './ToastHost';
 
+const ACTIVITY_RAIL_KEY = 'termipod.shell.activityRailOpen';
+
+function initialActivityRailOpen(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(ACTIVITY_RAIL_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
 /// Focus | Attention dock · status bar. WS3 wires the Navigator (fleet tree) and
 /// status counters; WS4 the Focus transcript. The Attention dock is WS5.
@@ -78,6 +90,59 @@ export function AppShell(): JSX.Element {
   const [spawnOpen, setSpawnOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
+  const [activityRailOpen, setActivityRailOpen] = useState(initialActivityRailOpen);
+  const [fullScreen, setFullScreen] = useState(false);
+
+  const setActivityRailVisible = useCallback((open: boolean): void => {
+    setActivityRailOpen(open);
+    try {
+      window.localStorage.setItem(ACTIVITY_RAIL_KEY, open ? '1' : '0');
+    } catch {
+      // Storage can be unavailable under hardened browser privacy settings.
+    }
+  }, []);
+
+  const toggleActivityRail = useCallback((): void => {
+    setActivityRailOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(ACTIVITY_RAIL_KEY, next ? '1' : '0');
+      } catch {
+        // Keep the control functional even when its preference cannot persist.
+      }
+      return next;
+    });
+  }, []);
+
+  // Native menu commands use the same state transitions as the visible shell
+  // controls, so View -> Toggle Navigation and macOS Settings never fork into
+  // parallel behaviours. Full-screen state is main-process authority: Electron
+  // emits it for both the menu item and the native green-window-button gesture.
+  useEffect(() => {
+    let alive = true;
+    let stopCommand = (): void => {};
+    let stopFullScreen = (): void => {};
+
+    void listen<{ action: 'settings' | 'toggle-navigation' }>('shell:command', (event) => {
+      if (event.payload.action === 'settings') setJob(SETTINGS_JOB.id);
+      if (event.payload.action === 'toggle-navigation') toggleActivityRail();
+    }).then((stop) => {
+      if (alive) stopCommand = stop;
+      else stop();
+    });
+    void listen<{ fullScreen: boolean }>('shell:fullscreen', (event) => {
+      setFullScreen(event.payload.fullScreen);
+    }).then((stop) => {
+      if (alive) stopFullScreen = stop;
+      else stop();
+    });
+
+    return () => {
+      alive = false;
+      stopCommand();
+      stopFullScreen();
+    };
+  }, [setJob, toggleActivityRail]);
 
   // Auto-bind the active profile on launch; raise the connect overlay only if
   // that leaves us disconnected (no profile / no stored token). Resolve the
@@ -361,7 +426,7 @@ export function AppShell(): JSX.Element {
   );
 
   return (
-    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}`}>
+    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}${activityRailOpen ? '' : ' rail-collapsed'}${fullScreen ? ' is-fullscreen' : ''}`}>
       {client !== null && !online && (
         <div className="offline-banner" role="status" aria-live="polite">
           {t('shell.offlineBanner')}
@@ -369,7 +434,15 @@ export function AppShell(): JSX.Element {
       )}
 
       <div className="workbench-row">
-        <ActivityBar />
+        {activityRailOpen ? (
+          <ActivityBar onHide={() => setActivityRailVisible(false)} />
+        ) : (
+          <aside className="activity-rail-collapsed" aria-label={t('job.rail')}>
+            <button className="activity-rail-toggle" title={t('shell.showNavigation')} onClick={() => setActivityRailVisible(true)}>
+              <Icon name="sidebar" size={17} />
+            </button>
+          </aside>
+        )}
         <main className="workbench-main">
           {/* The terminal lives in an always-mounted panel (its <Screen>s die if
               unmounted); every other job renders in this stack, which the panel

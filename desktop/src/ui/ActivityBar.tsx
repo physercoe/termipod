@@ -1,6 +1,7 @@
 import { useT } from '../i18n';
 import { isSplitEligible, JOBS, SETTINGS_JOB, useWorkbench, type JobId } from '../state/workbench';
 import { useContextMenu, type MenuItem } from './ContextMenu';
+import { Icon } from './Icon';
 import { JobIcon } from './JobIcon';
 
 /// The workbench's left rail (VS Code activity-bar idiom): one button per job in
@@ -16,7 +17,7 @@ import { JobIcon } from './JobIcon';
 /// Split pane (S2): **Alt-click** or right-click → "Open beside" pins a job as the
 /// secondary pane; the pinned job carries a corner dot. Plain click keeps its
 /// meaning — it switches the active pane's surface, it never pins one.
-export function ActivityBar(): JSX.Element {
+export function ActivityBar({ onHide }: { onHide: () => void }): JSX.Element {
   const t = useT();
   const job = useWorkbench((s) => s.job);
   const secondary = useWorkbench((s) => s.secondary);
@@ -39,6 +40,9 @@ export function ActivityBar(): JSX.Element {
 
   return (
     <nav className="activity-bar" aria-label={t('job.rail')}>
+      <button className="activity-rail-toggle" title={t('shell.hideNavigation')} onClick={onHide}>
+        <Icon name="sidebar" size={17} />
+      </button>
       <div className="activity-jobs">
         {JOBS.map((j) => {
           // `beside` = this job IS the pinned secondary; `canOpenBeside` = it

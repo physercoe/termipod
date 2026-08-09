@@ -50,6 +50,7 @@
   --glass-control: color-mix(in srgb, var(--raised) 88%, transparent);
   --glass-rim: color-mix(in srgb, var(--text) 10%, transparent);
   --glass-highlight: color-mix(in srgb, var(--text) 6%, transparent);
+  --fullscreen-nav: #292929;
   --glass-filter: blur(20px) saturate(1.08);
   /* semantic state — distinct from the accent hue */
   --ok: var(--color-success);
@@ -171,6 +172,7 @@
   --glass-control: color-mix(in srgb, var(--raised) 80%, transparent);
   --glass-rim: color-mix(in srgb, var(--text) 12%, transparent);
   --glass-highlight: color-mix(in srgb, var(--surface) 78%, transparent);
+  --fullscreen-nav: #eaeae8;
   --ok: var(--color-success-on-light);
   --warn: var(--color-on-warning-container-light);
   --danger: var(--color-error);
@@ -298,6 +300,18 @@ pre {
   border-right-color: transparent;
   box-shadow: none;
   -webkit-app-region: drag;
+}
+.shell-macos .activity-rail-collapsed {
+  padding-top: 46px;
+  -webkit-app-region: drag;
+}
+.shell-macos.is-fullscreen .activity-bar,
+.shell-macos.is-fullscreen .activity-rail-collapsed {
+  padding-top: var(--spacing-s8);
+}
+.shell.is-fullscreen .activity-bar,
+.shell.is-fullscreen .activity-rail-collapsed {
+  background: var(--fullscreen-nav);
 }
 .shell-macos .activity-bar::after {
   content: '';

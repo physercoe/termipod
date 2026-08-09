@@ -10,7 +10,15 @@
 /// M1.1 wires the shell + the platform-helper and migration command families;
 /// the hub transport goes renderer-direct (plan §7 rows 1–2), keychain / files /
 /// dialogs / draw.io land in later M1 slices.
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  session,
+  shell,
+  type MenuItemConstructorOptions,
+} from 'electron';
 import path from 'node:path';
 import './schemes'; // registers privileged app:// + drawio:// before app ready
 import { APP_ORIGIN, registerAppScheme } from './appscheme';
@@ -36,7 +44,7 @@ import './uihighlight_host';
 // Coworking H: importing the module registers the navigate (desktop_open)
 // provider. Its IPC reply handler is registered separately, in ipc/dispatch.
 import './desktopopen_host';
-import { initEvents } from './events';
+import { emit, initEvents } from './events';
 
 // The frontend build. In dev (`electron .` from desktop/electron) it resolves to
 // desktop/dist; in a packaged app electron-builder ships it as an `extraResource`
@@ -55,6 +63,72 @@ const DIST =
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 
 let mainWindow: BrowserWindow | null = null;
+
+type ShellCommand = 'settings' | 'toggle-navigation';
+
+function sendShellCommand(action: ShellCommand): void {
+  const win = mainWindow;
+  if (win === null || win.webContents.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  emit(win.webContents, 'shell:command', { action });
+}
+
+function installApplicationMenu(): void {
+  // `app.name` comes from package.json (`termipod-electron`, or the distinct
+  // review-build lock name), not the product name macOS shows. The packaged
+  // executable is the stable display name and keeps these native labels correct
+  // for both TermiPod and side-by-side review builds.
+  const displayName = app.isPackaged ? path.basename(process.execPath) : 'TermiPod';
+  const appMenu: MenuItemConstructorOptions = {
+    label: displayName,
+    submenu: [
+      { label: `About ${displayName}`, click: () => app.showAboutPanel() },
+      { type: 'separator' },
+      {
+        label: 'Settings…',
+        accelerator: 'CommandOrControl+,',
+        click: () => sendShellCommand('settings'),
+      },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { label: `Hide ${displayName}`, accelerator: 'Command+H', click: () => app.hide() },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { label: `Quit ${displayName}`, accelerator: 'Command+Q', click: () => app.quit() },
+    ],
+  };
+  const template: MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? [appMenu] : []),
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Toggle Navigation',
+          accelerator: 'CommandOrControl+Shift+B',
+          click: () => sendShellCommand('toggle-navigation'),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    { role: 'windowMenu' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -105,6 +179,11 @@ function createWindow(): void {
     if (!url.startsWith(APP_ORIGIN)) e.preventDefault();
   });
   win.once('ready-to-show', () => win.show());
+  const publishFullScreen = (): void => {
+    emit(win.webContents, 'shell:fullscreen', { fullScreen: win.isFullScreen() });
+  };
+  win.on('enter-full-screen', publishFullScreen);
+  win.on('leave-full-screen', publishFullScreen);
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     setShellWindow(null);
@@ -148,6 +227,7 @@ if (!app.requestSingleInstanceLock()) {
       );
     }
     initEvents();
+    installApplicationMenu();
     registerAppScheme(session.defaultSession, DIST);
     registerDrawioScheme(session.defaultSession);
     // defaultSession ONLY: webview guests run in isolated partitions, so

@@ -50,6 +50,17 @@ type AttentionPoster interface {
 	PostAttention(ctx context.Context, in AttentionIn) (AttentionOut, error)
 }
 
+// AttentionResolver is the retract half: it closes a row this host-runner
+// raised, once the condition that justified it is gone. Only a raiser that
+// keeps watching its own condition can implement this honestly — the codex
+// bridge above cannot (its rows are answered, not withdrawn), the pane-state
+// watcher can (plan P3: a blocked streak ends when the screen stops saying
+// blocked). Split from AttentionPoster so the two capabilities are asked for
+// separately rather than one interface implying the other.
+type AttentionResolver interface {
+	ResolveAttention(ctx context.Context, id string) error
+}
+
 // pendingApproval tracks one server-initiated approval request that
 // has been bridged to an attention_items row but not yet resolved.
 // jsonRPCID is the parked codex request id we'll respond on; method

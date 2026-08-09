@@ -16,9 +16,11 @@
 > push channel). P/N/S/Q are unused elsewhere: **P** reads the pane,
 > **Q** writes to it, **N** is native resume, **S** is settle semantics.
 > **Audience:** principal · contributors
-> **Last verified vs code:** main `e498416d` (2026-08-08;
-> `hub/internal/hostrunner/idle.go`, `driver_pane.go`,
-> `hub/internal/agentfamilies/`, `docs/reference/attention-kinds.md`)
+> **Last verified vs code:** main `9e06d8fa` (2026-08-09; P1/Q1/P2
+> shipped and P3 built against it — `hub/internal/panestate/`,
+> `hub/internal/hostrunner/panestate_watch.go`, `idle.go`, `runner.go`,
+> `hub/internal/server/handlers_attention.go`,
+> `docs/reference/attention-kinds.md`; herdr re-read at `6f311498`)
 
 **TL;DR.** Host-runner can only say "this agent needs you" for the
 three engines with structured M4 adapters; everything else gets
@@ -88,6 +90,33 @@ pane-input hardening (`paste-buffer -p`, generic multi-line path).
   structured-authority pane MAY raise attention (screen shows a live
   permission dialog the hooks never reported). It adjusts attention
   only, never the session's driver-authored state.
+  - **Corrected at P3 (2026-08-09): the exception is not a port, and
+    it is deferred.** Upstream has no such case — `pane.rs:809` is
+    `if lifecycle_authority_active && !process_exited { pending_idle
+    .clear(); continue; }`, an unconditional short-circuit *before*
+    the screen is read, and nothing downstream consults
+    `visible_blocker` for a pane it skipped. This is a termipod
+    invention wearing a port's clothes, so it has to earn its place on
+    its own evidence. It needs two things first, neither available
+    today:
+    1. **Proof it complements rather than duplicates.** The target
+       case is claude's trust dialog, which is hook-blind. But
+       `claude.toml` also ships `bash_permission_prompt` and
+       `generic_permission_prompt` (both `visible_blocker`), and our
+       claude agents already raise `permission_prompt` rows from the
+       `canUseTool` hook for those events — with Approve/Deny that
+       work. Whether the TUI *draws* a dialog the hook has already
+       parked decides whether this exception adds a signal or a
+       second, un-actionable row beside the right one. Nobody has
+       watched a real claude pane (this lane's standing device-verify
+       debt), and static reading cannot settle it.
+    2. **A suppression rule if it does duplicate** — "no row while one
+       is open for this agent" needs a hub query host-runner does not
+       have (`handleListAttention` filters on status and scope_kind
+       only, never actor).
+    One capture of a claude pane mid-permission-prompt settles both.
+    Until then P3 ships the safe half: panes with no state authority,
+    where there is no other row to collide with.
 - **D-3 — engine-kind mapping lives in the overlay, not in vendored
   files.** herdr ids (`claude`, `kimi`, `gemini`) differ from our
   family names (`claude-code`, `kimi-code-ts`, `gemini-cli`). A
@@ -170,6 +199,24 @@ pane-input hardening (`paste-buffer -p`, generic multi-line path).
        `lifecycle`, since it is an agent state transition rather
        than turn telemetry, and on a raw pane it is often the only
        structured signal a reader has.
+  - **Answered at P3 (2026-08-09): the attention kind stays `idle`,
+    and for a reason that is not "no new kind was needed".** D-6 left
+    the door open to minting one if `idle` read wrong for "blocked on
+    approval". It does read wrong — this lane spent P1 making `idle`
+    and `blocked` contrasting states — but the kind on this surface
+    selects an *affordance*, and `idle` is the only value both clients
+    already route correctly for a row a human can acknowledge but not
+    answer: mobile buckets it under Agents with a single Dismiss
+    (`me_screen.dart` `_filterForAttention`, `inline_actions.dart`
+    `_isInformational`), and the hub keeps it out of
+    `attentionAwaitsAgentReply`, which is what makes `/resolve` — the
+    retract leg — legal at all. A newly minted kind inherits the
+    unknown-kind default instead, and on mobile that default is
+    **Approve / Reject** for any row carrying a `pending_payload`:
+    two buttons on a state report nothing can approve. Same hazard P2
+    found in the event feed, second registry, opposite direction. The
+    collision is contained to the wire name; summary, payload, and the
+    `pane_state` event all say blocked.
 - **D-7 — distribution starts embedded, hub later.** P1 embeds
   vendor + overlay via `go:embed`; binary upgrades ship rule fixes.
   P5 adds hub-distributed updates with herdr's exact hardening:
@@ -334,6 +381,65 @@ when nothing changed.
 takes a codex approval screen → attention item with rule id; the
 idle-shell false-positive class (bare `$` prompt) provably cannot
 raise; sweep test: no remaining `IdleDetector` path for mapped kinds.
+
+**As built (2026-08-09).** Attention raise + retract, the capture
+gate, and the guard rewrite landed; the D-2 exception did not (see
+D-2's own correction above — it is not a port, and settling it needs
+one real claude pane). All three acceptance clauses are met, by
+`TestBlockedScreenRaisesAttentionWithRuleID`,
+`TestBareShellPromptCannotRaiseAttention` and
+`TestIdleDetectorSkipsEveryMappedFamily`. Four things worth carrying
+forward:
+
+- **The retirement was already done, and the guard this line
+  proposes would have UNDONE part of it.** Every mapped family is a
+  registered agent family, and the old guard skipped every registered
+  family — so `IdleDetector` already never touched a mapped pane.
+  Replacing it with "has any state authority" *literally* would have
+  handed the legacy regex the registered-but-unmapped families,
+  `kimi-code-ts` above all: deliberately unmapped, and an instance
+  whose M4 launch fell back to a raw pane has no authority of either
+  sort. That is the W11 TUI-prompt false positive, re-opened by a
+  wedge whose job was to close things. `hasAnyStateAuthority` keeps
+  the registered-family clause as its third limb, so the legacy set
+  only ever contracts. The real change here is precision, not
+  coverage — plus the sweep test that turns "already disjoint" from a
+  coincidence into an assertion.
+- **The `covers()` clause of that guard is dead today, and says so.**
+  A mutation deleting it survives the entire suite, because clause 3
+  subsumes it. It is kept as the clause that names the actual reason,
+  with the subsumption written down and pinned to the test that would
+  fail if the overlay ever mapped an unregistered family. Recording a
+  shadowed guard is better than pretending a test covers it.
+- **`#{window_activity}` is sound, with one sharp edge.** tmux calls
+  `window_update_activity()` from `input_parse_buffer()`
+  (tmux 3.4 `input.c:975`) on every non-empty chunk of pane output,
+  independent of `monitor-activity` — that option only gates the
+  alert. But it is per-WINDOW (tmux 3.4 has no `pane_activity`
+  format) and one-second resolution, so output landing later in the
+  same second as the stamp we read is invisible to an equality test —
+  and for an idle pane that skip would repeat forever. The gate
+  therefore arms only on a stamp whose second had already elapsed when
+  we captured (`now.Unix() > activity`), which makes equality sound
+  rather than probabilistic. Skipping is also confined to panes whose
+  published state is idle, exactly as upstream confines it
+  (`should_skip_idle_screen_scan`, agent_detection.rs:91) — a stale
+  stamp can never freeze a blocked pane.
+- **Attention is decided on every classified tick, not on the
+  transition.** Deciding it inside the publish branch makes a failed
+  raise permanent: the streak's transition has already happened, so
+  the retry tick has nothing to publish and never looks again.
+
+Also landed: `listTmuxPaneTitles` became `listTmuxPaneMeta` (title +
+activity in the one round-trip P2's note reserved for it), and
+`internal/panestate/region.go`'s `Input.Screen` comment lost the last
+copy of the retracted 24-row claim.
+
+19 new/changed tests; 8 mutations introduced, 7 caught, 1 documented
+above as shadowed.
+
+**Still owed by this wedge:** the D-2 exception, and the device-verify
+line it is blocked on.
 
 ### P4 — explain verb + Inspect surface
 

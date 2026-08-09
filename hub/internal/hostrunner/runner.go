@@ -103,10 +103,12 @@ type Runner struct {
 	EgressProxyAddr string
 	egressProxy     *egressProxy
 
-	// idle + idleProbes are the pane detector P3 RETIRES: one global prompt
-	// regex plus a 90 s stall, the only state signal for engines with no
-	// structured driver. paneStates is its declarative successor (lane P);
-	// the two cover disjoint pane sets until that retirement lands.
+	// idle + idleProbes are the stall detector: one global prompt regex plus a
+	// 90 s content hash stall. paneStates is its declarative successor (lane
+	// P) and covers a strictly disjoint pane set — see hasAnyStateAuthority,
+	// which is the single guard deciding which of the two owns a pane. The
+	// stall detector is NOT scheduled for removal: it remains the only signal
+	// for an engine that has neither a structured driver nor a manifest.
 	idle       *IdleDetector
 	idleProbes map[string]idleProbeState // keyed by agent id
 	// paneStates classifies mapped families' panes against the vendored
@@ -478,17 +480,15 @@ func (a *Runner) Start(ctx context.Context) error {
 // Errors on a single pane are logged and skipped — one bad pane shouldn't
 // prevent us from watching the others.
 //
-// Agents whose kind matches a registered engine family (claude-code,
-// codex, gemini-cli, kimi-code-ts, antigravity) are skipped: their
-// drivers emit explicit busy/idle signals via lifecycle / turn.result /
-// completion events, so mobile already has authoritative state, and the
-// regex-based
-// pane scrape false-positives on these engines' always-visible chat
-// prompt (the W11 smoke surfaced this — every 30 min an "agent idle at
-// prompt" attention item landed on the Me page even though agy was
-// behaving normally, just sitting at its TUI prompt waiting for input).
-// The detector remains for legacy/unknown agents that PaneDriver runs
-// without structured state.
+// Agents that already have a state authority are skipped
+// (hasAnyStateAuthority): a driver that emits explicit busy/idle signals
+// via lifecycle / turn.result / completion events, or lane P's manifest
+// evaluator. The regex-based pane scrape false-positives on a modern
+// engine's always-visible chat prompt (the W11 smoke surfaced this —
+// every 30 min an "agent idle at prompt" attention item landed on the Me
+// page even though agy was behaving normally, just sitting at its TUI
+// prompt waiting for input). The detector remains for unregistered/unknown
+// agents that PaneDriver runs without structured state.
 func (a *Runner) tickIdle(ctx context.Context) {
 	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
 	if err != nil {
@@ -496,14 +496,13 @@ func (a *Runner) tickIdle(ctx context.Context) {
 	}
 	now := time.Now()
 
-	// Lane P (P2): declarative classification for the families the vendored
-	// screen manifests cover. It shares this tick's agent list rather than
-	// re-fetching, and covers a set DISJOINT from the older detector below
-	// (the one P3 removes) — every mapped family is a registered agent
-	// family, so the hasStructuredDriver() skip already excludes it here. The two never
-	// scrape the same pane; TestPaneStateFamiliesAreRegisteredAgentFamilies
-	// fails if a mapping is added that breaks that.
-	a.paneStates.tick(ctx, a.agentPoster, agents, a.paneStateAuthority)
+	// Lane P: declarative classification for the families the vendored screen
+	// manifests cover. It shares this tick's agent list rather than
+	// re-fetching, and covers a set DISJOINT from the stall detector below —
+	// hasAnyStateAuthority asks the watcher first, so no pane is scraped by
+	// both. TestPaneStateFamiliesAreRegisteredAgentFamilies and
+	// TestIdleDetectorSkipsEveryMappedFamily lock the two halves.
+	a.paneStates.tick(ctx, a.agentPoster, a.Client, agents, a.paneStateAuthority)
 
 	seen := map[string]struct{}{}
 	for _, ag := range agents {
@@ -511,11 +510,12 @@ func (a *Runner) tickIdle(ctx context.Context) {
 		if ag.PaneID == "" || ag.PauseState == "paused" {
 			continue
 		}
-		if hasStructuredDriver(ag.Kind) {
-			// Engine reports its own state; the pane-tail scrape would
-			// false-positive on the always-on chat prompt. Drop any
-			// stored hash so a future regression that re-enables this
-			// path doesn't replay a stale "stuck for hours" baseline.
+		if a.hasAnyStateAuthority(ag) {
+			// Something else already authors this agent's state; the
+			// pane-tail scrape would false-positive on the always-on chat
+			// prompt. Drop any stored hash so a future regression that
+			// re-enables this path doesn't replay a stale "stuck for
+			// hours" baseline.
 			delete(a.idleProbes, ag.ID)
 			continue
 		}
@@ -1172,6 +1172,46 @@ func (a *Runner) paneStateAuthority(agentID string) bool {
 	}
 	_, rawPane := d.(*PaneDriver)
 	return !rawPane
+}
+
+// hasAnyStateAuthority is the stall detector's guard (IdleDetector, plan P3):
+// quiet whenever SOMETHING already authors this agent's state.
+//
+// Three clauses, narrowest first:
+//
+//  1. a live structured driver (the D-2 gate above);
+//  2. lane P's manifest evaluator, which is a state authority for every
+//     family the overlay maps;
+//  3. any registered agent family.
+//
+// Clause 3 is the one doing work. `kimi-code-ts` is a registered family the
+// overlay deliberately does NOT map (nobody has confirmed upstream's `kimi`
+// manifest is the compiled-TypeScript CLI), so an instance whose M4 launch
+// fell back to a raw pane satisfies neither 1 nor 2. Dropping clause 3 would
+// hand that pane to the regex detector — GROWING the stall detector's reach,
+// in a wedge whose job is to shrink it, and re-opening the exact TUI-prompt
+// false positive the W11 smoke found. Retirement means the set only contracts.
+//
+// **Clause 2 changes no answer today, and that is stated rather than
+// implied.** Every mapped family is a registered one, so clause 3 already
+// covers all of them; a mutation deleting clause 2 survives the whole suite.
+// It stays because it names the actual reason a mapped pane is exempt, and
+// because the subsumption is an invariant of the overlay rather than a law —
+// TestPaneStateFamiliesAreRegisteredAgentFamilies is what would fail if it
+// were relaxed, and on that day this clause becomes load-bearing without
+// anyone having to remember it.
+//
+// So P3's change here is precision, not coverage: the mapped families were
+// already skipped via clause 3, and TestIdleDetectorSkipsEveryMappedFamily now
+// asserts it instead of leaving it a coincidence.
+func (a *Runner) hasAnyStateAuthority(ag Agent2) bool {
+	if a.paneStateAuthority(ag.ID) {
+		return true
+	}
+	if a.paneStates.covers(ag.Kind) {
+		return true
+	}
+	return hasStructuredDriver(ag.Kind)
 }
 
 // putDriver registers a driver under agentID. Guarded by agentsMu (#77).

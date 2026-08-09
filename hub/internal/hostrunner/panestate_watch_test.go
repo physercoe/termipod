@@ -2,8 +2,12 @@ package hostrunner
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,8 +40,10 @@ const (
 type testWatch struct {
 	*paneStateWatch
 	poster   *recordingPoster
+	attn     *recordingAttention
 	screen   string
 	titles   map[string]string
+	activity map[string]int64
 	captured []string
 	now      time.Time
 	capErr   error
@@ -50,9 +56,11 @@ func newTestWatch(t *testing.T) *testWatch {
 		t.Fatalf("load embedded manifests: %v", err)
 	}
 	tw := &testWatch{
-		poster: &recordingPoster{},
-		titles: map[string]string{},
-		now:    time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
+		poster:   &recordingPoster{},
+		attn:     &recordingAttention{},
+		titles:   map[string]string{},
+		activity: map[string]int64{},
+		now:      time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 	}
 	tw.paneStateWatch = &paneStateWatch{
 		reg:     reg,
@@ -66,13 +74,47 @@ func newTestWatch(t *testing.T) *testWatch {
 			}
 			return tw.screen, nil
 		},
-		titles: func(context.Context) (map[string]string, error) { return tw.titles, nil },
+		meta: func(context.Context) (map[string]paneMeta, error) {
+			m := map[string]paneMeta{}
+			for id, title := range tw.titles {
+				m[id] = paneMeta{title: title, activity: tw.activity[id]}
+			}
+			for id, act := range tw.activity {
+				if _, ok := m[id]; !ok {
+					m[id] = paneMeta{activity: act}
+				}
+			}
+			return m, nil
+		},
 	}
 	return tw
 }
 
 func (tw *testWatch) tickAgents(agents []Agent2, authority func(string) bool) {
-	tw.paneStateWatch.tick(context.Background(), tw.poster, agents, authority)
+	tw.paneStateWatch.tick(context.Background(), tw.poster, tw.attn, agents, authority)
+}
+
+// recordingAttention stands in for the hub's /attention surface. It hands out
+// increasing ids so a test can tell "the same row" from "a second row".
+type recordingAttention struct {
+	raised   []AttentionIn
+	resolved []string
+	postErr  error
+	next     int
+}
+
+func (r *recordingAttention) PostAttention(_ context.Context, in AttentionIn) (AttentionOut, error) {
+	if r.postErr != nil {
+		return AttentionOut{}, r.postErr
+	}
+	r.raised = append(r.raised, in)
+	r.next++
+	return AttentionOut{ID: fmt.Sprintf("att-%d", r.next)}, nil
+}
+
+func (r *recordingAttention) ResolveAttention(_ context.Context, id string) error {
+	r.resolved = append(r.resolved, id)
+	return nil
 }
 
 func codexAgent() Agent2 {
@@ -498,6 +540,317 @@ func TestPaneStatePrunesEntriesForVanishedAgents(t *testing.T) {
 	}
 }
 
+// --- attention (P3) -------------------------------------------------------
+
+// blockedWatch settles a codex agent and leaves it showing the approval
+// dialog, which is the starting point for most of the attention tests.
+func blockedWatch(t *testing.T) (*testWatch, []Agent2, func(string) bool) {
+	t.Helper()
+	tw := newTestWatch(t)
+	agents := []Agent2{codexAgent()}
+	none := func(string) bool { return false }
+	tw.titles["%7"] = "project"
+	tw.screen = codexWorkingScreen
+	tw.settle(agents, none)
+	tw.tickAgents(agents, none) // publish working
+
+	tw.screen = codexBlockedScreen
+	tw.now = tw.now.Add(3 * time.Second)
+	return tw, agents, none
+}
+
+// The plan's headline acceptance clause: a real codex approval screen becomes
+// an attention item naming the rule that matched.
+func TestBlockedScreenRaisesAttentionWithRuleID(t *testing.T) {
+	tw, agents, none := blockedWatch(t)
+	tw.tickAgents(agents, none)
+
+	if len(tw.attn.raised) != 1 {
+		t.Fatalf("raised %d attention items, want 1", len(tw.attn.raised))
+	}
+	got := tw.attn.raised[0]
+	if got.Kind != paneStateAttentionKind {
+		t.Errorf("kind = %q, want %q", got.Kind, paneStateAttentionKind)
+	}
+	if got.ActorHandle != "cx" {
+		t.Errorf("actor_handle = %q, want the agent handle", got.ActorHandle)
+	}
+	if !strings.Contains(got.Summary, "blocked") || !strings.Contains(got.Summary, "cx") {
+		t.Errorf("summary = %q, want it to name the state and the agent", got.Summary)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(got.PendingPayload, &payload); err != nil {
+		t.Fatalf("pending_payload is not json: %v", err)
+	}
+	if payload["rule_id"] != "live_strong_blocker" {
+		t.Errorf("rule_id = %v, want live_strong_blocker", payload["rule_id"])
+	}
+	if payload["agent_id"] != "ag-1" || payload["pane"] != "%7" {
+		t.Errorf("payload lost the agent/pane pointer: %+v", payload)
+	}
+	// Same rule as the event: evidence is a rule id, never pane text. An
+	// attention row fans out further than the transcript does.
+	for k, v := range payload {
+		if s, ok := v.(string); ok && strings.Contains(s, "Yes, proceed") {
+			t.Fatalf("payload key %q leaked the screen", k)
+		}
+	}
+	if strings.Contains(got.Summary, "Yes, proceed") {
+		t.Fatalf("summary leaked the screen: %q", got.Summary)
+	}
+	// The transition event points at the row it raised.
+	last, ok := tw.poster.last()
+	if !ok || last.Payload["attention_id"] != "att-1" {
+		t.Errorf("pane_state event should name the attention row: %+v", last.Payload)
+	}
+}
+
+// Once per streak, not once per tick. The hub's attention model owns
+// re-delivery — that is why D-5's 800 ms visible-blocker re-publish was
+// deliberately not ported.
+func TestBlockedStreakRaisesExactlyOnce(t *testing.T) {
+	tw, agents, none := blockedWatch(t)
+	for i := 0; i < 5; i++ {
+		tw.tickAgents(agents, none)
+		tw.now = tw.now.Add(3 * time.Second)
+	}
+	if len(tw.attn.raised) != 1 {
+		t.Fatalf("raised %d rows across one blocked streak, want 1", len(tw.attn.raised))
+	}
+	if len(tw.attn.resolved) != 0 {
+		t.Fatalf("resolved %v while still blocked", tw.attn.resolved)
+	}
+}
+
+// The human answered the dialog in the terminal. Nothing tells the hub, so the
+// row would sit open forever; the classification leaving blocked is the signal.
+func TestAttentionRetractsWhenClassificationLeavesBlocked(t *testing.T) {
+	tw, agents, none := blockedWatch(t)
+	tw.tickAgents(agents, none)
+
+	tw.screen = codexWorkingScreen
+	tw.now = tw.now.Add(3 * time.Second)
+	tw.tickAgents(agents, none)
+
+	if len(tw.attn.resolved) != 1 || tw.attn.resolved[0] != "att-1" {
+		t.Fatalf("resolved = %v, want [att-1]", tw.attn.resolved)
+	}
+	// And a NEW streak gets its own row rather than reviving the closed one.
+	tw.screen = codexBlockedScreen
+	tw.now = tw.now.Add(3 * time.Second)
+	tw.tickAgents(agents, none)
+	if len(tw.attn.raised) != 2 {
+		t.Fatalf("raised %d rows across two streaks, want 2", len(tw.attn.raised))
+	}
+}
+
+// An agent that stopped running takes its row with it: the row asks someone to
+// answer a dialog on a pane that no longer exists.
+func TestAttentionRetractsWhenAgentLeavesRunningSet(t *testing.T) {
+	tw, agents, none := blockedWatch(t)
+	tw.tickAgents(agents, none)
+
+	tw.now = tw.now.Add(3 * time.Second)
+	tw.tickAgents(nil, none)
+
+	if len(tw.attn.resolved) != 1 || tw.attn.resolved[0] != "att-1" {
+		t.Fatalf("resolved = %v, want [att-1]", tw.attn.resolved)
+	}
+}
+
+// A hub that was down when the streak began must not cost the whole streak its
+// row. The retry works only because tick() decides attention on every
+// classified pass, not just on a transition — deleting that property here
+// leaves this test as the one that fails.
+func TestAttentionRaiseRetriesAfterAFailure(t *testing.T) {
+	tw, agents, none := blockedWatch(t)
+	tw.attn.postErr = errors.New("hub down")
+	tw.tickAgents(agents, none)
+	if len(tw.attn.raised) != 0 {
+		t.Fatalf("recorded a raise that failed: %+v", tw.attn.raised)
+	}
+
+	tw.attn.postErr = nil
+	tw.now = tw.now.Add(3 * time.Second)
+	tw.tickAgents(agents, none) // same screen: no transition to publish
+
+	if len(tw.attn.raised) != 1 {
+		t.Fatalf("raised %d rows after the hub recovered, want 1", len(tw.attn.raised))
+	}
+}
+
+// `blocked` without `visible_blocker` is an inference — an OSC title, a
+// missing spinner. Worth recording as state, not worth waking someone for.
+func TestAttentionNeedsAVisibleBlocker(t *testing.T) {
+	var e paneStateEntry
+	inferred := paneStatePublish{state: panestate.StateBlocked}
+	if got := e.attentionFor(inferred); got != attentionNone {
+		t.Errorf("inferred blocked: action = %v, want none", got)
+	}
+	seen := paneStatePublish{state: panestate.StateBlocked, visibleBlocker: true}
+	if got := e.attentionFor(seen); got != attentionRaise {
+		t.Errorf("visible blocker: action = %v, want raise", got)
+	}
+	// The dialog scrolling out of the matched region does not end the streak —
+	// only leaving `blocked` does.
+	e.attentionID = "att-1"
+	if got := e.attentionFor(inferred); got != attentionNone {
+		t.Errorf("still blocked: action = %v, want none", got)
+	}
+	if got := e.attentionFor(paneStatePublish{state: panestate.StateIdle}); got != attentionRetract {
+		t.Errorf("left blocked: action = %v, want retract", got)
+	}
+}
+
+// The plan's second acceptance clause: the idle-shell false-positive class
+// that the legacy regex detector exists to catch must be UNABLE to raise here.
+// A bare `$` prompt is not a blocked agent, and no vendored rule says it is.
+func TestBareShellPromptCannotRaiseAttention(t *testing.T) {
+	tw := newTestWatch(t)
+	agents := []Agent2{codexAgent()}
+	none := func(string) bool { return false }
+	tw.screen = codexWorkingScreen
+	tw.settle(agents, none)
+	tw.tickAgents(agents, none) // publish working, so idle is a transition
+
+	// Two ticks: working → plain idle is the one transition D-5 holds, and at
+	// our 3 s cadence the cap releases it on the second observation.
+	tw.screen = "$ \n"
+	for i := 0; i < 2; i++ {
+		tw.now = tw.now.Add(3 * time.Second)
+		tw.tickAgents(agents, none)
+	}
+
+	if len(tw.attn.raised) != 0 {
+		t.Fatalf("a bare shell prompt raised %+v", tw.attn.raised)
+	}
+	last, ok := tw.poster.last()
+	if !ok || last.Payload["state"] != string(panestate.StateIdle) {
+		t.Fatalf("bare prompt should classify idle, got %+v", last.Payload)
+	}
+	if last.Payload["fallback_reason"] != panestate.FallbackKnownAgentIdle {
+		t.Errorf("want the known-agent idle fallback, got %+v", last.Payload)
+	}
+}
+
+// --- capture-cost gating (B5) ---------------------------------------------
+
+func TestSkipCaptureOnlyForAnIdleUnchangedPane(t *testing.T) {
+	base := func() *paneStateEntry {
+		e := &paneStateEntry{published: paneStatePublish{state: panestate.StateIdle}}
+		e.scanActivity = 1770000000
+		return e
+	}
+	if !base().skipCapture(1770000000) {
+		t.Error("idle pane, unmoved activity: want skip")
+	}
+	if base().skipCapture(1770000001) {
+		t.Error("activity moved: must re-read")
+	}
+	if base().skipCapture(0) {
+		t.Error("unknown stamp: must re-read")
+	}
+
+	// A blocked or working pane is re-read every tick no matter what the stamp
+	// says. That asymmetry is what keeps a stale stamp from ever freezing the
+	// state this lane exists to report.
+	for _, s := range []panestate.State{panestate.StateBlocked, panestate.StateWorking, panestate.StateUnknown} {
+		e := base()
+		e.published.state = s
+		if e.skipCapture(1770000000) {
+			t.Errorf("state %s: must never be skipped", s)
+		}
+	}
+	// Nor mid-hysteresis: the hold needs its next observation to resolve.
+	held := base()
+	held.pending.startedAt = time.Now()
+	if held.skipCapture(1770000000) {
+		t.Error("a pending idle hold must not be skipped")
+	}
+	// Never scanned: nothing to compare against.
+	fresh := &paneStateEntry{published: paneStatePublish{state: panestate.StateIdle}}
+	if fresh.skipCapture(0) || fresh.skipCapture(1770000000) {
+		t.Error("an unarmed gate must not skip")
+	}
+}
+
+// `#{window_activity}` has one-second resolution, so a stamp read DURING the
+// second it names cannot be compared for equality later — output arriving
+// later in that same second would produce an identical stamp, and for an idle
+// pane that skip would repeat forever.
+func TestNoteScanRefusesAStampFromTheCurrentSecond(t *testing.T) {
+	at := time.Unix(1770000000, 0)
+	var e paneStateEntry
+
+	e.noteScan(1770000000, at) // captured inside the second the stamp names
+	if e.scanActivity != 0 {
+		t.Errorf("armed the gate on a same-second stamp: %d", e.scanActivity)
+	}
+	e.noteScan(1770000000, at.Add(1500*time.Millisecond)) // that second has passed
+	if e.scanActivity != 1770000000 {
+		t.Errorf("scanActivity = %d, want the stamp", e.scanActivity)
+	}
+	e.noteScan(0, at.Add(time.Hour)) // unknown stamp disarms
+	if e.scanActivity != 0 {
+		t.Errorf("an unknown stamp must disarm the gate, got %d", e.scanActivity)
+	}
+}
+
+// End to end: an idle pane whose window produced no output is not captured at
+// all — no subprocess, no evaluation.
+func TestCaptureGateSkipsAnUnchangedIdlePane(t *testing.T) {
+	tw := newTestWatch(t)
+	agents := []Agent2{codexAgent()}
+	none := func(string) bool { return false }
+	// A stamp from well before the settle clock, so noteScan arms.
+	tw.activity["%7"] = tw.now.Add(-time.Minute).Unix()
+	tw.screen = "$ \n"
+	tw.settle(agents, none)
+
+	tw.tickAgents(agents, none) // first read arms the gate
+	if len(tw.captured) != 1 {
+		t.Fatalf("first pass captured %d times, want 1", len(tw.captured))
+	}
+	tw.now = tw.now.Add(3 * time.Second)
+	tw.tickAgents(agents, none)
+	if len(tw.captured) != 1 {
+		t.Fatalf("unchanged idle pane was captured again: %v", tw.captured)
+	}
+
+	// Output arrives: the stamp moves and the pane is read again, this time
+	// showing a dialog that must still reach attention.
+	tw.activity["%7"] = tw.now.Unix()
+	tw.screen = codexBlockedScreen
+	tw.titles["%7"] = "project"
+	tw.now = tw.now.Add(3 * time.Second)
+	tw.tickAgents(agents, none)
+	if len(tw.captured) != 2 {
+		t.Fatalf("moved activity should force a re-read: %v", tw.captured)
+	}
+	if len(tw.attn.raised) != 1 {
+		t.Fatalf("the dialog behind the gate raised %d rows, want 1", len(tw.attn.raised))
+	}
+}
+
+// A pane the gate has never armed on — because the metadata read failed, or
+// tmux has no `#{window_activity}` — is captured every tick, as before.
+func TestCaptureGateDefaultsToCapturing(t *testing.T) {
+	tw := newTestWatch(t)
+	agents := []Agent2{codexAgent()}
+	none := func(string) bool { return false }
+	tw.screen = "$ \n"
+	tw.settle(agents, none)
+
+	for i := 0; i < 3; i++ {
+		tw.tickAgents(agents, none)
+		tw.now = tw.now.Add(3 * time.Second)
+	}
+	if len(tw.captured) != 3 {
+		t.Fatalf("captured %d times without an activity stamp, want 3", len(tw.captured))
+	}
+}
+
 // --- invariants -----------------------------------------------------------
 
 // The legacy IdleDetector and this watcher must never scrape the same pane.
@@ -529,7 +882,11 @@ func TestPaneStateFamiliesAreRegisteredAgentFamilies(t *testing.T) {
 // classification is a degraded host-runner, panicking is a dead one.
 func TestPaneStateNilWatchIsInert(t *testing.T) {
 	var w *paneStateWatch
-	w.tick(context.Background(), &recordingPoster{}, []Agent2{codexAgent()}, func(string) bool { return false })
+	w.tick(context.Background(), &recordingPoster{}, &recordingAttention{},
+		[]Agent2{codexAgent()}, func(string) bool { return false })
+	if w.covers("codex") {
+		t.Error("a disabled watcher covers nothing — else the legacy detector stays off too")
+	}
 }
 
 // --- runner-level authority ----------------------------------------------
@@ -558,24 +915,89 @@ func TestPaneStateAuthorityDistinguishesRawPaneDriver(t *testing.T) {
 	}
 }
 
-// --- tmux title parsing ---------------------------------------------------
+// P3's IdleDetector retirement, asserted rather than assumed: for every family
+// the evaluator covers, the legacy regex detector must stay quiet — otherwise
+// two detectors scrape the same pane and disagree about it.
+//
+// This holds even for a raw PaneDriver, which is the whole point: that is the
+// agent the evaluator is FOR, and it is also the only one the legacy detector
+// would have taken.
+func TestIdleDetectorSkipsEveryMappedFamily(t *testing.T) {
+	a := &Runner{
+		drivers:    map[string]Driver{"ag-raw": &PaneDriver{AgentID: "ag-raw"}},
+		paneStates: newPaneStateWatch(slog.New(slog.NewTextHandler(io.Discard, nil))),
+	}
+	if a.paneStates == nil {
+		t.Fatal("embedded manifests failed to load")
+	}
+	families := a.paneStates.reg.Families()
+	if len(families) == 0 {
+		t.Fatal("no families mapped; the overlay lost its engines block")
+	}
+	for _, family := range families {
+		if !a.hasAnyStateAuthority(Agent2{ID: "ag-raw", Kind: family}) {
+			t.Errorf("family %q is evaluated by the manifests but the legacy "+
+				"idle detector would also scrape its pane", family)
+		}
+	}
+}
 
-func TestParsePaneTitlesKeepsSpacesAndEmpties(t *testing.T) {
-	out := "%1 codex — my project\n%2\n%3 \n\n%4 llm-proxy\n"
-	got := parsePaneTitles(out)
+// The retirement must not widen the legacy detector's reach. `kimi-code-ts` is
+// a registered family the overlay deliberately does NOT map, and an instance
+// that fell back to a raw pane has no structured driver either — the third
+// clause of hasAnyStateAuthority is the only thing keeping the regex detector
+// off it, and off the TUI-prompt false positive the W11 smoke found.
+func TestUnmappedRegisteredFamilyStaysOutOfTheLegacyDetector(t *testing.T) {
+	a := &Runner{
+		drivers:    map[string]Driver{"ag-raw": &PaneDriver{AgentID: "ag-raw"}},
+		paneStates: newPaneStateWatch(slog.New(slog.NewTextHandler(io.Discard, nil))),
+	}
+	const family = "kimi-code-ts"
+	if _, mapped := a.paneStates.reg.ManifestForFamily(family); mapped {
+		t.Skipf("%s is mapped now; this test's premise moved", family)
+	}
+	if _, ok := agentfamilies.ByName(family); !ok {
+		t.Fatalf("%s is no longer a registered agent family", family)
+	}
+	if !a.hasAnyStateAuthority(Agent2{ID: "ag-raw", Kind: family}) {
+		t.Error("an unmapped registered family must stay out of the legacy detector")
+	}
 
-	want := map[string]string{
-		"%1": "codex — my project",
-		"%2": "",
-		"%3": "",
-		"%4": "llm-proxy",
+	// An unregistered, unmapped kind is exactly what the legacy detector is
+	// still for, and it must still get it.
+	if a.hasAnyStateAuthority(Agent2{ID: "ag-raw", Kind: "some-legacy-script"}) {
+		t.Error("the legacy detector lost the agents it exists for")
+	}
+}
+
+// --- tmux pane metadata parsing -------------------------------------------
+
+func TestParsePaneMetaKeepsSpacesAndEmpties(t *testing.T) {
+	out := "%1 1770000000 codex — my project\n" + // both fields
+		"%2\n" + // pane id alone
+		"%3 1770000001 \n" + // trailing space, empty title
+		"\n" + // blank line
+		"%4  llm-proxy\n" + // tmux too old for #{window_activity}
+		"%5 not-a-number title\n" // garbage where the stamp should be
+
+	got := parsePaneMeta(out)
+
+	want := map[string]paneMeta{
+		"%1": {title: "codex — my project", activity: 1770000000},
+		"%2": {},
+		"%3": {activity: 1770000001},
+		// An absent or unparseable stamp must read as UNKNOWN (0), never as a
+		// timestamp — 0 disables the capture gate, a wrong number would make it
+		// skip a pane forever.
+		"%4": {title: "llm-proxy"},
+		"%5": {title: "title"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("parsed %d panes, want %d: %+v", len(got), len(want), got)
 	}
-	for id, title := range want {
-		if got[id] != title {
-			t.Errorf("%s title = %q, want %q", id, got[id], title)
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("%s = %+v, want %+v", id, got[id], w)
 		}
 	}
 }

@@ -43,6 +43,32 @@ binding). Seed entries prior to that are in
 
 ### Added
 
+- **A blocked pane now raises attention, and withdraws it again.** When
+  the pane-state classifier matches a rule that says *blocked* AND
+  reports a dialog visible on screen, host-runner opens one
+  attention row for that blocked streak — carrying the matched rule id,
+  the manifest and its version, and the agent + pane, but never any pane
+  text (evidence is a rule id; an attention row fans out further than a
+  transcript, and the pane may be showing a secret). When the
+  classification leaves blocked — because the human answered the dialog
+  in the terminal, where nothing would otherwise tell the hub — the row
+  is resolved, as it is when the agent stops running. It is the first
+  host-runner row that retracts itself. This closes the concrete gap the
+  lane opened on: codex sitting at "Allow command?" raised nothing at
+  all before. The row's kind stays `idle`, deliberately: on that surface
+  the kind picks the affordance, and it is the only value both clients
+  already route to acknowledge-only — a new kind would have inherited
+  the unknown-kind default, which on mobile draws Approve / Reject for a
+  state report nothing can approve.
+- **Idle panes are no longer captured when nothing has happened in
+  them.** Host-runner reads tmux's `#{window_activity}` stamp in the
+  same single `list-panes` round-trip it already makes for pane titles,
+  and skips the `capture-pane` subprocess for a pane whose published
+  state is idle and whose window has produced no output since the last
+  read. Blocked and working panes are always re-read, so a stale stamp
+  can never freeze the state this detector exists to report.
+  Plan: pane-state-manifests P3.
+
 - **Pane-state detection is live on the host-runner poll tick.** The
   evaluator below is now fed from the runner's pane pass: mapped families
   whose pane has no live state-authoring driver are captured, classified
@@ -127,6 +153,35 @@ binding). Seed entries prior to that are in
   silently), and `gemini-cli` is a protocol resume rather than argv,
   because the argv the driver uses is threaded per turn, not spliced at
   spawn. Pane-state-manifests plan, N1.
+
+### Changed
+
+- **The legacy idle detector's guard now names its own reason.**
+  `hasStructuredDriver(kind)` becomes `hasAnyStateAuthority(agent)` — a
+  live structured driver, or manifest coverage, or a registered engine
+  family. The set of agents it scrapes is unchanged (every mapped family
+  is a registered one, so mapped panes were already excluded) and a
+  sweep test now asserts that instead of leaving it a coincidence.
+  Deliberately conservative: the guard still exempts
+  registered-but-unmapped families such as `kimi-code-ts`, so
+  retirement can only shrink the legacy detector's reach, never grow it.
+  Plan: pane-state-manifests P3.
+
+### Fixed
+
+- **A host-runner-raised attention row was attributed to the host, never
+  to the agent that asked.** `POST /attention` honoured a body-supplied
+  `actor_handle` only when the authenticated caller had no handle of its
+  own — a condition that can never hold, because `principalFromScope`
+  falls back to `"@principal"` for an absent handle, an absent role and
+  unparseable scope JSON alike. So the branch was unreachable, and every
+  row the codex approval bridge has raised since ADR-012 D3 recorded
+  `actor_kind=operator` plus the host token's principal instead of
+  `agent` plus the agent's handle. The condition is now the token
+  *kind*: only a `host` token may name someone else, so an agent's own
+  token still loses to its context identity. Found by testing the new
+  pane-state row against the real handler instead of a stub; neither
+  client renders these two columns yet, which is why it went unnoticed.
 
 ### Security
 

@@ -36,9 +36,16 @@ const maxRegionLineCount = 65535
 // Input is what the evaluator classifies: a screen snapshot plus the strings
 // the terminal reported out of band.
 type Input struct {
-	// Screen is the bottom-anchored capture. Plan D-4 makes the geometry a
-	// contract: the vendored rules were authored against upstream's last-24-
-	// rows snapshot, so P2 must trim to that before calling here.
+	// Screen is the visible viewport, untrimmed — what `capture-pane -p -J`
+	// returns.
+	//
+	// Plan D-4 called the geometry "the bottom-anchored last 24 rows
+	// (DEFAULT_DETECTION_ROWS)". P2 read the source and found that backwards:
+	// upstream's `ghostty_detection_text` reads `terminal.rows()` and falls
+	// back to 24 only when the row count is unavailable
+	// (herdr src/pane/terminal.rs:2468-2475). 24 is a fallback, not the
+	// contract — trimming to it would cut rows the `top_*` region rules were
+	// written to see on any pane taller than 24.
 	Screen string
 	// OSCTitle comes from tmux `#{pane_title}`.
 	OSCTitle string

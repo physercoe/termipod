@@ -1,32 +1,38 @@
 // Declarative pane-state classification, wired into the host-runner's poll
-// tick (docs/plans/pane-state-manifests.md lane P, wedge P2).
+// tick (docs/plans/pane-state-manifests.md lane P, wedges P2 + P3).
 //
 // `internal/panestate` (P1) is a pure library: screen in, classification out.
 // This file is everything around it — which panes are eligible, where the
 // screen and the OSC title come from, the debounce/hysteresis/startup-grace
-// state machine, and the agent event a transition becomes.
+// state machine, the agent event a transition becomes, and (P3) the attention
+// row a blocked streak opens and later withdraws.
 //
 // Where it runs, and why not in PaneDriver
 // ----------------------------------------
 // The plan's P2 line says "feed the evaluator from `PaneDriver`'s tick". It
-// lives in the runner's pane tick instead, because three of the plan's own
+// lives in the runner's pane tick instead, because two of the plan's own
 // decisions cannot be satisfied from inside a driver:
 //
 //   - D-3 needs the agent's family. PaneDriver only knows an agent id and a
 //     pane id; the family lives on the hub's agent row.
 //   - D-4 wants ONE `list-panes -F` round-trip covering all panes for the
-//     OSC title. A per-driver call is one round-trip per agent.
-//   - D-2's ported exception (a visible blocker on a pane whose adapter DOES
-//     author state may still raise attention, P3) is about panes PaneDriver
-//     does not own and cannot see.
+//     OSC title (and, since P3, the activity stamp). A per-driver call is one
+//     round-trip per agent.
 //
-// The runner tick already walks every running pane for the IdleDetector
-// that P3 retires, so this adds no new enumeration — and the two are
-// disjoint by construction (see paneStateWatch.tick).
+// The runner tick already walks every running pane for the stall detector, so
+// this adds no new enumeration — and the two are disjoint by construction
+// (see paneStateWatch.tick and Runner.hasAnyStateAuthority).
+//
+// D-2's structured-authority exception is NOT here, and P3 records why: it is
+// not a port (upstream short-circuits on `lifecycle_authority_active` before
+// reading the screen), and whether it would complement or duplicate claude's
+// hook-raised permission_prompt rows cannot be settled without watching a real
+// pane. See the plan's D-2 correction.
 package hostrunner
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -50,6 +56,40 @@ import (
 const PaneStateEventKind = "pane_state"
 
 const paneStateEventProducer = "system"
+
+// paneStateAttentionKind is the attention kind a blocked classification
+// raises (P3). D-6 left the choice open — "no new attention kind unless P3
+// review finds `idle` semantically wrong for 'blocked on approval'" — and the
+// review's answer is: reuse `idle`, because the KIND on this surface is a
+// routing-and-affordance token, not the classification.
+//
+// `idle` is the only kind both clients already route correctly for a row a
+// human can acknowledge but not answer:
+//
+//   - mobile buckets it under Agents and renders a single Dismiss
+//     (`me_screen.dart` _filterForAttention, `inline_actions.dart`
+//     _isInformational). Its kind test runs BEFORE the pending_payload test,
+//     so attaching evidence below does not flip it into Requests.
+//   - the hub keeps it out of `attentionAwaitsAgentReply`, so /resolve accepts
+//     it — which is what makes the retract leg legal at all.
+//
+// A newly minted kind would have inherited the unknown-kind default instead:
+// on mobile, a row carrying a pending_payload falls into Requests and draws
+// **Approve / Reject** for a state report nothing can approve. That is the
+// same unknown-kind hazard P2 found in the event feed, in a second registry —
+// the affordance defaults are per-surface, and neither defaults to silence.
+//
+// The cost is the term collision this lane spent P1 avoiding: `idle` and
+// `blocked` are contrasting states in `internal/panestate`, and the row we
+// raise for `blocked` is kind `idle`. It is contained to the wire name — the
+// summary, the payload, and the pane_state event all say blocked — and it is
+// the smaller of the two prices.
+const paneStateAttentionKind = "idle"
+
+// paneStateAttentionSeverity matches the stall detector's. A blocked pane is
+// worth surfacing, not worth escalating: nothing is broken, someone just has
+// to answer a question the agent asked its terminal instead of the hub.
+const paneStateAttentionSeverity = "minor"
 
 // D-5 constants, read from herdr `src/pane/agent_detection.rs` at the same
 // commit the manifests are vendored from (6f311498):
@@ -156,6 +196,93 @@ type paneStateEntry struct {
 	published  paneStatePublish
 	graceUntil time.Time
 	pending    pendingIdleHold
+
+	// attentionID is the open row for the CURRENT blocked streak, "" when
+	// none. One row per streak, not per tick: the hub's attention model owns
+	// re-delivery, which is why D-5's 800 ms visible-blocker re-publish was
+	// deliberately not ported.
+	attentionID string
+
+	// scanActivity is the `#{window_activity}` stamp the last capture is
+	// known-good for, or 0 when this pane is not skippable. See noteScan.
+	scanActivity int64
+}
+
+// attentionAction is what a freshly published classification owes the
+// attention surface. Separated from the doing so the decision is testable
+// without a hub.
+type attentionAction int
+
+const (
+	attentionNone attentionAction = iota
+	attentionRaise
+	attentionRetract
+)
+
+// attentionFor decides raise / retract / nothing for a classification that is
+// about to be published.
+//
+// Raising needs BOTH `blocked` and `visible_blocker` (plan P3). The strictness
+// is the point: `blocked` alone can come from a rule that inferred the state
+// from an OSC title or a spinner's absence, and a guess is not worth waking
+// someone for. `visible_blocker` means the manifest matched a dialog that is
+// on the screen right now — evidence a human can go look at.
+//
+// The streak is keyed on the STATE only, so blocked→blocked with the dialog
+// scrolling out of the matched region keeps the row (still blocked, still
+// waiting); it retracts when the classification leaves blocked entirely.
+func (e *paneStateEntry) attentionFor(next paneStatePublish) attentionAction {
+	if next.state == panestate.StateBlocked {
+		if e.attentionID == "" && next.visibleBlocker {
+			return attentionRaise
+		}
+		return attentionNone
+	}
+	if e.attentionID != "" {
+		return attentionRetract
+	}
+	return attentionNone
+}
+
+// skipCapture is B5's capture-cost gate: don't even read the screen of a pane
+// that is idle and has produced no output since we last read it.
+//
+// Ported from upstream's `should_skip_idle_screen_scan` (agent_detection.rs:91)
+// with its conditions intact — skip ONLY when the published state is idle and
+// no idle hold is in flight. Upstream's other two guards, `agent_changed` and
+// `process_exited`, are the same structurally-false pair documented on
+// pendingIdleHold.hold, and its `agent.is_none()` guard is unreachable here
+// because eligibility already established the agent.
+//
+// The asymmetry is what makes a wrong skip survivable: a blocked or working
+// pane is re-read every tick no matter what the stamp says, so the gate can
+// never freeze the state this lane exists to report. The worst a stale stamp
+// can do is delay noticing that an IDLE pane became something else.
+func (e *paneStateEntry) skipCapture(activity int64) bool {
+	if e.scanActivity == 0 || activity != e.scanActivity {
+		return false
+	}
+	return e.published.state == panestate.StateIdle && !e.pending.active()
+}
+
+// noteScan records the activity stamp the capture just taken is valid for.
+//
+// It stores the stamp only when the SECOND it names had already elapsed when
+// we captured. `#{window_activity}` has one-second resolution, so output that
+// lands later in the same second as the stamp we read produces an IDENTICAL
+// stamp — equality would then read as "nothing happened" when something did,
+// and for an idle pane that skip would repeat forever. Requiring
+// `now > activity` means any later output must fall in a strictly greater
+// second, which makes the equality test sound rather than probabilistic.
+//
+// A 0 stamp (unknown / unparseable / a tmux without the format) stores 0 and
+// the pane is simply never skipped.
+func (e *paneStateEntry) noteScan(activity int64, now time.Time) {
+	if activity > 0 && now.Unix() > activity {
+		e.scanActivity = activity
+		return
+	}
+	e.scanActivity = 0
 }
 
 // identify runs on the first tick an agent becomes eligible. Upstream
@@ -219,9 +346,16 @@ type paneStateWatch struct {
 	reg     *panestate.Registry
 	log     *slog.Logger
 	capture PaneCaptureFunc
-	titles  func(ctx context.Context) (map[string]string, error)
+	meta    func(ctx context.Context) (map[string]paneMeta, error)
 	now     func() time.Time
 	entries map[string]*paneStateEntry
+}
+
+// paneStateAttention is the attention surface the watcher needs: raise a row,
+// and withdraw the one it raised. *Client satisfies it; tests stub it.
+type paneStateAttention interface {
+	AttentionPoster
+	AttentionResolver
 }
 
 // newPaneStateWatch builds the watcher, or returns nil when the embedded
@@ -242,10 +376,23 @@ func newPaneStateWatch(log *slog.Logger) *paneStateWatch {
 		reg:     reg,
 		log:     log,
 		capture: tmuxCapturePane,
-		titles:  listTmuxPaneTitles,
+		meta:    listTmuxPaneMeta,
 		now:     time.Now,
 		entries: map[string]*paneStateEntry{},
 	}
+}
+
+// covers reports whether the declarative evaluator has rules for an agent
+// family — i.e. whether this watcher is a state authority for it (plan D-3).
+//
+// Nil-safe on both receiver and registry so the caller's guard reads the same
+// whether or not the embedded manifests loaded.
+func (w *paneStateWatch) covers(kind string) bool {
+	if w == nil || w.reg == nil || kind == "" {
+		return false
+	}
+	_, ok := w.reg.ManifestForFamily(kind)
+	return ok
 }
 
 // tick classifies every eligible pane once and posts the transitions.
@@ -255,14 +402,17 @@ func newPaneStateWatch(log *slog.Logger) *paneStateWatch {
 // map. Upstream has the same gate — `lifecycle_authority_active` short-
 // circuits its detection loop before the screen is ever read (pane.rs:807).
 //
-// Disjointness with the IdleDetector that P3 retires is structural, not
-// coincidental: every family the overlay maps is a registered agent family,
-// so hasStructuredDriver() already makes tickIdle skip it. That invariant is a
-// test (TestPaneStateFamiliesAreRegisteredAgentFamilies) because it is the
-// kind that rots silently — adding a mapping for an unregistered kind would
-// have both detectors scraping the same pane and disagreeing.
+// Disjointness with the stall detector (IdleDetector) is enforced from the other
+// too: Runner.hasAnyStateAuthority asks w.covers() before running it, so no
+// pane is ever scraped by both. TestPaneStateFamiliesAreRegisteredAgentFamilies
+// and TestIdleDetectorSkipsEveryMappedFamily lock the two halves — this is the
+// kind of invariant that rots silently.
+//
+// `attn` may be nil, which turns off the attention leg while leaving state
+// events flowing. Nothing wires it that way in production; it keeps the
+// classification tests free of an attention stub.
 func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
-	agents []Agent2, hasAuthority func(agentID string) bool) {
+	attn paneStateAttention, agents []Agent2, hasAuthority func(agentID string) bool) {
 	if w == nil || w.reg == nil || poster == nil {
 		return
 	}
@@ -294,9 +444,13 @@ func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
 
 		e := w.entries[ag.ID]
 		if e == nil || e.manifestID != manifestID {
+			// A manifest swap under a live agent re-identifies it, so the row
+			// raised under the old rules is withdrawn first — its rule id
+			// names evidence the new manifest may not even have.
+			w.retract(ctx, attn, e)
 			e = &paneStateEntry{manifestID: manifestID}
 			w.entries[ag.ID] = e
-			w.post(ctx, poster, ag, e, e.identify(now), paneStatePublish{}, nil)
+			w.post(ctx, poster, ag, e, e.identify(now), paneStatePublish{}, nil, "")
 			continue
 		}
 		if e.inGrace(now) {
@@ -311,9 +465,12 @@ func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
 	}
 
 	// Prune before the (possibly expensive) evaluation pass so a long agent
-	// list does not keep dead entries alive for an extra tick.
-	for id := range w.entries {
+	// list does not keep dead entries alive for an extra tick. An agent that
+	// left the running set takes its attention row with it: the row asked
+	// someone to go answer a dialog on a pane that no longer exists.
+	for id, e := range w.entries {
 		if _, ok := seen[id]; !ok {
+			w.retract(ctx, attn, e)
 			delete(w.entries, id)
 		}
 	}
@@ -321,16 +478,20 @@ func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
 		return
 	}
 
-	// D-4: one round-trip for every pane's OSC title. A failure degrades to
-	// empty titles rather than skipping the tick — the screen regions still
-	// classify, and only the `osc_title` rules go quiet.
-	titles, err := w.titles(ctx)
+	// D-4: one round-trip for every pane's OSC title, and B5's activity stamp
+	// in the same call. A failure degrades rather than skipping the tick — the
+	// screen regions still classify, only the `osc_title` rules go quiet, and
+	// an unknown stamp simply disables the capture gate for this pass.
+	meta, err := w.meta(ctx)
 	if err != nil {
-		w.log.Debug("pane title read failed; classifying on screen text alone", "err", err)
-		titles = nil
+		w.log.Debug("pane metadata read failed; classifying on screen text alone", "err", err)
+		meta = nil
 	}
 
 	for _, d := range due {
+		if d.entry.skipCapture(meta[d.agent.PaneID].activity) {
+			continue
+		}
 		screen, cerr := w.capture(ctx, d.agent.PaneID)
 		if cerr != nil {
 			// Transient tmux failures (pane gone, server restarted) are
@@ -348,7 +509,7 @@ func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
 		// rules were written to see on a taller pane.
 		ex, eerr := w.reg.EvaluateManifest(d.manifestID, panestate.Input{
 			Screen:   screen,
-			OSCTitle: titles[d.agent.PaneID],
+			OSCTitle: meta[d.agent.PaneID].title,
 			// OSCProgress stays empty: tmux does not surface OSC 9;4
 			// progress to a client. Three vendored rules reference it and
 			// are inert for us (D-4, documented rather than worked around).
@@ -357,12 +518,115 @@ func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
 			w.log.Debug("pane state evaluation failed", "agent", d.agent.ID, "err", eerr)
 			continue
 		}
+		// The gate arms only after a capture actually succeeded and evaluated,
+		// so a failed read never counts as "we have seen this screen".
+		d.entry.noteScan(meta[d.agent.PaneID].activity, now)
+
 		prev := d.entry.published
 		next, publish := d.entry.step(ex, now)
+
+		// Attention is decided on every classified tick, NOT only on a
+		// transition, and before the event so the event can name the row.
+		// Deciding it inside the publish branch would make a failed raise
+		// permanent: the streak's transition already happened, so the retry
+		// tick has nothing to publish and would never look again.
+		raised := ""
+		switch d.entry.attentionFor(next) {
+		case attentionRaise:
+			raised = w.raise(ctx, attn, d.agent, d.entry, ex)
+		case attentionRetract:
+			w.retract(ctx, attn, d.entry)
+		case attentionNone:
+		}
 		if !publish {
 			continue
 		}
-		w.post(ctx, poster, d.agent, d.entry, next, prev, &ex)
+		w.post(ctx, poster, d.agent, d.entry, next, prev, &ex, raised)
+	}
+}
+
+// raise opens one attention row for a blocked streak and returns its id.
+//
+// The evidence is a rule id and a manifest version, never screen text — the
+// same rule post() follows, for the same reason: a blocked pane is showing
+// whatever the agent was doing, which may be a secret, and an attention row is
+// the most widely-fanned surface the hub has. P4's explain verb is where a
+// human asks for the region preview, deliberately.
+func (w *paneStateWatch) raise(ctx context.Context, attn paneStateAttention,
+	ag Agent2, e *paneStateEntry, ex panestate.Explain) string {
+	if attn == nil {
+		return ""
+	}
+	who := ag.Handle
+	if who == "" {
+		who = ag.ID
+	}
+	rule := ""
+	if ex.MatchedRule != nil {
+		rule = ex.MatchedRule.ID
+	}
+	summary := "agent blocked at a prompt: " + who
+	if rule != "" {
+		summary += " (" + rule + ")"
+	}
+	payload := map[string]any{
+		"detector":    "panestate",
+		"state":       string(panestate.StateBlocked),
+		"agent_id":    ag.ID,
+		"family":      ag.Kind,
+		"pane":        ag.PaneID,
+		"manifest_id": e.manifestID,
+	}
+	if rule != "" {
+		payload["rule_id"] = rule
+	}
+	if m, ok := w.reg.Manifest(e.manifestID); ok {
+		payload["manifest_version"] = m.Version
+		payload["manifest_source"] = m.Source
+	}
+	pending, err := json.Marshal(payload)
+	if err != nil {
+		// A payload we cannot marshal must not cost the raise — the summary
+		// alone still tells a human which agent to go look at.
+		w.log.Debug("pane_state attention payload marshal failed", "agent", ag.ID, "err", err)
+		pending = nil
+	}
+	out, err := attn.PostAttention(ctx, AttentionIn{
+		ScopeKind:      "team",
+		Kind:           paneStateAttentionKind,
+		Summary:        summary,
+		Severity:       paneStateAttentionSeverity,
+		ActorHandle:    ag.Handle,
+		PendingPayload: pending,
+	})
+	if err != nil {
+		// Leaving attentionID empty means the next tick that still classifies
+		// blocked retries — the streak owes a row, not this tick. That only
+		// works because tick() decides attention on every classified pass; see
+		// the note there.
+		w.log.Debug("pane_state attention raise failed", "agent", ag.ID, "err", err)
+		return ""
+	}
+	e.attentionID = out.ID
+	w.log.Info("pane blocked; attention raised",
+		"agent", ag.ID, "handle", ag.Handle, "rule", rule, "attention", out.ID)
+	return out.ID
+}
+
+// retract closes the row this watcher raised, if any. Tolerant by design: a
+// 409 means the director dismissed it first, which is the outcome we wanted
+// anyway. Either way the id is dropped so the next blocked streak raises fresh.
+func (w *paneStateWatch) retract(ctx context.Context, attn paneStateAttention, e *paneStateEntry) {
+	if e == nil || e.attentionID == "" {
+		return
+	}
+	id := e.attentionID
+	e.attentionID = ""
+	if attn == nil {
+		return
+	}
+	if err := attn.ResolveAttention(ctx, id); err != nil {
+		w.log.Debug("pane_state attention resolve failed", "attention", id, "err", err)
 	}
 }
 
@@ -372,7 +636,7 @@ func (w *paneStateWatch) tick(ctx context.Context, poster AgentEventPoster,
 // which a human asks for; putting it in every transition would push pane
 // contents into the transcript of an agent that may be showing a secret.
 func (w *paneStateWatch) post(ctx context.Context, poster AgentEventPoster, ag Agent2,
-	e *paneStateEntry, next, prev paneStatePublish, ex *panestate.Explain) {
+	e *paneStateEntry, next, prev paneStatePublish, ex *panestate.Explain, attentionID string) {
 	payload := map[string]any{
 		"state":          string(next.state),
 		"previous_state": string(prev.state),
@@ -402,6 +666,9 @@ func (w *paneStateWatch) post(ctx context.Context, poster AgentEventPoster, ag A
 	}
 	if next.visibleWorking {
 		payload["visible_working"] = true
+	}
+	if attentionID != "" {
+		payload["attention_id"] = attentionID
 	}
 	if err := poster.PostAgentEvent(ctx, ag.ID, PaneStateEventKind, paneStateEventProducer, payload); err != nil {
 		w.log.Debug("post pane_state event failed", "agent", ag.ID, "err", err)

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-06-05)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** 2026.730.1231 (D3 introduced `desktop_action`; D5 adds the hub-raised leg)
+> **Last verified vs code:** 2026.805.1022 (P3 gives `idle` a second raiser — the pane-state classifier — and its first self-retracting leg)
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`
@@ -49,7 +49,27 @@ Two more attention kinds exist but are not agent-callable (plus
   reviews a structured diff, not a free-text reply. Use that tool when
   the right artifact is the template body itself.
 - `idle` — emitted by host-runner when an agent is paused awaiting
-  input. State signal, not a request.
+  input. State signal, not a request. **Two detectors raise it**, and a
+  reader tells them apart by `pending_payload`, not by the kind:
+  - the legacy stall heuristic (`idle.go`) — one prompt regex plus a
+    90 s content-hash stall, for agents with no state authority at
+    all. No payload.
+  - the pane-state manifest classifier (`panestate_watch.go`, plan
+    P3) — a vendored per-engine rule matched a **drawn blocking
+    dialog**. `pending_payload.detector` is `"panestate"` and carries
+    `{state: "blocked", rule_id, manifest_id, manifest_version,
+    agent_id, pane}`. Never screen text: the evidence is a rule id,
+    because an attention row fans out further than a transcript does
+    and the pane may be showing a secret. Raised once per blocked
+    streak and **withdrawn via `/resolve`** when the classification
+    leaves blocked — the only host-runner row that retracts itself.
+
+  A blocked agent therefore arrives under the kind named `idle`. That
+  is deliberate: on this surface the kind selects the affordance (both
+  clients route `idle` to acknowledge-only), and no kind that means
+  "blocked" would have inherited it — an unrecognized kind carrying a
+  `pending_payload` draws Approve / Reject on mobile, for a row nothing
+  can approve. The summary and payload carry the classification.
 
 ### The gated sibling — `browser_action`
 

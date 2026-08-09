@@ -112,11 +112,31 @@ func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
 	now := NowUTC()
 	_, actorKind, actorHandle := actorFromContext(r.Context())
 	// When the caller is a host-runner raising an attention on behalf
-	// of an agent (codex permission_prompt bridge — ADR-012 D3), they
-	// pass actor_handle in the body and we stamp actor_kind=agent so
-	// the mobile UI shows the right origin chip. The agent's own MCP
-	// calls leave the body field empty and the auth context wins.
-	if in.ActorHandle != "" && actorHandle == "" {
+	// of an agent (codex permission_prompt bridge — ADR-012 D3; the
+	// pane-state blocked row — pane-state-manifests P3), they pass
+	// actor_handle in the body and we stamp actor_kind=agent, so the
+	// row records WHICH AGENT the ask came from rather than which
+	// process delivered it. The agent's own MCP calls leave the body
+	// field empty and the auth context wins.
+	//
+	// (Both columns are returned by GET /attention and /attention/{id};
+	// no client renders them as an origin chip yet, which is why the
+	// bug below survived. The stored attribution is the point — it is
+	// what an audit or an API consumer reads.)
+	//
+	// The condition is the TOKEN KIND, not an empty context handle. It
+	// used to be `actorHandle == ""`, which can never hold on an
+	// authenticated request: actorFromContext runs the scope through
+	// principalFromScope, which falls back to "@principal" for an
+	// absent handle, an absent role, and unparseable JSON alike. So the
+	// body field was unreachable and every host-runner-raised row —
+	// including every codex approval since ADR-012 — was attributed to
+	// the host token's principal rather than to the agent that asked.
+	// Only `host` tokens may name someone else: a host-runner is
+	// trusted to speak for the agents it supervises, and an agent's own
+	// token still loses to its context identity, so this is not an
+	// impersonation vector.
+	if in.ActorHandle != "" && actorKind == "host" {
 		actorKind = "agent"
 		actorHandle = in.ActorHandle
 	}

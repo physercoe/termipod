@@ -24,6 +24,12 @@ copyright: © TermiPod contributors
 # before this step; here we only pack the already-correct .node.
 npmRebuild: false
 
+# npm 11 currently installs node-pty's macOS `spawn-helper` without its execute
+# bit. The addon launches that helper with posix_spawnp; a packaged app therefore
+# fails every local shell with `posix_spawnp failed` unless packaging restores
+# mode 0755 before signing.
+afterPack: scripts/after-pack.cjs
+
 directories:
   output: release
   buildResources: build
@@ -38,6 +44,7 @@ files:
   - '!tsconfig.json'
   - '!esbuild.mjs'
   - '!electron-builder.yml'
+  - '!scripts/**/*'
   # build/ holds the deb maintainer scripts (buildResources) — packaging
   # inputs, not runtime payload; keep them out of the asar.
   - '!build/**/*'

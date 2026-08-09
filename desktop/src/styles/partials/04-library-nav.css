@@ -236,30 +236,31 @@
   box-shadow: inset 0 1px 0 var(--glass-highlight);
   overflow: hidden;
 }
-.ref-tab-nav {
+.ref-tab-strip {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--spacing-s2);
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   scrollbar-width: none;
 }
-.ref-tab-nav::-webkit-scrollbar {
+.ref-tab-strip::-webkit-scrollbar {
   display: none;
+}
+.ref-tab-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
 }
 .ref-tab-actions {
   flex: 0 0 auto;
-  max-width: calc(100% - 32px);
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
   white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.ref-tab-actions::-webkit-scrollbar {
-  display: none;
 }
 .ref-tab {
   padding: var(--spacing-s4) var(--spacing-s12);

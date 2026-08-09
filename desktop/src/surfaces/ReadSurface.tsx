@@ -964,74 +964,76 @@ function Inspector({
             <Icon name="sidebar" size={16} className="mirror-x" />
           </button>
         )}
-        <div className="ref-tab-nav" role="tablist">
-          {tabs.map((tb) => (
-            <button
-              key={tb.id}
-              role="tab"
-              aria-selected={tab === tb.id}
-              className={tab === tb.id ? 'ref-tab active' : 'ref-tab'}
-              onClick={() => setTab(tb.id)}
-            >
-              {tb.label}
-            </button>
-          ))}
-        </div>
-        <div className="ref-tab-actions">
-          {primary !== undefined &&
-            !embedded &&
-            (attPresent ? (
+        <div className="ref-tab-strip">
+          <div className="ref-tab-nav" role="tablist">
+            {tabs.map((tb) => (
               <button
-                className="ref-pdf-btn"
-                title={t('read.openInReader')}
-                onClick={() => onOpenReader?.(ref.id, primary.id)}
+                key={tb.id}
+                role="tab"
+                aria-selected={tab === tb.id}
+                className={tab === tb.id ? 'ref-tab active' : 'ref-tab'}
+                onClick={() => setTab(tb.id)}
               >
-                <Icon name={KIND_ICON[primaryKind]} size={14} />
-                {t(KIND_LABEL[primaryKind])}
-              </button>
-            ) : (
-              <button
-                className="ref-pdf-btn muted"
-                title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
-                onClick={() => setTab('read')}
-              >
-                <Icon name={KIND_ICON[primaryKind]} size={14} />
-                {t(KIND_LABEL[primaryKind])}
+                {tb.label}
               </button>
             ))}
-          <button
-            className="ref-scrape-btn"
-            disabled={scraping}
-            title={t('read.scrapeTitle')}
-            onClick={() => {
-              setTab('meta');
-              void runScrape();
-            }}
-          >
-            {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
-            {t('read.scrape')}
-          </button>
-          {confirming ? (
-            <span className="ref-confirm">
-              <span className="muted small">{t('read.confirmDelete')}</span>
-              <button
-                className="link-btn danger"
-                onClick={() => {
-                  remove(ref.id);
-                  setConfirming(false);
-                }}
-              >
-                {t('read.confirmDeleteYes')}
-              </button>
-              <button className="link-btn" onClick={() => setConfirming(false)}>
-                {t('common.cancel')}
-              </button>
-            </span>
-          ) : (
-            <button className="link-btn danger" onClick={() => setConfirming(true)}>
-              {t('read.delete')}
+          </div>
+          <div className="ref-tab-actions">
+            {primary !== undefined &&
+              !embedded &&
+              (attPresent ? (
+                <button
+                  className="ref-pdf-btn"
+                  title={t('read.openInReader')}
+                  onClick={() => onOpenReader?.(ref.id, primary.id)}
+                >
+                  <Icon name={KIND_ICON[primaryKind]} size={14} />
+                  {t(KIND_LABEL[primaryKind])}
+                </button>
+              ) : (
+                <button
+                  className="ref-pdf-btn muted"
+                  title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
+                  onClick={() => setTab('read')}
+                >
+                  <Icon name={KIND_ICON[primaryKind]} size={14} />
+                  {t(KIND_LABEL[primaryKind])}
+                </button>
+              ))}
+            <button
+              className="ref-scrape-btn"
+              disabled={scraping}
+              title={t('read.scrapeTitle')}
+              onClick={() => {
+                setTab('meta');
+                void runScrape();
+              }}
+            >
+              {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
+              {t('read.scrape')}
             </button>
-          )}
+            {confirming ? (
+              <span className="ref-confirm">
+                <span className="muted small">{t('read.confirmDelete')}</span>
+                <button
+                  className="link-btn danger"
+                  onClick={() => {
+                    remove(ref.id);
+                    setConfirming(false);
+                  }}
+                >
+                  {t('read.confirmDeleteYes')}
+                </button>
+                <button className="link-btn" onClick={() => setConfirming(false)}>
+                  {t('common.cancel')}
+                </button>
+              </span>
+            ) : (
+              <button className="link-btn danger" onClick={() => setConfirming(true)}>
+                {t('read.delete')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

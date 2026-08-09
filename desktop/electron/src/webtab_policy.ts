@@ -92,7 +92,17 @@ export function partitionPolicy(partition: string): PartitionPolicy | null {
 // descriptor, whose item set / ordering / enabled-state is exercised by
 // webtab_policy.test.ts without booting Electron.
 
-export type GuestMenuAction = 'openLink' | 'copyLink' | 'copyImage' | 'cut' | 'copy' | 'paste' | 'selectAll';
+export type GuestMenuAction =
+  | 'back'
+  | 'forward'
+  | 'reload'
+  | 'openLink'
+  | 'copyLink'
+  | 'copyImage'
+  | 'cut'
+  | 'copy'
+  | 'paste'
+  | 'selectAll';
 
 export type GuestMenuItem = { action: GuestMenuAction; enabled: boolean } | 'separator';
 
@@ -100,6 +110,8 @@ export type GuestMenuItem = { action: GuestMenuAction; enabled: boolean } | 'sep
 /// `ContextMenuParams`. `linkURL` is already emptied by the caller when the URL
 /// isn't a safe external, so this pure logic needn't know the scheme rules.
 export interface GuestMenuContext {
+  canGoBack: boolean;
+  canGoForward: boolean;
   linkURL: string;
   isImage: boolean;
   isEditable: boolean;
@@ -110,16 +122,21 @@ export interface GuestMenuContext {
   canSelectAll: boolean;
 }
 
-/// Build the ordered guest context-menu descriptor. Empty ⇒ no menu (nothing
-/// useful to offer — e.g. a right-click on non-editable whitespace with no
-/// selection, link, or image). Ordering mirrors a browser's: link, image, text.
+/// Build the ordered guest context-menu descriptor. Navigation is always present
+/// so right-clicking page whitespace still behaves like a browser; contextual
+/// link, image and edit actions follow it.
 export function buildGuestMenuTemplate(ctx: GuestMenuContext): GuestMenuItem[] {
-  const out: GuestMenuItem[] = [];
+  const out: GuestMenuItem[] = [
+    { action: 'back', enabled: ctx.canGoBack },
+    { action: 'forward', enabled: ctx.canGoForward },
+    { action: 'reload', enabled: true },
+  ];
   const sep = (): void => {
     if (out.length > 0) out.push('separator');
   };
 
   if (ctx.linkURL !== '') {
+    sep();
     out.push({ action: 'openLink', enabled: true }, { action: 'copyLink', enabled: true });
   }
   if (ctx.isImage) {

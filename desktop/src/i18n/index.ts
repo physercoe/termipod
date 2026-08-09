@@ -1574,6 +1574,7 @@ const en: Dict = {
   'read.colType': 'Type',
   'read.browserBack': 'Back',
   'read.browserForward': 'Forward',
+  'read.browserNavigation': 'Document navigation',
   'read.browserReload': 'Reload',
   'read.openInWindow': 'Open in browser window (loads any site)',
   'read.browserAddressPlaceholder': 'Enter a URL or address',
@@ -1746,6 +1747,7 @@ const en: Dict = {
   'companion.localNoFolder': 'No workspace folder open — the agent runs in the default directory. Open a folder to scope it to your workspace.',
 
   'annotate.ask': 'Ask agent — select a region to share',
+  'annotate.enableHint': 'Enable UI context sharing in Settings → Assistant to annotate',
   'annotate.chip': 'Annotate',
   'annotate.title': 'Annotation',
   'annotate.hint': 'Drag to select a region · Esc to cancel',
@@ -3701,6 +3703,7 @@ const zh: Dict = {
   'read.colType': '类型',
   'read.browserBack': '后退',
   'read.browserForward': '前进',
+  'read.browserNavigation': '文档导航',
   'read.browserReload': '重新加载',
   'read.openInWindow': '在浏览器窗口中打开（可加载任何网站）',
   'read.browserAddressPlaceholder': '输入网址或地址',
@@ -3871,6 +3874,7 @@ const zh: Dict = {
   'companion.localNoFolder': '未打开工作区文件夹——智能体将在默认目录中运行。打开文件夹以将其限定到你的工作区。',
 
   'annotate.ask': '询问智能体 — 框选区域共享',
+  'annotate.enableHint': '请在“设置 → 助手”中启用界面上下文共享后再标注',
   'annotate.chip': '标注',
   'annotate.title': '标注',
   'annotate.hint': '拖拽框选区域 · Esc 取消',

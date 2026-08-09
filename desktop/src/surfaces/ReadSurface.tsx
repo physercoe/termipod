@@ -39,7 +39,7 @@ import {
   type ScrapePatch,
   type ScrapeSeed,
 } from '../discovery';
-import { hostOf, isShell, revealPath } from '../platform';
+import { hostOf, isShell, openExternal, revealPath } from '../platform';
 import { useCompanionContext } from '../state/companionContext';
 import { BrowserView } from './BrowserView';
 import { Markdown } from '../ui/Markdown';
@@ -376,8 +376,15 @@ function TextDoc({ text }: { text: string }): JSX.Element {
 // and whenever the level changes — a reflow, not a scaled bitmap. If the frame is
 // unexpectedly cross-origin (contentDocument throws), fall back to element `zoom`.
 function HtmlDoc({ url, title }: { url: string; title: string }): JSX.Element {
+  const t = useT();
   const zoom = useDocZoom('html');
+  const openLink = useOpenLink();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const historyRef = useRef<{ entries: string[]; index: number }>({ entries: [], index: -1 });
+  const detachRef = useRef<() => void>(() => undefined);
+  const [canBack, setCanBack] = useState(false);
+  const [canForward, setCanForward] = useState(false);
+
   const apply = (): void => {
     const f = frameRef.current;
     if (f === null) return;
@@ -393,12 +400,135 @@ function HtmlDoc({ url, title }: { url: string; title: string }): JSX.Element {
     }
     (f.style as CSSStyleDeclaration & { zoom: string }).zoom = String(zoom.zoom);
   };
+
+  const recordLocation = (): void => {
+    const win = frameRef.current?.contentWindow;
+    if (win === null || win === undefined) return;
+    let href = '';
+    try {
+      href = win.location.href;
+    } catch {
+      return; // a cross-origin navigation cannot be governed by this viewer
+    }
+    const h = historyRef.current;
+    if (h.entries[h.index] !== href) {
+      if (h.index > 0 && h.entries[h.index - 1] === href) h.index -= 1;
+      else if (h.index + 1 < h.entries.length && h.entries[h.index + 1] === href) h.index += 1;
+      else {
+        h.entries = [...h.entries.slice(0, h.index + 1), href];
+        h.index = h.entries.length - 1;
+      }
+    }
+    setCanBack(h.index > 0);
+    setCanForward(h.index >= 0 && h.index < h.entries.length - 1);
+  };
+
+  const onFrameLoad = (): void => {
+    apply();
+    detachRef.current();
+    const frame = frameRef.current;
+    let doc: Document | null = null;
+    let win: Window | null = null;
+    try {
+      doc = frame?.contentDocument ?? null;
+      win = frame?.contentWindow ?? null;
+    } catch {
+      return;
+    }
+    if (doc === null || win === null) return;
+
+    const onHistory = (): void => recordLocation();
+    const onClick = (e: MouseEvent): void => {
+      const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (anchor === null) return;
+      const href = anchor.href;
+      if (!/^https?:\/\//i.test(href) && !/^mailto:/i.test(href)) return;
+      // Network links belong in Read's dedicated Browser mode, not inside the
+      // local attachment iframe. Mail links retain the OS handler.
+      e.preventDefault();
+      if (/^https?:\/\//i.test(href)) openLink(href);
+      else openExternal(href);
+    };
+    const onContextMenu = (e: MouseEvent): void => {
+      if (!isShell() || e.defaultPrevented) return;
+      const target = e.target as Element | null;
+      const editable = target?.closest?.('input, textarea, [contenteditable=""], [contenteditable="true"]') != null;
+      const selected = (win.getSelection()?.toString().trim() ?? '') !== '';
+      const image = target?.closest?.('img') != null;
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+      let x: number | undefined;
+      let y: number | undefined;
+      if (image && frame !== null) {
+        const rect = frame.getBoundingClientRect();
+        x = rect.left + e.clientX;
+        y = rect.top + e.clientY;
+      }
+      e.preventDefault();
+      void invoke('menu_show_context', {
+        editable,
+        hasSelection: selected,
+        selectAll: true,
+        image,
+        x,
+        y,
+        linkUrl: anchor?.href ?? '',
+        openLinkLabel: tStatic('ctx.openLink'),
+        copyLinkLabel: tStatic('ctx.copyLink'),
+        imageLabel: tStatic('common.copyImage'),
+      }).catch(() => undefined);
+    };
+
+    doc.addEventListener('click', onClick, true);
+    doc.addEventListener('contextmenu', onContextMenu);
+    win.addEventListener('hashchange', onHistory);
+    win.addEventListener('popstate', onHistory);
+    detachRef.current = () => {
+      doc?.removeEventListener('click', onClick, true);
+      doc?.removeEventListener('contextmenu', onContextMenu);
+      win?.removeEventListener('hashchange', onHistory);
+      win?.removeEventListener('popstate', onHistory);
+    };
+    recordLocation();
+  };
+
   // Re-apply whenever the level changes (the frame keeps its content across zooms).
   useEffect(apply, [zoom.zoom, url]);
+  useEffect(() => {
+    historyRef.current = { entries: [], index: -1 };
+    setCanBack(false);
+    setCanForward(false);
+  }, [url]);
+  useEffect(() => () => detachRef.current(), []);
+
   return (
     <div className="att-html-wrap">
+      <div className="doc-zoombar att-html-nav" role="group" aria-label={t('read.browserNavigation')}>
+        <button
+          className="doc-zoom-btn"
+          disabled={!canBack}
+          title={t('read.browserBack')}
+          onClick={() => frameRef.current?.contentWindow?.history.back()}
+        >
+          <Icon name="chevron-left" size={14} />
+        </button>
+        <button
+          className="doc-zoom-btn"
+          disabled={!canForward}
+          title={t('read.browserForward')}
+          onClick={() => frameRef.current?.contentWindow?.history.forward()}
+        >
+          <Icon name="chevron-right" size={14} />
+        </button>
+        <button
+          className="doc-zoom-btn"
+          title={t('read.browserReload')}
+          onClick={() => frameRef.current?.contentWindow?.location.reload()}
+        >
+          <Icon name="refresh" size={14} />
+        </button>
+      </div>
       <ZoomBar z={zoom} className="doc-zoombar-float" />
-      <iframe ref={frameRef} className="pdf-frame" title={title} src={url} onLoad={apply} />
+      <iframe ref={frameRef} className="pdf-frame" title={title} src={url} onLoad={onFrameLoad} />
     </div>
   );
 }

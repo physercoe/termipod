@@ -623,6 +623,7 @@
 }
 .doc-zoom-btn {
   width: 24px;
+  min-height: 24px;
   padding: 0;
 }
 .doc-zoom-pct {
@@ -659,6 +660,12 @@
 }
 .att-html-wrap {
   display: flex;
+}
+.att-html-nav {
+  position: absolute;
+  top: var(--spacing-s8);
+  left: var(--spacing-s12);
+  z-index: 5;
 }
 /* Info-tab attachment summary card (type / location / preview). */
 .ref-attach-info {

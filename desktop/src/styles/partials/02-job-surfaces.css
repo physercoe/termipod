@@ -4,11 +4,11 @@
 
 .activity-bar {
   flex: 0 0 auto;
-  width: 68px;
+  width: 72px;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s2);
-  padding: var(--spacing-s8) var(--spacing-s4);
+  padding: var(--spacing-s8) var(--spacing-s6);
   background: var(--canvas);
   border-right: 1px solid var(--border);
   /* Visible (not auto) so the hub-switcher dropdown at the top can escape the
@@ -16,13 +16,15 @@
   overflow: visible;
 }
 .activity-tab {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: var(--spacing-s8) var(--spacing-s2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  min-height: 52px;
+  padding: 7px var(--spacing-s2);
+  border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -33,9 +35,18 @@
   color: var(--text);
 }
 .activity-tab.active {
-  background: var(--accent-tint);
-  color: var(--accent-text);
-  border-color: var(--accent-line);
+  background: var(--hover);
+  color: var(--text);
+}
+.activity-tab.active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 14px;
+  width: 2px;
+  height: 24px;
+  border-radius: var(--radius-stadium);
+  background: var(--accent);
 }
 /* The job pinned as the split's secondary pane (S2). `position: relative` is on
    the modifier, not `.activity-tab`, so an unsplit rail keeps its old stacking. */
@@ -55,7 +66,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  height: 22px;
 }
 .job-icon {
   display: block;
@@ -102,14 +113,24 @@
   left: 0;
   top: calc(100% + 4px);
 }
-.activity-hub .pill.offline {
-  justify-content: center;
-  font-size: var(--font-size-label);
-}
-.activity-hub button.primary {
+.activity-hub .hub-connect {
   width: 100%;
-  padding: 3px var(--spacing-s8);
+  min-height: var(--control-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s4);
+  padding: 3px var(--spacing-s4);
   font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.hub-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-stadium);
+  background: var(--warn);
 }
 .activity-jobs {
   flex: 1 1 auto;
@@ -132,7 +153,10 @@
 .statusbar-palette {
   font-variant-numeric: tabular-nums;
   font-size: var(--font-size-caption);
+  min-height: 22px;
   padding: 1px 7px;
+  color: var(--text-muted);
+  background: transparent;
 }
 /* The status bar's own controls stay compact so the bar keeps its 28px height. */
 .statusbar .profile-switcher .switcher-pill {
@@ -182,8 +206,9 @@ button > .ui-icon:not(:only-child):first-child,
   margin-right: 0.35em;
 }
 .activity-label {
-  font-size: var(--font-size-label);
-  letter-spacing: 0.02em;
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  letter-spacing: -0.005em;
 }
 
 /* --- shared job-surface chrome --- */
@@ -216,12 +241,12 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
-  font-weight: 600;
+  font-weight: 550;
   letter-spacing: -0.01em;
 }
 .surface-tag {
   font-size: var(--font-size-label);
-  font-weight: 700;
+  font-weight: 650;
   color: var(--accent-text);
   background: var(--accent-tint);
   border-radius: var(--radius-xs);

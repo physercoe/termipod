@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Icon } from '../ui/Icon';
 
 function field(row: Entity, keys: string[]): string {
   for (const k of keys) {
@@ -30,6 +31,15 @@ export function AuditConsole(): JSX.Element {
   }
   const rows = query.data ?? [];
 
+  if (rows.length === 0) {
+    return (
+      <div className="empty-state">
+        <span className="empty-state-icon"><Icon name="check" size={16} /></span>
+        <span>{t('audit.empty')}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="scroll">
     <table>
@@ -50,11 +60,6 @@ export function AuditConsole(): JSX.Element {
             <td>{field(row, ['target', 'summary', 'ref', 'target_id'])}</td>
           </tr>
         ))}
-        {rows.length === 0 && (
-          <tr>
-            <td colSpan={4}>{t('audit.empty')}</td>
-          </tr>
-        )}
       </tbody>
     </table>
     </div>

@@ -4,6 +4,7 @@ import { useAttention } from '../hub/queries';
 import { obj, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
+import { Icon } from '../ui/Icon';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -202,7 +203,14 @@ export function AttentionDock(): JSX.Element {
 
   if (query.isLoading) return <div className="region-pad muted">{t('att.loading')}</div>;
   if (query.isError) return <div className="region-pad error">{msg(query.error)}</div>;
-  if (items.length === 0) return <div className="region-pad muted">{t('att.empty')}</div>;
+  if (items.length === 0) {
+    return (
+      <div className="empty-state">
+        <span className="empty-state-icon"><Icon name="check" size={16} /></span>
+        <span>{t('att.empty')}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="dock-list">

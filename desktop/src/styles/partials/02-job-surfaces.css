@@ -19,26 +19,6 @@
      narrow rail rather than being clipped; the job list owns the scroll. */
   overflow: visible;
 }
-.activity-rail-toggle {
-  flex: 0 0 auto;
-  margin-inline: auto;
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-control);
-  color: var(--text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.activity-rail-toggle:hover {
-  color: var(--text);
-  background: var(--hover);
-}
 .activity-tab {
   position: relative;
   display: flex;

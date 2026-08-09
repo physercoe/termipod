@@ -428,7 +428,11 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, #ff8a00 60%, transparent);
 }
 .textLayer ::selection {
-  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  /* The PDF canvas is always white. The monochrome app accent became a pale
+     grey wash here, barely distinguishable from the paper; use the system-like
+     blue already in the design-token palette at enough opacity to preserve
+     black glyph contrast while making the selected range unmistakable. */
+  background: color-mix(in srgb, var(--color-terminal-blue) 48%, transparent);
 }
 /* Transparent hit-targets over in-PDF links; clicks route to the in-app browser
    tab (never the OS browser / never a whole-app navigation). */

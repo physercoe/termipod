@@ -691,6 +691,13 @@ th {
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
+  /* ConnectPanel is portaled to <body>, outside `.shell-macos`; mark its own
+     title row explicitly so a hidden-inset macOS window remains draggable while
+     the connection modal covers the underlying page. */
+  -webkit-app-region: drag;
+}
+.connect-head button {
+  -webkit-app-region: no-drag;
 }
 .connect-head h2 {
   margin: 0;

@@ -93,15 +93,6 @@ export function AppShell(): JSX.Element {
   const [activityRailOpen, setActivityRailOpen] = useState(initialActivityRailOpen);
   const [fullScreen, setFullScreen] = useState(false);
 
-  const setActivityRailVisible = useCallback((open: boolean): void => {
-    setActivityRailOpen(open);
-    try {
-      window.localStorage.setItem(ACTIVITY_RAIL_KEY, open ? '1' : '0');
-    } catch {
-      // Storage can be unavailable under hardened browser privacy settings.
-    }
-  }, []);
-
   const toggleActivityRail = useCallback((): void => {
     setActivityRailOpen((open) => {
       const next = !open;
@@ -434,18 +425,7 @@ export function AppShell(): JSX.Element {
       )}
 
       <div className="workbench-row">
-        {activityRailOpen ? (
-          <ActivityBar onHide={() => setActivityRailVisible(false)} />
-        ) : (
-          <button
-            className="activity-rail-toggle activity-rail-reveal"
-            title={t('shell.showNavigation')}
-            aria-label={t('shell.showNavigation')}
-            onClick={() => setActivityRailVisible(true)}
-          >
-            <Icon name="sidebar" size={17} />
-          </button>
-        )}
+        {activityRailOpen && <ActivityBar />}
         <main className="workbench-main">
           {/* The terminal lives in an always-mounted panel (its <Screen>s die if
               unmounted); every other job renders in this stack, which the panel

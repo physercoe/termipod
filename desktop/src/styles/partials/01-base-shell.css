@@ -319,8 +319,16 @@ pre {
   pointer-events: none;
 }
 .shell-macos .fleet-toolbar,
-.shell-macos .surface-head {
+.shell-macos .surface-head,
+.shell-macos .settings-cats,
+.shell-macos .settings-content-title,
+.shell-macos .term-nav,
+.shell-macos .term-head {
   -webkit-app-region: drag;
+}
+.shell-macos .term-nav-actions,
+.shell-macos .term-nav-list {
+  -webkit-app-region: no-drag;
 }
 .shell-macos button,
 .shell-macos input,
@@ -337,56 +345,21 @@ pre {
   flex: 1;
   min-height: 0;
   display: flex;
-  position: relative;
 }
-.activity-rail-toggle.activity-rail-reveal {
-  position: absolute;
-  z-index: var(--z-nav);
-  top: 7px;
-  left: 8px;
-  margin: 0;
-  background: var(--glass-control);
-  border: var(--hairline) solid var(--glass-rim);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
-}
-/* With the rail gone, the active page owns the title band. Give the floating
-   reveal affordance a real slot instead of laying it over that page's label or
-   first action. Fleet/Projects and workbench jobs share these two header
-   primitives, so one rule covers every ordinary surface. */
-.rail-hidden .fleet-toolbar,
-.rail-hidden .surface-head {
-  padding-left: 48px;
-}
-/* Settings and Terminal begin with their own left panes rather than a shared
-   page header. A compact top inset gives the reveal button a clean home; when
-   Terminal's connections pane is itself folded, reserve the same slot in its
-   tab strip instead. */
-.rail-hidden .settings-cats,
-.rail-hidden .term-panel.surface .term-nav:not(.folded) {
-  padding-top: 44px;
-}
-.rail-hidden .term-panel.surface .term-nav.folded ~ .term-main .term-head {
-  padding-left: 48px;
-}
-/* In a windowed hidden-titlebar macOS window, traffic lights own the first
-   68px. Place the reveal button immediately after them and shift page chrome
-   past the complete native-control cluster. Fullscreen falls back to the
-   compact 8px/48px geometry above because the traffic lights disappear. */
-.shell-macos.rail-hidden:not(.is-fullscreen) .activity-rail-reveal {
-  left: 76px;
-}
+/* With the rail hidden, macOS traffic lights still own the leading corner.
+   Ordinary page headers share that title band, so shift their first content
+   past the native controls. Settings and Terminal instead reserve a compact
+   draggable top inset in their own left panes. */
 .shell-macos.rail-hidden:not(.is-fullscreen) .fleet-toolbar,
 .shell-macos.rail-hidden:not(.is-fullscreen) .surface-head {
-  padding-left: 116px;
+  padding-left: 84px;
 }
 .shell-macos.rail-hidden:not(.is-fullscreen) .settings-cats,
 .shell-macos.rail-hidden:not(.is-fullscreen) .term-panel.surface .term-nav:not(.folded) {
   padding-top: 46px;
 }
 .shell-macos.rail-hidden:not(.is-fullscreen) .term-panel.surface .term-nav.folded ~ .term-main .term-head {
-  padding-left: 116px;
+  padding-left: 84px;
 }
 .workbench-main {
   flex: 1;

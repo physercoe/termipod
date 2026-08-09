@@ -4,40 +4,38 @@
  * --font-size-*) generated from design-tokens/tokens.json (WS1). Dark-first,
  * matching the mobile app's backgroundDark palette. */
 
-/* Semantic theme layer — the elevated design language (2026-07). Kept
- * desktop-local (does NOT mutate the shared design-tokens/tokens.json, which the
- * mobile Flutter build mirrors): refined cool blue-biased neutrals with a real
- * elevation scale, focus rings, motion, and a disciplined accent. Switched by
- * <html data-theme>; dark is the default. */
+/* Semantic theme layer — desktop-local (does NOT mutate the shared
+ * design-tokens/tokens.json mirrored by Flutter). Warm monochrome graphite is
+ * the default product language: hierarchy comes from tonal zoning, typography
+ * and spacing, while colour is reserved for semantic status. */
 :root {
   color-scheme: dark;
   --pane-gap: 1px;
   /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
    * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
-  --bg: #0a0b0e;          /* content canvas — the darkest, quietest plane */
-  --canvas: #181a20;      /* navigation / inspector panes + persistent chrome */
-  --surface: #13151a;     /* cards and nested panel surfaces */
-  --raised: #1f2229;      /* controls and genuinely raised regions */
-  --hover: #282c35;       /* interactive hover / selected neutral fill */
-  --input: #0e1014;
-  --border: #2a2e36;      /* hairline between tonal zones */
-  --border-strong: #3b414c; /* interactive / focus border */
-  --text: #f4f6f8;        /* high-contrast ink */
-  --text-secondary: #a7aeba;
-  --text-muted: #8b939f;  /* WCAG AA: 4.5:1+ on --surface (was #6a727f ≈3.8:1) */
-  /* Brand accent — a quiet periwinkle/indigo, reserved for focus, selection
-   * and one primary action. Green, amber and red remain semantic status hues;
-   * keeping them out of navigation prevents the workbench from reading like a
-   * monitoring dashboard. */
-  --accent: #8b8cf6;
-  --accent-strong: #7677dc;
-  --accent-ink: #101118;
+  --bg: #171717;          /* focused content canvas */
+  --canvas: #242424;      /* navigation / inspector panes + persistent chrome */
+  --surface: #1f1f1f;     /* cards and nested panel surfaces */
+  --raised: #2f2f2f;      /* controls and genuinely raised regions */
+  --hover: #333333;       /* interactive hover / selected neutral fill */
+  --input: #212121;
+  --border: #363636;      /* hairline between tonal zones */
+  --border-strong: #4a4a4a; /* interactive / focus border */
+  --text: #ececec;        /* high-contrast ink */
+  --text-secondary: #b4b4b4;
+  --text-muted: #8b8b8b;
+  /* ChatGPT-like default: monochrome interaction emphasis. Accent colours may
+   * be user-customisable later, but the shipped visual language does not depend
+   * on one. Semantic green/amber/red remain independent below. */
+  --accent: #ececec;
+  --accent-strong: #d4d4d4;
+  --accent-ink: #171717;
   /* accent used as TEXT — on dark surfaces the bright accent already clears AA,
    * so it's the accent itself; the light theme overrides it to a darker teal
    * (see below) because the light accent as text is only ~2.9:1 on white. Route
    * accent-coloured text through this, NOT --accent (which is tuned for fills,
    * borders and focus rings). */
-  --accent-text: #a6a6ff;
+  --accent-text: #f4f4f4;
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
   /* semantic state — distinct from the accent hue */
@@ -138,21 +136,21 @@
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #fafafb;
-  --canvas: #eceef2;
+  --bg: #ffffff;
+  --canvas: #f4f4f4;
   --surface: #ffffff;
-  --raised: #f5f6f8;
-  --hover: #e2e5eb;
-  --input: #f6f7f9;
-  --border: #dfe3e9;
-  --border-strong: #c8ced8;
-  --text: #0f141c;
-  --text-secondary: #586173;
-  --text-muted: #6b7280;  /* WCAG AA: 4.66:1 on --bg (was #8a93a3 ≈2.91:1) */
-  --accent: #5f5bd6;
-  --accent-strong: #504cbc;
+  --raised: #f4f4f4;
+  --hover: #e8e8e8;
+  --input: #f7f7f7;
+  --border: #dedede;
+  --border-strong: #c7c7c7;
+  --text: #212121;
+  --text-secondary: #5d5d5d;
+  --text-muted: #737373;
+  --accent: #2f2f2f;
+  --accent-strong: #171717;
   --accent-ink: #ffffff;
-  --accent-text: #514db5;
+  --accent-text: #212121;
   --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
   --ok: var(--color-success-on-light);

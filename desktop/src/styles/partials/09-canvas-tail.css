@@ -1217,6 +1217,18 @@
 .author-nav-head .spacer {
   flex: 1;
 }
+.author-nav-head.has-folder {
+  font-size: var(--font-size-caption);
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--text-secondary);
+}
+.author-nav-folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .author-nav-overflow {
   color: var(--text-secondary);
 }
@@ -1286,13 +1298,6 @@
 }
 .author-nav-empty {
   padding: 2px 6px;
-}
-.author-nav-root {
-  padding: 2px 6px 4px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .author-nav-item {
   display: flex;

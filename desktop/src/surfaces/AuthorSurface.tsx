@@ -44,6 +44,7 @@ const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ 
 const WysiwygEditor = lazy(() => import('../ui/WysiwygEditor').then((m) => ({ default: m.WysiwygEditor })));
 import { ResizeHandle } from '../ui/ResizeHandle';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { PopoverMenu } from '../ui/PopoverMenu';
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 function loadW(key: string, fallback: number): number {
@@ -316,6 +317,7 @@ export function AuthorSurface(): JSX.Element {
   // The categorized "New ▾" dropdown — one menu for every document kind (Write /
   // Data / Draw / Figure), the figure rows driven by the `FIGURES` registry.
   const [newMenu, setNewMenu] = useState(false);
+  const newMenuAnchorRef = useRef<HTMLDivElement>(null);
   const tabStripRef = useRef<HTMLDivElement>(null);
   const [tabOverflow, setTabOverflow] = useState({ overflowing: false, before: false, after: false });
 
@@ -630,7 +632,7 @@ export function AuthorSurface(): JSX.Element {
       job="author"
       actions={
         <>
-          <div className="author-figbtn author-newbtn">
+          <div ref={newMenuAnchorRef} className="author-figbtn author-newbtn">
             {/* Primary = new Document (the common case); the caret opens the
                 categorized menu. */}
             <button className="import-btn" disabled={busy} onClick={() => void createDoc('markdown')}>
@@ -647,10 +649,13 @@ export function AuthorSurface(): JSX.Element {
             >
               <Icon name="chevron-down" size={12} />
             </button>
-            {newMenu && (
-              <>
-                <div className="author-figmenu-scrim" onClick={() => setNewMenu(false)} />
-                <div className="author-figmenu" role="menu">
+            <PopoverMenu
+              anchorRef={newMenuAnchorRef}
+              open={newMenu}
+              onClose={() => setNewMenu(false)}
+              className="author-figmenu"
+              ariaLabel={t('author.newMenu')}
+            >
                   <div className="author-figmenu-group">{t('author.newGroupWrite')}</div>
                   <NewItem icon="note" label={t('author.newDoc')} onPick={() => void createDoc('markdown')} close={() => setNewMenu(false)} />
                   <div className="author-figmenu-group">{t('author.newGroupData')}</div>
@@ -671,9 +676,7 @@ export function AuthorSurface(): JSX.Element {
                       close={() => setNewMenu(false)}
                     />
                   ))}
-                </div>
-              </>
-            )}
+            </PopoverMenu>
           </div>
           {tauri && (
             <>

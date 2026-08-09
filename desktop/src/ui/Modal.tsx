@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useModalA11y } from './useModalA11y';
 
 /// The one real modal primitive (#313). Wraps the app's `palette-backdrop` idiom
@@ -60,7 +61,7 @@ export function Modal({
     return () => document.removeEventListener('keydown', onKey, true);
   }, [onClose, id]);
 
-  return (
+  return createPortal(
     <div className="palette-backdrop" onMouseDown={closeOnBackdrop ? onClose : undefined}>
       <div
         ref={ref}
@@ -73,6 +74,7 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

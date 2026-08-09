@@ -404,8 +404,10 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
           setFileMenu({ path: folder, dir: true, root: true, x: e.clientX, y: e.clientY });
         }}
       >
-        <div className="author-nav-head pane-control-row">
-          {t('author.navFiles')}
+        <div className={`author-nav-head pane-control-row${folder !== null ? ' has-folder' : ''}`} title={folder ?? undefined}>
+          <span className={folder !== null ? 'author-nav-folder-name mono' : undefined}>
+            {folder !== null ? baseName(folder) : t('author.navFiles')}
+          </span>
           <span className="spacer" />
           <button
             ref={actionsButtonRef}
@@ -466,11 +468,6 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
         </div>
         {!tauri && <div className="muted small author-nav-empty">{t('author.navDesktopOnly')}</div>}
         {tauri && folder === null && <div className="muted small author-nav-empty">{t('author.navPickHint')}</div>}
-        {folder !== null && (
-          <div className="author-nav-root mono small" title={folder}>
-            {baseName(folder)}
-          </div>
-        )}
         {folder !== null && (
           // Reuses the Inspect tree's filter-input styling (generic token-based
           // input) rather than duplicating a near-identical rule.

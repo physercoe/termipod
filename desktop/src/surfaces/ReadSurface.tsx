@@ -63,6 +63,7 @@ import { ResizeHandle, VResizeHandle } from '../ui/ResizeHandle';
 import { useContextMenu } from '../ui/ContextMenu';
 import { WebdavModal } from '../ui/WebdavModal';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { PopoverMenu } from '../ui/PopoverMenu';
 
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
@@ -1816,6 +1817,8 @@ export function ReadSurface(): JSX.Element {
   const [showWebdav, setShowWebdav] = useState(false);
   const client = useSession((s) => s.client);
   const [syncing, setSyncing] = useState(false);
+  const [actionsMenu, setActionsMenu] = useState(false);
+  const actionsMenuAnchorRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
@@ -2235,34 +2238,7 @@ export function ReadSurface(): JSX.Element {
             style={{ display: 'none' }}
             onChange={(e) => void onImportFile(e)}
           />
-          <button
-            className="import-btn"
-            disabled={importing}
-            title={t('read.importHint')}
-            onClick={() => fileRef.current?.click()}
-          >
-            {importing ? t('read.importing') : t('read.importZotero')}
-          </button>
           <input ref={dirRef} type="file" style={{ display: 'none' }} onChange={onPickStorage} />
-          <button
-            className={needsRelink ? 'import-btn attn' : 'import-btn'}
-            title={t('read.linkStorageHint')}
-            onClick={() => void onLinkStorage()}
-          >
-            {storageCount > 0
-              ? t.plural('read.storageLinked', storageCount)
-              : t('read.linkStorage')}
-          </button>
-          {isShell() && (
-            <button className="import-btn" title={t('read.webdavHint')} onClick={() => setShowWebdav(true)}>
-              <Icon name="cloud" size={14} /> {t('read.syncFiles')}
-            </button>
-          )}
-          {isShell() && (
-            <button className="import-btn" title={t('read.openLinkHint')} onClick={() => openWebTab('')}>
-              <Icon name="globe" size={14} /> {t('read.openLink')}
-            </button>
-          )}
           <div className="seg">
             <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
               {t('read.modeLibrary')}
@@ -2276,6 +2252,77 @@ export function ReadSurface(): JSX.Element {
               {syncing ? t('read.syncing') : t('read.syncHub')}
             </button>
           )}
+          <div ref={actionsMenuAnchorRef} className="inspect-openwrap">
+            <button
+              className={`import-btn read-actions-trigger${needsRelink ? ' attn' : ''}`}
+              aria-haspopup="menu"
+              aria-expanded={actionsMenu}
+              aria-label={t('read.libraryActions')}
+              title={t('read.libraryActions')}
+              onClick={() => setActionsMenu((open) => !open)}
+            >
+              <Icon name="more-horizontal" size={16} />
+            </button>
+            <PopoverMenu
+              anchorRef={actionsMenuAnchorRef}
+              open={actionsMenu}
+              onClose={() => setActionsMenu(false)}
+              className="inspect-menu read-head-menu"
+              ariaLabel={t('read.libraryActions')}
+            >
+              <button
+                className="inspect-menu-item"
+                role="menuitem"
+                disabled={importing}
+                title={t('read.importHint')}
+                onClick={() => {
+                  setActionsMenu(false);
+                  fileRef.current?.click();
+                }}
+              >
+                <Icon name="download" size={14} />
+                {importing ? t('read.importing') : t('read.importZotero')}
+              </button>
+              <button
+                className={needsRelink ? 'inspect-menu-item attn' : 'inspect-menu-item'}
+                role="menuitem"
+                title={t('read.linkStorageHint')}
+                onClick={() => {
+                  setActionsMenu(false);
+                  void onLinkStorage();
+                }}
+              >
+                <Icon name="folder" size={14} />
+                {storageCount > 0 ? t.plural('read.storageLinked', storageCount) : t('read.linkStorage')}
+              </button>
+              {isShell() && (
+                <button
+                  className="inspect-menu-item"
+                  role="menuitem"
+                  title={t('read.webdavHint')}
+                  onClick={() => {
+                    setActionsMenu(false);
+                    setShowWebdav(true);
+                  }}
+                >
+                  <Icon name="cloud" size={14} /> {t('read.syncFiles')}
+                </button>
+              )}
+              {isShell() && (
+                <button
+                  className="inspect-menu-item"
+                  role="menuitem"
+                  title={t('read.openLinkHint')}
+                  onClick={() => {
+                    setActionsMenu(false);
+                    openWebTab('');
+                  }}
+                >
+                  <Icon name="globe" size={14} /> {t('read.openLink')}
+                </button>
+              )}
+            </PopoverMenu>
+          </div>
         </>
       }
     >

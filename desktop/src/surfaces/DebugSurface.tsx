@@ -29,6 +29,7 @@ import { InspectOpenDialog, type OpenMode, type PickResult, type PinRoot } from 
 import { InspectTree } from './InspectTree';
 import { InspectRepoAddDialog } from './InspectRepoAdd';
 import { RepoPickDialog } from './InspectForgePick';
+import { PopoverMenu } from '../ui/PopoverMenu';
 
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
@@ -945,6 +946,8 @@ export function DebugSurface(): JSX.Element {
   const [notFound, setNotFound] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [cmpMenu, setCmpMenu] = useState(false);
+  const openMenuAnchorRef = useRef<HTMLDivElement>(null);
+  const compareMenuAnchorRef = useRef<HTMLDivElement>(null);
   const [dialog, setDialog] = useState<OpenMode | null>(null);
   const [repoDialog, setRepoDialog] = useState(false);
   // The Compare menu's repo picker (#460) — resolve + browse a GitHub/HF repo
@@ -1112,14 +1115,17 @@ export function DebugSurface(): JSX.Element {
           <button className="import-btn" onClick={newScratch}>
             <Icon name="plus" size={14} /> {t('inspect.newScratch')}
           </button>
-          <div className="inspect-openwrap">
+          <div ref={openMenuAnchorRef} className="inspect-openwrap">
             <button className="import-btn" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
               <Icon name="folder" size={14} /> {t('inspect.open')} <Icon name="chevron-down" size={12} />
             </button>
-            {menu && (
-              <>
-                <div className="inspect-menu-scrim" onClick={() => setMenu(false)} />
-                <div className="inspect-menu" role="menu">
+            <PopoverMenu
+              anchorRef={openMenuAnchorRef}
+              open={menu}
+              onClose={() => setMenu(false)}
+              className="inspect-menu"
+              ariaLabel={t('inspect.open')}
+            >
                   {isShell() && (
                     <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), void openLocal())}>
                       <Icon name="file-text" size={14} /> {t('inspect.openFile')}
@@ -1153,19 +1159,23 @@ export function DebugSurface(): JSX.Element {
                   <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setRepoDialog(true))}>
                     <Icon name="git-branch" size={14} /> {t('inspect.fromRepo')}
                   </button>
-                </div>
-              </>
-            )}
+            </PopoverMenu>
           </div>
           {canCompare && (
-            <div className="inspect-openwrap">
+            <div ref={compareMenuAnchorRef} className="inspect-openwrap">
               <button className="import-btn" aria-haspopup="menu" aria-expanded={cmpMenu} onClick={beginCompare}>
                 <Icon name="git-compare" size={14} /> {t('inspect.compare')} <Icon name="chevron-down" size={12} />
               </button>
-              {cmpMenu && (
-                <>
-                  <div className="inspect-menu-scrim" onClick={() => (setCmpMenu(false), setCmpBase(null))} />
-                  <div className="inspect-menu" role="menu">
+              <PopoverMenu
+                anchorRef={compareMenuAnchorRef}
+                open={cmpMenu}
+                onClose={() => {
+                  setCmpMenu(false);
+                  setCmpBase(null);
+                }}
+                className="inspect-menu"
+                ariaLabel={t('inspect.compare')}
+              >
                     {otherTabs.length > 0 && <div className="inspect-menu-label small muted">{t('inspect.compareWithTab')}</div>}
                     {otherTabs.map((tb) => (
                       <button key={tb.id} className="inspect-menu-item" role="menuitem" onClick={() => makeCompare(refOfTab(tb))}>
@@ -1201,9 +1211,7 @@ export function DebugSurface(): JSX.Element {
                     <button className="inspect-menu-item" role="menuitem" onClick={() => (setCmpMenu(false), setRepoPick(true))}>
                       <Icon name="git-branch" size={14} /> {t('inspect.fromRepo')}
                     </button>
-                  </div>
-                </>
-              )}
+              </PopoverMenu>
             </div>
           )}
         </>

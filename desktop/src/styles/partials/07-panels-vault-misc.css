@@ -396,6 +396,9 @@ button.search-result-link:hover {
   cursor: nwse-resize;
 }
 .session-item {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -405,7 +408,7 @@ button.search-result-link:hover {
   border: none;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   cursor: pointer;
-  padding: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s8);
   color: var(--text);
 }
 .session-item.active {
@@ -450,6 +453,10 @@ button.search-result-link:hover {
   cursor: pointer;
   font-family: inherit;
   text-align: left;
+}
+.sessions-group {
+  width: 100%;
+  min-width: 0;
 }
 .sessions-group-head .sessions-group-label {
   flex: 1;

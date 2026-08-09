@@ -45,6 +45,9 @@ files:
   - '!esbuild.mjs'
   - '!electron-builder.yml'
   - '!scripts/**/*'
+  # Local packaging output may already exist from an earlier build. Never feed
+  # it back into app.asar (which recursively balloons the next package).
+  - '!release/**/*'
   # build/ holds the deb maintainer scripts (buildResources) — packaging
   # inputs, not runtime payload; keep them out of the asar.
   - '!build/**/*'

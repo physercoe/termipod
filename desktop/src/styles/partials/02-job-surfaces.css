@@ -431,22 +431,29 @@ button > .ui-icon:not(:only-child):first-child,
   border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
   border-radius: 6px;
 }
+/* Header dropdowns render through ui/PopoverMenu.tsx so pane overflow and
+   draggable title regions cannot clip or swallow them. */
+.popover-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+.popover-menu {
+  z-index: calc(var(--z-menu) + 1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-app-region: no-drag;
+}
+
 /* The New-figure spec dropdown. */
 .author-figbtn {
   position: relative;
   display: inline-flex;
 }
-.author-figmenu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-overlay);
-}
 .author-figmenu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: auto;
-  z-index: var(--z-menu);
+  z-index: calc(var(--z-menu) + 1);
   min-width: 220px;
   display: flex;
   flex-direction: column;
@@ -472,8 +479,8 @@ button > .ui-icon:not(:only-child):first-child,
   cursor: pointer;
 }
 .author-figmenu-item:hover {
-  background: var(--surface-sunken, var(--bg));
-  color: var(--accent-text);
+  background: var(--hover);
+  color: var(--text);
 }
 /* Category header inside the New ▾ menu (Write / Data / Draw / Figure). */
 .author-figmenu-group {
@@ -1557,22 +1564,14 @@ button > .ui-icon:not(:only-child):first-child,
   position: relative;
   display: inline-flex;
 }
-.inspect-menu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-overlay);
-}
 .inspect-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
   min-width: 200px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--sh-3);
   padding: var(--spacing-s4);
-  z-index: var(--z-menu);
+  z-index: calc(var(--z-menu) + 1);
 }
 .inspect-menu-item {
   display: flex;
@@ -1590,6 +1589,20 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .inspect-menu-item:hover {
   background: var(--hover);
+  color: var(--text);
+}
+.surface-read .surface-head .read-actions-trigger {
+  width: var(--control-sm);
+  min-width: var(--control-sm);
+  justify-content: center;
+  padding-inline: 0;
+  margin-right: 0;
+}
+.read-head-menu {
+  width: 236px;
+}
+.read-head-menu .inspect-menu-item.attn {
+  color: var(--warning);
 }
 .inspect-modal-backdrop {
   position: fixed;

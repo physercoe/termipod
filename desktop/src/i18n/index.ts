@@ -1589,6 +1589,8 @@ const en: Dict = {
   'read.showDetails': 'Show details',
 
   'author.docTabs': 'Open documents',
+  'author.tabsScrollBack': 'Scroll to earlier documents',
+  'author.tabsScrollForward': 'Scroll to later documents',
   'author.words_one': '{n} word',
   'author.words_other': '{n} words',
   'author.placeholder': 'Write in Markdown — $math$ and ```code``` supported…',
@@ -3711,6 +3713,8 @@ const zh: Dict = {
   'read.showDetails': '显示详情',
 
   'author.docTabs': '打开的文档',
+  'author.tabsScrollBack': '滚动到较早的文档',
+  'author.tabsScrollForward': '滚动到较后的文档',
   'author.words': '{n} 词',
   'author.placeholder': '用 Markdown 撰写 — 支持 $数学$ 与 ```代码```…',
   'author.empty': '暂无可预览内容。',

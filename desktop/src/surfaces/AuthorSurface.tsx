@@ -316,9 +316,82 @@ export function AuthorSurface(): JSX.Element {
   // The categorized "New ▾" dropdown — one menu for every document kind (Write /
   // Data / Draw / Figure), the figure rows driven by the `FIGURES` registry.
   const [newMenu, setNewMenu] = useState(false);
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  const [tabOverflow, setTabOverflow] = useState({ overflowing: false, before: false, after: false });
 
   const active = docs.find((d) => d.id === activeId);
   const tauri = isShell();
+
+  // Document tabs keep a useful, stable width instead of shrinking into a row
+  // of indistinguishable file icons. Track the scroll edges so compact previous /
+  // next controls appear only when the strip genuinely overflows.
+  const measureTabOverflow = useCallback((): void => {
+    const el = tabStripRef.current;
+    if (el === null) return;
+    const max = Math.max(0, el.scrollWidth - el.clientWidth);
+    // `scrollIntoView({ inline: 'nearest' })` may stop at the strip's 7px
+    // inline padding rather than literal zero; treat that optical gutter as an
+    // edge so a control never looks actionable when every tab is already shown.
+    const edgeSlack = 8;
+    const next = {
+      overflowing: max > 1,
+      before: el.scrollLeft > edgeSlack,
+      after: el.scrollLeft < max - edgeSlack,
+    };
+    setTabOverflow((prev) =>
+      prev.overflowing === next.overflowing && prev.before === next.before && prev.after === next.after ? prev : next,
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = tabStripRef.current;
+    if (el === null) return;
+    const frame = window.requestAnimationFrame(measureTabOverflow);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureTabOverflow) : null;
+    observer?.observe(el);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [docs.length, measureTabOverflow]);
+
+  // Opening or selecting a document should never leave its tab hidden beyond
+  // an overflow edge. `nearest` moves the strip only as far as necessary.
+  useEffect(() => {
+    const el = tabStripRef.current;
+    if (el === null || activeId === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      const tab = Array.from(el.children).find((child) => (child as HTMLElement).dataset.docId === activeId);
+      tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      measureTabOverflow();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeId, docs.length, measureTabOverflow]);
+
+  function scrollTabs(direction: -1 | 1): void {
+    const el = tabStripRef.current;
+    if (el === null) return;
+    el.scrollBy({ left: direction * Math.max(180, el.clientWidth * 0.72), behavior: 'smooth' });
+  }
+
+  function moveTabFocus(e: React.KeyboardEvent<HTMLDivElement>): void {
+    const target = e.target as HTMLElement;
+    if (target.getAttribute('role') !== 'tab' || docs.length === 0) return;
+    const current = docs.findIndex((d) => d.id === activeId);
+    let next = current < 0 ? 0 : current;
+    if (e.key === 'ArrowRight') next = (next + 1) % docs.length;
+    else if (e.key === 'ArrowLeft') next = (next - 1 + docs.length) % docs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = docs.length - 1;
+    else return;
+    e.preventDefault();
+    setActive(docs[next].id);
+    window.requestAnimationFrame(() => {
+      const strip = tabStripRef.current;
+      const tab = strip === null ? undefined : Array.from(strip.children).find((child) => (child as HTMLElement).dataset.docId === docs[next].id);
+      tab?.querySelector<HTMLElement>('[role="tab"]')?.focus();
+    });
+  }
 
   // The dock companion's context provider (the unified assistant dock, D2.2 —
   // state/companionContext.ts): the active document. Register on mount +
@@ -641,70 +714,111 @@ export function AuthorSurface(): JSX.Element {
       )}
       <div className="author-main">
       {docs.length > 0 && (
-        <div className="read-tabstrip" role="tablist" aria-label={t('author.docTabs')}>
-          {docs.map((d) => {
-            const draft = d.filePath === undefined;
-            const openTab = (e: { clientX: number; clientY: number; preventDefault: () => void }): void => {
-              const items: MenuItem[] = [{ label: t('author.navRename'), onClick: () => void renameDoc(d.id) }];
-              if (draft && folder !== null) {
-                items.push({ label: t('author.navSaveToWorkspace'), onClick: () => void saveDraftToWorkspace(d.id) });
-              }
-              if (!draft && tauri) {
-                const p = d.filePath as string;
-                items.push({ label: t('author.fReveal'), onClick: () => revealPath(p) });
-              }
-              items.push({ label: t('author.navClose'), danger: true, onClick: () => closeTab(d.id) });
-              openTabMenu(e, items);
-            };
-            return (
-              <span key={d.id} role="presentation" className={`read-tabitem${activeId === d.id ? ' active' : ''}`}>
-                <button
-                  role="tab"
-                  aria-selected={activeId === d.id}
-                  tabIndex={activeId === d.id ? 0 : -1}
-                  className="read-tabitem-label"
-                  title={d.filePath ?? t('author.navDraftHint')}
-                  draggable={draft}
-                  onDragStart={
-                    draft
-                      ? (e) => {
-                          e.dataTransfer.setData('application/x-termipod-doc', d.id);
-                          e.dataTransfer.effectAllowed = 'copy';
-                        }
-                      : undefined
-                  }
-                  onClick={() => setActive(d.id)}
-                  onContextMenu={openTab}
+        <div className="author-tabs-shell">
+          {tabOverflow.overflowing && (
+            <button
+              className="author-tab-scroll before"
+              aria-label={t('author.tabsScrollBack')}
+              title={t('author.tabsScrollBack')}
+              disabled={!tabOverflow.before}
+              onClick={() => scrollTabs(-1)}
+            >
+              <Icon name="chevron-left" size={14} />
+            </button>
+          )}
+          <div
+            ref={tabStripRef}
+            className="read-tabstrip author-doc-tabs"
+            role="tablist"
+            aria-label={t('author.docTabs')}
+            onScroll={measureTabOverflow}
+            onKeyDown={moveTabFocus}
+          >
+            {docs.map((d) => {
+              const draft = d.filePath === undefined;
+              const title = d.title !== '' ? d.title : t('author.untitled');
+              const edit = latestAgentEdit(agentEdits, d.id);
+              const editTitle = edit === undefined ? '' : agentEditTitle(edit, agentEditCount(agentEdits, d.id), t);
+              const openTab = (e: { clientX: number; clientY: number; preventDefault: () => void }): void => {
+                const items: MenuItem[] = [{ label: t('author.navRename'), onClick: () => void renameDoc(d.id) }];
+                if (draft && folder !== null) {
+                  items.push({ label: t('author.navSaveToWorkspace'), onClick: () => void saveDraftToWorkspace(d.id) });
+                }
+                if (!draft && tauri) {
+                  const p = d.filePath as string;
+                  items.push({ label: t('author.fReveal'), onClick: () => revealPath(p) });
+                }
+                items.push({ label: t('author.navClose'), danger: true, onClick: () => closeTab(d.id) });
+                openTabMenu(e, items);
+              };
+              return (
+                <span
+                  key={d.id}
+                  role="presentation"
+                  data-doc-id={d.id}
+                  className={`read-tabitem${activeId === d.id ? ' active' : ''}`}
                 >
-                  <Icon name={docKindIcon(d.kind)} size={13} className="read-tabitem-kind" />
-                  {d.dirty === true ? '● ' : ''}
-                  {d.title !== '' ? d.title : t('author.untitled')}
-                  {draft && <span className="read-tabitem-badge">{t('author.navDraft')}</span>}
-                </button>
-                {/* B6: attribution + one-click revert. Outside the tab button
-                    (a button cannot nest one) so it is reachable without
-                    switching to the tab — reverting a write on a document you
-                    are not looking at is the common case when an agent works
-                    across several. */}
-                {latestAgentEdit(agentEdits, d.id) !== undefined && (
                   <button
-                    className="read-tabitem-agent"
-                    title={agentEditTitle(latestAgentEdit(agentEdits, d.id), agentEditCount(agentEdits, d.id), t)}
-                    onClick={() => revertAgentEdit(d.id)}
+                    role="tab"
+                    aria-selected={activeId === d.id}
+                    tabIndex={activeId === d.id ? 0 : -1}
+                    className="read-tabitem-label"
+                    title={d.filePath ?? t('author.navDraftHint')}
+                    draggable={draft}
+                    onDragStart={
+                      draft
+                        ? (e) => {
+                            e.dataTransfer.setData('application/x-termipod-doc', d.id);
+                            e.dataTransfer.effectAllowed = 'copy';
+                          }
+                        : undefined
+                    }
+                    onClick={() => setActive(d.id)}
+                    onContextMenu={openTab}
                   >
-                    {t('author.agentEdited')}
+                    <Icon name={docKindIcon(d.kind)} size={13} className="read-tabitem-kind" />
+                    {d.dirty === true && <span className="author-tab-dirty" aria-hidden="true" />}
+                    <span className="author-tab-title">{title}</span>
+                    {draft && <span className="read-tabitem-badge">{t('author.navDraft')}</span>}
                   </button>
-                )}
-                <button
-                  className={confirmClose === d.id ? 'read-tabitem-x danger' : 'read-tabitem-x'}
-                  title={confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}
-                  onClick={() => closeTab(d.id)}
-                >
-                  {confirmClose === d.id ? '✓×' : '×'}
-                </button>
-              </span>
-            );
-          })}
+                  {/* B6: attribution + one-click revert. Outside the tab button
+                      (a button cannot nest one) so it is reachable without
+                      switching to the tab — reverting a write on a document you
+                      are not looking at is the common case when an agent works
+                      across several. */}
+                  {edit !== undefined && (
+                    <button
+                      className="read-tabitem-agent"
+                      aria-label={editTitle}
+                      title={editTitle}
+                      onClick={() => revertAgentEdit(d.id)}
+                    >
+                      <Icon name="undo" size={11} />
+                    </button>
+                  )}
+                  <button
+                    className={confirmClose === d.id ? 'read-tabitem-x danger' : 'read-tabitem-x'}
+                    aria-label={`${confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}: ${title}`}
+                    title={confirmClose === d.id ? t('author.confirmClose') : t('read.closeTab')}
+                    onClick={() => closeTab(d.id)}
+                  >
+                    <Icon name={confirmClose === d.id ? 'check' : 'close'} size={12} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+          {tabOverflow.overflowing && (
+            <button
+              className="author-tab-scroll after"
+              aria-label={t('author.tabsScrollForward')}
+              title={t('author.tabsScrollForward')}
+              disabled={!tabOverflow.after}
+              onClick={() => scrollTabs(1)}
+            >
+              <Icon name="chevron-right" size={14} />
+            </button>
+          )}
         </div>
       )}
       {active !== undefined ? (

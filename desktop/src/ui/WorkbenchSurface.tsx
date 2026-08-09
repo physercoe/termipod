@@ -19,7 +19,7 @@ export function WorkbenchSurface({
   const t = useT();
   const def = JOBS.find((j) => j.id === job);
   return (
-    <section className="surface" aria-label={def ? t(def.labelKey) : job}>
+    <section className={`surface surface-${job}`} aria-label={def ? t(def.labelKey) : job}>
       <header className="surface-head">
         <span className="surface-icon">{def && <JobIcon id={def.id} size={20} />}</span>
         <div className="surface-titles">

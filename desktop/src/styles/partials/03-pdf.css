@@ -964,10 +964,11 @@
 /* Reader / browser tab strip — sits above the tab content; the "Library" pseudo
    tab returns to the list. */
 .read-tabstrip {
+  flex: 0 0 36px;
   display: flex;
   align-items: stretch;
   gap: 2px;
-  padding: var(--spacing-s4) var(--spacing-s8) 0;
+  padding: 4px var(--spacing-s8) 0;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   overflow-x: auto;
@@ -982,6 +983,7 @@
   color: var(--text-secondary);
   background: transparent;
   white-space: nowrap;
+  font-size: var(--font-size-body-small);
 }
 .read-tabitem.active {
   color: var(--text);

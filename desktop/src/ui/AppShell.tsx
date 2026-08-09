@@ -135,15 +135,15 @@ export function AppShell(): JSX.Element {
     };
   }, [setJob, toggleActivityRail]);
 
-  // Auto-bind the active profile on launch; raise the connect overlay only if
-  // that leaves us disconnected (no profile / no stored token). Resolve the
+  // Auto-bind the active profile on launch. A disconnected launch remains a
+  // quiet, usable workbench: the status bar exposes Connect when the user is
+  // ready, so an asynchronous first-run modal must not interrupt their current
+  // surface or steal pointer/focus from work already in progress. Resolve the
   // system/env proxy first (seeded synchronously from cache; this refreshes it)
   // so proxy-routed connections have it before the first hub call.
   useEffect(() => {
     void useProxy.getState().resolveDetected();
-    void init().finally(() => {
-      if (useSession.getState().client === null) setConnectOpen(true);
-    });
+    void init();
   }, [init]);
 
   // Prime the vault status while the shell is idle so Settings shows it

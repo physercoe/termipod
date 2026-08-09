@@ -32,8 +32,15 @@ export function ProfileSwitcher({
     function onDoc(e: MouseEvent): void {
       if (ref.current !== null && !ref.current.contains(e.target as Node)) setOpen(false);
     }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setOpen(false);
+    }
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   const active = profiles.find((p) => p.id === activeId);
@@ -41,15 +48,22 @@ export function ProfileSwitcher({
 
   return (
     <div className="profile-switcher" ref={ref}>
-      <button className="pill switcher-pill" onClick={() => setOpen((v) => !v)}>
-        {label} <Icon name="chevron-down" size={13} />
+      <button
+        className="pill switcher-pill"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="switcher-label">{label}</span>
+        <Icon name="chevron-down" size={13} />
       </button>
       {open && (
-        <div className="switcher-menu">
+        <div className="switcher-menu" role="menu">
           {profiles.map((p) => (
             <div key={p.id} className={p.id === activeId ? 'switcher-item active' : 'switcher-item'}>
               <button
                 className="switcher-pick"
+                role="menuitem"
                 onClick={() => {
                   void switchProfile(p.id);
                   setOpen(false);
@@ -84,7 +98,7 @@ export function ProfileSwitcher({
             </div>
           ))}
           {profiles.length === 0 && <div className="muted small switcher-empty">{t('profile.none')}</div>}
-          <button className="switcher-add" onClick={() => { setOpen(false); onAdd(); }}>
+          <button className="switcher-add" role="menuitem" onClick={() => { setOpen(false); onAdd(); }}>
             + {t('profile.add')}
           </button>
         </div>

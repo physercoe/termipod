@@ -565,6 +565,8 @@ export function AuthorSurface(): JSX.Element {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void saveRef.current();
+      } else if (e.key === 'Escape') {
+        setNewMenu(false);
       }
     }
     window.addEventListener('keydown', onKey);

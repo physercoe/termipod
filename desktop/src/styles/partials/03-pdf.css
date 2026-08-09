@@ -10,23 +10,59 @@
 .resize-handle {
   flex: 0 0 auto;
   width: 6px;
-  background: var(--border);
+  position: relative;
+  background: transparent;
   cursor: col-resize;
   touch-action: none;
 }
-.resize-handle:hover {
-  background: var(--accent);
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: var(--hairline);
+  transform: translateX(-50%);
+  background: var(--glass-rim);
+  pointer-events: none;
+  transition: background 0.12s var(--ease), width 0.12s var(--ease);
+}
+.resize-handle:hover,
+.resize-handle:focus-visible {
+  background: transparent;
+  outline: none;
+}
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after {
+  width: 1px;
+  background: var(--border-strong);
 }
 /* Horizontal divider between two stacked panes (drags vertically). */
 .resize-handle-v {
   flex: 0 0 auto;
   height: 6px;
-  background: var(--border);
+  position: relative;
+  background: transparent;
   cursor: row-resize;
   touch-action: none;
 }
-.resize-handle-v:hover {
-  background: var(--accent);
+.resize-handle-v::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: var(--hairline);
+  transform: translateY(-50%);
+  background: var(--glass-rim);
+  pointer-events: none;
+  transition: background 0.12s var(--ease), height 0.12s var(--ease);
+}
+.resize-handle-v:hover,
+.resize-handle-v:focus-visible {
+  background: transparent;
+  outline: none;
+}
+.resize-handle-v:hover::after,
+.resize-handle-v:focus-visible::after {
+  height: 1px;
+  background: var(--border-strong);
 }
 .read-center {
   flex: 1;

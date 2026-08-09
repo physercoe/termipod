@@ -310,6 +310,20 @@ screen-state classifications rather than tool/turn events, so the
 overlap is expected to be the envelope only — but "new code emits the
 corrected shapes natively" binds it too, and that is a P2-review
 check nobody has run yet.
+*Run 2026-08-09, and it found an envelope constraint this lane
+inherits:* **`producer` is closed, per endpoint.** The event-ingest
+route accepts `agent|user|system` and 400s the rest
+(`hub/internal/server/handlers_agent_events.go:95`); the agent-input
+route accepts `user|a2a` (`handlers_agent_input.go:438-445`). A new emitter is
+therefore never a new *producer*, only a new **kind**; P2 ships kind
+`pane_state` with producer `system`. **L3/L4's local drivers are bound
+by the same rule**: whatever a locally-driven engine emits has to
+land on one of the three existing producers. Two further findings
+worth having here: busy inference is allowlist-shaped on both clients
+(`kAgentTurnActiveKinds`), so an unrecognized kind is no-signal and
+safe; feed *rendering* is not, so any new kind renders as a raw card
+in both modes on both clients until it is placed in a hide tier
+deliberately.
 
 Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
 `driver_appserver.go`, claude M4 = `drivers/local_log_tail/claude_code/`.

@@ -45,6 +45,42 @@ func listTmuxPanes(ctx context.Context) (map[string]paneInfo, error) {
 	return m, nil
 }
 
+// listTmuxPaneTitles returns pane_id → pane_title for every pane on the
+// server in ONE round-trip (pane-state plan D-4: the manifests' `osc_title`
+// region is fed from tmux's view of the title the app set via OSC 0/2).
+//
+// Kept separate from listTmuxPanes rather than folded into it: a title is
+// free-form text that can contain spaces, so it has to be LAST in the format
+// string and parsed positionally, and widening the reconcile format to carry
+// it would put a field that can contain anything ahead of nothing but still
+// change a parser three transitions depend on. P3's capture-cost gating adds
+// `#{window_activity}` to this same call and is the moment to merge the two.
+func listTmuxPaneTitles(ctx context.Context) (map[string]string, error) {
+	out, err := runTmux(ctx, "list-panes", "-a", "-F", "#{pane_id} #{pane_title}")
+	if err != nil {
+		return nil, err
+	}
+	return parsePaneTitles(out), nil
+}
+
+// parsePaneTitles splits `<pane_id> <title...>` lines. Split on the FIRST
+// space only: a pane id never contains one (`%17`), a title routinely does.
+func parsePaneTitles(out string) map[string]string {
+	m := map[string]string{}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" {
+			continue
+		}
+		id, title, _ := strings.Cut(line, " ")
+		if id == "" {
+			continue
+		}
+		m[id] = title
+	}
+	return m
+}
+
 // loginShells are the fg-commands that indicate "no backend CLI is running
 // in this pane right now" — either the pane is still booting, or the CLI
 // exited and the shell came back to the foreground (only possible with

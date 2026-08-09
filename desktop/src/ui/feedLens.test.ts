@@ -53,6 +53,16 @@ test('the hub input-route markers were never hidden and still are not', () => {
   }
 });
 
+test('pane_state is verbose-only, not a default transcript card', () => {
+  // The host-runner emits one per screen-state transition on engines with no
+  // structured driver (pane-state-manifests P2). An unlisted kind renders as a
+  // raw card in BOTH modes, so the default answer for a new kind is noise —
+  // this is the deliberate walk the header rule asks for.
+  const e = ev('pane_state', { state: 'blocked', rule_id: 'live_strong_blocker' });
+  assert.equal(isHiddenInFeed(e, false), true);
+  assert.equal(isHiddenInFeed(e, true), false);
+});
+
 test('user input is never hidden', () => {
   assert.equal(isHiddenInFeed(ev('input.text', { text: 'hi' }), false), false);
   assert.equal(isHiddenInFeed(ev('input.cancel'), false), false);

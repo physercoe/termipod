@@ -499,7 +499,7 @@ The `kind` column on `agent_events`. Stable typed vocabulary:
 `text`, `thought`, `tool_call`, `tool_call_update`, `tool_result`,
 `usage`, `session.init`, `lifecycle`, `system`, `error`, `raw`,
 `turn.result`, `plan`, `diff`, `approval_request`,
-`attention_request`, plus the ADR-014 markers
+`attention_request`, `pane_state`, plus the ADR-014 markers
 `context.compacted`, `context.cleared`, `context.rewound`. Mobile
 renders by kind. Drivers tagged `producer=agent`/`system` emit
 these; `producer=user`/`a2a` events use input-kind names like
@@ -529,6 +529,22 @@ applicable), the agent's advertised options, and a one-line
 allow/deny — the principal typically fixes the host
 (`gemini auth`, `GEMINI_API_KEY`) or edits the steward template,
 then retries the spawn.
+
+### pane_state (event kind)
+Host-runner's declarative screen classification for a tmux pane
+(`producer=system`; pane-state-manifests plan P2). One event per
+*transition*, carrying `{state, previous_state, rule_id or
+fallback_reason, manifest_id, manifest_version, manifest_source,
+family, pane}` plus the `visible_*` hints the matched rule set.
+`state` is `idle` / `working` / `blocked` / `unknown` — the
+vocabulary of the vendored manifests, not the agent lifecycle's.
+Emitted only for agent families the overlay maps AND only when no
+live in-process driver authors that agent's state, so it never
+contradicts a driver-reported state; engines with a structured
+adapter produce none.
+- *Distinguish from:* `lifecycle` (the agent PROCESS's phase, which
+  host-runner knows for certain) — `pane_state` is an inference from
+  pixels, and a pane can look idle while the process is busy.
 
 ### replay (event payload flag)
 When a session/load is in flight (W1.2), session/update

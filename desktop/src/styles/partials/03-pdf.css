@@ -9,11 +9,18 @@
 /* A draggable divider between two panes (rail | center | inspector). */
 .resize-handle {
   flex: 0 0 auto;
-  width: 6px;
+  width: 1px;
   position: relative;
+  z-index: 2;
   background: transparent;
   cursor: col-resize;
   touch-action: none;
+}
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+  cursor: col-resize;
 }
 .resize-handle::after {
   content: '';
@@ -38,11 +45,18 @@
 /* Horizontal divider between two stacked panes (drags vertically). */
 .resize-handle-v {
   flex: 0 0 auto;
-  height: 6px;
+  height: 1px;
   position: relative;
+  z-index: 2;
   background: transparent;
   cursor: row-resize;
   touch-action: none;
+}
+.resize-handle-v::before {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+  cursor: row-resize;
 }
 .resize-handle-v::after {
   content: '';
@@ -264,7 +278,6 @@
 .pdfjs-toc {
   flex: 0 0 auto; /* width is set inline (resizable, persisted); do NOT add .scroll —
                      its flex:1 would override this and defeat the inline width. */
-  border-right: 1px solid var(--border);
   background: var(--surface);
   display: flex;
   flex-direction: column;
@@ -911,7 +924,6 @@
   min-width: 0;
   min-height: 0;
   display: flex;
-  border-left: var(--hairline) solid var(--glass-rim);
   background: var(--glass-pane);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);

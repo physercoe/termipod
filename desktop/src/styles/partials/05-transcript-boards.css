@@ -1448,7 +1448,7 @@
    opens as a modal. */
 .kanban-split {
   display: flex;
-  gap: var(--spacing-s12);
+  gap: 0;
   align-items: flex-start;
   min-width: 0;
 }
@@ -1464,7 +1464,6 @@
   top: 0;
   max-height: calc(100vh - 190px);
   overflow-y: auto;
-  border-left: 1px solid var(--border);
   padding-left: var(--spacing-s12);
   min-width: 0;
 }

@@ -1097,7 +1097,6 @@ button > .ui-icon:not(:only-child):first-child,
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: var(--canvas);
   overflow: hidden;
 }

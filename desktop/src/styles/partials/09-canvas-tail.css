@@ -473,14 +473,12 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
   background: var(--surface-sunken, var(--surface));
 }
-/* Right-docked variant (the Author editor's Obsidian-style outline): the border
-   moves to the left edge, and the collapsed show-button sits at the right. */
+/* Right-docked variant (the Author editor's Obsidian-style outline). The shared
+   ResizeHandle draws the boundary; the rail must not add a parallel border. */
 .mdreader-outline.side-right {
-  border-right: none;
-  border-left: 1px solid var(--border);
+  border: none;
 }
 .mdreader-outline-show.side-right {
   align-self: flex-start;
@@ -815,7 +813,6 @@
   flex: 0 0 auto; /* width is inline (resizable); never shrink below it */
   width: 240px;
   overflow: auto;
-  border-right: 1px solid var(--border);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -1188,7 +1185,6 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 6px;
-  border-right: var(--hairline) solid var(--glass-rim);
   background: var(--glass-pane);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);

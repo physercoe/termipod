@@ -417,7 +417,7 @@
 }
 /* Left nav (surface mode): saved SSH connections/hosts. Width is set inline
    (resizable + persisted); `.folded` collapses it entirely (a reveal chevron in
-   the head brings it back). Border-right is the seat for the ResizeHandle. */
+   the head brings it back). The adjacent ResizeHandle owns the sole divider. */
 .term-nav {
   flex: 0 0 auto;
   width: 210px;
@@ -427,7 +427,6 @@
   min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-s8);
-  border-right: 1px solid var(--border);
   background: var(--canvas);
 }
 .term-nav.folded {

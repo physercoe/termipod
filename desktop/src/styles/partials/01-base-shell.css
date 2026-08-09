@@ -10,7 +10,9 @@
  * and spacing, while colour is reserved for semantic status. */
 :root {
   color-scheme: dark;
-  --pane-gap: 1px;
+  /* Pane separation is drawn by ResizeHandle itself. A layout gap beside that
+     divider produced a second parallel line (and a dark gutter in light mode). */
+  --pane-gap: 0px;
   /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
    * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
   --bg: #171717;          /* focused content canvas */

@@ -350,7 +350,6 @@ button.search-result-link:hover {
 .sessions-list {
   flex: 0 0 300px;
   overflow: auto;
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
 }

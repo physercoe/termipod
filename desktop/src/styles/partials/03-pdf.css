@@ -547,11 +547,18 @@
   padding-left: var(--spacing-s4);
 }
 .pdfjs-anno-swatch {
+  flex: 0 0 16px;
   width: 16px;
+  min-width: 16px;
   height: 16px;
+  min-height: 16px;
+  aspect-ratio: 1;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.25);
   padding: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   cursor: pointer;
 }
 .pdfjs-anno-swatch.active {

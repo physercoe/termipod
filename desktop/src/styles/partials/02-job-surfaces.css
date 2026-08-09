@@ -9,8 +9,11 @@
   flex-direction: column;
   gap: var(--spacing-s2);
   padding: var(--spacing-s8) var(--spacing-s6);
-  background: var(--canvas);
-  border-right: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-right: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset -1px 0 0 var(--glass-highlight);
   /* Visible (not auto) so the hub-switcher dropdown at the top can escape the
      narrow rail rather than being clipped; the job list owns the scroll. */
   overflow: visible;
@@ -83,7 +86,7 @@
   gap: var(--spacing-s4);
   margin-bottom: var(--spacing-s4);
   padding-bottom: var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--hairline) solid var(--glass-rim);
 }
 .activity-brand-mark {
   display: flex;
@@ -226,8 +229,11 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s12);
   padding: var(--spacing-s8) var(--spacing-s16);
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .surface-icon {
   display: flex;

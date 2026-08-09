@@ -1015,8 +1015,11 @@
   min-width: 0;
   display: flex;
   align-items: stretch;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  background: var(--glass-surface);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .author-tabs-shell .author-doc-tabs {
   flex: 1;
@@ -1185,8 +1188,10 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 6px;
-  border-right: 1px solid var(--border);
-  background: var(--canvas);
+  border-right: var(--hairline) solid var(--glass-rim);
+  background: var(--glass-pane);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .author-nav-sec {
   display: flex;

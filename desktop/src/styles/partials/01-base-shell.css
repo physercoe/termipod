@@ -25,16 +25,19 @@
   --text: #f4f6f8;        /* high-contrast ink */
   --text-secondary: #a7aeba;
   --text-muted: #8b939f;  /* WCAG AA: 4.5:1+ on --surface (was #6a727f ≈3.8:1) */
-  /* accent — brand cyan, reserved for focus / selection / live data / one CTA */
-  --accent: var(--color-primary);
-  --accent-strong: var(--color-primary-dark);
-  --accent-ink: #00252b;
+  /* Brand accent — a quiet periwinkle/indigo, reserved for focus, selection
+   * and one primary action. Green, amber and red remain semantic status hues;
+   * keeping them out of navigation prevents the workbench from reading like a
+   * monitoring dashboard. */
+  --accent: #8b8cf6;
+  --accent-strong: #7677dc;
+  --accent-ink: #101118;
   /* accent used as TEXT — on dark surfaces the bright accent already clears AA,
    * so it's the accent itself; the light theme overrides it to a darker teal
    * (see below) because the light accent as text is only ~2.9:1 on white. Route
    * accent-coloured text through this, NOT --accent (which is tuned for fills,
    * borders and focus rings). */
-  --accent-text: var(--accent);
+  --accent-text: #a6a6ff;
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
   /* semantic state — distinct from the accent hue */
@@ -146,14 +149,10 @@
   --text: #0f141c;
   --text-secondary: #586173;
   --text-muted: #6b7280;  /* WCAG AA: 4.66:1 on --bg (was #8a93a3 ≈2.91:1) */
-  --accent: var(--color-primary-dark);
-  --accent-strong: var(--color-primary-dark);
-  /* Dark ink on the solid accent fill — white was only 3.39:1 on the light
-   * accent; dark ink is ≈5:1 (mirrors the dark theme's dark-on-accent ink). */
-  --accent-ink: #00252b;
-  /* Accent-as-text darkened for AA: the light accent (#009AA8) is ~2.9:1 on
-   * white; this teal is ~5:1, so links/labels/active tabs stay readable. */
-  --accent-text: #007a8a;
+  --accent: #5f5bd6;
+  --accent-strong: #504cbc;
+  --accent-ink: #ffffff;
+  --accent-text: #514db5;
   --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
   --ok: var(--color-success-on-light);

@@ -270,6 +270,44 @@ button > .ui-icon:not(:only-child):first-child,
   white-space: nowrap;
 }
 
+/* Read carries the widest action set in the workbench. Keep it on the same
+   visual rhythm as Author's compact document controls: one 44px row, quiet
+   utility actions, and no second subtitle line consuming permanent space. */
+.surface-read .surface-head {
+  min-height: 44px;
+  gap: var(--spacing-s8);
+  padding: 6px var(--spacing-s12);
+}
+.surface-read .surface-icon .job-icon {
+  width: 18px;
+  height: 18px;
+}
+.surface-read .surface-titles {
+  display: flex;
+  align-items: center;
+}
+.surface-read .surface-title {
+  font-size: var(--font-size-body-small);
+}
+.surface-read .surface-hint {
+  display: none;
+}
+.surface-read .surface-head button {
+  min-height: var(--control-sm);
+  padding: 4px var(--spacing-s8);
+  font-size: var(--font-size-caption);
+}
+.surface-read .surface-head .import-btn {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.surface-read .surface-head .import-btn:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: transparent;
+}
+
 /* honest placeholder for jobs whose primary EMBED hasn't shipped (J4) */
 .surface-placeholder {
   max-width: 640px;

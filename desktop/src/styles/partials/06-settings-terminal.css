@@ -577,22 +577,20 @@ button {
   color: var(--text);
   background: var(--raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-s8) var(--spacing-s12);
+  min-height: var(--control-md);
+  border-radius: var(--radius-control);
+  padding: 6px var(--spacing-s12);
   cursor: pointer;
   box-shadow: var(--sh-1);
   transition: background 0.13s var(--ease), border-color 0.13s var(--ease),
-    box-shadow 0.13s var(--ease), transform 0.13s var(--ease);
+    color 0.13s var(--ease), box-shadow 0.13s var(--ease);
 }
 button:hover {
   background: var(--hover);
   border-color: var(--border-strong);
-  transform: translateY(-1px);
-  box-shadow: var(--sh-2);
 }
 button:active {
-  transform: translateY(0);
-  box-shadow: var(--sh-1);
+  background: color-mix(in srgb, var(--hover) 76%, var(--text) 4%);
 }
 button:disabled {
   opacity: 0.5;
@@ -601,14 +599,24 @@ button:disabled {
   box-shadow: var(--sh-1);
 }
 button.primary {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, white 10%), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-ink);
   border-color: var(--accent-strong);
   font-weight: 600;
 }
 button.primary:hover {
+  background: var(--accent-strong);
   border-color: var(--accent-strong);
-  box-shadow: var(--sh-2), 0 0 18px var(--accent-line);
+}
+button.ghost {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+button.ghost:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: transparent;
 }
 
 input,
@@ -618,8 +626,9 @@ textarea {
   color: var(--text);
   background: var(--input);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-s8);
+  min-height: var(--control-md);
+  border-radius: var(--radius-control);
+  padding: 6px var(--spacing-s8);
   transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 input:focus,
@@ -665,7 +674,7 @@ th {
   padding: var(--spacing-s24);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-overlay);
 }
 /* The Modal dialog div carries .connect (#313); the <form> inside keeps submit
    semantics but melts into the card's flex layout (its children become the

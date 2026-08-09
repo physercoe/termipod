@@ -14,11 +14,11 @@
   --pane-gap: 1px;
   /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
    * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
-  --bg: #08090c;          /* app ground */
-  --canvas: #0d0f13;      /* navigator + dock rails */
-  --surface: #131519;     /* cards, panels, popovers */
-  --raised: #191c22;      /* buttons, hover targets, inset controls */
-  --hover: #20242b;       /* row / interactive hover fill */
+  --bg: #090a0d;          /* app ground */
+  --canvas: #0c0e12;      /* navigator + dock rails */
+  --surface: #111318;     /* cards, panels, popovers */
+  --raised: #171a20;      /* buttons, hover targets, inset controls */
+  --hover: #1c2027;       /* row / interactive hover fill */
   --input: #0b0c10;
   --border: #23262d;      /* hairline (Radix step 6/7) */
   --border-strong: #31363f; /* interactive / focus border (step 8) */
@@ -99,6 +99,14 @@
   --track-tight: -0.018em;
   --track-snug: -0.011em;
   --track-body: -0.006em;
+  /* Control geometry. One compact ladder replaces per-component heights and
+   * makes toolbars, dialogs and dense workbench chrome feel related. */
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-overlay: 14px;
   /* Phantom-token aliases (#318). These names were referenced across the sheet
    * through an inline var() fallback but never actually defined — so the fallback
    * was silently load-bearing (and inconsistent: one fell back to a raw #fff).
@@ -127,11 +135,11 @@
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f7f8fa;
-  --canvas: #eef0f3;
+  --bg: #f7f7f8;
+  --canvas: #f1f2f4;
   --surface: #ffffff;
   --raised: #ffffff;
-  --hover: #e4e9f0;  /* was #eef1f5 ≈1.1:1 on white — nearly invisible */
+  --hover: #e9ebef;
   --input: #f6f7f9;
   --border: #e6e9ee;
   --border-strong: #d4d9e1;
@@ -315,16 +323,21 @@ pre {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
+  min-height: 42px;
   padding: var(--spacing-s4) var(--spacing-s12);
   background: var(--canvas);
   border-bottom: 1px solid var(--border);
 }
 .fleet-toolbar-label {
-  font-size: var(--font-size-label);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+  letter-spacing: var(--track-snug);
+  color: var(--text);
   font-weight: 600;
+}
+.fleet-toolbar button {
+  min-height: var(--control-sm);
+  padding: 4px 9px;
+  font-size: var(--font-size-body-small);
 }
 .fleet-toolbar-sep {
   width: 1px;
@@ -342,7 +355,7 @@ pre {
   align-items: center;
   gap: var(--spacing-s16);
   padding: 0 var(--spacing-s16);
-  background: linear-gradient(180deg, var(--canvas), var(--surface));
+  background: var(--canvas);
   border-bottom: 1px solid var(--border);
 }
 
@@ -356,7 +369,7 @@ pre {
   height: 28px;
   border-top: 1px solid var(--border);
   border-bottom: none;
-  background: linear-gradient(180deg, var(--surface), var(--canvas));
+  background: var(--canvas);
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -376,7 +389,19 @@ pre {
 }
 .statusbar-term:hover,
 .statusbar-term.active {
-  color: var(--accent-text);
+  color: var(--text);
+}
+.statusbar-term.active {
+  background: var(--hover);
+}
+.statusbar-count {
+  color: var(--text-secondary);
+}
+.statusbar-count.attention {
+  color: var(--warn);
+}
+.statusbar-hosts.quiet {
+  color: var(--text-muted);
 }
 
 /* Background-sync indicator (Author workspace + Read/Zotero library jobs). Shown
@@ -417,7 +442,7 @@ pre {
   display: flex;
   gap: var(--pane-gap);
   min-height: 0;
-  background: var(--border);
+  background: var(--bg);
 }
 .shell-body > .navigator {
   flex: 0 0 auto; /* width set inline by MissionLayout (resizable) */
@@ -503,11 +528,12 @@ pre {
 }
 
 .region-header {
+  min-height: 36px;
   padding: var(--spacing-s8) var(--spacing-s12);
-  font-size: var(--font-size-caption);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+  font-weight: 550;
+  letter-spacing: var(--track-snug);
+  color: var(--text-secondary);
   position: sticky;
   top: 0;
   background: var(--canvas);
@@ -517,6 +543,34 @@ pre {
 .navigator,
 .dock {
   background: var(--canvas);
+}
+
+/* Empty states are intentionally quiet and composed: a small semantic glyph,
+   one useful line, and no decorative card competing with real content. */
+.empty-state {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s24);
+  color: var(--text-muted);
+  text-align: center;
+  font-size: var(--font-size-body-small);
+}
+.empty-state-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-stadium);
+  color: var(--text-secondary);
+  background: var(--hover);
+}
+.dock .empty-state {
+  min-height: 120px;
 }
 
 /* Foldable region header (attention dock): title on the left, fold toggle on

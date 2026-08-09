@@ -40,6 +40,7 @@ import { AnnotationOverlay } from './AnnotationOverlay';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ErrorBoundary } from './ErrorBoundary';
+import { Icon } from './Icon';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
@@ -282,14 +283,15 @@ export function AppShell(): JSX.Element {
       <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
       <span className="fleet-toolbar-sep" />
       <button className="primary" disabled={client === null} onClick={() => setSpawnOpen(true)}>
+        <Icon name="plus" size={15} />
         {t('spawn.title')}
       </button>
-      <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
-      <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-      <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
+      <button className="ghost" onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
+      <button className="ghost" onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
+      <button className="ghost" onClick={() => setSearchOpen(true)}><Icon name="search" size={15} />{t('shell.search')}</button>
       <span className="spacer" />
-      <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
-      <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+      <button className="ghost" onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
+      <button className="ghost" onClick={() => setAdminOpen(true)}><Icon name="sliders" size={15} />{t('shell.admin')}</button>
     </>
   );
 
@@ -338,12 +340,10 @@ export function AppShell(): JSX.Element {
   // brand slot) so the hub you're driving is the first thing in the top-left.
   const hubChrome =
     client === null ? (
-      <>
-        <span className="pill offline">{t('shell.offline')}</span>
-        <button className="primary" onClick={() => openConnect()}>
-          {t('shell.connect')}
-        </button>
-      </>
+      <button className="hub-connect" title={t('shell.offline')} onClick={() => openConnect()}>
+        <span className="hub-status-dot" aria-hidden="true" />
+        {t('shell.connect')}
+      </button>
     ) : (
       <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
     );

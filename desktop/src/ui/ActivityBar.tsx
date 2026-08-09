@@ -73,7 +73,7 @@ export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
               }}
             >
               <span className="activity-icon">
-                <JobIcon id={j.id} />
+                <JobIcon id={j.id} size={20} />
               </span>
               <span className="activity-label">{t(j.labelKey)}</span>
               {beside && <span className="activity-tab-dot" aria-hidden="true" />}
@@ -88,7 +88,7 @@ export function ActivityBar({ chrome }: { chrome?: ReactNode }): JSX.Element {
         onClick={() => setJob(SETTINGS_JOB.id)}
       >
         <span className="activity-icon">
-          <JobIcon id={SETTINGS_JOB.id} />
+          <JobIcon id={SETTINGS_JOB.id} size={20} />
         </span>
         <span className="activity-label">{t(SETTINGS_JOB.labelKey)}</span>
       </button>

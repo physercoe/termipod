@@ -90,9 +90,9 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
 
   return (
     <div className="statusbar" role="status" aria-live="polite">
-      <span>{running} {t('status.running')}</span>
-      <span>{paused} {t('status.paused')}</span>
-      <span>{attention.length} {t('status.needYou')}</span>
+      {running > 0 && <span className="statusbar-count">{running} {t('status.running')}</span>}
+      {paused > 0 && <span className="statusbar-count">{paused} {t('status.paused')}</span>}
+      {attention.length > 0 && <span className="statusbar-count attention">{attention.length} {t('status.needYou')}</span>}
       {jobs.map((j) =>
         j.running ? (
           <span key={j.key} className="statusbar-sync" title={j.runLabel}>
@@ -138,7 +138,7 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
           <Icon name="terminal" size={13} /> {termCount}
         </button>
       )}
-      <span>{t('status.hosts')} {hosts.length}</span>
+      <span className={`statusbar-hosts${hosts.length === 0 ? ' quiet' : ''}`}>{t('status.hosts')} {hosts.length}</span>
       {right !== undefined && <span className="statusbar-chrome">{right}</span>}
     </div>
   );

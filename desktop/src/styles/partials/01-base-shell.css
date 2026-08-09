@@ -607,6 +607,36 @@ pre {
 .nav-fold-btn.active {
   color: var(--accent-text);
 }
+.pane-control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.pane-control-row > .pane-toggle:last-child {
+  margin-left: auto;
+}
+
+/* Fleet and Projects keep their collapse control inside the pane it affects.
+   The scrolling content receives enough top-right breathing room that the
+   control never overlaps the first segmented row. */
+.mission-nav {
+  position: relative;
+  overflow: hidden;
+}
+.mission-nav-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+.mission-nav-fold {
+  position: absolute;
+  top: var(--spacing-s8);
+  right: var(--spacing-s8);
+  z-index: var(--z-nav);
+}
+.mission-nav .nav-subtabs {
+  margin-right: 44px;
+}
 
 /* Agents/Hosts and Projects/Workspaces subtab bar at the top of a nav. */
 .nav-subtabs {

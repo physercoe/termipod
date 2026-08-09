@@ -559,7 +559,7 @@ export function TerminalPanel(): JSX.Element {
           Always rendered so the pane area keeps a stable DOM position and its
           <Screen>s are never re-parented. */}
       <aside className={`term-nav${navFold ? ' folded' : ''}`} style={navStyle}>
-        <div className="term-nav-head">
+        <div className="term-nav-head pane-control-row">
           <span>{t('term.navConnections')}</span>
           <button className="pane-toggle term-nav-fold" title={t('term.foldNav')} onClick={toggleFold}>
             <Icon name="sidebar" size={16} />

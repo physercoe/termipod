@@ -2390,9 +2390,6 @@ export function ReadSurface(): JSX.Element {
         ) : (
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
-          <button className="pane-toggle read-fold read-rail-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
-            <Icon name="sidebar" size={16} />
-          </button>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
               has its own scrollbar, and the divider between them drags vertically
               to reallocate height. The tag pane is always present (with its filter
@@ -2403,22 +2400,27 @@ export function ReadSurface(): JSX.Element {
             onContextMenu={(e) => {
               // Only the blank area — a right-click on a collection row keeps its
               // own rename/delete menu (that handler runs first and preventDefaults).
-              if ((e.target as HTMLElement).closest('.read-col') !== null) return;
+              if ((e.target as HTMLElement).closest('.read-col, .pane-toggle') !== null) return;
               railBlankMenu.open(e, [{ label: t('read.newCollection'), onClick: () => void newCollection() }]);
             }}
           >
             <div className="read-rail-group">
-              <button
-                className={`read-col${collection === ALL ? ' active' : ''}`}
-                onClick={() => {
-                  setCollection(ALL);
-                  setTag(null);
-                }}
-              >
-                {t('read.allItems')}
-                <span className="spacer" />
-                <span className="muted small">{references.length}</span>
-              </button>
+              <div className={`read-rail-header${collection === ALL ? ' active' : ''}`}>
+                <button
+                  className="read-col read-rail-all"
+                  onClick={() => {
+                    setCollection(ALL);
+                    setTag(null);
+                  }}
+                >
+                  {t('read.allItems')}
+                  <span className="spacer" />
+                  <span className="muted small">{references.length}</span>
+                </button>
+                <button className="pane-toggle read-fold read-rail-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
+                  <Icon name="sidebar" size={16} />
+                </button>
+              </div>
               {collections.map((c) => (
                 <button
                   key={c.id}

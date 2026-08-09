@@ -12,10 +12,23 @@
   display: flex;
   flex-direction: column;
 }
-/* The collapse control shares the first collection row instead of consuming an
-   otherwise empty toolbar row. Keep the All-items count clear of the overlay. */
-.read-rail > .read-rail-pane:first-of-type .read-col:first-child {
-  padding-right: 44px;
+/* The first collection row doubles as the pane header: title/count flex on the
+   left and the standard collapse control owns the right edge. */
+.read-rail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding-right: var(--spacing-s8);
+}
+.read-rail-header.active {
+  background: var(--accent-tint);
+}
+.read-rail-header .read-rail-all {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.read-rail-header .read-rail-all:hover {
+  background: var(--hover);
 }
 /* One scroll pane (collections OR tags). A fixed-height pane (collections, when
    tags are present) carries an inline `height`; `.grow` fills the remaining rail

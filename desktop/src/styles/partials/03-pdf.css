@@ -99,17 +99,10 @@
 }
 
 /* Collapsible rail / inspector. A thin always-visible strip (`read-pane-expand`)
-   re-opens a collapsed panel. Only the library rail's toggle overlays its first
-   row; every other `read-fold` remains in normal header flow so it cannot collide
-   with tabs or attachment actions. Widths + fold state persist in localStorage. */
+   re-opens a collapsed panel. Fold controls remain in normal header flow so they
+   cannot collide with content or actions. Widths + fold state persist. */
 .read-fold {
   flex: 0 0 auto;
-}
-.read-rail-fold {
-  position: absolute;
-  top: var(--spacing-s8);
-  right: var(--spacing-s8);
-  z-index: 2;
 }
 .read-pane-expand {
   flex: 0 0 auto;

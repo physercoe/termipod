@@ -19,17 +19,6 @@
      narrow rail rather than being clipped; the job list owns the scroll. */
   overflow: visible;
 }
-.activity-rail-collapsed {
-  flex: 0 0 38px;
-  width: 38px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--spacing-s8) var(--spacing-s4);
-  background: var(--glass-pane);
-  border-right: var(--hairline) solid var(--glass-rim);
-  box-shadow: inset -1px 0 0 var(--glass-highlight);
-}
 .activity-rail-toggle {
   flex: 0 0 auto;
   margin-inline: auto;

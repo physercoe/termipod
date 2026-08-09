@@ -426,7 +426,7 @@ export function AppShell(): JSX.Element {
   );
 
   return (
-    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}${activityRailOpen ? '' : ' rail-collapsed'}${fullScreen ? ' is-fullscreen' : ''}`}>
+    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}${activityRailOpen ? '' : ' rail-hidden'}${fullScreen ? ' is-fullscreen' : ''}`}>
       {client !== null && !online && (
         <div className="offline-banner" role="status" aria-live="polite">
           {t('shell.offlineBanner')}
@@ -437,11 +437,14 @@ export function AppShell(): JSX.Element {
         {activityRailOpen ? (
           <ActivityBar onHide={() => setActivityRailVisible(false)} />
         ) : (
-          <aside className="activity-rail-collapsed" aria-label={t('job.rail')}>
-            <button className="activity-rail-toggle" title={t('shell.showNavigation')} onClick={() => setActivityRailVisible(true)}>
-              <Icon name="sidebar" size={17} />
-            </button>
-          </aside>
+          <button
+            className="activity-rail-toggle activity-rail-reveal"
+            title={t('shell.showNavigation')}
+            aria-label={t('shell.showNavigation')}
+            onClick={() => setActivityRailVisible(true)}
+          >
+            <Icon name="sidebar" size={17} />
+          </button>
         )}
         <main className="workbench-main">
           {/* The terminal lives in an always-mounted panel (its <Screen>s die if

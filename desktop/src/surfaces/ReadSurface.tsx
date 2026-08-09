@@ -39,7 +39,7 @@ import {
   type ScrapePatch,
   type ScrapeSeed,
 } from '../discovery';
-import { hostOf, isShell, revealPath } from '../platform';
+import { hostOf, isShell, openExternal, revealPath } from '../platform';
 import { useCompanionContext } from '../state/companionContext';
 import { BrowserView } from './BrowserView';
 import { Markdown } from '../ui/Markdown';
@@ -63,6 +63,7 @@ import { ResizeHandle, VResizeHandle } from '../ui/ResizeHandle';
 import { useContextMenu } from '../ui/ContextMenu';
 import { WebdavModal } from '../ui/WebdavModal';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { PopoverMenu } from '../ui/PopoverMenu';
 
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
@@ -375,8 +376,15 @@ function TextDoc({ text }: { text: string }): JSX.Element {
 // and whenever the level changes — a reflow, not a scaled bitmap. If the frame is
 // unexpectedly cross-origin (contentDocument throws), fall back to element `zoom`.
 function HtmlDoc({ url, title }: { url: string; title: string }): JSX.Element {
+  const t = useT();
   const zoom = useDocZoom('html');
+  const openLink = useOpenLink();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const historyRef = useRef<{ entries: string[]; index: number }>({ entries: [], index: -1 });
+  const detachRef = useRef<() => void>(() => undefined);
+  const [canBack, setCanBack] = useState(false);
+  const [canForward, setCanForward] = useState(false);
+
   const apply = (): void => {
     const f = frameRef.current;
     if (f === null) return;
@@ -392,12 +400,135 @@ function HtmlDoc({ url, title }: { url: string; title: string }): JSX.Element {
     }
     (f.style as CSSStyleDeclaration & { zoom: string }).zoom = String(zoom.zoom);
   };
+
+  const recordLocation = (): void => {
+    const win = frameRef.current?.contentWindow;
+    if (win === null || win === undefined) return;
+    let href = '';
+    try {
+      href = win.location.href;
+    } catch {
+      return; // a cross-origin navigation cannot be governed by this viewer
+    }
+    const h = historyRef.current;
+    if (h.entries[h.index] !== href) {
+      if (h.index > 0 && h.entries[h.index - 1] === href) h.index -= 1;
+      else if (h.index + 1 < h.entries.length && h.entries[h.index + 1] === href) h.index += 1;
+      else {
+        h.entries = [...h.entries.slice(0, h.index + 1), href];
+        h.index = h.entries.length - 1;
+      }
+    }
+    setCanBack(h.index > 0);
+    setCanForward(h.index >= 0 && h.index < h.entries.length - 1);
+  };
+
+  const onFrameLoad = (): void => {
+    apply();
+    detachRef.current();
+    const frame = frameRef.current;
+    let doc: Document | null = null;
+    let win: Window | null = null;
+    try {
+      doc = frame?.contentDocument ?? null;
+      win = frame?.contentWindow ?? null;
+    } catch {
+      return;
+    }
+    if (doc === null || win === null) return;
+
+    const onHistory = (): void => recordLocation();
+    const onClick = (e: MouseEvent): void => {
+      const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (anchor === null) return;
+      const href = anchor.href;
+      if (!/^https?:\/\//i.test(href) && !/^mailto:/i.test(href)) return;
+      // Network links belong in Read's dedicated Browser mode, not inside the
+      // local attachment iframe. Mail links retain the OS handler.
+      e.preventDefault();
+      if (/^https?:\/\//i.test(href)) openLink(href);
+      else openExternal(href);
+    };
+    const onContextMenu = (e: MouseEvent): void => {
+      if (!isShell() || e.defaultPrevented) return;
+      const target = e.target as Element | null;
+      const editable = target?.closest?.('input, textarea, [contenteditable=""], [contenteditable="true"]') != null;
+      const selected = (win.getSelection()?.toString().trim() ?? '') !== '';
+      const image = target?.closest?.('img') != null;
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+      let x: number | undefined;
+      let y: number | undefined;
+      if (image && frame !== null) {
+        const rect = frame.getBoundingClientRect();
+        x = rect.left + e.clientX;
+        y = rect.top + e.clientY;
+      }
+      e.preventDefault();
+      void invoke('menu_show_context', {
+        editable,
+        hasSelection: selected,
+        selectAll: true,
+        image,
+        x,
+        y,
+        linkUrl: anchor?.href ?? '',
+        openLinkLabel: tStatic('ctx.openLink'),
+        copyLinkLabel: tStatic('ctx.copyLink'),
+        imageLabel: tStatic('common.copyImage'),
+      }).catch(() => undefined);
+    };
+
+    doc.addEventListener('click', onClick, true);
+    doc.addEventListener('contextmenu', onContextMenu);
+    win.addEventListener('hashchange', onHistory);
+    win.addEventListener('popstate', onHistory);
+    detachRef.current = () => {
+      doc?.removeEventListener('click', onClick, true);
+      doc?.removeEventListener('contextmenu', onContextMenu);
+      win?.removeEventListener('hashchange', onHistory);
+      win?.removeEventListener('popstate', onHistory);
+    };
+    recordLocation();
+  };
+
   // Re-apply whenever the level changes (the frame keeps its content across zooms).
   useEffect(apply, [zoom.zoom, url]);
+  useEffect(() => {
+    historyRef.current = { entries: [], index: -1 };
+    setCanBack(false);
+    setCanForward(false);
+  }, [url]);
+  useEffect(() => () => detachRef.current(), []);
+
   return (
     <div className="att-html-wrap">
+      <div className="doc-zoombar att-html-nav" role="group" aria-label={t('read.browserNavigation')}>
+        <button
+          className="doc-zoom-btn"
+          disabled={!canBack}
+          title={t('read.browserBack')}
+          onClick={() => frameRef.current?.contentWindow?.history.back()}
+        >
+          <Icon name="chevron-left" size={14} />
+        </button>
+        <button
+          className="doc-zoom-btn"
+          disabled={!canForward}
+          title={t('read.browserForward')}
+          onClick={() => frameRef.current?.contentWindow?.history.forward()}
+        >
+          <Icon name="chevron-right" size={14} />
+        </button>
+        <button
+          className="doc-zoom-btn"
+          title={t('read.browserReload')}
+          onClick={() => frameRef.current?.contentWindow?.location.reload()}
+        >
+          <Icon name="refresh" size={14} />
+        </button>
+      </div>
       <ZoomBar z={zoom} className="doc-zoombar-float" />
-      <iframe ref={frameRef} className="pdf-frame" title={title} src={url} onLoad={apply} />
+      <iframe ref={frameRef} className="pdf-frame" title={title} src={url} onLoad={onFrameLoad} />
     </div>
   );
 }
@@ -960,76 +1091,81 @@ function Inspector({
     <div className="ref-inspector">
       <div className="ref-tabs">
         {onCollapse !== undefined && (
-          <button className="read-fold" title={t('read.collapse')} onClick={onCollapse}>
-            <Icon name="chevron-right" />
+          <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={onCollapse}>
+            <Icon name="sidebar" size={16} className="mirror-x" />
           </button>
         )}
-        {tabs.map((tb) => (
-          <button
-            key={tb.id}
-            role="tab"
-            aria-selected={tab === tb.id}
-            className={tab === tb.id ? 'ref-tab active' : 'ref-tab'}
-            onClick={() => setTab(tb.id)}
-          >
-            {tb.label}
-          </button>
-        ))}
-        <span className="spacer" />
-        {primary !== undefined &&
-          !embedded &&
-          (attPresent ? (
+        <div className="ref-tab-strip">
+          <div className="ref-tab-nav" role="tablist">
+            {tabs.map((tb) => (
+              <button
+                key={tb.id}
+                role="tab"
+                aria-selected={tab === tb.id}
+                className={tab === tb.id ? 'ref-tab active' : 'ref-tab'}
+                onClick={() => setTab(tb.id)}
+              >
+                {tb.label}
+              </button>
+            ))}
+          </div>
+          <div className="ref-tab-actions">
+            {primary !== undefined &&
+              !embedded &&
+              (attPresent ? (
+                <button
+                  className="ref-pdf-btn"
+                  title={t('read.openInReader')}
+                  onClick={() => onOpenReader?.(ref.id, primary.id)}
+                >
+                  <Icon name={KIND_ICON[primaryKind]} size={14} />
+                  {t(KIND_LABEL[primaryKind])}
+                </button>
+              ) : (
+                <button
+                  className="ref-pdf-btn muted"
+                  title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
+                  onClick={() => setTab('read')}
+                >
+                  <Icon name={KIND_ICON[primaryKind]} size={14} />
+                  {t(KIND_LABEL[primaryKind])}
+                </button>
+              ))}
             <button
-              className="ref-pdf-btn"
-              title={t('read.openInReader')}
-              onClick={() => onOpenReader?.(ref.id, primary.id)}
-            >
-              <Icon name={KIND_ICON[primaryKind]} size={14} />
-              {t(KIND_LABEL[primaryKind])}
-            </button>
-          ) : (
-            <button
-              className="ref-pdf-btn muted"
-              title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
-              onClick={() => setTab('read')}
-            >
-              <Icon name={KIND_ICON[primaryKind]} size={14} />
-              {t(KIND_LABEL[primaryKind])}
-            </button>
-          ))}
-        <button
-          className="ref-scrape-btn"
-          disabled={scraping}
-          title={t('read.scrapeTitle')}
-          onClick={() => {
-            setTab('meta');
-            void runScrape();
-          }}
-        >
-          {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
-          {t('read.scrape')}
-        </button>
-        {confirming ? (
-          <span className="ref-confirm">
-            <span className="muted small">{t('read.confirmDelete')}</span>
-            <button
-              className="link-btn danger"
+              className="ref-scrape-btn"
+              disabled={scraping}
+              title={t('read.scrapeTitle')}
               onClick={() => {
-                remove(ref.id);
-                setConfirming(false);
+                setTab('meta');
+                void runScrape();
               }}
             >
-              {t('read.confirmDeleteYes')}
+              {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
+              {t('read.scrape')}
             </button>
-            <button className="link-btn" onClick={() => setConfirming(false)}>
-              {t('common.cancel')}
-            </button>
-          </span>
-        ) : (
-          <button className="link-btn danger" onClick={() => setConfirming(true)}>
-            {t('read.delete')}
-          </button>
-        )}
+            {confirming ? (
+              <span className="ref-confirm">
+                <span className="muted small">{t('read.confirmDelete')}</span>
+                <button
+                  className="link-btn danger"
+                  onClick={() => {
+                    remove(ref.id);
+                    setConfirming(false);
+                  }}
+                >
+                  {t('read.confirmDeleteYes')}
+                </button>
+                <button className="link-btn" onClick={() => setConfirming(false)}>
+                  {t('common.cancel')}
+                </button>
+              </span>
+            ) : (
+              <button className="link-btn danger" onClick={() => setConfirming(true)}>
+                {t('read.delete')}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="ref-tab-body scroll">
@@ -1811,6 +1947,8 @@ export function ReadSurface(): JSX.Element {
   const [showWebdav, setShowWebdav] = useState(false);
   const client = useSession((s) => s.client);
   const [syncing, setSyncing] = useState(false);
+  const [actionsMenu, setActionsMenu] = useState(false);
+  const actionsMenuAnchorRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
@@ -2074,6 +2212,18 @@ export function ReadSurface(): JSX.Element {
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
   const selectedRef = selected !== null ? references.find((r) => r.id === selected) : undefined;
 
+  function showCollectionMode(next: Mode): void {
+    setActiveTab(null);
+    setMode(next);
+  }
+
+  function showBrowser(): void {
+    if (activeTabObj?.kind === 'web') return;
+    const existing = [...tabs].reverse().find((tb) => tb.kind === 'web');
+    if (existing !== undefined) setActiveTab(existing.id);
+    else openWebTab('');
+  }
+
   // The dock companion's context provider (the unified assistant dock, D2.2 —
   // state/companionContext.ts): the selected paper. Read/Author have no focus
   // event of their own, so the approximation is register on mount + selection
@@ -2230,47 +2380,93 @@ export function ReadSurface(): JSX.Element {
             style={{ display: 'none' }}
             onChange={(e) => void onImportFile(e)}
           />
-          <button
-            className="import-btn"
-            disabled={importing}
-            title={t('read.importHint')}
-            onClick={() => fileRef.current?.click()}
-          >
-            {importing ? t('read.importing') : t('read.importZotero')}
-          </button>
           <input ref={dirRef} type="file" style={{ display: 'none' }} onChange={onPickStorage} />
-          <button
-            className={needsRelink ? 'import-btn attn' : 'import-btn'}
-            title={t('read.linkStorageHint')}
-            onClick={() => void onLinkStorage()}
-          >
-            {storageCount > 0
-              ? t.plural('read.storageLinked', storageCount)
-              : t('read.linkStorage')}
-          </button>
-          {isShell() && (
-            <button className="import-btn" title={t('read.webdavHint')} onClick={() => setShowWebdav(true)}>
-              <Icon name="cloud" size={14} /> {t('read.syncFiles')}
-            </button>
-          )}
-          {isShell() && (
-            <button className="import-btn" title={t('read.openLinkHint')} onClick={() => openWebTab('')}>
-              <Icon name="globe" size={14} /> {t('read.openLink')}
-            </button>
-          )}
           <div className="seg">
-            <button className={mode === 'library' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('library')}>
+            <button
+              className={activeTab === null && mode === 'library' ? 'seg-btn active' : 'seg-btn'}
+              onClick={() => showCollectionMode('library')}
+            >
               {t('read.modeLibrary')}
             </button>
-            <button className={mode === 'discover' ? 'seg-btn active' : 'seg-btn'} onClick={() => setMode('discover')}>
+            <button
+              className={activeTab === null && mode === 'discover' ? 'seg-btn active' : 'seg-btn'}
+              onClick={() => showCollectionMode('discover')}
+            >
               {t('read.modeDiscover')}
             </button>
+            {isShell() && (
+              <button
+                className={activeTabObj?.kind === 'web' ? 'seg-btn active' : 'seg-btn'}
+                title={t('read.openLinkHint')}
+                onClick={showBrowser}
+              >
+                <Icon name="globe" size={13} /> {t('read.modeBrowser')}
+              </button>
+            )}
           </div>
           {client !== null && (
             <button className="import-btn" disabled={syncing} title={t('read.syncHint')} onClick={() => void onSync()}>
               {syncing ? t('read.syncing') : t('read.syncHub')}
             </button>
           )}
+          <div ref={actionsMenuAnchorRef} className="inspect-openwrap">
+            <button
+              className={`import-btn read-actions-trigger${needsRelink ? ' attn' : ''}`}
+              aria-haspopup="menu"
+              aria-expanded={actionsMenu}
+              aria-label={t('read.libraryActions')}
+              title={t('read.libraryActions')}
+              onClick={() => setActionsMenu((open) => !open)}
+            >
+              <Icon name="more-horizontal" size={16} />
+            </button>
+            <PopoverMenu
+              anchorRef={actionsMenuAnchorRef}
+              open={actionsMenu}
+              onClose={() => setActionsMenu(false)}
+              className="inspect-menu read-head-menu"
+              ariaLabel={t('read.libraryActions')}
+            >
+              <button
+                className="inspect-menu-item"
+                role="menuitem"
+                disabled={importing}
+                title={t('read.importHint')}
+                onClick={() => {
+                  setActionsMenu(false);
+                  fileRef.current?.click();
+                }}
+              >
+                <Icon name="download" size={14} />
+                {importing ? t('read.importing') : t('read.importZotero')}
+              </button>
+              <button
+                className={needsRelink ? 'inspect-menu-item attn' : 'inspect-menu-item'}
+                role="menuitem"
+                title={t('read.linkStorageHint')}
+                onClick={() => {
+                  setActionsMenu(false);
+                  void onLinkStorage();
+                }}
+              >
+                <Icon name="folder" size={14} />
+                {storageCount > 0 ? t.plural('read.storageLinked', storageCount) : t('read.linkStorage')}
+              </button>
+              {isShell() && (
+                <button
+                  className="inspect-menu-item"
+                  role="menuitem"
+                  title={t('read.webdavHint')}
+                  onClick={() => {
+                    setActionsMenu(false);
+                    setShowWebdav(true);
+                  }}
+                >
+                  <Icon name="cloud" size={14} /> {t('read.syncFiles')}
+                </button>
+              )}
+            </PopoverMenu>
+          </div>
         </>
       }
     >
@@ -2387,11 +2583,6 @@ export function ReadSurface(): JSX.Element {
         ) : (
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
-          <div className="read-rail-head">
-            <button className="read-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
-              <Icon name="chevron-left" />
-            </button>
-          </div>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
               has its own scrollbar, and the divider between them drags vertically
               to reallocate height. The tag pane is always present (with its filter
@@ -2402,22 +2593,27 @@ export function ReadSurface(): JSX.Element {
             onContextMenu={(e) => {
               // Only the blank area — a right-click on a collection row keeps its
               // own rename/delete menu (that handler runs first and preventDefaults).
-              if ((e.target as HTMLElement).closest('.read-col') !== null) return;
+              if ((e.target as HTMLElement).closest('.read-col, .pane-toggle') !== null) return;
               railBlankMenu.open(e, [{ label: t('read.newCollection'), onClick: () => void newCollection() }]);
             }}
           >
             <div className="read-rail-group">
-              <button
-                className={`read-col${collection === ALL ? ' active' : ''}`}
-                onClick={() => {
-                  setCollection(ALL);
-                  setTag(null);
-                }}
-              >
-                {t('read.allItems')}
-                <span className="spacer" />
-                <span className="muted small">{references.length}</span>
-              </button>
+              <div className={`read-rail-header${collection === ALL ? ' active' : ''}`}>
+                <button
+                  className="read-col read-rail-all"
+                  onClick={() => {
+                    setCollection(ALL);
+                    setTag(null);
+                  }}
+                >
+                  {t('read.allItems')}
+                  <span className="spacer" />
+                  <span className="muted small">{references.length}</span>
+                </button>
+                <button className="pane-toggle read-fold read-rail-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
+                  <Icon name="sidebar" size={16} />
+                </button>
+              </div>
               {collections.map((c) => (
                 <button
                   key={c.id}
@@ -2643,8 +2839,8 @@ export function ReadSurface(): JSX.Element {
             <div className="ref-inspector-empty-wrap">
               <div className="ref-tabs">
                 <span className="spacer" />
-                <button className="read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
-                  <Icon name="chevron-right" />
+                <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
+                  <Icon name="sidebar" size={16} className="mirror-x" />
                 </button>
               </div>
               <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>

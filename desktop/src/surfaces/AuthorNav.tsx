@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { Icon, type IconName } from '../ui/Icon';
@@ -131,10 +132,43 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
   const [filter, setFilter] = useState('');
   const [showSync, setShowSync] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [actionsPos, setActionsPos] = useState<{ left: number; top: number } | null>(null);
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   // On-disk file-tree right-click menu + its two-step delete confirm.
   const [fileMenu, setFileMenu] = useState<FileMenu | null>(null);
   const [fileConfirmDelete, setFileConfirmDelete] = useState(false);
   const tauri = isShell();
+
+  const placeActions = useCallback((): void => {
+    const button = actionsButtonRef.current;
+    if (button === null) return;
+    const rect = button.getBoundingClientRect();
+    const width = 196;
+    setActionsPos({
+      left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+      top: Math.min(rect.bottom + 4, window.innerHeight - 148),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+    placeActions();
+    actionsMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    const reposition = (): void => placeActions();
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [actionsOpen, placeActions]);
+
+  function runAction(action: () => void): void {
+    setActionsOpen(false);
+    action();
+  }
 
   // Path → open-marker for every open, file-linked document, so a workspace row
   // whose path matches renders emphasized (dirty ● / active highlight) like its
@@ -370,46 +404,70 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
           setFileMenu({ path: folder, dir: true, root: true, x: e.clientX, y: e.clientY });
         }}
       >
-        <div className="author-nav-head">
-          {onFold !== undefined && (
-            <button className="author-nav-icon" title={t('author.navFold')} onClick={onFold}>
-              <Icon name="chevron-left" size={15} />
-            </button>
-          )}
-          {t('author.navFiles')}
+        <div className={`author-nav-head pane-control-row${folder !== null ? ' has-folder' : ''}`} title={folder ?? undefined}>
+          <span className={folder !== null ? 'author-nav-folder-name mono' : undefined}>
+            {folder !== null ? baseName(folder) : t('author.navFiles')}
+          </span>
           <span className="spacer" />
-          {folder !== null && (
-            <button className="author-nav-icon" title={t('author.navRefresh')} onClick={() => void refresh(folder)}>
-              <Icon name="refresh" size={15} />
+          <button
+            ref={actionsButtonRef}
+            className="pane-toggle author-nav-overflow"
+            title={t('author.navMoreActions')}
+            aria-label={t('author.navMoreActions')}
+            aria-haspopup="menu"
+            aria-expanded={actionsOpen}
+            onClick={() => {
+              if (!actionsOpen) placeActions();
+              setActionsOpen((open) => !open);
+            }}
+          >
+            <Icon name="more-horizontal" size={16} />
+          </button>
+          {onFold !== undefined && (
+            <button className="pane-toggle author-nav-fold" title={t('author.navFold')} onClick={onFold}>
+              <Icon name="sidebar" size={16} />
             </button>
           )}
-          {tauri && folder !== null && (
-            <button
-              className={`author-nav-icon${syncRunning ? ' syncing' : ''}`}
-              title={syncRunning ? t('author.syncInProgress') : t('author.navSync')}
-              onClick={() => setShowSync(true)}
-            >
-              <Icon name={syncRunning ? 'refresh' : 'cloud'} size={15} />
-            </button>
-          )}
-          {tauri && (
-            <button className="author-nav-icon" title={t('author.navOpenFolder')} onClick={() => void pick()}>
-              <Icon name="folder" size={15} />
-            </button>
-          )}
-          {folder !== null && (
-            <button className="author-nav-icon" title={t('author.navCloseFolder')} onClick={() => setFolder(null)}>
-              <Icon name="close" size={15} />
-            </button>
+          {actionsOpen && actionsPos !== null && createPortal(
+            <>
+              <div className="author-nav-actions-backdrop" onMouseDown={() => setActionsOpen(false)} />
+              <div
+                ref={actionsMenuRef}
+                className="author-nav-actions-menu"
+                role="menu"
+                aria-label={t('author.navMoreActions')}
+                style={actionsPos}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setActionsOpen(false);
+                    actionsButtonRef.current?.focus();
+                  }
+                }}
+              >
+                <button role="menuitem" disabled={folder === null} onClick={() => runAction(() => void refresh(folder))}>
+                  <Icon name="refresh" size={15} />
+                  {t('author.navRefresh')}
+                </button>
+                <button role="menuitem" disabled={!tauri || folder === null} onClick={() => runAction(() => setShowSync(true))}>
+                  <Icon name={syncRunning ? 'refresh' : 'cloud'} size={15} />
+                  {syncRunning ? t('author.syncInProgress') : t('author.navSync')}
+                </button>
+                <button role="menuitem" disabled={!tauri} onClick={() => runAction(() => void pick())}>
+                  <Icon name="folder" size={15} />
+                  {t('author.navOpenFolder')}
+                </button>
+                <button role="menuitem" disabled={folder === null} onClick={() => runAction(() => setFolder(null))}>
+                  <Icon name="close" size={15} />
+                  {t('author.navCloseFolder')}
+                </button>
+              </div>
+            </>,
+            document.body,
           )}
         </div>
         {!tauri && <div className="muted small author-nav-empty">{t('author.navDesktopOnly')}</div>}
         {tauri && folder === null && <div className="muted small author-nav-empty">{t('author.navPickHint')}</div>}
-        {folder !== null && (
-          <div className="author-nav-root mono small" title={folder}>
-            {baseName(folder)}
-          </div>
-        )}
         {folder !== null && (
           // Reuses the Inspect tree's filter-input styling (generic token-based
           // input) rather than duplicating a near-identical rule.

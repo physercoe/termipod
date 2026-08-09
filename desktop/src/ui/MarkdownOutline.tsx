@@ -110,8 +110,8 @@ export function MarkdownOutline({
   // A lone heading (or none) is no outline — the rail hides entirely.
   if (headings.length <= 1) return null;
   const foldBtn = (
-    <button className="read-fold" title={t('read.collapse')} onClick={() => fold(false)}>
-      <Icon name={right ? 'chevron-right' : 'chevron-left'} size={14} />
+    <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={() => fold(false)}>
+      <Icon name="sidebar" size={16} className={right ? 'mirror-x' : undefined} />
     </button>
   );
   const rail = (

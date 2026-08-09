@@ -1356,17 +1356,17 @@
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   padding: var(--spacing-s12);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s8);
   box-shadow: var(--sh-1);
-  transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease);
+  transition: border-color 0.13s var(--ease), background 0.13s var(--ease);
 }
 .card:hover {
-  box-shadow: var(--sh-2);
   border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface) 94%, var(--text) 2%);
 }
 .card-head {
   display: flex;
@@ -1448,7 +1448,7 @@
    opens as a modal. */
 .kanban-split {
   display: flex;
-  gap: var(--spacing-s12);
+  gap: 0;
   align-items: flex-start;
   min-width: 0;
 }
@@ -1464,7 +1464,6 @@
   top: 0;
   max-height: calc(100vh - 190px);
   overflow-y: auto;
-  border-left: 1px solid var(--border);
   padding-left: var(--spacing-s12);
   min-width: 0;
 }

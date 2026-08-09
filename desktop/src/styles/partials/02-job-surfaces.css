@@ -4,25 +4,31 @@
 
 .activity-bar {
   flex: 0 0 auto;
-  width: 68px;
+  width: 72px;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s2);
-  padding: var(--spacing-s8) var(--spacing-s4);
-  background: var(--canvas);
-  border-right: 1px solid var(--border);
+  padding: var(--spacing-s8) var(--spacing-s6);
+  background: var(--glass-pane);
+  border-right: var(--hairline) solid var(--glass-rim);
+  box-shadow: inset -1px 0 0 var(--glass-highlight);
+  /* Do not apply backdrop-filter here. It creates a stacking context that traps
+     the profile popover under the adjacent workbench pane. The translucent
+     surface still reads as glass; blur belongs on the floating menu itself. */
   /* Visible (not auto) so the hub-switcher dropdown at the top can escape the
      narrow rail rather than being clipped; the job list owns the scroll. */
   overflow: visible;
 }
 .activity-tab {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: var(--spacing-s8) var(--spacing-s2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  min-height: 52px;
+  padding: 7px var(--spacing-s2);
+  border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -33,9 +39,18 @@
   color: var(--text);
 }
 .activity-tab.active {
-  background: var(--accent-tint);
-  color: var(--accent-text);
-  border-color: var(--accent-line);
+  background: var(--hover);
+  color: var(--text);
+}
+.activity-tab.active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 14px;
+  width: 2px;
+  height: 24px;
+  border-radius: var(--radius-stadium);
+  background: var(--accent);
 }
 /* The job pinned as the split's secondary pane (S2). `position: relative` is on
    the modifier, not `.activity-tab`, so an unsplit rail keeps its old stacking. */
@@ -55,61 +70,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  height: 22px;
 }
 .job-icon {
   display: block;
 }
-/* Activity-bar hub slot (top) — the hub identity / connection chrome (profile
-   switcher, or offline + connect), relocated here from the bottom status bar so
-   the hub you're driving leads the top-left. The job list grows to fill and owns
-   the scroll, pinning the Settings tab to the bottom (the VS Code gear idiom). */
-.activity-hub {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--spacing-s4);
-  margin-bottom: var(--spacing-s4);
-  padding-bottom: var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
+.hub-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-stadium);
+  background: var(--warn);
 }
-.activity-brand-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--accent-text);
-  font-size: var(--font-size-body);
-}
-/* Compact the relocated hub chrome to fit the 68px rail: full-width controls,
-   caption type, truncated profile name; the dropdown escapes rightward. */
-.activity-hub .profile-switcher {
-  width: 100%;
-}
-.activity-hub .switcher-pill {
-  width: 100%;
-  justify-content: space-between;
-  padding: 3px var(--spacing-s8);
-  font-size: var(--font-size-caption);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.activity-hub .switcher-menu {
-  left: 0;
-  top: calc(100% + 4px);
-}
-.activity-hub .pill.offline {
-  justify-content: center;
-  font-size: var(--font-size-label);
-}
-.activity-hub button.primary {
-  width: 100%;
-  padding: 3px var(--spacing-s8);
-  font-size: var(--font-size-caption);
+.hub-status-dot.online {
+  background: var(--success);
 }
 .activity-jobs {
   flex: 1 1 auto;
@@ -129,21 +102,59 @@
   align-items: center;
   gap: var(--spacing-s12);
 }
+.statusbar-hub-cluster,
+.statusbar-context,
+.statusbar-hub {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+.statusbar-hub-cluster {
+  gap: var(--spacing-s8);
+}
+.statusbar-hub {
+  gap: var(--spacing-s4);
+}
+.statusbar-hub .profile-switcher {
+  min-width: 0;
+  max-width: 140px;
+}
+.statusbar-hub .switcher-pill {
+  min-height: 22px;
+  max-width: 140px;
+  padding: 1px var(--spacing-s4);
+  color: var(--text-secondary);
+  font: inherit;
+  background: transparent;
+  border-color: transparent;
+}
+.statusbar-hub .switcher-pill:hover,
+.statusbar-hub .switcher-pill[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--hover);
+}
+.statusbar-hub-connect {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: 1px var(--spacing-s4);
+  color: var(--text-secondary);
+  font: inherit;
+  background: transparent;
+  border-color: transparent;
+}
+.statusbar-hub-connect:hover {
+  color: var(--text);
+  background: var(--hover);
+}
 .statusbar-palette {
   font-variant-numeric: tabular-nums;
   font-size: var(--font-size-caption);
+  min-height: 22px;
   padding: 1px 7px;
-}
-/* The status bar's own controls stay compact so the bar keeps its 28px height. */
-.statusbar .profile-switcher .switcher-pill {
-  padding: 1px 8px;
-  font-size: var(--font-size-caption);
-}
-/* Profile dropdown opens upward from the bottom bar. */
-.statusbar .switcher-menu {
-  top: auto;
-  bottom: 100%;
-  margin-bottom: 4px;
+  color: var(--text-muted);
+  background: transparent;
 }
 /* Shared inline icon (ui/Icon.tsx): baseline-aligned with adjacent text, never
    shrinks in a flex row, and a hair of optical spacing when it precedes a label. */
@@ -182,8 +193,9 @@ button > .ui-icon:not(:only-child):first-child,
   margin-right: 0.35em;
 }
 .activity-label {
-  font-size: var(--font-size-label);
-  letter-spacing: 0.02em;
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  letter-spacing: -0.005em;
 }
 
 /* --- shared job-surface chrome --- */
@@ -201,8 +213,11 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s12);
   padding: var(--spacing-s8) var(--spacing-s16);
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  /* A filter here makes this header a containing/stacking context and causes
+     Author's fixed scrim + New menu to paint below the document tab strip. */
 }
 .surface-icon {
   display: flex;
@@ -216,12 +231,12 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
-  font-weight: 600;
+  font-weight: 550;
   letter-spacing: -0.01em;
 }
 .surface-tag {
   font-size: var(--font-size-label);
-  font-weight: 700;
+  font-weight: 650;
   color: var(--accent-text);
   background: var(--accent-tint);
   border-radius: var(--radius-xs);
@@ -243,6 +258,44 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .surface-meta {
   white-space: nowrap;
+}
+
+/* Read carries the widest action set in the workbench. Keep it on the same
+   visual rhythm as Author's compact document controls: one 44px row, quiet
+   utility actions, and no second subtitle line consuming permanent space. */
+.surface-read .surface-head {
+  min-height: 44px;
+  gap: var(--spacing-s8);
+  padding: 6px var(--spacing-s12);
+}
+.surface-read .surface-icon .job-icon {
+  width: 18px;
+  height: 18px;
+}
+.surface-read .surface-titles {
+  display: flex;
+  align-items: center;
+}
+.surface-read .surface-title {
+  font-size: var(--font-size-body-small);
+}
+.surface-read .surface-hint {
+  display: none;
+}
+.surface-read .surface-head button {
+  min-height: var(--control-sm);
+  padding: 4px var(--spacing-s8);
+  font-size: var(--font-size-caption);
+}
+.surface-read .surface-head .import-btn {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.surface-read .surface-head .import-btn:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: transparent;
 }
 
 /* honest placeholder for jobs whose primary EMBED hasn't shipped (J4) */
@@ -378,30 +431,39 @@ button > .ui-icon:not(:only-child):first-child,
   border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
   border-radius: 6px;
 }
+/* Header dropdowns render through ui/PopoverMenu.tsx so pane overflow and
+   draggable title regions cannot clip or swallow them. */
+.popover-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+.popover-menu {
+  z-index: calc(var(--z-menu) + 1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-app-region: no-drag;
+}
+
 /* The New-figure spec dropdown. */
 .author-figbtn {
   position: relative;
   display: inline-flex;
 }
-.author-figmenu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-}
 .author-figmenu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  z-index: 41;
-  min-width: 140px;
+  z-index: calc(var(--z-menu) + 1);
+  min-width: 220px;
   display: flex;
   flex-direction: column;
-  padding: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  padding: var(--spacing-s4);
+  background: var(--glass-surface);
+  border: var(--hairline) solid var(--glass-rim);
+  border-radius: var(--radius-card);
+  box-shadow: var(--sh-3), inset 0 1px 0 var(--glass-highlight);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
 }
 .author-figmenu-item {
   display: flex;
@@ -417,8 +479,8 @@ button > .ui-icon:not(:only-child):first-child,
   cursor: pointer;
 }
 .author-figmenu-item:hover {
-  background: var(--surface-sunken, var(--bg));
-  color: var(--accent-text);
+  background: var(--hover);
+  color: var(--text);
 }
 /* Category header inside the New ▾ menu (Write / Data / Draw / Figure). */
 .author-figmenu-group {
@@ -1025,7 +1087,6 @@ button > .ui-icon:not(:only-child):first-child,
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: var(--canvas);
   overflow: hidden;
 }
@@ -1503,22 +1564,14 @@ button > .ui-icon:not(:only-child):first-child,
   position: relative;
   display: inline-flex;
 }
-.inspect-menu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-overlay);
-}
 .inspect-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
   min-width: 200px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--sh-3);
   padding: var(--spacing-s4);
-  z-index: var(--z-menu);
+  z-index: calc(var(--z-menu) + 1);
 }
 .inspect-menu-item {
   display: flex;
@@ -1536,6 +1589,20 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .inspect-menu-item:hover {
   background: var(--hover);
+  color: var(--text);
+}
+.surface-read .surface-head .read-actions-trigger {
+  width: var(--control-sm);
+  min-width: var(--control-sm);
+  justify-content: center;
+  padding-inline: 0;
+  margin-right: 0;
+}
+.read-head-menu {
+  width: 236px;
+}
+.read-head-menu .inspect-menu-item.attn {
+  color: var(--warning);
 }
 .inspect-modal-backdrop {
   position: fixed;

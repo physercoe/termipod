@@ -351,7 +351,7 @@ test('author: the New ▾ menu creates a document and the workspace pane folds',
   await expect(page.locator('.read-tabstrip .read-tabitem').last()).toBeVisible();
   // Fold the pane via its header chevron → the tree is gone and a slim edge
   // button takes its place; clicking that restores the pane.
-  await page.locator('.author-nav .author-nav-head .author-nav-icon').first().click();
+  await page.getByRole('button', { name: 'Hide the workspace pane' }).click();
   await expect(page.locator('.author-nav')).toHaveCount(0);
   await page.locator('.author-nav-show').click();
   await expect(page.locator('.author-nav')).toBeVisible();

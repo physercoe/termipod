@@ -473,14 +473,12 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
   background: var(--surface-sunken, var(--surface));
 }
-/* Right-docked variant (the Author editor's Obsidian-style outline): the border
-   moves to the left edge, and the collapsed show-button sits at the right. */
+/* Right-docked variant (the Author editor's Obsidian-style outline). The shared
+   ResizeHandle draws the boundary; the rail must not add a parallel border. */
 .mdreader-outline.side-right {
-  border-right: none;
-  border-left: 1px solid var(--border);
+  border: none;
 }
 .mdreader-outline-show.side-right {
   align-self: flex-start;
@@ -625,6 +623,7 @@
 }
 .doc-zoom-btn {
   width: 24px;
+  min-height: 24px;
   padding: 0;
 }
 .doc-zoom-pct {
@@ -661,6 +660,12 @@
 }
 .att-html-wrap {
   display: flex;
+}
+.att-html-nav {
+  position: absolute;
+  top: var(--spacing-s8);
+  left: var(--spacing-s12);
+  z-index: 5;
 }
 /* Info-tab attachment summary card (type / location / preview). */
 .ref-attach-info {
@@ -815,7 +820,6 @@
   flex: 0 0 auto; /* width is inline (resizable); never shrink below it */
   width: 240px;
   overflow: auto;
-  border-right: 1px solid var(--border);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -1006,6 +1010,175 @@
   display: flex;
   flex-direction: column;
 }
+/* Author's document strip is denser than the Reader's mixed-content tabs, but
+   filenames must remain recognizable. Fixed-width tabs scroll instead of
+   collapsing into icon/close-button noise; edge controls make that overflow
+   discoverable without leaving a permanent scrollbar in the workbench chrome. */
+.author-tabs-shell {
+  flex: 0 0 38px;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  background: var(--glass-surface);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.author-tabs-shell .author-doc-tabs {
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+  padding: 5px 7px 0;
+  border-bottom: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+  overscroll-behavior-inline: contain;
+}
+.author-doc-tabs::-webkit-scrollbar {
+  display: none;
+}
+.author-doc-tabs .read-tabitem {
+  position: relative;
+  flex: 0 0 clamp(148px, 16vw, 208px);
+  min-width: 0;
+  height: 32px;
+  max-width: none;
+  border-color: transparent;
+  border-radius: 7px 7px 0 0;
+  transition: color 120ms var(--ease), background 120ms var(--ease), border-color 120ms var(--ease);
+}
+.author-doc-tabs .read-tabitem::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleX(0.55);
+  transition: opacity 120ms var(--ease), transform 120ms var(--ease);
+}
+.author-doc-tabs .read-tabitem:hover:not(.active) {
+  color: var(--text);
+  background: var(--hover);
+}
+.author-doc-tabs .read-tabitem.active {
+  background: var(--bg);
+  border-color: var(--border);
+}
+.author-doc-tabs .read-tabitem.active::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.author-doc-tabs .read-tabitem-label {
+  flex: 1;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 4px 0 10px;
+  letter-spacing: -0.005em;
+}
+.author-doc-tabs .read-tabitem-kind {
+  color: var(--text-muted);
+  transition: color 120ms var(--ease);
+}
+.author-doc-tabs .active .read-tabitem-kind {
+  color: var(--accent-text);
+}
+.author-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.author-tab-dirty {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.author-doc-tabs .read-tabitem-badge {
+  flex: none;
+  margin-left: 0;
+  padding: 0 4px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  background: var(--raised);
+}
+.author-doc-tabs .read-tabitem-agent {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 1px 0 0;
+  padding: 0;
+  border-radius: 5px;
+}
+.author-doc-tabs .read-tabitem-agent:hover {
+  background: var(--accent-strong);
+}
+.author-doc-tabs .read-tabitem-x {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border-radius: 5px;
+  opacity: 0;
+  transition: opacity 120ms var(--ease), color 120ms var(--ease), background 120ms var(--ease);
+}
+.author-doc-tabs .read-tabitem:hover .read-tabitem-x,
+.author-doc-tabs .read-tabitem.active .read-tabitem-x,
+.author-doc-tabs .read-tabitem-x:focus-visible,
+.author-doc-tabs .read-tabitem-x.danger {
+  opacity: 0.72;
+}
+.author-doc-tabs .read-tabitem-x:hover {
+  color: var(--text);
+  background: var(--hover);
+  opacity: 1;
+}
+.author-doc-tabs .read-tabitem-x.danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.author-tab-scroll {
+  flex: 0 0 28px;
+  width: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+}
+.author-tab-scroll.before {
+  border-right: 1px solid var(--border);
+}
+.author-tab-scroll.after {
+  border-left: 1px solid var(--border);
+}
+.author-tab-scroll:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover);
+}
+.author-tab-scroll:disabled {
+  color: var(--text-muted);
+  opacity: 0.3;
+  cursor: default;
+}
 .author-nav-col {
   flex: none;
   min-height: 0;
@@ -1019,8 +1192,9 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 6px;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--glass-pane);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .author-nav-sec {
   display: flex;
@@ -1039,8 +1213,6 @@
   flex-shrink: 0;
 }
 .author-nav-head {
-  display: flex;
-  align-items: center;
   gap: 4px;
   padding: 2px 6px 4px;
   font-size: 10.5px;
@@ -1051,6 +1223,62 @@
 }
 .author-nav-head .spacer {
   flex: 1;
+}
+.author-nav-head.has-folder {
+  font-size: var(--font-size-caption);
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--text-secondary);
+}
+.author-nav-folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.author-nav-overflow {
+  color: var(--text-secondary);
+}
+.author-nav-actions-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  background: transparent;
+}
+.author-nav-actions-menu {
+  position: fixed;
+  z-index: calc(var(--z-menu) + 1);
+  width: 196px;
+  padding: var(--spacing-s4);
+  background: var(--glass-surface);
+  border: var(--hairline) solid var(--glass-rim);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-menu);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+.author-nav-actions-menu button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: var(--font-size-body-small);
+}
+.author-nav-actions-menu button:hover:not(:disabled),
+.author-nav-actions-menu button:focus-visible {
+  color: var(--text);
+  background: var(--hover);
+  outline: none;
+}
+.author-nav-actions-menu button:disabled {
+  opacity: 0.4;
 }
 .author-nav-icon {
   padding: 1px 4px;
@@ -1077,13 +1305,6 @@
 }
 .author-nav-empty {
   padding: 2px 6px;
-}
-.author-nav-root {
-  padding: 2px 6px 4px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .author-nav-item {
   display: flex;

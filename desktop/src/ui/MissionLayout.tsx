@@ -27,9 +27,11 @@ function saveBool(key: string, v: boolean): void {
 /// Shared three-region frame for the Fleet and Projects tabs: a toolbar row, then
 /// a **foldable + resizable** left nav, the shared `FocusRegion` centre, and the
 /// attention dock. `storageKey` namespaces the persisted nav width + fold flag so
-/// the two tabs remember their nav independently. The fold toggle lives at the
-/// left of the toolbar (VS Code idiom); resize is the divider on the nav's right
-/// edge (window-tracked drag — reliable on WebView2, see `ResizeHandle`).
+/// the two tabs remember their nav independently. While open, the fold toggle
+/// sits at the nav's own top-right edge, matching every other workbench pane;
+/// collapsed, it returns to the toolbar as the reveal affordance. Resize is the
+/// divider on the nav's right edge (window-tracked drag — reliable on WebView2,
+/// see `ResizeHandle`).
 export function MissionLayout({
   storageKey,
   toolbar,
@@ -68,22 +70,33 @@ export function MissionLayout({
   return (
     <>
       <div className="fleet-toolbar">
-        <button
-          className={open ? 'nav-fold-btn active' : 'nav-fold-btn'}
-          title={open ? t('nav.collapse') : t('nav.expand')}
-          aria-label={open ? t('nav.collapse') : t('nav.expand')}
-          aria-pressed={open}
-          onClick={toggle}
-        >
-          <Icon name="sidebar" size={16} />
-        </button>
+        {!open && (
+          <button
+            className="pane-toggle nav-fold-btn"
+            title={t('nav.expand')}
+            aria-label={t('nav.expand')}
+            aria-pressed={false}
+            onClick={toggle}
+          >
+            <Icon name="sidebar" size={16} />
+          </button>
+        )}
         {toolbar}
       </div>
       <div className="shell-body">
         {open && (
           <>
-            <div className="region navigator" style={{ width: w }}>
-              {nav}
+            <div className="region navigator mission-nav" style={{ width: w }}>
+              <div className="mission-nav-scroll">{nav}</div>
+              <button
+                className="pane-toggle nav-fold-btn mission-nav-fold"
+                title={t('nav.collapse')}
+                aria-label={t('nav.collapse')}
+                aria-pressed
+                onClick={toggle}
+              >
+                <Icon name="sidebar" size={16} />
+              </button>
             </div>
             <ResizeHandle onResize={onResize} />
           </>
@@ -98,7 +111,7 @@ export function MissionLayout({
               <div className="region-header foldable">
                 <span>{t('region.attention')}</span>
                 <button
-                  className="dock-fold-btn"
+                  className="pane-toggle dock-fold-btn"
                   title={t('nav.collapse')}
                   aria-label={t('nav.collapse')}
                   onClick={toggleDock}

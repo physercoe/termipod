@@ -90,6 +90,9 @@ async function applyProxy(proxy: string | null): Promise<void> {
 // defaults below cover the pre-push window (a guest can't exist before the
 // renderer has mounted and pushed) and the unit-test path.
 const guestMenuLabels: Record<GuestMenuAction, string> = {
+  back: 'Back',
+  forward: 'Forward',
+  reload: 'Reload',
   openLink: 'Open link in browser',
   copyLink: 'Copy link address',
   copyImage: 'Copy image',
@@ -104,6 +107,15 @@ const guestMenuLabels: Record<GuestMenuAction, string> = {
 /// a guest, so target `wc` directly).
 function runGuestMenuAction(wc: Electron.WebContents, action: GuestMenuAction, params: Electron.ContextMenuParams): void {
   switch (action) {
+    case 'back':
+      if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+      break;
+    case 'forward':
+      if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+      break;
+    case 'reload':
+      wc.reload();
+      break;
     case 'openLink':
       if (isSafeExternal(params.linkURL)) void shell.openExternal(params.linkURL);
       break;
@@ -134,6 +146,8 @@ function runGuestMenuAction(wc: Electron.WebContents, action: GuestMenuAction, p
 /// window so the menu is anchored correctly across multiple windows.
 function popupGuestContextMenu(wc: Electron.WebContents, params: Electron.ContextMenuParams): void {
   const items = buildGuestMenuTemplate({
+    canGoBack: wc.navigationHistory.canGoBack(),
+    canGoForward: wc.navigationHistory.canGoForward(),
     linkURL: isSafeExternal(params.linkURL) ? params.linkURL : '',
     isImage: params.mediaType === 'image' && params.hasImageContents,
     isEditable: params.isEditable,

@@ -350,7 +350,6 @@ button.search-result-link:hover {
 .sessions-list {
   flex: 0 0 300px;
   overflow: auto;
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
 }
@@ -397,6 +396,9 @@ button.search-result-link:hover {
   cursor: nwse-resize;
 }
 .session-item {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -406,7 +408,7 @@ button.search-result-link:hover {
   border: none;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   cursor: pointer;
-  padding: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s8);
   color: var(--text);
 }
 .session-item.active {
@@ -451,6 +453,10 @@ button.search-result-link:hover {
   cursor: pointer;
   font-family: inherit;
   text-align: left;
+}
+.sessions-group {
+  width: 100%;
+  min-width: 0;
 }
 .sessions-group-head .sessions-group-label {
   flex: 1;
@@ -596,19 +602,30 @@ button.search-result-link:hover {
 }
 .switcher-pill {
   cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--input);
+  border: var(--hairline) solid var(--glass-rim);
+  background: var(--glass-control);
+}
+.switcher-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .switcher-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  z-index: var(--z-overlay);
-  min-width: 260px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  z-index: var(--z-menu);
+  width: 240px;
+  max-width: calc(100vw - 96px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--glass-surface);
+  border: var(--hairline) solid var(--glass-rim);
+  border-radius: var(--radius-card);
+  box-shadow: var(--sh-3), inset 0 1px 0 var(--glass-highlight);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
   padding: var(--spacing-s4);
   display: flex;
   flex-direction: column;
@@ -616,16 +633,17 @@ button.search-result-link:hover {
 }
 .switcher-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-s4);
   border-radius: var(--radius-sm);
   padding: 2px 4px;
 }
 .switcher-item.active {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  background: var(--hover);
 }
 .switcher-pick {
-  flex: 1;
+  flex: 1 0 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -641,7 +659,19 @@ button.search-result-link:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+  max-width: 100%;
+}
+.switcher-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: 0 var(--spacing-s4) var(--spacing-s4);
+}
+.switcher-menu-status {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: var(--z-menu);
 }
 .switcher-add {
   margin-top: var(--spacing-s4);
@@ -807,8 +837,8 @@ button.search-result-link:hover {
    * context and paints *above* an auto backdrop regardless of tree order, so
    * that row bleeds through the modal and steals its wheel/pointer events. */
   z-index: var(--z-menu);
-  background: rgba(6, 8, 12, 0.55);
-  backdrop-filter: blur(3px) saturate(0.9);
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  backdrop-filter: blur(5px) saturate(0.85);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -829,19 +859,23 @@ button.search-result-link:hover {
 .palette {
   width: 560px;
   max-width: 90vw;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--glass-surface);
+  border: var(--hairline) solid var(--glass-rim);
+  border-radius: var(--radius-overlay);
   overflow: hidden;
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  backdrop-filter: blur(24px) saturate(1.1);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .palette input {
   width: 100%;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--hairline) solid var(--glass-rim);
   border-radius: 0;
   padding: var(--spacing-s12) var(--spacing-s16);
 }
 .palette-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
@@ -859,7 +893,17 @@ button.search-result-link:hover {
   font-variant-numeric: tabular-nums;
 }
 .palette-item.active {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: var(--hover);
+}
+.palette-item.active::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: var(--radius-stadium);
+  background: var(--accent);
 }
 
 /* ---- criteria create + deliverable send-back (Phase 5 parity) ---- */

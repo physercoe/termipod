@@ -417,7 +417,7 @@
 }
 /* Left nav (surface mode): saved SSH connections/hosts. Width is set inline
    (resizable + persisted); `.folded` collapses it entirely (a reveal chevron in
-   the head brings it back). Border-right is the seat for the ResizeHandle. */
+   the head brings it back). The adjacent ResizeHandle owns the sole divider. */
 .term-nav {
   flex: 0 0 auto;
   width: 210px;
@@ -427,7 +427,6 @@
   min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-s8);
-  border-right: 1px solid var(--border);
   background: var(--canvas);
 }
 .term-nav.folded {
@@ -443,23 +442,6 @@
   letter-spacing: 0.08em;
   color: var(--text-muted);
   font-weight: 600;
-}
-.term-nav-fold,
-.term-nav-reveal {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.term-nav-fold:hover,
-.term-nav-reveal:hover {
-  background: var(--hover);
-  color: var(--text);
 }
 .term-nav-reveal {
   flex: 0 0 auto;
@@ -479,12 +461,21 @@
 .term-nav-new {
   flex: 1;
   min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  padding: var(--spacing-s4) var(--spacing-s8);
   justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .term-nav-import {
   flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
   justify-content: center;
-  padding: 5px 7px;
+  padding: 0;
 }
 .term-nav-notice {
   padding: 2px 4px;

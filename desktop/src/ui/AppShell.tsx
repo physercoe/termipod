@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { listen } from '../bridge';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { useFocus } from '../state/focus';
@@ -40,11 +41,23 @@ import { AnnotationOverlay } from './AnnotationOverlay';
 import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ErrorBoundary } from './ErrorBoundary';
+import { Icon } from './Icon';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
 import { SurfaceView } from './SurfaceView';
 import { ToastHost } from './ToastHost';
+
+const ACTIVITY_RAIL_KEY = 'termipod.shell.activityRailOpen';
+
+function initialActivityRailOpen(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(ACTIVITY_RAIL_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 /// The three-region mission-control frame (plan §4): titlebar · Navigator |
 /// Focus | Attention dock · status bar. WS3 wires the Navigator (fleet tree) and
@@ -77,16 +90,60 @@ export function AppShell(): JSX.Element {
   const [spawnOpen, setSpawnOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [editProfile, setEditProfile] = useState<HubProfile | undefined>(undefined);
+  const [activityRailOpen, setActivityRailOpen] = useState(initialActivityRailOpen);
+  const [fullScreen, setFullScreen] = useState(false);
 
-  // Auto-bind the active profile on launch; raise the connect overlay only if
-  // that leaves us disconnected (no profile / no stored token). Resolve the
+  const toggleActivityRail = useCallback((): void => {
+    setActivityRailOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(ACTIVITY_RAIL_KEY, next ? '1' : '0');
+      } catch {
+        // Keep the control functional even when its preference cannot persist.
+      }
+      return next;
+    });
+  }, []);
+
+  // Native menu commands use the same state transitions as the visible shell
+  // controls, so View -> Toggle Navigation and macOS Settings never fork into
+  // parallel behaviours. Full-screen state is main-process authority: Electron
+  // emits it for both the menu item and the native green-window-button gesture.
+  useEffect(() => {
+    let alive = true;
+    let stopCommand = (): void => {};
+    let stopFullScreen = (): void => {};
+
+    void listen<{ action: 'settings' | 'toggle-navigation' }>('shell:command', (event) => {
+      if (event.payload.action === 'settings') setJob(SETTINGS_JOB.id);
+      if (event.payload.action === 'toggle-navigation') toggleActivityRail();
+    }).then((stop) => {
+      if (alive) stopCommand = stop;
+      else stop();
+    });
+    void listen<{ fullScreen: boolean }>('shell:fullscreen', (event) => {
+      setFullScreen(event.payload.fullScreen);
+    }).then((stop) => {
+      if (alive) stopFullScreen = stop;
+      else stop();
+    });
+
+    return () => {
+      alive = false;
+      stopCommand();
+      stopFullScreen();
+    };
+  }, [setJob, toggleActivityRail]);
+
+  // Auto-bind the active profile on launch. A disconnected launch remains a
+  // quiet, usable workbench: the status bar exposes Connect when the user is
+  // ready, so an asynchronous first-run modal must not interrupt their current
+  // surface or steal pointer/focus from work already in progress. Resolve the
   // system/env proxy first (seeded synchronously from cache; this refreshes it)
   // so proxy-routed connections have it before the first hub call.
   useEffect(() => {
     void useProxy.getState().resolveDetected();
-    void init().finally(() => {
-      if (useSession.getState().client === null) setConnectOpen(true);
-    });
+    void init();
   }, [init]);
 
   // Prime the vault status while the shell is idle so Settings shows it
@@ -282,14 +339,15 @@ export function AppShell(): JSX.Element {
       <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
       <span className="fleet-toolbar-sep" />
       <button className="primary" disabled={client === null} onClick={() => setSpawnOpen(true)}>
+        <Icon name="plus" size={15} />
         {t('spawn.title')}
       </button>
-      <button onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
-      <button onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
-      <button onClick={() => setSearchOpen(true)}>{t('shell.search')}</button>
+      <button className="ghost" onClick={() => setSessionsOpen(true)}>{t('shell.sessions')}</button>
+      <button className="ghost" onClick={() => setChannelsOpen(true)}>{t('shell.channels')}</button>
+      <button className="ghost" onClick={() => setSearchOpen(true)}><Icon name="search" size={15} />{t('shell.search')}</button>
       <span className="spacer" />
-      <button onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
-      <button onClick={() => setAdminOpen(true)}>{t('shell.admin')}</button>
+      <button className="ghost" onClick={() => setMeOpen(true)}>{t('shell.history')}</button>
+      <button className="ghost" onClick={() => setAdminOpen(true)}><Icon name="sliders" size={15} />{t('shell.admin')}</button>
     </>
   );
 
@@ -334,18 +392,20 @@ export function AppShell(): JSX.Element {
     );
   }
 
-  // Hub identity / connection state — lives at the top of the activity bar (the
-  // brand slot) so the hub you're driving is the first thing in the top-left.
+  // Hub identity / connection state is global context, not job navigation. Keep
+  // it beside host telemetry in the persistent status bar; the narrow activity
+  // rail then remains clean beneath the native macOS window controls.
   const hubChrome =
     client === null ? (
-      <>
-        <span className="pill offline">{t('shell.offline')}</span>
-        <button className="primary" onClick={() => openConnect()}>
-          {t('shell.connect')}
-        </button>
-      </>
+      <button className="statusbar-hub-connect" title={t('shell.offline')} onClick={() => openConnect()}>
+        <span className="hub-status-dot" aria-hidden="true" />
+        {t('shell.connect')}
+      </button>
     ) : (
-      <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
+      <span className="statusbar-hub">
+        <span className={`hub-status-dot${online ? ' online' : ''}`} aria-hidden="true" />
+        <ProfileSwitcher onAdd={() => openConnect()} onEdit={(p) => openConnect(p)} />
+      </span>
     );
 
   // The command palette shortcut stays in the status bar's right end, showing
@@ -357,7 +417,7 @@ export function AppShell(): JSX.Element {
   );
 
   return (
-    <div className="shell">
+    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}${activityRailOpen ? '' : ' rail-hidden'}${fullScreen ? ' is-fullscreen' : ''}`}>
       {client !== null && !online && (
         <div className="offline-banner" role="status" aria-live="polite">
           {t('shell.offlineBanner')}
@@ -365,7 +425,7 @@ export function AppShell(): JSX.Element {
       )}
 
       <div className="workbench-row">
-        <ActivityBar chrome={hubChrome} />
+        {activityRailOpen && <ActivityBar />}
         <main className="workbench-main">
           {/* The terminal lives in an always-mounted panel (its <Screen>s die if
               unmounted); every other job renders in this stack, which the panel
@@ -386,7 +446,7 @@ export function AppShell(): JSX.Element {
         </main>
       </div>
 
-      <StatusBar right={statusChrome} />
+      <StatusBar context={hubChrome} right={statusChrome} />
 
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       {adminOpen && <AdminCockpit onClose={() => setAdminOpen(false)} />}

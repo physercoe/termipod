@@ -1316,6 +1316,8 @@ const en: Dict = {
 
   'read.modeLibrary': 'Library',
   'read.modeDiscover': 'Discover',
+  'read.modeBrowser': 'Browser',
+  'read.libraryActions': 'Library actions',
   'read.importZotero': 'Import Zotero',
   'read.importHint': 'Import a Zotero library (zotero.sqlite) — parsed on-device, nothing uploaded.',
   'read.importing': 'Importing…',
@@ -1572,6 +1574,7 @@ const en: Dict = {
   'read.colType': 'Type',
   'read.browserBack': 'Back',
   'read.browserForward': 'Forward',
+  'read.browserNavigation': 'Document navigation',
   'read.browserReload': 'Reload',
   'read.openInWindow': 'Open in browser window (loads any site)',
   'read.browserAddressPlaceholder': 'Enter a URL or address',
@@ -1589,6 +1592,8 @@ const en: Dict = {
   'read.showDetails': 'Show details',
 
   'author.docTabs': 'Open documents',
+  'author.tabsScrollBack': 'Scroll to earlier documents',
+  'author.tabsScrollForward': 'Scroll to later documents',
   'author.words_one': '{n} word',
   'author.words_other': '{n} words',
   'author.placeholder': 'Write in Markdown — $math$ and ```code``` supported…',
@@ -1640,6 +1645,7 @@ const en: Dict = {
   'author.navOpenFolder': 'Open folder…',
   'author.navCloseFolder': 'Close folder',
   'author.navRefresh': 'Refresh',
+  'author.navMoreActions': 'Workspace actions',
   'author.filterFiles': 'Filter files…',
   'author.noFilterMatch': 'No files match the filter.',
   'author.navSync': 'Sync workspace…',
@@ -1741,6 +1747,7 @@ const en: Dict = {
   'companion.localNoFolder': 'No workspace folder open — the agent runs in the default directory. Open a folder to scope it to your workspace.',
 
   'annotate.ask': 'Ask agent — select a region to share',
+  'annotate.enableHint': 'Enable UI context sharing in Settings → Assistant to annotate',
   'annotate.chip': 'Annotate',
   'annotate.title': 'Annotation',
   'annotate.hint': 'Drag to select a region · Esc to cancel',
@@ -3443,6 +3450,8 @@ const zh: Dict = {
 
   'read.modeLibrary': '文库',
   'read.modeDiscover': '发现',
+  'read.modeBrowser': '浏览器',
+  'read.libraryActions': '文库操作',
   'read.importZotero': '导入 Zotero',
   'read.importHint': '导入 Zotero 文库（zotero.sqlite）— 在本地解析，不会上传任何内容。',
   'read.importing': '导入中…',
@@ -3694,6 +3703,7 @@ const zh: Dict = {
   'read.colType': '类型',
   'read.browserBack': '后退',
   'read.browserForward': '前进',
+  'read.browserNavigation': '文档导航',
   'read.browserReload': '重新加载',
   'read.openInWindow': '在浏览器窗口中打开（可加载任何网站）',
   'read.browserAddressPlaceholder': '输入网址或地址',
@@ -3711,6 +3721,8 @@ const zh: Dict = {
   'read.showDetails': '显示详情',
 
   'author.docTabs': '打开的文档',
+  'author.tabsScrollBack': '滚动到较早的文档',
+  'author.tabsScrollForward': '滚动到较后的文档',
   'author.words': '{n} 词',
   'author.placeholder': '用 Markdown 撰写 — 支持 $数学$ 与 ```代码```…',
   'author.empty': '暂无可预览内容。',
@@ -3761,6 +3773,7 @@ const zh: Dict = {
   'author.navOpenFolder': '打开文件夹…',
   'author.navCloseFolder': '关闭文件夹',
   'author.navRefresh': '刷新',
+  'author.navMoreActions': '工作区操作',
   'author.filterFiles': '筛选文件…',
   'author.noFilterMatch': '没有匹配筛选的文件。',
   'author.navSync': '同步工作区…',
@@ -3861,6 +3874,7 @@ const zh: Dict = {
   'companion.localNoFolder': '未打开工作区文件夹——智能体将在默认目录中运行。打开文件夹以将其限定到你的工作区。',
 
   'annotate.ask': '询问智能体 — 框选区域共享',
+  'annotate.enableHint': '请在“设置 → 助手”中启用界面上下文共享后再标注',
   'annotate.chip': '标注',
   'annotate.title': '标注',
   'annotate.hint': '拖拽框选区域 · Esc 取消',

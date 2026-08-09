@@ -559,10 +559,10 @@ export function TerminalPanel(): JSX.Element {
           Always rendered so the pane area keeps a stable DOM position and its
           <Screen>s are never re-parented. */}
       <aside className={`term-nav${navFold ? ' folded' : ''}`} style={navStyle}>
-        <div className="term-nav-head">
+        <div className="term-nav-head pane-control-row">
           <span>{t('term.navConnections')}</span>
-          <button className="term-nav-fold" title={t('term.foldNav')} onClick={toggleFold}>
-            <Icon name="chevron-left" size={14} />
+          <button className="pane-toggle term-nav-fold" title={t('term.foldNav')} onClick={toggleFold}>
+            <Icon name="sidebar" size={16} />
           </button>
         </div>
         <div className="term-nav-actions">
@@ -666,13 +666,13 @@ export function TerminalPanel(): JSX.Element {
 
       <div className="term-main">
         <div className="term-head">
-          {mode === 'surface' && (
+          {mode === 'surface' && navFold && (
             <button
-              className="term-nav-reveal"
-              title={t('term.foldNav')}
+              className="pane-toggle term-nav-reveal"
+              title={t('nav.expand')}
               onClick={toggleFold}
             >
-              <Icon name={navFold ? 'chevron-right' : 'chevron-left'} size={14} />
+              <Icon name="sidebar" size={16} />
             </button>
           )}
 

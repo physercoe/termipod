@@ -13,16 +13,16 @@ import { useZoteroSyncJob } from '../state/zoteroSyncJob';
 import { Icon } from './Icon';
 
 /// Persistent ambient monitor (plan §4) — fleet counters + governance backlog +
-/// host connectivity, always in view. The `right` slot carries the session chrome
-/// (profile switcher / connect + command palette) relocated here from the old
-/// top titlebar, so the shell reclaims that whole row of vertical space.
+/// host connectivity, always in view. The `context` slot carries the active hub
+/// beside the host count; `right` carries compact utility chrome such as the
+/// command palette shortcut.
 ///
 /// The status bar is shell chrome — mounted once, visible on every tab — so it
 /// also carries the **background sync** indicator for BOTH sync jobs (Author
 /// workspace [[syncJob]] and Read/Zotero library [[zoteroSyncJob]]). The modals
 /// that start a sync can be closed and the user can switch tabs, so this is the
 /// only always-visible place to show "still syncing" / "sync failed".
-export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
+export function StatusBar({ context, right }: { context?: ReactNode; right?: ReactNode }): JSX.Element {
   const t = useT();
   const agents = useAgents().data ?? [];
   const hosts = useHosts().data ?? [];
@@ -60,6 +60,21 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
   // armed, mirroring the dock chips' open state.
   const sharing = useUiContext((s) => s.enabled);
   const annotArmed = useAnnotation((s) => s.phase !== 'idle');
+  const onAnnotate = (): void => {
+    if (sharing) {
+      useAnnotation.getState().arm(GLOBAL_ORIGIN);
+      return;
+    }
+    // Keep the action discoverable while sharing is off. Consent remains
+    // explicit: clicking the quiet chip takes the user to the exact Settings
+    // category instead of silently enabling capture.
+    try {
+      localStorage.setItem('termipod.settings.cat', 'assistant');
+    } catch {
+      /* private mode — Settings still opens at its fallback category */
+    }
+    useWorkbench.getState().setJob('settings');
+  };
 
   // One chip PER job (Author workspace + Read/Zotero library) so both are
   // distinguishable when they run at once, and each background failure — which
@@ -90,9 +105,9 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
 
   return (
     <div className="statusbar" role="status" aria-live="polite">
-      <span>{running} {t('status.running')}</span>
-      <span>{paused} {t('status.paused')}</span>
-      <span>{attention.length} {t('status.needYou')}</span>
+      {running > 0 && <span className="statusbar-count">{running} {t('status.running')}</span>}
+      {paused > 0 && <span className="statusbar-count">{paused} {t('status.paused')}</span>}
+      {attention.length > 0 && <span className="statusbar-count attention">{attention.length} {t('status.needYou')}</span>}
       {jobs.map((j) =>
         j.running ? (
           <span key={j.key} className="statusbar-sync" title={j.runLabel}>
@@ -118,13 +133,13 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
       >
         <Icon name="globe" size={13} /> {t('assistant.title')}
       </button>
-      {isShell() && sharing && (
+      {isShell() && (
         <button
-          className={`statusbar-term statusbar-annotate${annotArmed ? ' active' : ''}`}
-          title={t('annotate.ask')}
-          aria-label={t('annotate.ask')}
+          className={`statusbar-term statusbar-annotate${annotArmed ? ' active' : ''}${sharing ? '' : ' quiet'}`}
+          title={sharing ? t('annotate.ask') : t('annotate.enableHint')}
+          aria-label={sharing ? t('annotate.ask') : t('annotate.enableHint')}
           aria-pressed={annotArmed}
-          onClick={() => useAnnotation.getState().arm(GLOBAL_ORIGIN)}
+          onClick={onAnnotate}
         >
           <Icon name="crosshair" size={13} /> {t('annotate.chip')}
         </button>
@@ -138,7 +153,10 @@ export function StatusBar({ right }: { right?: ReactNode }): JSX.Element {
           <Icon name="terminal" size={13} /> {termCount}
         </button>
       )}
-      <span>{t('status.hosts')} {hosts.length}</span>
+      <span className="statusbar-hub-cluster">
+        {context !== undefined && <span className="statusbar-context">{context}</span>}
+        <span className={`statusbar-hosts${hosts.length === 0 ? ' quiet' : ''}`}>{t('status.hosts')} {hosts.length}</span>
+      </span>
       {right !== undefined && <span className="statusbar-chrome">{right}</span>}
     </div>
   );

@@ -106,10 +106,12 @@ test('isLoopbackHttpUrl: direct predicate spot-checks', () => {
 // ── Guest context-menu template ──────────────────────────────────────────────
 // This is why kimiweb/webtab now HAVE a right-click menu at all: the guest's
 // `context-menu` is handled main-side (webtab.ts), building a native menu from
-// this descriptor. The blank base = "nothing under the cursor" (which must
-// yield NO menu, not an empty one).
+// this descriptor. The blank base = "nothing under the cursor"; navigation
+// still keeps that menu useful, like a regular browser.
 
 const NONE: GuestMenuContext = {
+  canGoBack: false,
+  canGoForward: false,
   linkURL: '',
   isImage: false,
   isEditable: false,
@@ -122,13 +124,18 @@ const NONE: GuestMenuContext = {
 const actions = (items: ReturnType<typeof buildGuestMenuTemplate>): string[] =>
   items.map((it) => (it === 'separator' ? '|' : it.action));
 
-test('guest menu: nothing useful under the cursor ⇒ no menu', () => {
-  assert.deepEqual(buildGuestMenuTemplate(NONE), []);
+test('guest menu: whitespace still offers browser navigation', () => {
+  const items = buildGuestMenuTemplate(NONE);
+  assert.deepEqual(actions(items), ['back', 'forward', 'reload']);
+  const byAction = Object.fromEntries(items.filter((it) => it !== 'separator').map((it) => [it.action, it.enabled]));
+  assert.equal(byAction.back, false);
+  assert.equal(byAction.forward, false);
+  assert.equal(byAction.reload, true);
 });
 
 test('guest menu: a plain text selection offers copy + select-all', () => {
   const items = buildGuestMenuTemplate({ ...NONE, selectionText: 'hello' });
-  assert.deepEqual(actions(items), ['copy', '|', 'selectAll']);
+  assert.deepEqual(actions(items), ['back', 'forward', 'reload', '|', 'copy', '|', 'selectAll']);
 });
 
 test('guest menu: an editable field offers the full edit set, enabled per editFlags', () => {
@@ -141,7 +148,7 @@ test('guest menu: an editable field offers the full edit set, enabled per editFl
     canPaste: true,
     canSelectAll: true,
   });
-  assert.deepEqual(actions(items), ['cut', 'copy', 'paste', '|', 'selectAll']);
+  assert.deepEqual(actions(items), ['back', 'forward', 'reload', '|', 'cut', 'copy', 'paste', '|', 'selectAll']);
   // editFlags drive enabled state (an empty clipboard ⇒ paste disabled, no
   // selection ⇒ cut/copy disabled) — Chromium's own accounting.
   const empty = buildGuestMenuTemplate({ ...NONE, isEditable: true });
@@ -159,9 +166,13 @@ test('guest menu: a link leads, then image, then text (browser ordering)', () =>
     isImage: true,
     selectionText: 'sel',
   });
-  assert.deepEqual(actions(items), ['openLink', 'copyLink', '|', 'copyImage', '|', 'copy', '|', 'selectAll']);
+  assert.deepEqual(actions(items), [
+    'back', 'forward', 'reload', '|', 'openLink', 'copyLink', '|', 'copyImage', '|', 'copy', '|', 'selectAll',
+  ]);
 });
 
 test('guest menu: an image alone offers copy image only', () => {
-  assert.deepEqual(actions(buildGuestMenuTemplate({ ...NONE, isImage: true })), ['copyImage']);
+  assert.deepEqual(actions(buildGuestMenuTemplate({ ...NONE, isImage: true })), [
+    'back', 'forward', 'reload', '|', 'copyImage',
+  ]);
 });

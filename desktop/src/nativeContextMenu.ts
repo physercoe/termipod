@@ -26,6 +26,9 @@ import { svgElementToPngDataUrl } from './ui/rasterizeSvg';
 /// and re-pushed on every language change (the labels are cached main-side).
 function syncGuestMenuLabels(): void {
   void invoke('webtab_set_menu_labels', {
+    back: tStatic('read.browserBack'),
+    forward: tStatic('read.browserForward'),
+    reload: tStatic('read.browserReload'),
     openLink: tStatic('ctx.openLink'),
     copyLink: tStatic('ctx.copyLink'),
     copyImage: tStatic('common.copyImage'),

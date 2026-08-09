@@ -149,8 +149,10 @@ test.afterAll(async () => {
 test('D2: drag → target row → companion chip → postAgentInput carries the image', async () => {
   test.setTimeout(90_000);
 
-  // Connect through the real ConnectPanel (auto-opened on boot): the probe +
-  // bind hit the mock hub; the token lands in the throwaway safeStorage file.
+  // Connect through the real status-bar entry and ConnectPanel: disconnected
+  // launch stays non-modal, then the probe + bind hit the mock hub and the
+  // token lands in the throwaway safeStorage file.
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
   const connect = page.locator('.connect');
   await expect(connect).toBeVisible({ timeout: 20_000 });
   await connect.locator('input').nth(1).fill(`http://127.0.0.1:${String(hubPort)}`);

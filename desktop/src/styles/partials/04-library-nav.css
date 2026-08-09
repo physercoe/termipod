@@ -4,10 +4,31 @@
    (Zotero-style). See .read-rail-pane + .resize-handle-v. */
 .read-rail {
   flex: 0 0 auto;
-  background: var(--canvas);
+  position: relative;
+  background: var(--glass-pane);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+/* The first collection row doubles as the pane header: title/count flex on the
+   left and the standard collapse control owns the right edge. */
+.read-rail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding-right: var(--spacing-s8);
+}
+.read-rail-header.active {
+  background: var(--accent-tint);
+}
+.read-rail-header .read-rail-all {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.read-rail-header .read-rail-all:hover {
+  background: var(--hover);
 }
 /* One scroll pane (collections OR tags). A fixed-height pane (collections, when
    tags are present) carries an inline `height`; `.grow` fills the remaining rail
@@ -195,7 +216,9 @@
 .ref-inspector-empty {
   min-width: 0;
   min-height: 0;
-  background: var(--bg);
+  background: var(--glass-pane);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .ref-inspector {
   display: flex;
@@ -208,8 +231,36 @@
   align-items: center;
   gap: var(--spacing-s2);
   padding: var(--spacing-s4) var(--spacing-s8);
-  border-bottom: 1px solid var(--border);
-  background: var(--canvas);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  background: var(--glass-pane);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  overflow: hidden;
+}
+.ref-tab-strip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+.ref-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+.ref-tab-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+}
+.ref-tab-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  white-space: nowrap;
 }
 .ref-tab {
   padding: var(--spacing-s4) var(--spacing-s12);
@@ -238,7 +289,8 @@
   font-size: var(--font-size-label);
   font-weight: 600;
   cursor: pointer;
-  margin-right: var(--spacing-s8);
+  margin-right: 0;
+  white-space: nowrap;
 }
 .ref-pdf-btn:hover {
   background: var(--accent);
@@ -365,7 +417,7 @@
   font-size: var(--font-size-label);
   font-weight: 600;
   cursor: pointer;
-  margin-right: var(--spacing-s8);
+  margin-right: 0;
 }
 .ref-scrape-btn:hover:not(:disabled) {
   border-color: var(--accent);

@@ -13,7 +13,6 @@ import { PROXY_CONNS, useProxy, type ProxyConn } from '../state/proxy';
 import { PasswordInput } from '../ui/PasswordInput';
 import { Icon } from '../ui/Icon';
 import { useConfirm } from '../ui/ConfirmModal';
-import { EnvProfilesManager } from './EnvProfilesManager';
 import { AssistantSettings } from './AssistantSettings';
 import { UpdateSection } from './UpdateSection';
 import { VaultManager } from './VaultManager';
@@ -496,7 +495,7 @@ function AboutSettings(): JSX.Element {
   );
 }
 
-type CatId = 'account' | 'display' | 'input' | 'shortcuts' | 'data' | 'network' | 'env-profiles' | 'assistant' | 'vault' | 'about';
+type CatId = 'account' | 'display' | 'input' | 'data' | 'network' | 'assistant' | 'vault' | 'about';
 const CAT_LS_KEY = 'termipod.settings.cat';
 
 /// The Settings job surface (pinned to the bottom of the activity bar). Where the
@@ -514,14 +513,18 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
   const cats: { id: CatId; label: string; render: () => JSX.Element }[] = [
     { id: 'account', label: t('settings.catAccount'), render: () => <AccountSettings onConnect={onConnect} /> },
     { id: 'display', label: t('settings.catDisplay'), render: () => <AppearanceSettings /> },
-    ...(tauri ? [{ id: 'input' as const, label: t('settings.catInput'), render: () => <VoiceSettings /> }] : []),
-    // Keyboard shortcuts — rebindable app-level chords (#460). Not tauri-gated:
-    // the AppShell keydown handler runs in the browser build too.
-    { id: 'shortcuts', label: t('settings.catShortcuts'), render: () => <ShortcutSettings /> },
-    // Environment profiles — team-scoped hub entity (pure REST), so it's shown
-    // in every build (not tauri-gated like vault). Reusable {env + setup} the
-    // spawn sheet's picker attaches (env-profiles plan, E2).
-    { id: 'env-profiles', label: t('settings.catEnvProfiles'), render: () => <EnvProfilesManager /> },
+    // Input owns both voice and keyboard interaction. Shortcuts are available in
+    // every build; voice remains native-shell only.
+    {
+      id: 'input',
+      label: t('settings.catInput'),
+      render: () => (
+        <>
+          {tauri && <VoiceSettings />}
+          <ShortcutSettings />
+        </>
+      ),
+    },
     {
       id: 'data',
       label: t('settings.catData'),
@@ -578,6 +581,8 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
     let saved = localStorage.getItem(CAT_LS_KEY);
     if (saved === 'sshkeys') saved = 'vault'; // migrate the renamed category
     if (saved === 'updates') saved = 'about'; // Updates merged into About
+    if (saved === 'shortcuts') saved = 'input'; // Keyboard merged into Input
+    if (saved === 'env-profiles') saved = 'account'; // Team environments moved to Fleet Admin
     return saved !== null && cats.some((c) => c.id === saved) ? (saved as CatId) : 'account';
   });
   function pick(id: CatId): void {

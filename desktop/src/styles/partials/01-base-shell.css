@@ -4,39 +4,54 @@
  * --font-size-*) generated from design-tokens/tokens.json (WS1). Dark-first,
  * matching the mobile app's backgroundDark palette. */
 
-/* Semantic theme layer — the elevated design language (2026-07). Kept
- * desktop-local (does NOT mutate the shared design-tokens/tokens.json, which the
- * mobile Flutter build mirrors): refined cool blue-biased neutrals with a real
- * elevation scale, focus rings, motion, and a disciplined accent. Switched by
- * <html data-theme>; dark is the default. */
+/* Semantic theme layer — desktop-local (does NOT mutate the shared
+ * design-tokens/tokens.json mirrored by Flutter). Warm monochrome graphite is
+ * the default product language: hierarchy comes from tonal zoning, typography
+ * and spacing, while colour is reserved for semantic status. */
 :root {
   color-scheme: dark;
-  --pane-gap: 1px;
+  /* Pane separation is drawn by ResizeHandle itself. A layout gap beside that
+     divider produced a second parallel line (and a dark gutter in light mode). */
+  --pane-gap: 0px;
   /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
    * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
-  --bg: #08090c;          /* app ground */
-  --canvas: #0d0f13;      /* navigator + dock rails */
-  --surface: #131519;     /* cards, panels, popovers */
-  --raised: #191c22;      /* buttons, hover targets, inset controls */
-  --hover: #20242b;       /* row / interactive hover fill */
-  --input: #0b0c10;
-  --border: #23262d;      /* hairline (Radix step 6/7) */
-  --border-strong: #31363f; /* interactive / focus border (step 8) */
-  --text: #f4f6f8;        /* high-contrast ink */
-  --text-secondary: #a7aeba;
-  --text-muted: #8b939f;  /* WCAG AA: 4.5:1+ on --surface (was #6a727f ≈3.8:1) */
-  /* accent — brand cyan, reserved for focus / selection / live data / one CTA */
-  --accent: var(--color-primary);
-  --accent-strong: var(--color-primary-dark);
-  --accent-ink: #00252b;
+  --bg: #171717;          /* focused content canvas */
+  --canvas: #242424;      /* navigation / inspector panes + persistent chrome */
+  --surface: #1f1f1f;     /* cards and nested panel surfaces */
+  --raised: #2f2f2f;      /* controls and genuinely raised regions */
+  --hover: #333333;       /* interactive hover / selected neutral fill */
+  --input: #212121;
+  --border: #303030;      /* low-contrast hairline between tonal zones */
+  --border-strong: #4a4a4a; /* interactive / focus border */
+  --text: #ececec;        /* high-contrast ink */
+  --text-secondary: #b4b4b4;
+  --text-muted: #8b8b8b;
+  /* ChatGPT-like default: monochrome interaction emphasis. Accent colours may
+   * be user-customisable later, but the shipped visual language does not depend
+   * on one. Semantic green/amber/red remain independent below. */
+  --accent: #ececec;
+  --accent-strong: #d4d4d4;
+  --accent-ink: #171717;
   /* accent used as TEXT — on dark surfaces the bright accent already clears AA,
    * so it's the accent itself; the light theme overrides it to a darker teal
    * (see below) because the light accent as text is only ~2.9:1 on white. Route
    * accent-coloured text through this, NOT --accent (which is tuned for fills,
    * borders and focus rings). */
-  --accent-text: var(--accent);
+  --accent-text: #f4f4f4;
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+  /* Soft-glass chrome — translucency is intentionally limited to persistent
+   * navigation, toolbar and overlay surfaces. Reading/editing canvases stay
+   * opaque so depth never competes with content. Half-pixel rules render as
+   * true hairlines on Retina displays instead of boxed panel borders. */
+  --hairline: 0.5px;
+  --glass-pane: color-mix(in srgb, var(--canvas) 92%, transparent);
+  --glass-surface: color-mix(in srgb, var(--surface) 90%, transparent);
+  --glass-control: color-mix(in srgb, var(--raised) 88%, transparent);
+  --glass-rim: color-mix(in srgb, var(--text) 10%, transparent);
+  --glass-highlight: color-mix(in srgb, var(--text) 6%, transparent);
+  --fullscreen-nav: #292929;
+  --glass-filter: blur(20px) saturate(1.08);
   /* semantic state — distinct from the accent hue */
   --ok: var(--color-success);
   --warn: var(--color-warning);
@@ -99,6 +114,14 @@
   --track-tight: -0.018em;
   --track-snug: -0.011em;
   --track-body: -0.006em;
+  /* Control geometry. One compact ladder replaces per-component heights and
+   * makes toolbars, dialogs and dense workbench chrome feel related. */
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-overlay: 14px;
   /* Phantom-token aliases (#318). These names were referenced across the sheet
    * through an inline var() fallback but never actually defined — so the fallback
    * was silently load-bearing (and inconsistent: one fell back to a raw #fff).
@@ -127,27 +150,29 @@
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f7f8fa;
-  --canvas: #eef0f3;
+  --bg: #ffffff;
+  --canvas: #f4f4f4;
   --surface: #ffffff;
-  --raised: #ffffff;
-  --hover: #e4e9f0;  /* was #eef1f5 ≈1.1:1 on white — nearly invisible */
-  --input: #f6f7f9;
-  --border: #e6e9ee;
-  --border-strong: #d4d9e1;
-  --text: #0f141c;
-  --text-secondary: #586173;
-  --text-muted: #6b7280;  /* WCAG AA: 4.66:1 on --bg (was #8a93a3 ≈2.91:1) */
-  --accent: var(--color-primary-dark);
-  --accent-strong: var(--color-primary-dark);
-  /* Dark ink on the solid accent fill — white was only 3.39:1 on the light
-   * accent; dark ink is ≈5:1 (mirrors the dark theme's dark-on-accent ink). */
-  --accent-ink: #00252b;
-  /* Accent-as-text darkened for AA: the light accent (#009AA8) is ~2.9:1 on
-   * white; this teal is ~5:1, so links/labels/active tabs stay readable. */
-  --accent-text: #007a8a;
+  --raised: #f4f4f4;
+  --hover: #e8e8e8;
+  --input: #f7f7f7;
+  --border: #e3e3e3;
+  --border-strong: #c7c7c7;
+  --text: #212121;
+  --text-secondary: #5d5d5d;
+  --text-muted: #737373;
+  --accent: #2f2f2f;
+  --accent-strong: #171717;
+  --accent-ink: #ffffff;
+  --accent-text: #212121;
   --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 40%, transparent);
+  --glass-pane: color-mix(in srgb, var(--canvas) 88%, transparent);
+  --glass-surface: color-mix(in srgb, var(--surface) 88%, transparent);
+  --glass-control: color-mix(in srgb, var(--raised) 80%, transparent);
+  --glass-rim: color-mix(in srgb, var(--text) 12%, transparent);
+  --glass-highlight: color-mix(in srgb, var(--surface) 78%, transparent);
+  --fullscreen-nav: #eaeae8;
   --ok: var(--color-success-on-light);
   --warn: var(--color-on-warning-container-light);
   --danger: var(--color-error);
@@ -169,6 +194,30 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 42%, transparent) transparent;
+}
+/* ChatGPT-style overlay scrollbars: transparent track and a narrow, quiet thumb
+   that gains contrast only on hover. Individual widgets may still override the
+   physical width when their layout engine reserves a fixed gutter (xterm). */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
+  border: 2px solid transparent;
+  border-radius: var(--radius-stadium);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-secondary) 68%, transparent);
+  background-clip: padding-box;
 }
 
 html,
@@ -176,6 +225,10 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* The desktop shell owns scrolling inside its bounded panes. Letting the
+     document itself scroll exposes a second scrollbar at the window edge when
+     native titlebar insets or floating chrome extend by even a fraction. */
+  overflow: hidden;
 }
 
 body {
@@ -236,12 +289,77 @@ pre {
   min-height: 0;
 }
 
+/* Electron macOS uses BrowserWindow.hiddenInset: content replaces the redundant
+   native title row while the real traffic lights remain. Reserve their compact
+   corner only inside the activity rail; the active workbench toolbar occupies
+   the rest of that same top band. App-region rules preserve native dragging
+   without swallowing clicks on toolbar controls. */
+.shell-macos .activity-bar {
+  padding-top: 46px;
+  position: relative;
+  border-right-color: transparent;
+  box-shadow: none;
+  -webkit-app-region: drag;
+}
+.shell-macos.is-fullscreen .activity-bar {
+  padding-top: var(--spacing-s8);
+}
+.shell.is-fullscreen .activity-bar {
+  background: var(--fullscreen-nav);
+}
+.shell-macos .activity-bar::after {
+  content: '';
+  position: absolute;
+  top: 46px;
+  right: 0;
+  bottom: 0;
+  width: var(--hairline);
+  background: var(--glass-rim);
+  box-shadow: 1px 0 0 var(--glass-highlight);
+  pointer-events: none;
+}
+.shell-macos .fleet-toolbar,
+.shell-macos .surface-head,
+.shell-macos .settings-cats,
+.shell-macos .settings-content-title,
+.shell-macos .term-nav,
+.shell-macos .term-head {
+  -webkit-app-region: drag;
+}
+.shell-macos .term-nav-actions,
+.shell-macos .term-nav-list {
+  -webkit-app-region: no-drag;
+}
+.shell-macos button,
+.shell-macos input,
+.shell-macos select,
+.shell-macos textarea,
+.shell-macos [role='button'],
+.shell-macos [role='tab'] {
+  -webkit-app-region: no-drag;
+}
+
 /* The main middle band: the activity-bar rail + the active job surface. Grows
    to fill between the titlebar and the terminal dock / status bar. */
 .workbench-row {
   flex: 1;
   min-height: 0;
   display: flex;
+}
+/* With the rail hidden, macOS traffic lights still own the leading corner.
+   Ordinary page headers share that title band, so shift their first content
+   past the native controls. Settings and Terminal instead reserve a compact
+   draggable top inset in their own left panes. */
+.shell-macos.rail-hidden:not(.is-fullscreen) .fleet-toolbar,
+.shell-macos.rail-hidden:not(.is-fullscreen) .surface-head {
+  padding-left: 84px;
+}
+.shell-macos.rail-hidden:not(.is-fullscreen) .settings-cats,
+.shell-macos.rail-hidden:not(.is-fullscreen) .term-panel.surface .term-nav:not(.folded) {
+  padding-top: 46px;
+}
+.shell-macos.rail-hidden:not(.is-fullscreen) .term-panel.surface .term-nav.folded ~ .term-main .term-head {
+  padding-left: 84px;
 }
 .workbench-main {
   flex: 1;
@@ -315,16 +433,24 @@ pre {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
+  min-height: 42px;
   padding: var(--spacing-s4) var(--spacing-s12);
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .fleet-toolbar-label {
-  font-size: var(--font-size-label);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+  letter-spacing: var(--track-snug);
+  color: var(--text);
   font-weight: 600;
+}
+.fleet-toolbar button {
+  min-height: var(--control-sm);
+  padding: 4px 9px;
+  font-size: var(--font-size-body-small);
 }
 .fleet-toolbar-sep {
   width: 1px;
@@ -342,8 +468,10 @@ pre {
   align-items: center;
   gap: var(--spacing-s16);
   padding: 0 var(--spacing-s16);
-  background: linear-gradient(180deg, var(--canvas), var(--surface));
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 
 .titlebar {
@@ -354,9 +482,13 @@ pre {
 
 .statusbar {
   height: 28px;
-  border-top: 1px solid var(--border);
+  position: relative;
+  z-index: var(--z-nav);
+  overflow: visible;
+  border-top: var(--hairline) solid var(--glass-rim);
   border-bottom: none;
-  background: linear-gradient(180deg, var(--surface), var(--canvas));
+  background: var(--glass-pane);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -376,7 +508,19 @@ pre {
 }
 .statusbar-term:hover,
 .statusbar-term.active {
-  color: var(--accent-text);
+  color: var(--text);
+}
+.statusbar-term.active {
+  background: var(--hover);
+}
+.statusbar-count {
+  color: var(--text-secondary);
+}
+.statusbar-count.attention {
+  color: var(--warn);
+}
+.statusbar-hosts.quiet {
+  color: var(--text-muted);
 }
 
 /* Background-sync indicator (Author workspace + Read/Zotero library jobs). Shown
@@ -417,7 +561,7 @@ pre {
   display: flex;
   gap: var(--pane-gap);
   min-height: 0;
-  background: var(--border);
+  background: var(--bg);
 }
 .shell-body > .navigator {
   flex: 0 0 auto; /* width set inline by MissionLayout (resizable) */
@@ -466,23 +610,63 @@ pre {
   white-space: nowrap;
 }
 
-/* Nav fold toggle (left of the Fleet/Projects toolbar). */
-.nav-fold-btn {
+/* One visual language for pane visibility throughout the workbench: a compact
+   28px ghost control with the sidebar glyph. Direction is conveyed by mirroring
+   the glyph for right-hand panes, not by changing button shape or weight. */
+.pane-toggle {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
-  color: var(--text-secondary);
+  padding: 0;
+  color: var(--text-muted);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border: var(--hairline) solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
 }
-.nav-fold-btn:hover {
+.pane-toggle:hover {
   color: var(--text);
-  background: var(--surface);
+  background: var(--hover);
+}
+.nav-fold-btn {
+  color: var(--text-secondary);
 }
 .nav-fold-btn.active {
   color: var(--accent-text);
+}
+.pane-control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.pane-control-row > .pane-toggle:last-child {
+  margin-left: auto;
+}
+
+/* Fleet and Projects keep their collapse control inside the pane it affects.
+   The scrolling content receives enough top-right breathing room that the
+   control never overlaps the first segmented row. */
+.mission-nav {
+  position: relative;
+  overflow: hidden;
+}
+.mission-nav-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+.mission-nav-fold {
+  position: absolute;
+  top: var(--spacing-s8);
+  right: var(--spacing-s8);
+  z-index: var(--z-nav);
+}
+.mission-nav .nav-subtabs {
+  margin-right: 44px;
 }
 
 /* Agents/Hosts and Projects/Workspaces subtab bar at the top of a nav. */
@@ -503,20 +687,54 @@ pre {
 }
 
 .region-header {
+  min-height: 36px;
   padding: var(--spacing-s8) var(--spacing-s12);
-  font-size: var(--font-size-caption);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+  font-weight: 550;
+  letter-spacing: var(--track-snug);
+  color: var(--text-secondary);
   position: sticky;
   top: 0;
-  background: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 
 .navigator,
 .dock {
-  background: var(--canvas);
+  background: var(--glass-pane);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+
+/* Empty states are intentionally quiet and composed: a small semantic glyph,
+   one useful line, and no decorative card competing with real content. */
+.empty-state {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s24);
+  color: var(--text-muted);
+  text-align: center;
+  font-size: var(--font-size-body-small);
+}
+.empty-state-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-stadium);
+  color: var(--text-secondary);
+  background: var(--hover);
+}
+.dock .empty-state {
+  min-height: 120px;
 }
 
 /* Foldable region header (attention dock): title on the left, fold toggle on
@@ -526,20 +744,6 @@ pre {
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-s8);
-}
-.dock-fold-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-}
-.dock-fold-btn:hover {
-  color: var(--text);
-  background: var(--surface);
 }
 /* Collapsed dock: a thin vertical rail that re-opens the attention panel; its
    label reads bottom-to-top so the narrow rail stays readable. */
@@ -551,9 +755,9 @@ pre {
   gap: var(--spacing-s8);
   width: 30px;
   padding: var(--spacing-s8) 0;
-  background: var(--canvas);
+  background: var(--glass-pane);
   border: none;
-  border-left: 1px solid var(--border);
+  border-left: var(--hairline) solid var(--glass-rim);
   border-radius: 0;
   color: var(--text-muted);
   cursor: pointer;

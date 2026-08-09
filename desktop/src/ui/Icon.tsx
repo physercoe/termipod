@@ -25,6 +25,7 @@ export type IconName =
   | 'close'
   | 'refresh'
   | 'menu'
+  | 'more-horizontal'
   | 'plus'
   | 'minus'
   | 'upload'
@@ -160,6 +161,7 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M4 17h16" />
     </>
   ),
+  'more-horizontal': <path d="M5 12h.01M12 12h.01M19 12h.01" />,
   plus: (
     <>
       <path d="M12 5v14" />

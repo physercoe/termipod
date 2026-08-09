@@ -6,6 +6,7 @@ import { useSession } from '../state/session';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { useConfirm } from '../ui/ConfirmModal';
 import { Modal } from '../ui/Modal';
+import { EnvProfilesManager } from './EnvProfilesManager';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -618,7 +619,7 @@ function FamiliesTab(): JSX.Element {
   );
 }
 
-type AdminTab = 'team' | 'hosts' | 'agents' | 'teams' | 'templates' | 'families' | 'upkeep';
+type AdminTab = 'team' | 'hosts' | 'agents' | 'teams' | 'environments' | 'templates' | 'families' | 'upkeep';
 
 /// WS7 — Team governance + operator Admin cockpit as an overlay. Team tab
 /// (members + editable policy); Hosts/Agents admin tabs with confirmed
@@ -632,6 +633,7 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
     { v: 'hosts', label: t('admin.hosts') },
     { v: 'agents', label: t('admin.agents') },
     { v: 'teams', label: t('admin.teams') },
+    { v: 'environments', label: t('settings.catEnvProfiles') },
     { v: 'templates', label: t('admin.templates') },
     { v: 'families', label: t('admin.engines') },
     { v: 'upkeep', label: t('admin.upkeep') },
@@ -652,6 +654,7 @@ export function AdminCockpit({ onClose }: { onClose: () => void }): JSX.Element 
           {tab === 'hosts' && <HostsTab />}
           {tab === 'agents' && <AgentsTab />}
           {tab === 'teams' && <TeamsTab />}
+          {tab === 'environments' && <EnvProfilesManager />}
           {tab === 'templates' && <TemplatesTab />}
           {tab === 'families' && <FamiliesTab />}
           {tab === 'upkeep' && <UpkeepTab />}

@@ -199,6 +199,10 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* The desktop shell owns scrolling inside its bounded panes. Letting the
+     document itself scroll exposes a second scrollbar at the window edge when
+     native titlebar insets or floating chrome extend by even a fraction. */
+  overflow: hidden;
 }
 
 body {
@@ -266,7 +270,21 @@ pre {
    without swallowing clicks on toolbar controls. */
 .shell-macos .activity-bar {
   padding-top: 46px;
+  position: relative;
+  border-right-color: transparent;
+  box-shadow: none;
   -webkit-app-region: drag;
+}
+.shell-macos .activity-bar::after {
+  content: '';
+  position: absolute;
+  top: 46px;
+  right: 0;
+  bottom: 0;
+  width: var(--hairline);
+  background: var(--glass-rim);
+  box-shadow: 1px 0 0 var(--glass-highlight);
+  pointer-events: none;
 }
 .shell-macos .fleet-toolbar,
 .shell-macos .surface-head {

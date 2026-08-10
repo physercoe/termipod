@@ -35,14 +35,14 @@ interface Palette {
 // reference CSS variables — it must carry real colours).
 const PALETTES: Record<SvgTheme, Palette> = {
   dark: {
-    bg: '#0d1117', surface: '#161b22', raised: '#1c232c', border: '#30363d', borderStrong: '#4d5764',
-    text: '#e6edf3', textMuted: '#8b949e', accent: '#2dd4bf',
-    io: '#2dd4bf', attention: '#3B82F6', linear: '#06B6D4', ffn: '#22C55E', moe: '#A855F7', norm: '#EAB308',
+    bg: '#171717', surface: '#202020', raised: '#292929', border: '#383838', borderStrong: '#777777',
+    text: '#ececec', textMuted: '#a0a0a0', accent: '#a8a8a8',
+    io: '#c9c9c9', attention: '#79a5e8', linear: '#68bac3', ffn: '#82ab8f', moe: '#ac91c4', norm: '#ababab',
   },
   light: {
-    bg: '#ffffff', surface: '#ffffff', raised: '#f6f8fa', border: '#d0d7de', borderStrong: '#8c959f',
-    text: '#1f2328', textMuted: '#636c76', accent: '#0f766e',
-    io: '#0f766e', attention: '#1d4ed8', linear: '#0e7490', ffn: '#15803d', moe: '#7e22ce', norm: '#a16207',
+    bg: '#ffffff', surface: '#ffffff', raised: '#f2f2f2', border: '#dedede', borderStrong: '#858585',
+    text: '#212121', textMuted: '#666666', accent: '#686868',
+    io: '#515151', attention: '#426ba8', linear: '#327984', ffn: '#4e7458', moe: '#765b89', norm: '#696969',
   },
 };
 
@@ -138,7 +138,7 @@ export function archToSvg(laid: ArchLayoutResult, opts: ArchSvgOptions = {}): st
   // inner run boxes — same z discipline as the renderer.
   for (const b of [...laid.boxes].sort((a, c) => a.z - c.z)) {
     out.push(
-      `<rect x="${gx(b.x)}" y="${gy(b.y)}" width="${b.w}" height="${b.h}" rx="8" fill="none" stroke="${p.borderStrong}" stroke-width="1" stroke-dasharray="5 4"/>`,
+      `<rect x="${gx(b.x)}" y="${gy(b.y)}" width="${b.w}" height="${b.h}" rx="8" fill="${p.surface}" fill-opacity="0.38" stroke="${p.borderStrong}" stroke-width="1.2"${b.variant === 'cycle' ? '' : ' stroke-dasharray="6 4"'}/>`,
     );
     out.push(
       `<rect x="${gx(b.x) + 10}" y="${gy(b.y) - 8}" width="${Math.min(b.label.length * 6.4 + 10, b.w - 20)}" height="15" fill="${p.bg}"/>`,
@@ -165,13 +165,13 @@ export function archToSvg(laid: ArchLayoutResult, opts: ArchSvgOptions = {}): st
       if (tgt === undefined) continue;
       const rx = gx(s.x + s.w) + 16;
       out.push(
-        `<path d="M ${gx(s.x + s.w)} ${gy(s.y + s.h / 2)} L ${rx} ${gy(s.y + s.h / 2)} L ${rx} ${gy(tgt.y + tgt.h / 2)} L ${gx(tgt.x + tgt.w)} ${gy(tgt.y + tgt.h / 2)}" stroke="${p.accent}" stroke-width="1.2" stroke-dasharray="5 3" fill="none"/>`,
+        `<path d="M ${gx(s.x + s.w)} ${gy(s.y + s.h / 2)} L ${rx} ${gy(s.y + s.h / 2)} L ${rx} ${gy(tgt.y + tgt.h / 2)} L ${gx(tgt.x + tgt.w)} ${gy(tgt.y + tgt.h / 2)}" stroke="${p.accent}" stroke-width="1.4" stroke-dasharray="7 5" stroke-linecap="round" fill="none"/>`,
       );
     } else {
       const tgt = panelById.get(e.target);
       if (tgt === undefined) continue;
       out.push(
-        `<path d="M ${gx(s.x + s.w)} ${gy(s.y + s.h / 2)} L ${gx(tgt.x)} ${gy(tgt.y + 20)}" stroke="${p.borderStrong}" stroke-width="1" stroke-dasharray="2 4" fill="none"/>`,
+        `<path d="M ${gx(s.x + s.w)} ${gy(s.y + s.h / 2)} L ${gx(tgt.x)} ${gy(tgt.y + 20)}" stroke="${p.borderStrong}" stroke-width="1.35" stroke-dasharray="2 5" stroke-linecap="round" fill="none"/>`,
       );
     }
   }
@@ -203,7 +203,7 @@ export function archToSvg(laid: ArchLayoutResult, opts: ArchSvgOptions = {}): st
 
   // Zoom-in panels.
   for (const pn of laid.panels) {
-    out.push(`<rect x="${gx(pn.x)}" y="${gy(pn.y)}" width="${pn.w}" height="${pn.h}" rx="6" fill="${p.surface}" stroke="${p.borderStrong}" stroke-dasharray="2 3"/>`);
+    out.push(`<rect x="${gx(pn.x)}" y="${gy(pn.y)}" width="${pn.w}" height="${pn.h}" rx="6" fill="${p.surface}" stroke="${p.borderStrong}"/>`);
     out.push(`<text x="${gx(pn.x) + 12}" y="${gy(pn.y) + 20}" fill="${p.textMuted}" font-size="11" font-weight="600">${esc(clip(label(pn.panel.titleKey), pn.w - 24, 11))}</text>`);
     let ry = gy(pn.y) + GEO.PANEL_HEAD + 8;
     const chipItems = pn.panel.items.filter((i) => i.shape === 'expert' || i.shape === 'more');

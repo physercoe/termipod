@@ -63,18 +63,25 @@
    * "different", not as "better". */
   --delta-up: var(--color-terminal-blue);
   --delta-down: var(--color-terminal-magenta);
-  /* Architecture-schematic component bands (config-only arch view) — one hue per
-   * transformer component kind. Theme-invariant (the terminal palette is fixed),
-   * so defined once here and consumed by the .archgraph-card left border. */
-  --archgraph-io: var(--accent);
-  --archgraph-attention: var(--color-terminal-blue);
-  --archgraph-ffn: var(--color-terminal-green);
-  --archgraph-moe: var(--color-terminal-magenta);
-  --archgraph-norm: var(--color-terminal-yellow);
-  /* The novelty hue: linear/recurrent attention operators (KDA, Gated DeltaNet)
-   * of a hybrid stack, set against the standard-attention blue — the reference
-   * figures' "novelty accent vs neutral" device. */
-  --archgraph-linear: var(--color-terminal-cyan);
+  /* Architecture schematics use a restrained technical palette: neutral bands
+   * for structural stages and softened categorical hues only where colour helps
+   * distinguish operators. These mixes remain legible in both app themes. */
+  --archgraph-io: color-mix(in srgb, var(--text-secondary) 78%, var(--text));
+  --archgraph-attention: color-mix(in srgb, var(--color-terminal-blue) 62%, var(--text));
+  --archgraph-ffn: color-mix(in srgb, var(--color-terminal-green) 42%, var(--text-secondary));
+  --archgraph-moe: color-mix(in srgb, var(--color-terminal-magenta) 48%, var(--text));
+  --archgraph-norm: color-mix(in srgb, var(--text-muted) 78%, var(--text));
+  --archgraph-linear: color-mix(in srgb, var(--color-terminal-cyan) 54%, var(--text));
+  /* Structural strokes need more contrast than ordinary chrome borders because
+   * they carry grouping and control-flow meaning at low zoom. */
+  --archgraph-grid: color-mix(in srgb, var(--text-muted) 34%, transparent);
+  --archgraph-edge-main: color-mix(in srgb, var(--text-secondary) 76%, transparent);
+  --archgraph-edge-residual: color-mix(in srgb, var(--text-secondary) 62%, transparent);
+  --archgraph-edge-leader: color-mix(in srgb, var(--text-secondary) 52%, transparent);
+  --archgraph-card-border: color-mix(in srgb, var(--text) 14%, transparent);
+  --archgraph-group-border: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+  --archgraph-group-border-strong: color-mix(in srgb, var(--text-secondary) 62%, transparent);
+  --archgraph-panel-border: color-mix(in srgb, var(--text-secondary) 40%, transparent);
   /* Code is the one product surface where colour encodes grammar rather than
    * brand. These VS Code-like roles stay derived from the terminal palette and
    * mix toward theme text, which keeps them legible in both dark and light mode

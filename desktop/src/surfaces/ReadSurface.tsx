@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { invoke, listen } from '../bridge';
 import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
 import { useT, tStatic } from '../i18n';
@@ -23,7 +33,7 @@ import {
   writeNoteImage,
 } from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
-import { useDiscoverySearch } from '../state/discoverySearch';
+import { useDiscoverySearch, type DiscoverySort } from '../state/discoverySearch';
 import { syncAnnotations } from '../state/annotationSync';
 import { useReadTabs } from '../state/readTabs';
 import { useSession } from '../state/session';
@@ -82,14 +92,15 @@ function saveWidth(key: string, v: number): void {
 
 /// J1 — Read papers/reports in depth, as a **reference library** (Zotero-shaped)
 /// fused with **discovery** (Semantic Scholar). Three panes: collections/tags
-/// rail · items list · inspector (Info / Read / Notes / Cite). Discover mode
+/// rail · items list · inspector (Info / Abstract / Notes / Cite). Discover mode
 /// searches Semantic Scholar (TLDR + abstract + citations + open-access PDF) and
 /// imports a result into the library in one click. Storage is device-local this
 /// round; the hub-backed library + PDF blobs + agent-driven extraction (Elicit /
 /// Undermind patterns) are specced in `reference-library-and-reading.md`.
 
 type Mode = 'library' | 'discover';
-type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta';
+type Tab = 'info' | 'abstract' | 'notes' | 'cite';
+type CitationStyle = 'apa' | 'bibtex';
 const ALL = '__all__';
 
 // An open tab in the reader region: a PDF reader (a library item) or an in-app
@@ -107,6 +118,51 @@ const SORT_COLS: { key: SortKey; labelKey: string }[] = [
   { key: 'venue', labelKey: 'read.colVenue' },
   { key: 'type', labelKey: 'read.colType' },
 ];
+type LibraryColumnWidths = Record<SortKey, number>;
+const LIB_COLUMN_WIDTHS_KEY = 'termipod.read.libraryColumnWidths';
+const DEFAULT_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
+  title: 40,
+  creator: 22,
+  year: 9,
+  venue: 19,
+  type: 10,
+};
+const MIN_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
+  title: 20,
+  creator: 14,
+  year: 7,
+  venue: 12,
+  type: 8,
+};
+
+function loadLibraryColumnWidths(): LibraryColumnWidths {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LIB_COLUMN_WIDTHS_KEY) ?? '') as Partial<LibraryColumnWidths>;
+    const values = SORT_COLS.map(({ key }) => parsed[key]);
+    if (!values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+      return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    }
+    const total = values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+    if (total <= 0) return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    const normalized = Object.fromEntries(
+      SORT_COLS.map(({ key }) => [key, ((parsed[key] ?? DEFAULT_LIB_COLUMN_WIDTHS[key]) / total) * 100]),
+    ) as LibraryColumnWidths;
+    if (SORT_COLS.some(({ key }) => normalized[key] < MIN_LIB_COLUMN_WIDTHS[key])) {
+      return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    }
+    return normalized;
+  } catch {
+    return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+  }
+}
+
+function saveLibraryColumnWidths(widths: LibraryColumnWidths): void {
+  try {
+    localStorage.setItem(LIB_COLUMN_WIDTHS_KEY, JSON.stringify(widths));
+  } catch {
+    /* ignore */
+  }
+}
 function sortVal(r: Reference, key: SortKey): string | number {
   switch (key) {
     case 'title':
@@ -142,16 +198,10 @@ interface LibRowCtx {
   hasPdf: (r: Reference) => boolean;
 }
 
-// Custom table wrapper so the column widths (colgroup) + class survive.
+// Custom table wrapper keeps the class stable. Header widths control the fixed
+// table layout and are user-adjustable below.
 const LibTable: TableComponents<Reference, LibRowCtx>['Table'] = (props) => (
   <table {...props} className="read-table">
-    <colgroup>
-      <col style={{ width: '44%' }} />
-      <col style={{ width: '20%' }} />
-      <col style={{ width: '3.5rem' }} />
-      <col style={{ width: '22%' }} />
-      <col style={{ width: '6rem' }} />
-    </colgroup>
     {props.children}
   </table>
 );
@@ -253,18 +303,17 @@ function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
   };
 }
 
-// The identifiers the scraper resolves a work from. `externalId` is the OpenAlex
-// work URL for OpenAlex-imported items, so pass it as the openAlexId seed.
+// Resolve an existing library item using its strongest identifiers. Enrichment
+// lives with Citation data, but its patch still preserves hand-edited core fields.
 function refToSeed(r: Reference): ScrapeSeed {
-  const oaId = r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined;
-  return { doi: r.doi, arxivId: r.arxivId, openAlexId: oaId, title: r.title, url: r.url, abstract: r.abstract };
+  const openAlexId =
+    r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined;
+  return { doi: r.doi, arxivId: r.arxivId, openAlexId, title: r.title, url: r.url, abstract: r.abstract };
 }
 
-// Apply a scrape patch to an existing reference: enrichment fields always
-// overwrite (they're derived), core bibliographic fields are backfilled only
-// when the current value is empty so a re-scrape never clobbers hand edits.
-function patchToRefFields(patch: ScrapePatch, cur?: Reference): Partial<Reference> {
-  const empty = (v: unknown): boolean => v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+function patchToRefFields(patch: ScrapePatch, cur: Reference): Partial<Reference> {
+  const empty = (value: unknown): boolean =>
+    value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
   const out: Partial<Reference> = {
     referenceCount: patch.referenceCount,
     citedByCount: patch.citedByCount,
@@ -277,15 +326,15 @@ function patchToRefFields(patch: ScrapePatch, cur?: Reference): Partial<Referenc
     enrichedAt: patch.enrichedAt,
     enrichSource: patch.enrichSource,
   };
-  if (patch.title !== undefined && (cur === undefined || empty(cur.title))) out.title = patch.title;
-  if (patch.authors !== undefined && (cur === undefined || empty(cur.authors))) out.authors = patch.authors;
-  if (patch.year !== undefined && (cur === undefined || cur.year === undefined)) out.year = patch.year;
-  if (patch.venue !== undefined && (cur === undefined || empty(cur.venue))) out.venue = patch.venue;
-  if (patch.doi !== undefined && (cur === undefined || empty(cur.doi))) out.doi = patch.doi;
-  if (patch.arxivId !== undefined && (cur === undefined || empty(cur.arxivId))) out.arxivId = patch.arxivId;
-  if (patch.abstract !== undefined && (cur === undefined || empty(cur.abstract))) out.abstract = patch.abstract;
-  if (patch.pdfUrl !== undefined && (cur === undefined || empty(cur.pdfUrl))) out.pdfUrl = patch.pdfUrl;
-  if (patch.detailsAdd !== undefined) out.details = { ...(cur?.details ?? {}), ...patch.detailsAdd };
+  if (patch.title !== undefined && empty(cur.title)) out.title = patch.title;
+  if (patch.authors !== undefined && empty(cur.authors)) out.authors = patch.authors;
+  if (patch.year !== undefined && cur.year === undefined) out.year = patch.year;
+  if (patch.venue !== undefined && empty(cur.venue)) out.venue = patch.venue;
+  if (patch.doi !== undefined && empty(cur.doi)) out.doi = patch.doi;
+  if (patch.arxivId !== undefined && empty(cur.arxivId)) out.arxivId = patch.arxivId;
+  if (patch.abstract !== undefined && empty(cur.abstract)) out.abstract = patch.abstract;
+  if (patch.pdfUrl !== undefined && empty(cur.pdfUrl)) out.pdfUrl = patch.pdfUrl;
+  if (patch.detailsAdd !== undefined) out.details = { ...(cur.details ?? {}), ...patch.detailsAdd };
   return out;
 }
 
@@ -820,14 +869,15 @@ function WorkList({ label, works, total }: { label: string; works?: WorkLink[]; 
   );
 }
 
-// The Meta tab: the rich metadata the plain form doesn't cover — citation-graph
-// counts, journal metrics (an IF-like signal), open-access status, topics,
-// code/data links, and the reference + cited-by lists. Populated by the scraper.
+// Citation data that complements the formatted citation: citation-graph counts,
+// journal metrics (an IF-like signal), open-access status, topics, code/data
+// links, and the reference + cited-by lists. It lives in Cite rather than
+// competing with citation output as a separate inspector destination.
 // NOTE: the prop is `reference`, not `ref` — `ref` is a React-reserved prop that
 // is never passed to a function component, so a prop literally named `ref` arrives
 // as `undefined` and the first `ref.` access throws (blanking the whole app when
 // there is no error boundary). We alias it to a local `ref` to keep the body terse.
-function RefMeta({
+function CitationData({
   reference: ref,
   scraping,
   msg,
@@ -844,22 +894,33 @@ function RefMeta({
   const cited = ref.citedByCount ?? ref.citationCount;
   const enriched = ref.enrichedAt !== undefined;
   const hasMetrics = cited !== undefined || ref.referenceCount !== undefined || j?.twoYearMeanCitedness !== undefined;
+  const hasData =
+    hasMetrics ||
+    j?.name !== undefined ||
+    (ref.topics?.length ?? 0) > 0 ||
+    (ref.resourceLinks?.length ?? 0) > 0 ||
+    (ref.references?.length ?? 0) > 0 ||
+    (ref.citations?.length ?? 0) > 0;
   return (
-    <div className="ref-meta region-pad">
-      <div className="ref-meta-actions">
-        <button className="primary small" disabled={scraping} onClick={onScrape}>
-          {scraping ? t('read.scraping') : enriched ? t('read.rescrape') : t('read.scrape')}
-        </button>
-        {enriched && (
-          <span className="muted small">
-            {t('read.enrichedVia')
-              .replace('{src}', ref.enrichSource ?? '')
-              .replace('{time}', new Date(ref.enrichedAt ?? 0).toLocaleDateString())}
-          </span>
-        )}
+    <section className="ref-citation-data">
+      <div className="ref-citation-data-head">
+        <span className="ref-section-label">{t('read.citationDetails')}</span>
+        <div className="ref-citation-data-actions">
+          {enriched && (
+            <span className="muted small">
+              {t('read.enrichedVia')
+                .replace('{src}', ref.enrichSource ?? '')
+                .replace('{time}', new Date(ref.enrichedAt ?? 0).toLocaleDateString())}
+            </span>
+          )}
+          <button className="link-btn ref-citation-enrich" disabled={scraping} title={t('read.scrapeTitle')} onClick={onScrape}>
+            <Icon name="refresh" size={14} />
+            {scraping ? t('read.scraping') : enriched ? t('read.rescrape') : t('read.scrape')}
+          </button>
+        </div>
       </div>
-      {msg !== null && <div className="ref-meta-msg muted small">{msg}</div>}
-      {!enriched && msg === null && <div className="muted small">{t('read.scrapeHint')}</div>}
+      {msg !== null && <div className="ref-citation-msg muted small">{msg}</div>}
+      {!hasData && <div className="muted small ref-citation-empty">{t('read.citationDetailsEmpty')}</div>}
 
       {hasMetrics && (
         <div className="ref-metrics">
@@ -921,7 +982,7 @@ function RefMeta({
 
       <WorkList label={t('read.mRefList')} works={ref.references} total={ref.referenceCount} />
       <WorkList label={t('read.mCiteList')} works={ref.citations} total={ref.citedByCount ?? ref.citationCount} />
-    </div>
+    </section>
   );
 }
 
@@ -975,6 +1036,7 @@ function Inspector({
   const storageLinked = useZoteroStorage((s) => s.count > 0);
   const openLink = useOpenLink();
   const [tab, setTab] = useState<Tab>('info');
+  const [citationStyle, setCitationStyle] = useState<CitationStyle>('apa');
   // Edit vs preview for the reading body is an EXPLICIT state, not derived from
   // whether the body is empty — deriving it flips to preview on the first
   // keystroke (the block would go read-only after one character). Default to
@@ -984,7 +1046,6 @@ function Inspector({
   // webview (WebView2 returns without showing a dialog → the item deleted with no
   // prompt), so the confirm is an explicit two-step inline state instead.
   const [confirming, setConfirming] = useState(false);
-  // The scraper enriches the item with citation-graph + metrics + code/data links.
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
   useEffect(() => {
@@ -995,18 +1056,20 @@ function Inspector({
   }, [refId]);
 
   async function runScrape(): Promise<void> {
-    const cur = useLibrary.getState().references.find((r) => r.id === refId);
-    if (cur === undefined) return;
+    const current = useLibrary.getState().references.find((r) => r.id === refId);
+    if (current === undefined) return;
     setScraping(true);
     setScrapeMsg(null);
     try {
-      const res = await scrapeMetadata(refToSeed(cur));
-      if (res.patch === null) {
+      const result = await scrapeMetadata(refToSeed(current));
+      if (result.patch === null) {
         setScrapeMsg(t('read.scrapeNone'));
       } else {
-        update(cur.id, patchToRefFields(res.patch, cur));
+        update(current.id, patchToRefFields(result.patch, current));
         setScrapeMsg(
-          res.found.length > 0 ? t('read.scrapeDone').replace('{what}', res.found.join(', ')) : t('read.scrapeThin'),
+          result.found.length > 0
+            ? t('read.scrapeDone').replace('{what}', result.found.join(', '))
+            : t('read.scrapeThin'),
         );
       }
     } catch {
@@ -1081,10 +1144,9 @@ function Inspector({
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'info', label: t('read.tabInfo') },
-    { id: 'read', label: t('read.tabRead') },
+    { id: 'abstract', label: t('read.tabAbstract') },
     { id: 'notes', label: t('read.tabNotes') },
     { id: 'cite', label: t('read.tabCite') },
-    { id: 'meta', label: t('read.tabMeta') },
   ];
 
   return (
@@ -1125,24 +1187,12 @@ function Inspector({
                 <button
                   className="ref-pdf-btn muted"
                   title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
-                  onClick={() => setTab('read')}
+                  onClick={() => setTab('abstract')}
                 >
                   <Icon name={KIND_ICON[primaryKind]} size={14} />
                   {t(KIND_LABEL[primaryKind])}
                 </button>
               ))}
-            <button
-              className="ref-scrape-btn"
-              disabled={scraping}
-              title={t('read.scrapeTitle')}
-              onClick={() => {
-                setTab('meta');
-                void runScrape();
-              }}
-            >
-              {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
-              {t('read.scrape')}
-            </button>
             {confirming ? (
               <span className="ref-confirm">
                 <span className="muted small">{t('read.confirmDelete')}</span>
@@ -1331,7 +1381,7 @@ function Inspector({
           </div>
         )}
 
-        {tab === 'read' && (
+        {tab === 'abstract' && (
           <div className="region-pad doc-body">
             {ref.tldr !== undefined && (
               <div className="ref-tldr">
@@ -1458,30 +1508,36 @@ function Inspector({
 
         {tab === 'cite' && (
           <div className="ref-cite region-pad">
-            <div className="ref-cite-block">
-              <div className="ref-cite-head">
-                <span className="muted small">APA</span>
-                <span className="spacer" />
-                <button className="link-btn" onClick={() => copy(citeApa(ref))}>
-                  {t('read.copy')}
+            <section className="ref-cite-output">
+              <div className="ref-cite-toolbar">
+                <label className="ref-cite-format">
+                  <span>{t('read.citationFormat')}</span>
+                  <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}>
+                    <option value="apa">APA</option>
+                    <option value="bibtex">BibTeX</option>
+                  </select>
+                </label>
+                <button
+                  className="link-btn ref-cite-copy"
+                  onClick={() => copy(citationStyle === 'apa' ? citeApa(ref) : citeBibtex(ref))}
+                >
+                  <Icon name="copy" size={14} /> {t('read.copy')}
                 </button>
               </div>
-              <div className="ref-cite-text">{citeApa(ref)}</div>
-            </div>
-            <div className="ref-cite-block">
-              <div className="ref-cite-head">
-                <span className="muted small">BibTeX</span>
-                <span className="spacer" />
-                <button className="link-btn" onClick={() => copy(citeBibtex(ref))}>
-                  {t('read.copy')}
-                </button>
-              </div>
-              <pre className="ref-cite-text mono">{citeBibtex(ref)}</pre>
-            </div>
+              {citationStyle === 'apa' ? (
+                <div className="ref-cite-text">{citeApa(ref)}</div>
+              ) : (
+                <pre className="ref-cite-text mono">{citeBibtex(ref)}</pre>
+              )}
+            </section>
+            <CitationData
+              reference={ref}
+              scraping={scraping}
+              msg={scrapeMsg}
+              onScrape={() => void runScrape()}
+            />
           </div>
         )}
-
-        {tab === 'meta' && <RefMeta reference={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
       </div>
     </div>
   );
@@ -1490,7 +1546,7 @@ function Inspector({
 // ---- Reader ----------------------------------------------------------------
 
 // A dedicated reading view (one open PDF tab). The PDF is the main pane; a
-// resizable side column reuses the Inspector (Info / Read / Notes / Cite) so
+// resizable side column reuses the Inspector (Info / Abstract / Notes / Cite) so
 // notes are written next to the document. Multiple of these live behind the tab
 // strip; switching tabs swaps which one renders (director: "the PDF viewer can be
 // opened in several tabs at the same time").
@@ -1626,7 +1682,15 @@ function ReaderView({
 
 const SOURCE_LS = 'termipod.discover.source';
 
-function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.Element {
+function DiscoverPanel({
+  selectedId,
+  onInspect,
+  onAddById,
+}: {
+  selectedId: string | null;
+  onInspect: (id: string) => void;
+  onAddById: (id: string) => void;
+}): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
   const add = useLibrary((s) => s.addReference);
@@ -1638,6 +1702,15 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   const setQ = useDiscoverySearch((s) => s.setQuery);
   const results = useDiscoverySearch((s) => s.results);
   const setResults = useDiscoverySearch((s) => s.setResults);
+  const authorFilter = useDiscoverySearch((s) => s.authorFilter);
+  const yearFrom = useDiscoverySearch((s) => s.yearFrom);
+  const yearTo = useDiscoverySearch((s) => s.yearTo);
+  const resultSort = useDiscoverySearch((s) => s.sort);
+  const setAuthorFilter = useDiscoverySearch((s) => s.setAuthorFilter);
+  const setYearFrom = useDiscoverySearch((s) => s.setYearFrom);
+  const setYearTo = useDiscoverySearch((s) => s.setYearTo);
+  const setResultSort = useDiscoverySearch((s) => s.setSort);
+  const clearFilters = useDiscoverySearch((s) => s.clearFilters);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string>(() => localStorage.getItem(SOURCE_LS) ?? 'openalex');
@@ -1650,14 +1723,44 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   // "Add + PDF" per-card state (which card is downloading, and a keyed error).
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [pdfErr, setPdfErr] = useState<{ id: string; msg: string } | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersAnchorRef = useRef<HTMLButtonElement>(null);
 
   const source = sourceById(sourceId);
   const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
 
-  const importedIds = useMemo(
-    () => new Set(references.map((r) => r.externalId).filter((x): x is string => x !== undefined)),
+  const importedByExternalId = useMemo(
+    () =>
+      new Map(
+        references
+          .filter((r): r is Reference & { externalId: string } => r.externalId !== undefined)
+          .map((r) => [r.externalId, r.id]),
+      ),
     [references],
   );
+
+  const visibleResults = useMemo(() => {
+    const author = authorFilter.trim().toLocaleLowerCase();
+    const from = yearFrom === '' ? null : Number(yearFrom);
+    const to = yearTo === '' ? null : Number(yearTo);
+    const filtered = results.filter((paper) => {
+      if (author !== '' && !paper.authors.some((name) => name.toLocaleLowerCase().includes(author))) return false;
+      if (from !== null && Number.isFinite(from) && (paper.year === undefined || paper.year < from)) return false;
+      if (to !== null && Number.isFinite(to) && (paper.year === undefined || paper.year > to)) return false;
+      return true;
+    });
+    if (resultSort === 'relevance') return filtered;
+    return [...filtered].sort((a, b) => {
+      if (resultSort === 'title') return a.title.localeCompare(b.title);
+      if (resultSort === 'citations') return (b.citationCount ?? -1) - (a.citationCount ?? -1);
+      const aYear = a.year;
+      const bYear = b.year;
+      if (aYear === undefined) return bYear === undefined ? 0 : 1;
+      if (bYear === undefined) return -1;
+      return resultSort === 'newest' ? bYear - aYear : aYear - bYear;
+    });
+  }, [authorFilter, resultSort, results, yearFrom, yearTo]);
+  const activeFilterCount = Number(authorFilter.trim() !== '') + Number(yearFrom !== '') + Number(yearTo !== '');
 
   function pickSource(id: string): void {
     setSourceId(id);
@@ -1697,8 +1800,9 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   }
 
   function importPaper(p: DiscoveryPaper): void {
-    const id = add(paperToRef(p));
-    onSelect(id);
+    // Discovery is a batch workflow: save the result in place and let the card
+    // update to “In library” without discarding the search or scroll position.
+    add(paperToRef(p));
   }
 
   // Import + download the open-access PDF in one flow (§1.6). A download failure
@@ -1706,7 +1810,6 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   async function addWithPdf(p: DiscoveryPaper): Promise<void> {
     const cardId = p.paperId || p.title;
     const id = add(paperToRef(p));
-    onSelect(id);
     if (p.pdfUrl === undefined) return;
     setPdfBusy(cardId);
     setPdfErr(null);
@@ -1758,7 +1861,9 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
         collectionIds: [],
         notes: '',
       });
-      onSelect(id);
+      // A direct identifier lookup has no persistent result card to acknowledge
+      // the import, so keep its existing behavior of revealing the new item.
+      onAddById(id);
     } catch {
       setErr(t('read.searchFailed'));
     } finally {
@@ -1832,14 +1937,120 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
         </div>
       )}
       {err !== null && <div className="error region-pad">{err}</div>}
+      {results.length > 0 && (
+        <div className="discover-result-tools">
+          <span className="muted small tnum">
+            {t('read.resultsShown')
+              .replace('{shown}', String(visibleResults.length))
+              .replace('{total}', String(results.length))}
+          </span>
+          <span className="spacer" />
+          <button
+            ref={filtersAnchorRef}
+            type="button"
+            className={`discover-filter-trigger${activeFilterCount > 0 ? ' active' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            <Icon name="sliders" size={14} />
+            {t('read.filters')}
+            {activeFilterCount > 0 && <span className="discover-filter-count">{activeFilterCount}</span>}
+          </button>
+          <label className="discover-sort-label">
+            <span>{t('read.sort')}</span>
+            <select
+              value={resultSort}
+              aria-label={t('read.sortResults')}
+              onChange={(event) => setResultSort(event.target.value as DiscoverySort)}
+            >
+              <option value="relevance">{t('read.sortRelevance')}</option>
+              <option value="newest">{t('read.sortNewest')}</option>
+              <option value="oldest">{t('read.sortOldest')}</option>
+              <option value="citations">{t('read.sortCitations')}</option>
+              <option value="title">{t('read.sortTitle')}</option>
+            </select>
+          </label>
+          <PopoverMenu
+            anchorRef={filtersAnchorRef}
+            open={filtersOpen}
+            onClose={() => setFiltersOpen(false)}
+            className="discover-filter-menu"
+            ariaLabel={t('read.filters')}
+          >
+            <label className="discover-filter-field">
+              <span>{t('read.author')}</span>
+              <input
+                value={authorFilter}
+                onChange={(event) => setAuthorFilter(event.target.value)}
+                placeholder={t('read.authorFilterPlaceholder')}
+                autoFocus
+              />
+            </label>
+            <div className="discover-filter-years">
+              <label className="discover-filter-field">
+                <span>{t('read.yearFrom')}</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={yearFrom}
+                  min="1000"
+                  max="9999"
+                  placeholder="1900"
+                  onChange={(event) => setYearFrom(event.target.value)}
+                />
+              </label>
+              <label className="discover-filter-field">
+                <span>{t('read.yearTo')}</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={yearTo}
+                  min="1000"
+                  max="9999"
+                  placeholder={String(new Date().getFullYear())}
+                  onChange={(event) => setYearTo(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="discover-filter-footer">
+              <button type="button" className="link-btn" disabled={activeFilterCount === 0} onClick={clearFilters}>
+                {t('read.clearFilters')}
+              </button>
+            </div>
+          </PopoverMenu>
+        </div>
+      )}
       <div className="discover-results scroll">
         {!busy && results.length === 0 && err === null && (
           <div className="muted region-pad">{t('read.discoverHint')}</div>
         )}
-        {results.map((p) => {
-          const imported = p.paperId !== '' && importedIds.has(p.paperId);
+        {!busy && results.length > 0 && visibleResults.length === 0 && (
+          <div className="muted region-pad">{t('read.noFilteredResults')}</div>
+        )}
+        {visibleResults.map((p) => {
+          const importedRefId = p.paperId !== '' ? importedByExternalId.get(p.paperId) : undefined;
+          const imported = importedRefId !== undefined;
+          const cardId = p.paperId || p.title;
+          const downloading = pdfBusy === cardId;
+          const selected = importedRefId !== undefined && selectedId === importedRefId;
           return (
-            <div key={p.paperId || p.title} className="discover-card">
+            <div
+              key={cardId}
+              className={`discover-card${imported ? ' interactive' : ''}${selected ? ' selected' : ''}`}
+              role={imported ? 'button' : undefined}
+              tabIndex={imported ? 0 : undefined}
+              aria-pressed={imported ? selected : undefined}
+              title={imported ? t('read.showDetails') : undefined}
+              onClick={importedRefId !== undefined ? () => onInspect(importedRefId) : undefined}
+              onKeyDown={(event) => {
+                if (importedRefId === undefined || event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onInspect(importedRefId);
+                }
+              }}
+            >
               <div className="discover-card-title">{p.title}</div>
               <div className="discover-card-meta muted small">
                 {p.authors.slice(0, 4).join(', ')}
@@ -1854,24 +2065,34 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
                 </div>
               )}
               <div className="discover-card-actions">
-                <button className="primary small" disabled={imported} onClick={() => importPaper(p)}>
+                <button
+                  className="primary small"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (importedRefId !== undefined) onInspect(importedRefId);
+                    else importPaper(p);
+                  }}
+                >
                   {imported ? t('read.inLibrary') : t('read.addToLibrary')}
                 </button>
                 {p.pdfUrl !== undefined &&
-                  (isShell() && !imported ? (
+                  (isShell() && (!imported || downloading) ? (
                     <button
                       className="small"
-                      disabled={pdfBusy === (p.paperId || p.title)}
-                      onClick={() => void addWithPdf(p)}
+                      disabled={downloading}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void addWithPdf(p);
+                      }}
                     >
                       <Icon name="download" size={13} />{' '}
-                      {pdfBusy === (p.paperId || p.title) ? t('read.attDownloading') : t('read.addWithPdf')}
+                      {downloading ? t('read.attDownloading') : t('read.addWithPdf')}
                     </button>
                   ) : (
                     <span className="pill ok small">PDF</span>
                   ))}
               </div>
-              {pdfErr !== null && pdfErr.id === (p.paperId || p.title) && (
+              {pdfErr !== null && pdfErr.id === cardId && (
                 <div className="muted small att-err">{pdfErr.msg}</div>
               )}
             </div>
@@ -1913,6 +2134,7 @@ export function ReadSurface(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('title');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [libraryColumnWidths, setLibraryColumnWidths] = useState<LibraryColumnWidths>(loadLibraryColumnWidths);
   // Open reader / browser tabs (director: PDFs open in several tabs at once, and
   // links open in a dedicated in-app browser tab). `activeTab === null` = library.
   // Store-owned since G1 so the focus publisher can see them.
@@ -2207,6 +2429,72 @@ export function ReadSurface(): JSX.Element {
       setSortKey(key);
       setSortDir('asc');
     }
+  }
+
+  function startColumnResize(event: ReactPointerEvent<HTMLSpanElement>, index: number): void {
+    const current = SORT_COLS[index]?.key;
+    const next = SORT_COLS[index + 1]?.key;
+    if (current === undefined || next === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const tableWidth = event.currentTarget.closest('table')?.getBoundingClientRect().width ?? 0;
+    if (tableWidth <= 0) return;
+    const startX = event.clientX;
+    const startCurrent = libraryColumnWidths[current];
+    const pairTotal = startCurrent + libraryColumnWidths[next];
+    let latest = libraryColumnWidths;
+    document.body.classList.add('read-column-resizing');
+
+    const onMove = (moveEvent: PointerEvent): void => {
+      const delta = ((moveEvent.clientX - startX) / tableWidth) * 100;
+      const nextCurrent = clamp(
+        startCurrent + delta,
+        MIN_LIB_COLUMN_WIDTHS[current],
+        pairTotal - MIN_LIB_COLUMN_WIDTHS[next],
+      );
+      latest = {
+        ...libraryColumnWidths,
+        [current]: nextCurrent,
+        [next]: pairTotal - nextCurrent,
+      };
+      setLibraryColumnWidths(latest);
+    };
+    const finish = (): void => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('read-column-resizing');
+      saveLibraryColumnWidths(latest);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }
+
+  function resetColumnWidths(): void {
+    const defaults = { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    setLibraryColumnWidths(defaults);
+    saveLibraryColumnWidths(defaults);
+  }
+
+  function resizeColumnsByKeyboard(index: number, delta: number): void {
+    const current = SORT_COLS[index]?.key;
+    const next = SORT_COLS[index + 1]?.key;
+    if (current === undefined || next === undefined) return;
+    const pairTotal = libraryColumnWidths[current] + libraryColumnWidths[next];
+    const nextCurrent = clamp(
+      libraryColumnWidths[current] + delta,
+      MIN_LIB_COLUMN_WIDTHS[current],
+      pairTotal - MIN_LIB_COLUMN_WIDTHS[next],
+    );
+    const widths = {
+      ...libraryColumnWidths,
+      [current]: nextCurrent,
+      [next]: pairTotal - nextCurrent,
+    };
+    setLibraryColumnWidths(widths);
+    saveLibraryColumnWidths(widths);
   }
 
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
@@ -2719,7 +3007,12 @@ export function ReadSurface(): JSX.Element {
         <div className="read-center">
           {mode === 'discover' ? (
             <DiscoverPanel
-              onSelect={(id) => {
+              selectedId={selected}
+              onInspect={(id) => {
+                setSelected(id);
+                foldInsp(false);
+              }}
+              onAddById={(id) => {
                 setMode('library');
                 setSelected(id);
               }}
@@ -2749,10 +3042,11 @@ export function ReadSurface(): JSX.Element {
                     computeItemKey={(_i, r) => r.id}
                     fixedHeaderContent={() => (
                       <tr>
-                        {SORT_COLS.map((c) => (
+                        {SORT_COLS.map((c, index) => (
                           <th
                             key={c.key}
                             className={`read-th${sortKey === c.key ? ' sorted' : ''}`}
+                            style={{ width: `${libraryColumnWidths[c.key]}%` }}
                             aria-sort={
                               sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
                             }
@@ -2770,6 +3064,35 @@ export function ReadSurface(): JSX.Element {
                                 )}
                               </span>
                             </button>
+                            {index < SORT_COLS.length - 1 && (
+                              <span
+                                className="read-th-resizer"
+                                role="separator"
+                                tabIndex={0}
+                                aria-orientation="vertical"
+                                aria-valuemin={MIN_LIB_COLUMN_WIDTHS[c.key]}
+                                aria-valuemax={
+                                  libraryColumnWidths[c.key] + libraryColumnWidths[SORT_COLS[index + 1]!.key] -
+                                  MIN_LIB_COLUMN_WIDTHS[SORT_COLS[index + 1]!.key]
+                                }
+                                aria-valuenow={Math.round(libraryColumnWidths[c.key])}
+                                aria-label={t('read.resizeColumn').replace('{col}', t(c.labelKey))}
+                                title={t('read.resizeColumnHint')}
+                                onPointerDown={(event) => startColumnResize(event, index)}
+                                onKeyDown={(event) => {
+                                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  const direction = event.key === 'ArrowRight' ? 1 : -1;
+                                  resizeColumnsByKeyboard(index, direction * (event.shiftKey ? 5 : 1));
+                                }}
+                                onDoubleClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  resetColumnWidths();
+                                }}
+                              />
+                            )}
                           </th>
                         ))}
                       </tr>

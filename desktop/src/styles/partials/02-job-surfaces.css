@@ -182,15 +182,11 @@ button > .ui-icon:not(:only-child):first-child,
 .term-dock-hide,
 .ref-open-link,
 .ref-pdf-btn,
-.ref-scrape-btn,
 .att-open,
 .import-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-.ref-scrape-busy {
-  margin-right: 0.35em;
 }
 .activity-label {
   font-size: var(--font-size-caption);
@@ -1190,11 +1186,42 @@ button > .ui-icon:not(:only-child):first-child,
 .inspect-tree-row.file {
   color: var(--text);
 }
+.inspect-folder-icon,
+.inspect-file-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.inspect-folder-icon {
+  color: var(--file-icon-folder);
+}
+.inspect-folder-icon.open {
+  color: var(--file-icon-folder-open);
+}
+.inspect-file-icon.tone-neutral { color: var(--file-icon-neutral); }
+.inspect-file-icon.tone-blue { color: var(--file-icon-blue); }
+.inspect-file-icon.tone-cyan { color: var(--file-icon-cyan); }
+.inspect-file-icon.tone-green { color: var(--file-icon-green); }
+.inspect-file-icon.tone-yellow { color: var(--file-icon-yellow); }
+.inspect-file-icon.tone-orange { color: var(--file-icon-orange); }
+.inspect-file-icon.tone-red { color: var(--file-icon-red); }
+.inspect-file-icon.tone-violet { color: var(--file-icon-violet); }
+.inspect-file-icon.tone-pink { color: var(--file-icon-pink); }
 .inspect-tree-row.dir-match {
   cursor: default;
 }
 .inspect-tree-row:hover:not(.dir-match) {
   background: var(--hover);
+}
+.inspect-tree-row.active {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--text) 42%, transparent);
+}
+.inspect-tree-row.active .inspect-tree-name {
+  font-weight: 550;
 }
 .inspect-tree-spacer {
   width: 12px;
@@ -1416,12 +1443,20 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  padding: var(--spacing-s4) var(--spacing-s8);
+  min-height: var(--control-md);
+  padding: var(--spacing-s2) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--canvas) 58%, var(--bg));
 }
 .code-view-lang {
   text-transform: lowercase;
-  letter-spacing: var(--track-body);
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono);
+  line-height: 20px;
+  padding: 0 var(--spacing-s6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--raised) 55%, transparent);
 }
 .code-view-host {
   flex: 1;
@@ -2079,6 +2114,9 @@ button > .ui-icon:not(:only-child):first-child,
   min-height: 0;
   display: flex;
 }
+.archgraph-wrap .react-flow {
+  background: var(--bg);
+}
 .archgraph-card {
   width: 100%;
   height: 100%;
@@ -2087,13 +2125,14 @@ button > .ui-icon:not(:only-child):first-child,
   flex-direction: column;
   justify-content: center;
   gap: 2px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 90%, var(--bg));
+  border: 1px solid var(--archgraph-card-border);
   border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-md);
   padding: var(--spacing-s2) var(--spacing-s6);
   color: var(--text);
   overflow: hidden;
+  box-shadow: 0 1px 0 var(--glass-highlight);
 }
 .archgraph-card-label {
   font-weight: 600;
@@ -2104,7 +2143,8 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .archgraph-card-sub {
   font-size: var(--font-size-caption);
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  opacity: 0.78;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2135,7 +2175,7 @@ button > .ui-icon:not(:only-child):first-child,
 .archgraph-card[data-attn='KDA'],
 .archgraph-card[data-attn='GatedDeltaNet'] {
   border-left-color: var(--archgraph-linear);
-  background: color-mix(in srgb, var(--archgraph-linear) 9%, var(--surface));
+  background: color-mix(in srgb, var(--archgraph-linear) 6%, var(--surface));
 }
 .archgraph-card[data-attn='sliding'] {
   border-left-style: dashed;
@@ -2148,18 +2188,20 @@ button > .ui-icon:not(:only-child):first-child,
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--archgraph-group-border-strong);
   border-radius: var(--radius-md);
-  background: var(--accent-tint);
+  background: color-mix(in srgb, var(--surface) 38%, transparent);
 }
 /* Nested repeat groups (the 3×/1× interleave idiom): the outer cycle box is the
    quieter surface, the inner run boxes sit on top of it. */
 .archgraph-container[data-variant='cycle'] {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  border-color: var(--border);
+  background: color-mix(in srgb, var(--text-secondary) 3%, transparent);
+  border-color: var(--archgraph-group-border);
+  border-style: solid;
 }
 .archgraph-container[data-variant='run'] {
-  background: var(--accent-tint);
+  background: color-mix(in srgb, var(--text-secondary) 5%, transparent);
+  border-color: var(--archgraph-group-border-strong);
 }
 /* The per-layer pattern strip beside the stack: one thin cell per layer,
    background = attention operator, left border = FFN kind. */
@@ -2204,8 +2246,8 @@ button > .ui-icon:not(:only-child):first-child,
   white-space: nowrap;
   text-align: center;
 }
-/* Zoom-in panels (W4): a dotted expansion of one block's internals, tied back to
-   the stack by a dotted leader line. */
+/* Zoom-in panels (W4): a quiet solid frame separates detail from the dashed
+   repeat groups; the dotted leader line alone communicates the association. */
 .archgraph-panel {
   width: 100%;
   height: 100%;
@@ -2214,10 +2256,11 @@ button > .ui-icon:not(:only-child):first-child,
   flex-direction: column;
   gap: var(--spacing-s2);
   padding: var(--spacing-s4) var(--spacing-s6);
-  background: var(--surface);
-  border: 1px dotted var(--border-strong);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  border: 1px solid var(--archgraph-panel-border);
   border-radius: var(--radius-md);
   overflow: hidden;
+  box-shadow: 0 1px 0 var(--glass-highlight);
 }
 .archgraph-panel-title {
   font-size: var(--font-size-caption);
@@ -2238,9 +2281,9 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s4);
   padding: var(--spacing-s2) var(--spacing-s4);
-  border: 1px solid var(--border);
+  border: 1px solid var(--archgraph-card-border);
   border-radius: var(--radius-sm);
-  background: var(--raised);
+  background: color-mix(in srgb, var(--raised) 82%, var(--surface));
   font-size: var(--font-size-caption);
   color: var(--text);
 }
@@ -2252,6 +2295,7 @@ button > .ui-icon:not(:only-child):first-child,
 .archgraph-panel-row[data-shape='op'] {
   border-radius: var(--radius-pill);
   border-style: dashed;
+  border-color: var(--archgraph-group-border-strong);
 }
 .archgraph-panel-row[data-shape='router'] {
   border-left: 3px solid var(--archgraph-moe);
@@ -2267,7 +2311,8 @@ button > .ui-icon:not(:only-child):first-child,
   white-space: nowrap;
 }
 .archgraph-panel-row-value {
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  opacity: 0.78;
   white-space: nowrap;
 }
 .archgraph-panel-chips {
@@ -2295,13 +2340,20 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .archgraph-panel-note {
   font-size: var(--font-size-caption);
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  opacity: 0.8;
   line-height: 1.35;
   overflow: hidden;
 }
+.react-flow__edge.archgraph-edge .react-flow__edge-path {
+  stroke: var(--archgraph-edge-main);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
 .react-flow__edge.archgraph-edge.leader .react-flow__edge-path {
-  stroke: var(--border-strong);
-  stroke-dasharray: 2 4;
+  stroke: var(--archgraph-edge-leader);
+  stroke-width: 1.35;
+  stroke-dasharray: 2 5;
 }
 /* Annotation layer (W4): config-derived callouts + the colour key for the
    operators this figure actually shows. */
@@ -2447,14 +2499,15 @@ button > .ui-icon:not(:only-child):first-child,
   top: -9px;
   left: 12px;
   padding: 0 var(--spacing-s2);
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
 }
 .react-flow__edge.archgraph-edge.residual .react-flow__edge-path {
-  stroke: var(--accent);
-  stroke-dasharray: 5 3;
+  stroke: var(--archgraph-edge-residual);
+  stroke-width: 1.4;
+  stroke-dasharray: 7 5;
 }
 /* Interactive schematic: clickable cards, selection highlight, detail panel and
    a right-click context menu — all overlaid inside the (now relative) wrap. */

@@ -57,7 +57,7 @@ test('W5 export: both themes inline real colours and differ', () => {
   const { laid } = laidFor(LLAMA);
   const dark = archToSvg(laid, { theme: 'dark' });
   const light = archToSvg(laid, { theme: 'light' });
-  assert.ok(dark.includes('#0d1117')); // dark page
+  assert.ok(dark.includes('#171717')); // dark page
   assert.ok(light.includes('#ffffff')); // light page
   assert.notEqual(dark, light);
   // Same geometry either way — only the palette changes.
@@ -79,14 +79,14 @@ test('W5 export: hybrid figure carries the strip cells, nested boxes and panels'
   // A rect per strip cell (93) plus its FFN edge marker — plenty of rects.
   assert.ok(laid.strip !== null && laid.strip.cells.length === 93);
   assert.ok((svg.match(/<rect /g) ?? []).length > 93);
-  // Dashed container boxes + dotted panel boxes are present.
-  assert.ok(svg.includes('stroke-dasharray="5 4"'), 'dashed repeat containers');
-  assert.ok(svg.includes('stroke-dasharray="2 3"'), 'dotted zoom-in panels');
+  // Nested repeat boxes are differentiated: solid cycle, dashed inner runs.
+  assert.ok(svg.includes('stroke-dasharray="6 4"'), 'dashed inner repeat containers');
+  assert.match(svg, /fill-opacity="0\.38" stroke="#[0-9a-f]+" stroke-width="1\.2"\/>/, 'solid outer cycle container');
   // The annotation and legend text made it under the figure.
   assert.ok(svg.includes('3 KDA : 1 MLA per block'));
   assert.ok(svg.includes('>KDA</text>'));
-  // The cyan novelty accent is used for the linear operator.
-  assert.ok(svg.includes('#06B6D4'));
+  // The restrained teal novelty accent is used for the linear operator.
+  assert.ok(svg.includes('#68bac3'));
 });
 
 test('W5 export: panel keys are resolved through labelFor, not printed raw', () => {

@@ -99,6 +99,8 @@ export function TerminalPanel(): JSX.Element {
   /** The tab whose SILENT reconnect (straight from the saved connection, no
    *  form) is in flight — its dead banner shows the attempt meanwhile. */
   const [reconnectingId, setReconnectingId] = useState<string | null>(null);
+  /** Saved connection being opened directly from its nav context menu. */
+  const [quickConnectingId, setQuickConnectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const cfgRef = useRef<HTMLInputElement>(null);
@@ -293,6 +295,64 @@ export function TerminalPanel(): JSX.Element {
     setReconnectFor(reconnectTabId ?? null);
     setConnecting(true);
     setAddMenu(false);
+  }
+
+  // Context-menu Connect is a real one-click action, distinct from Edit. Replay
+  // the saved vault/key credentials directly; only fall back to the prefilled
+  // form when the connection cannot be replayed or needs user intervention.
+  async function connectSavedConnection(id: string): Promise<void> {
+    setNavMenu(null);
+    if (quickConnectingId !== null) return;
+    const conn = listConnections().find((candidate) => candidate.id === id);
+    if (conn === undefined) {
+      refreshConns();
+      return;
+    }
+
+    let req: Awaited<ReturnType<typeof buildSavedConnectReq>>;
+    try {
+      req = await buildSavedConnectReq(conn, `q${Date.now()}`, {
+        getPassword: getConnectionPassword,
+        getJumpPassword: getConnectionJumpPassword,
+        getKey: getKeyMaterial,
+      });
+    } catch (e) {
+      setError(msg(e));
+      openConnect(id);
+      return;
+    }
+    if (req === null) {
+      openConnect(id);
+      return;
+    }
+
+    setQuickConnectingId(id);
+    setError(null);
+    const attempt = { cancelled: false };
+    const timer = setTimeout(() => {
+      attempt.cancelled = true;
+      setQuickConnectingId(null);
+      setError(t('term.connectTimeout'));
+      openConnect(id);
+    }, connectTimeoutMs(conn));
+    try {
+      const sessionId = await sshConnect(req);
+      if (attempt.cancelled) {
+        void sshClose(sessionId);
+        return;
+      }
+      touchConnection(conn.id);
+      addTab({ kind: 'ssh', sessionId, title: `${conn.username}@${conn.host}`, connId: conn.id });
+      setConnecting(false);
+    } catch (e) {
+      if (!attempt.cancelled) {
+        setError(msg(e));
+        openConnect(id);
+      }
+    } finally {
+      clearTimeout(timer);
+      if (!attempt.cancelled) setQuickConnectingId(null);
+    }
   }
 
   // Import an OpenSSH client config (~/.ssh/config) into saved connections. Read
@@ -616,7 +676,7 @@ export function TerminalPanel(): JSX.Element {
                 <ConnRow
                   key={c.id}
                   c={c}
-                  active={connecting && initialConnId === c.id}
+                  active={(connecting && initialConnId === c.id) || quickConnectingId === c.id}
                   onOpen={() => openConnect(c.id)}
                   onMenu={(e) => {
                     e.preventDefault();
@@ -649,7 +709,7 @@ export function TerminalPanel(): JSX.Element {
                           key={c.id}
                           grouped
                           c={c}
-                          active={connecting && initialConnId === c.id}
+                          active={(connecting && initialConnId === c.id) || quickConnectingId === c.id}
                           onOpen={() => openConnect(c.id)}
                           onMenu={(e) => {
                             e.preventDefault();
@@ -830,6 +890,7 @@ export function TerminalPanel(): JSX.Element {
           onRenameGroup={promptRenameGroup}
           onDeleteGroup={doDeleteGroup}
           onMoveToGroup={doMoveToGroup}
+          onConnectConn={(id) => void connectSavedConnection(id)}
           onEditConn={(id) => {
             setNavMenu(null);
             openConnect(id);
@@ -873,7 +934,7 @@ function ConnRow({
 
 // The nav right-click menu — blank space (new connection / new group /
 // import / export), a group header menu (new / rename / delete), or a
-// connection menu (edit / move-to-group / new group / delete).
+// connection menu (connect / edit / move-to-group / new group / delete).
 function NavContextMenu({
   menu,
   groups,
@@ -885,6 +946,7 @@ function NavContextMenu({
   onRenameGroup,
   onDeleteGroup,
   onMoveToGroup,
+  onConnectConn,
   onEditConn,
   onDeleteConn,
 }: {
@@ -898,6 +960,7 @@ function NavContextMenu({
   onRenameGroup: (from: string) => void;
   onDeleteGroup: (name: string) => void;
   onMoveToGroup: (id: string, group: string) => void;
+  onConnectConn: (id: string) => void;
   onEditConn: (id: string) => void;
   onDeleteConn: (id: string) => void;
 }): JSX.Element {
@@ -947,6 +1010,10 @@ function NavContextMenu({
         </>
       ) : (
         <>
+          <button className="read-ctx-item" onClick={() => onConnectConn(target.id)}>
+            <Icon name="terminal" size={14} /> {t('term.connect')}
+          </button>
+          <div className="read-ctx-sep" />
           <button className="read-ctx-item" onClick={() => onEditConn(target.id)}>
             <Icon name="pen" size={14} /> {t('term.editConnection')}
           </button>

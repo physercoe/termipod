@@ -12,6 +12,7 @@ import { ResizeHandle } from './ResizeHandle';
 import { useAnnotations, ANNOTATION_COLORS } from '../state/annotations';
 import type { Annotation } from '../state/annotations';
 import { TabStrip } from './TabStrip';
+import { PopoverMenu } from './PopoverMenu';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
@@ -1394,6 +1395,13 @@ export function PdfCanvas({
   const [matchPos, setMatchPos] = useState(0);
   const searchSeq = useRef(0);
   const [saved, setSaved] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const overflowAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  // The reader can lose hundreds of pixels when its inspector opens. Keep the
+  // core navigation stable, then progressively move lower-priority controls to
+  // More instead of letting the inspector clip the right side of the toolbar.
+  const [toolbarDensity, setToolbarDensity] = useState<'full' | 'compact' | 'minimal'>('compact');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
   const [outline, setOutline] = useState<OutlineNode[]>([]);
@@ -1537,6 +1545,21 @@ export function PdfCanvas({
     if (Number.isFinite(n)) setScale(Math.max(0.4, Math.min(3, n / 100)));
     else setZoomInput(String(Math.round(scale * 100)));
   }
+
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (toolbar === null) return;
+    const updateDensity = (): void => {
+      const width = toolbar.clientWidth;
+      const next = width < 850 ? 'minimal' : width < 1280 ? 'compact' : 'full';
+      setToolbarDensity((current) => (current === next ? current : next));
+    };
+    updateDensity();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateDensity);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  }, []);
 
   // The in-page top coordinate (PDF user space, origin bottom-left) a destination
   // targets, if it pins one. The destination array is [pageRef, /Type, ...args];
@@ -2033,7 +2056,7 @@ export function PdfCanvas({
 
   return (
     <div className="pdfjs-view" ref={viewRef}>
-      <div className="pdfjs-toolbar">
+      <div className={`pdfjs-toolbar density-${toolbarDensity}`} ref={toolbarRef}>
         {pdf !== null && (
           <button
             className={`pdfjs-zoom${showToc ? ' active' : ''}`}
@@ -2068,18 +2091,14 @@ export function PdfCanvas({
                 }
               }}
             />
-            <span className="muted small">/ {pdf.numPages}</span>
+            <span className="muted small pdfjs-page-total">/ {pdf.numPages}</span>
             <button className="pdfjs-zoom" title={t('read.pdfNextPage')} disabled={currentPage >= pdf.numPages} onClick={() => gotoPage(currentPage + 1)}>
               <Icon name="chevron-right" />
             </button>
           </div>
         )}
-        {canAnnotate && (
-          <>
-            {/* Centre the annotation tools between the left (nav) and right
-                (find/zoom) clusters — a spacer on each side. */}
-            <span className="spacer" />
-            <div className="pdfjs-anno-tools">
+        {canAnnotate && toolbarDensity !== 'minimal' && (
+          <div className="pdfjs-anno-tools">
             <button className={`pdfjs-zoom${tool === 'highlight' ? ' active' : ''}`} title={toolTitle('read.annHighlight', 'H')} onClick={() => pickTool('highlight')}>
               <Icon name="highlight" />
             </button>
@@ -2107,10 +2126,8 @@ export function PdfCanvas({
                 ))}
               </div>
             )}
-            </div>
-          </>
+          </div>
         )}
-        <span className="spacer" />
         <div className="pdfjs-find">
           <input
             className="pdfjs-find-input"
@@ -2147,64 +2164,175 @@ export function PdfCanvas({
             }}
             onClick={saveSelection}
           >
-            {saved ? t('read.copiedToNotes') : t('read.copyToNotes')}
+            <Icon name={saved ? 'check' : 'plus'} size={14} />
+            <span>{saved ? t('read.copiedToNotes') : t('read.copyToNotes')}</span>
           </button>
         )}
-        <button
-          className={`pdfjs-zoom${tool === 'hand' ? ' active' : ''}`}
-          title={t('read.panTool')}
-          onClick={() => pickTool('hand')}
-        >
-          <Icon name="hand" />
-        </button>
-        <button className="pdfjs-zoom" title={t('read.zoomOut')} onClick={() => setScale((s) => Math.max(0.4, s - 0.2))}>
-          <Icon name="minus" />
-        </button>
-        <div className="pdfjs-zoominput">
-          <input
-            className="pdfjs-page-input"
-            value={zoomInput}
-            spellCheck={false}
-            inputMode="numeric"
-            title={t('read.zoomLevel')}
-            onChange={(e) => setZoomInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') applyZoom();
-            }}
-            onBlur={applyZoom}
-          />
-          <span className="muted small">%</span>
-        </div>
-        <button className="pdfjs-zoom" title={t('read.zoomIn')} onClick={() => setScale((s) => Math.min(3, s + 0.2))}>
-          <Icon name="plus" />
-        </button>
-        <button className="pdfjs-zoom" title={t('read.zoomFit')} onClick={fitWidth}>
-          <Icon name="expand" />
-        </button>
-        <button className="pdfjs-zoom" title={t('read.zoomFitPage')} onClick={fitPage}>
-          <Icon name="fit-page" />
-        </button>
-        <button
-          className="pdfjs-zoom"
-          title={t('read.rotateCw')}
-          onClick={() => setRotation((r) => (r + 90) % 360)}
-        >
-          <Icon name="rotate-cw" />
-        </button>
-        {docUrl !== undefined && docUrl !== '' && (
-          <button className="pdfjs-zoom" title={t('read.openUrl')} onClick={() => openLink(docUrl)}>
-            <Icon name="external" />
-          </button>
+        {toolbarDensity === 'full' && (
+          <div className="pdfjs-view-controls">
+            <button
+              className={`pdfjs-zoom${tool === 'hand' ? ' active' : ''}`}
+              title={t('read.panTool')}
+              onClick={() => pickTool('hand')}
+            >
+              <Icon name="hand" />
+            </button>
+            <button className="pdfjs-zoom" title={t('read.zoomOut')} onClick={() => setScale((s) => Math.max(0.4, s - 0.2))}>
+              <Icon name="minus" />
+            </button>
+            <div className="pdfjs-zoominput">
+              <input
+                className="pdfjs-page-input"
+                value={zoomInput}
+                spellCheck={false}
+                inputMode="numeric"
+                title={t('read.zoomLevel')}
+                onChange={(e) => setZoomInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') applyZoom();
+                }}
+                onBlur={applyZoom}
+              />
+              <span className="muted small">%</span>
+            </div>
+            <button className="pdfjs-zoom" title={t('read.zoomIn')} onClick={() => setScale((s) => Math.min(3, s + 0.2))}>
+              <Icon name="plus" />
+            </button>
+          </div>
         )}
         {onToggleDetails !== undefined && (
           <button
-            className={`pdfjs-zoom${detailsOpen ? ' active' : ''}`}
+            className={`pdfjs-zoom pdfjs-details-toggle${detailsOpen ? ' active' : ''}`}
             title={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            aria-label={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            aria-pressed={detailsOpen}
             onClick={onToggleDetails}
           >
-            <Icon name={detailsOpen ? 'chevron-right' : 'chevron-left'} />
+            <Icon name="sidebar" size={16} />
           </button>
         )}
+        <button
+          ref={overflowAnchorRef}
+          className={`pdfjs-zoom pdfjs-overflow-trigger${overflowOpen ? ' active' : ''}`}
+          title={t('read.pdfMore')}
+          aria-label={t('read.pdfMore')}
+          aria-haspopup="menu"
+          aria-expanded={overflowOpen}
+          onClick={() => setOverflowOpen((open) => !open)}
+        >
+          <Icon name="more-horizontal" />
+        </button>
+        <PopoverMenu
+          anchorRef={overflowAnchorRef}
+          open={overflowOpen}
+          onClose={() => setOverflowOpen(false)}
+          className="inspect-menu pdfjs-overflow-menu"
+          ariaLabel={t('read.pdfMore')}
+        >
+          {canAnnotate && toolbarDensity === 'minimal' && (
+            <>
+              <div className="pdfjs-overflow-label">{t('read.pdfAnnotations')}</div>
+              {([
+                ['highlight', 'highlight', 'read.annHighlight'],
+                ['underline', 'underline', 'read.annUnderline'],
+                ['note', 'note', 'read.annNote'],
+                ['image', 'square', 'read.annArea'],
+                ['ink', 'pen', 'read.annDraw'],
+              ] as const).map(([nextTool, icon, label]) => (
+                <button
+                  key={nextTool}
+                  className={`inspect-menu-item${tool === nextTool ? ' active' : ''}`}
+                  role="menuitem"
+                  onClick={() => {
+                    pickTool(nextTool);
+                    setOverflowOpen(false);
+                  }}
+                >
+                  <Icon name={icon} size={16} /> {t(label)}
+                </button>
+              ))}
+              <div className="pdfjs-overflow-palette" aria-label={t('read.annColor')}>
+                {ANNOTATION_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`pdfjs-anno-swatch${annoColor === c ? ' active' : ''}`}
+                    style={{ background: c }}
+                    title={t('read.annColor')}
+                    onClick={() => setAnnoColor(c)}
+                  />
+                ))}
+              </div>
+              <div className="pdfjs-overflow-separator" />
+            </>
+          )}
+          {toolbarDensity !== 'full' && (
+            <>
+              <div className="pdfjs-overflow-label">{t('read.pdfViewControls')}</div>
+              <button
+                className={`inspect-menu-item${tool === 'hand' ? ' active' : ''}`}
+                role="menuitem"
+                onClick={() => {
+                  pickTool('hand');
+                  setOverflowOpen(false);
+                }}
+              >
+                <Icon name="hand" size={16} /> {t('read.panTool')}
+              </button>
+              <div className="pdfjs-overflow-zoom">
+                <button className="pdfjs-zoom" title={t('read.zoomOut')} onClick={() => setScale((s) => Math.max(0.4, s - 0.2))}>
+                  <Icon name="minus" />
+                </button>
+                <div className="pdfjs-zoominput">
+                  <input
+                    className="pdfjs-page-input"
+                    value={zoomInput}
+                    spellCheck={false}
+                    inputMode="numeric"
+                    title={t('read.zoomLevel')}
+                    onChange={(e) => setZoomInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') applyZoom();
+                    }}
+                    onBlur={applyZoom}
+                  />
+                  <span className="muted small">%</span>
+                </div>
+                <button className="pdfjs-zoom" title={t('read.zoomIn')} onClick={() => setScale((s) => Math.min(3, s + 0.2))}>
+                  <Icon name="plus" />
+                </button>
+              </div>
+              <div className="pdfjs-overflow-separator" />
+            </>
+          )}
+          <button className="inspect-menu-item" role="menuitem" onClick={() => (fitWidth(), setOverflowOpen(false))}>
+            <Icon name="expand" size={16} /> {t('read.zoomFit')}
+          </button>
+          <button className="inspect-menu-item" role="menuitem" onClick={() => (fitPage(), setOverflowOpen(false))}>
+            <Icon name="fit-page" size={16} /> {t('read.zoomFitPage')}
+          </button>
+          <button
+            className="inspect-menu-item"
+            role="menuitem"
+            onClick={() => {
+              setRotation((r) => (r + 90) % 360);
+              setOverflowOpen(false);
+            }}
+          >
+            <Icon name="rotate-cw" size={16} /> {t('read.rotateCw')}
+          </button>
+          {docUrl !== undefined && docUrl !== '' && (
+            <button
+              className="inspect-menu-item"
+              role="menuitem"
+              onClick={() => {
+                openLink(docUrl);
+                setOverflowOpen(false);
+              }}
+            >
+              <Icon name="external" size={16} /> {t('read.openUrl')}
+            </button>
+          )}
+        </PopoverMenu>
       </div>
       <div className="pdfjs-body">
         {showToc && pdf !== null && (

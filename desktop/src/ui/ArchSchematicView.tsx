@@ -318,7 +318,7 @@ export function ArchSchematicView({
           targetHandle: 't',
           type: 'smoothstep',
           className: 'archgraph-edge main',
-          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: 'var(--archgraph-edge-main)' },
         };
       }
       if (e.kind === 'leader') {
@@ -433,7 +433,7 @@ export function ArchSchematicView({
         elementsSelectable
         panOnScroll
       >
-        <Background />
+        <Background color="var(--archgraph-grid)" gap={20} size={1.15} />
       </ReactFlow>
 
       {/* Annotation layer (W4): the config-derived callouts the spec produced,

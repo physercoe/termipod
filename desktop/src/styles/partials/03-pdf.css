@@ -131,7 +131,7 @@
 }
 
 /* Reader — a full-surface reading view: the PDF is the main pane, the Inspector
-   (Info / Read / Notes / Cite) sits in a resizable side column so notes are
+   (Info / Abstract / Notes / Cite) sits in a resizable side column so notes are
    written alongside the document. */
 .reader-view {
   flex: 1;
@@ -206,6 +206,8 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
+  min-width: 0;
+  overflow: hidden;
   padding: var(--spacing-s4) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
@@ -239,9 +241,13 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .pdfjs-page-input {
+  flex: 0 0 44px;
   width: 44px;
+  min-width: 44px;
   text-align: center;
   padding: var(--spacing-s2) var(--spacing-s4);
   border: 1px solid var(--border);
@@ -250,11 +256,21 @@
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+.pdfjs-page-total {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 /* Editable zoom-percent field + its trailing % sign, kept on one baseline. */
 .pdfjs-zoominput {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .pdfjs-body {
   flex: 1;
@@ -489,9 +505,14 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
+  flex: 1 1 150px;
+  min-width: 96px;
+  max-width: 260px;
+  margin-left: auto;
 }
 .pdfjs-find-input {
-  width: 150px;
+  width: 100%;
+  min-width: 0;
   padding: var(--spacing-s2) var(--spacing-s8);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -524,6 +545,12 @@
   transition: width 0.15s linear;
 }
 .pdfjs-tonotes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex: 0 0 auto;
+  width: auto;
+  min-width: max-content;
   white-space: nowrap;
 }
 
@@ -535,10 +562,60 @@
 .pdfjs-anno-tools {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: var(--spacing-s2);
   padding-left: var(--spacing-s4);
   margin-left: var(--spacing-s2);
   border-left: 1px solid var(--border);
+}
+.pdfjs-view-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  flex: 0 0 auto;
+}
+.pdfjs-overflow-trigger {
+  flex: 0 0 auto;
+}
+.pdfjs-details-toggle {
+  flex: 0 0 auto;
+}
+.pdfjs-overflow-menu {
+  width: 224px;
+}
+.pdfjs-overflow-label {
+  padding: var(--spacing-s6) var(--spacing-s8) var(--spacing-s2);
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pdfjs-overflow-menu .inspect-menu-item.active {
+  color: var(--text);
+  background: var(--accent-tint);
+}
+.pdfjs-overflow-separator {
+  height: 1px;
+  margin: var(--spacing-s4);
+  background: var(--border);
+}
+.pdfjs-overflow-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s4) var(--spacing-s8) var(--spacing-s8);
+}
+.pdfjs-overflow-zoom .pdfjs-zoom {
+  min-width: 32px;
+  min-height: 30px;
+}
+.pdfjs-overflow-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: var(--spacing-s4) var(--spacing-s8) var(--spacing-s8);
 }
 .pdfjs-anno-palette {
   display: flex;
@@ -547,11 +624,18 @@
   padding-left: var(--spacing-s4);
 }
 .pdfjs-anno-swatch {
+  flex: 0 0 16px;
   width: 16px;
+  min-width: 16px;
   height: 16px;
+  min-height: 16px;
+  aspect-ratio: 1;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.25);
   padding: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   cursor: pointer;
 }
 .pdfjs-anno-swatch.active {
@@ -1152,6 +1236,9 @@
   user-select: none;
   white-space: nowrap;
 }
+.read-table thead th:not(:last-child) {
+  padding-right: var(--spacing-s12);
+}
 .read-table thead th.sorted {
   color: var(--accent-text);
 }
@@ -1173,6 +1260,40 @@
 }
 .read-th-arrow {
   font-size: 0.7em;
+}
+.read-th-resizer {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  z-index: 2;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.read-th-resizer::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.12s var(--ease);
+}
+.read-th-resizer:hover::after,
+.read-th-resizer:focus-visible::after,
+.read-column-resizing .read-th-resizer::after {
+  background: var(--text-muted);
+}
+.read-th-resizer:focus-visible {
+  outline: 1px solid var(--text-secondary);
+  outline-offset: -2px;
+}
+.read-column-resizing,
+.read-column-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .read-table tbody tr:focus-visible {
   outline: 2px solid var(--accent);

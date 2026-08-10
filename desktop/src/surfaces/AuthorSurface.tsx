@@ -311,8 +311,9 @@ export function AuthorSurface(): JSX.Element {
   // Left file/workspace tree. On by default; width persisted.
   const [showNav, setShowNav] = useState(() => localStorage.getItem('termipod.author.showNav') !== '0');
   const [navW, setNavW] = useState(() => loadW('termipod.author.navW', 240));
-  // Two-step close arm — `window.confirm` is unreliable in the Tauri webview, so
-  // the first × click arms (turns into a confirm ×), the second closes.
+  // Two-step close is reserved for content that can actually be lost: an
+  // in-memory draft or unsaved edits. A clean file-backed tab closes directly —
+  // closing the view does not delete its file.
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   // The categorized "New ▾" dropdown — one menu for every document kind (Write /
   // Data / Draw / Figure), the figure rows driven by the `FIGURES` registry.
@@ -461,10 +462,16 @@ export function AuthorSurface(): JSX.Element {
     }
   }
 
+  function closeNeedsConfirm(d: Doc | undefined): boolean {
+    if (d === undefined) return false;
+    const body = d.body.trim();
+    const hasContent = body !== '' && body !== '#';
+    return hasContent && (d.filePath === undefined || d.dirty === true);
+  }
+
   function closeTab(id: string): void {
     const d = docs.find((x) => x.id === id);
-    const hasContent = d !== undefined && d.body.trim() !== '' && d.body.trim() !== '#';
-    if (hasContent && confirmClose !== id) {
+    if (closeNeedsConfirm(d) && confirmClose !== id) {
       setConfirmClose(id);
       return;
     }
@@ -753,7 +760,11 @@ export function AuthorSurface(): JSX.Element {
                   const p = d.filePath as string;
                   items.push({ label: t('author.fReveal'), onClick: () => revealPath(p) });
                 }
-                items.push({ label: t('author.navClose'), danger: true, onClick: () => closeTab(d.id) });
+                items.push({
+                  label: t('author.navClose'),
+                  danger: closeNeedsConfirm(d),
+                  onClick: () => closeTab(d.id),
+                });
                 openTabMenu(e, items);
               };
               return (

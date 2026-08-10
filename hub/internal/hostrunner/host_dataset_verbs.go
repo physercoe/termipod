@@ -48,11 +48,11 @@ type datasetSeriesPayload struct {
 func (r *Runner) handleHostDatasetDigest(env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
 	var p datasetDigestPayload
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
-		return datasetVerbError(env, http.StatusBadRequest, "bad_payload", err.Error())
+		return verbError(env, http.StatusBadRequest, "bad_payload", err.Error())
 	}
 	root, err := cleanDatasetRoot(p.RootPath)
 	if err != nil {
-		return datasetVerbError(env, http.StatusBadRequest, "bad_root_path", err.Error())
+		return verbError(env, http.StatusBadRequest, "bad_root_path", err.Error())
 	}
 	src := datasetmeta.NewDirSource(root)
 
@@ -63,13 +63,13 @@ func (r *Runner) handleHostDatasetDigest(env *a2a.TunnelEnvelope) *a2a.TunnelRes
 		// can name what it refused instead of showing a bare error.
 		var ufe *datasetmeta.UnsupportedFormatError
 		if errors.As(err, &ufe) {
-			return datasetVerbJSON(env, http.StatusUnprocessableEntity, map[string]any{
+			return verbJSON(env, http.StatusUnprocessableEntity, map[string]any{
 				"error":            "unsupported_format",
 				"codebase_version": ufe.CodebaseVersion,
 				"detail":           ufe.Error(),
 			})
 		}
-		return datasetVerbError(env, http.StatusBadRequest, "read_failed", err.Error())
+		return verbError(env, http.StatusBadRequest, "read_failed", err.Error())
 	}
 	// A fingerprint that cannot be taken is not worth failing the digest over;
 	// the hub simply has no staleness hint until the next refresh.
@@ -78,33 +78,33 @@ func (r *Runner) handleHostDatasetDigest(env *a2a.TunnelEnvelope) *a2a.TunnelRes
 	if fpErr == nil {
 		out["fingerprint"] = fp
 	}
-	return datasetVerbJSON(env, http.StatusOK, out)
+	return verbJSON(env, http.StatusOK, out)
 }
 
 // handleHostDatasetEpisodes returns one window of a dataset's episodes table.
 func (r *Runner) handleHostDatasetEpisodes(env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
 	var p datasetEpisodesPayload
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
-		return datasetVerbError(env, http.StatusBadRequest, "bad_payload", err.Error())
+		return verbError(env, http.StatusBadRequest, "bad_payload", err.Error())
 	}
 	root, err := cleanDatasetRoot(p.RootPath)
 	if err != nil {
-		return datasetVerbError(env, http.StatusBadRequest, "bad_root_path", err.Error())
+		return verbError(env, http.StatusBadRequest, "bad_root_path", err.Error())
 	}
 	page, err := datasetmeta.ReadEpisodes(datasetmeta.NewDirSource(root),
 		datasetmeta.EpisodeRequest{Offset: p.Offset, Limit: p.Limit})
 	if err != nil {
 		var ufe *datasetmeta.UnsupportedFormatError
 		if errors.As(err, &ufe) {
-			return datasetVerbJSON(env, http.StatusUnprocessableEntity, map[string]any{
+			return verbJSON(env, http.StatusUnprocessableEntity, map[string]any{
 				"error":            "unsupported_format",
 				"codebase_version": ufe.CodebaseVersion,
 				"detail":           ufe.Error(),
 			})
 		}
-		return datasetVerbError(env, http.StatusBadRequest, "read_failed", err.Error())
+		return verbError(env, http.StatusBadRequest, "read_failed", err.Error())
 	}
-	return datasetVerbJSON(env, http.StatusOK, page)
+	return verbJSON(env, http.StatusOK, page)
 }
 
 // handleHostDatasetSeries returns one episode's numeric channels, decimated.
@@ -116,11 +116,11 @@ func (r *Runner) handleHostDatasetEpisodes(env *a2a.TunnelEnvelope) *a2a.TunnelR
 func (r *Runner) handleHostDatasetSeries(env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
 	var p datasetSeriesPayload
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
-		return datasetVerbError(env, http.StatusBadRequest, "bad_payload", err.Error())
+		return verbError(env, http.StatusBadRequest, "bad_payload", err.Error())
 	}
 	root, err := cleanDatasetRoot(p.RootPath)
 	if err != nil {
-		return datasetVerbError(env, http.StatusBadRequest, "bad_root_path", err.Error())
+		return verbError(env, http.StatusBadRequest, "bad_root_path", err.Error())
 	}
 	page, err := datasetmeta.ReadSeries(datasetmeta.NewDirSource(root), datasetmeta.SeriesRequest{
 		Episode:   p.Episode,
@@ -130,15 +130,15 @@ func (r *Runner) handleHostDatasetSeries(env *a2a.TunnelEnvelope) *a2a.TunnelRes
 	if err != nil {
 		var ufe *datasetmeta.UnsupportedFormatError
 		if errors.As(err, &ufe) {
-			return datasetVerbJSON(env, http.StatusUnprocessableEntity, map[string]any{
+			return verbJSON(env, http.StatusUnprocessableEntity, map[string]any{
 				"error":            "unsupported_format",
 				"codebase_version": ufe.CodebaseVersion,
 				"detail":           ufe.Error(),
 			})
 		}
-		return datasetVerbError(env, http.StatusBadRequest, "read_failed", err.Error())
+		return verbError(env, http.StatusBadRequest, "read_failed", err.Error())
 	}
-	return datasetVerbJSON(env, http.StatusOK, page)
+	return verbJSON(env, http.StatusOK, page)
 }
 
 // cleanDatasetRoot validates the root path a verb was handed.
@@ -157,7 +157,11 @@ func cleanDatasetRoot(p string) (string, error) {
 	return filepath.Clean(p), nil
 }
 
-func datasetVerbJSON(env *a2a.TunnelEnvelope, status int, body any) *a2a.TunnelResponseEnvelope {
+// verbJSON / verbError are the host-verb response helpers — not dataset-
+// specific despite living here first (P4's pane_explain is the second caller).
+// They live in this file rather than host_verbs.go only because that is where
+// they were written; the names now say what they actually serve.
+func verbJSON(env *a2a.TunnelEnvelope, status int, body any) *a2a.TunnelResponseEnvelope {
 	b, err := json.Marshal(body)
 	if err != nil {
 		b = []byte(`{"error":"encode_failed"}`)
@@ -171,6 +175,6 @@ func datasetVerbJSON(env *a2a.TunnelEnvelope, status int, body any) *a2a.TunnelR
 	}
 }
 
-func datasetVerbError(env *a2a.TunnelEnvelope, status int, code, detail string) *a2a.TunnelResponseEnvelope {
-	return datasetVerbJSON(env, status, map[string]any{"error": code, "detail": detail})
+func verbError(env *a2a.TunnelEnvelope, status int, code, detail string) *a2a.TunnelResponseEnvelope {
+	return verbJSON(env, status, map[string]any{"error": code, "detail": detail})
 }

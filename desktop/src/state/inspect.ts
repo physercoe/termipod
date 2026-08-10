@@ -25,7 +25,12 @@ export type InspectKind =
   | 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph' | 'archgraph'
   /// Media previews. These tabs never enter `content` — their bytes stream from
   /// the main process on demand, so a 2 GB video costs the store nothing.
-  | 'image' | 'video' | 'audio' | 'pdf';
+  | 'image' | 'video' | 'audio' | 'pdf'
+  /// The pane-state rule debugger (pane-state-manifests P4). Not file-backed:
+  /// its subject is a running agent's terminal, or a screen the user pasted,
+  /// and its body is fetched from the hub on activate. Never persisted with a
+  /// body — a pane's contents are not something to leave in localStorage.
+  | 'panestate';
 export type InspectSource = 'paste' | 'local' | 'workspace' | 'remote' | 'hub' | 'github' | 'hf';
 
 /// A pinned forge snapshot (round-3 T3). `id` is `owner/repo` (GitHub) or the
@@ -64,6 +69,13 @@ export interface InspectTab {
   hostId?: string;
   /// The hub project id, for a `hub` tab.
   projectId?: string;
+  /// For a `panestate` tab in live mode: the agent whose pane is explained.
+  /// Mutually exclusive with `family` + a pasted body — the hub route refuses
+  /// a request carrying both, and the tab mirrors that rather than choosing.
+  agentId?: string;
+  /// For a `panestate` tab in supplied-screen mode: which engine's manifest to
+  /// evaluate the pasted body against.
+  family?: string;
   /// The pinned forge snapshot, for a `github`/`hf` tab.
   repo?: ForgeRepo;
   /// A language-mode override (else inferred from the path / content).
@@ -134,6 +146,10 @@ interface InspectState {
   rename: (id: string, title: string) => void;
   setLang: (id: string, lang: string | undefined) => void;
   setKind: (id: string, kind: InspectKind) => void;
+  /// Which engine's manifest a supplied-screen `panestate` tab evaluates
+  /// against. Persisted with the tab: re-picking it on every restart would
+  /// make the pasted screen useless.
+  setFamily: (id: string, family: string) => void;
 }
 
 const LS_KEY = 'termipod.debug.tabs';
@@ -293,6 +309,12 @@ export const useInspect = create<InspectState>((set, get) => ({
 
   setKind: (id, kind) => {
     const tabs = get().tabs.map((t) => (t.id === id ? { ...t, kind } : t));
+    set({ tabs });
+    persist({ ...get(), tabs });
+  },
+
+  setFamily: (id, family) => {
+    const tabs = get().tabs.map((t) => (t.id === id ? { ...t, family } : t));
     set({ tabs });
     persist({ ...get(), tabs });
   },

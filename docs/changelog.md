@@ -43,6 +43,23 @@ binding). Seed entries prior to that are in
 
 ### Added
 
+- **You can now ask why the fleet thinks an agent is idle, working or
+  blocked.** `POST /v1/teams/{team}/pane_explain` returns the whole
+  evaluation — every screen rule, whether it matched, what it was looking
+  for, and a bounded preview of the region it read — not just the verdict.
+  Two modes: pass `{agent_id}` and the owning host captures and evaluates
+  that pane (the screen never crosses to the hub); pass
+  `{family, screen}` and the hub evaluates text you already have, which
+  needs no host and works on a screen pasted out of a bug report.
+  `GET` on the same route lists which engine families have a manifest at
+  all — usually the answer to "why is this agent never classified".
+  Desktop **Inspect** gets a card for it, reachable from *Open → Explain
+  an agent pane…* or by pressing *Read as pane state* on a pasted screen.
+  Agent-kind tokens are refused: the record carries terminal text, and
+  one agent must not read another's screen through a debugging tool.
+  New how-to: [debug-pane-state](how-to/debug-pane-state.md). Plan:
+  pane-state-manifests P4.
+
 - **A blocked pane now raises attention, and withdraws it again.** When
   the pane-state classifier matches a rule that says *blocked* AND
   reports a dialog visible on screen, host-runner opens one

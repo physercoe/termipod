@@ -33,6 +33,7 @@ package hostrunner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -393,6 +394,65 @@ func (w *paneStateWatch) covers(kind string) bool {
 	}
 	_, ok := w.reg.ManifestForFamily(kind)
 	return ok
+}
+
+// explain captures one pane and returns the full evaluation record (plan P4).
+//
+// Deliberately NOT a read of the tick's cached state: the tick stores only the
+// published tuple, and a human asking "why does it think that" needs the rules
+// that did not match as much as the one that did. It also needs the answer for
+// the screen as it is NOW, not as of up to three seconds ago — a rule debugger
+// that lags the pane it describes is worse than none.
+//
+// It ignores the capture gate and the startup grace for the same reason: both
+// exist to save work the tick did not need, and this call is the case where
+// the work was explicitly asked for.
+func (w *paneStateWatch) explain(ctx context.Context, agentID, paneID, family string) (panestate.ExplainResult, error) {
+	if w == nil || w.reg == nil {
+		return panestate.ExplainResult{}, errPaneStateDisabled
+	}
+	manifestID, mapped := w.reg.ManifestForFamily(family)
+	if !mapped {
+		// D-3 again: an unmapped family is a definite answer ("nothing
+		// classifies this engine"), not a failure to compute one. The caller
+		// turns it into a 422 naming the family.
+		return panestate.ExplainResult{}, &UnmappedFamilyError{Family: family}
+	}
+	screen, err := w.capture(ctx, paneID)
+	if err != nil {
+		return panestate.ExplainResult{}, err
+	}
+	title := ""
+	if meta, merr := w.meta(ctx); merr == nil {
+		title = meta[paneID].title
+	} else {
+		// Same degradation as the tick: classify on screen text alone rather
+		// than fail. The record's empty osc_title is itself the evidence that
+		// the `osc_title` rules could not have fired.
+		w.log.Debug("pane metadata read failed during explain", "pane", paneID, "err", merr)
+	}
+	in := panestate.Input{Screen: screen, OSCTitle: title}
+	ex, err := w.reg.EvaluateManifest(manifestID, in)
+	if err != nil {
+		return panestate.ExplainResult{}, err
+	}
+	res := panestate.NewExplainResult("live", family, in, ex)
+	res.AgentID = agentID
+	res.PaneID = paneID
+	return res, nil
+}
+
+// errPaneStateDisabled is returned when the embedded manifests did not load,
+// which nils the watcher. Named so the verb can answer "detection is off on
+// this host" rather than a generic failure.
+var errPaneStateDisabled = errors.New("pane-state detection is disabled on this host (manifests failed to load)")
+
+// UnmappedFamilyError names a family the overlay does not bind to a manifest.
+// A typed error because the answer is a 422 with the family in it, not a 500.
+type UnmappedFamilyError struct{ Family string }
+
+func (e *UnmappedFamilyError) Error() string {
+	return "no pane-state manifest is mapped for agent family " + e.Family
 }
 
 // tick classifies every eligible pane once and posts the transitions.

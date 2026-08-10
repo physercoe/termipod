@@ -453,6 +453,58 @@ the Inspect tab work).
 screen text (herdr's `--file` mode — CI-testable); Inspect renders
 matched + non-matched rules distinguishably; docs page for the verb.
 
+**As built (2026-08-10).** All three acceptance clauses met.
+`host.pane_explain` (host-runner) + `POST /v1/teams/{team}/pane_explain`
+(hub, both modes) + an Inspect `panestate` tab + the how-to
+[`debug-pane-state.md`](../how-to/debug-pane-state.md). Notes:
+
+- **P1 had already built the evidence side.** `Explain` has carried
+  `EvaluatedRules` with bounded per-rule previews since the first wedge
+  ("every rule every pass — explain needs the evidence"), so P4 is
+  transport and surface, not evaluation. The tick discards that detail
+  every 3 s; only this verb ships it.
+- **The record is one type, in one place.** `panestate.Explain` gained
+  JSON tags rather than growing a parallel wire struct, and
+  `ExplainResult` wraps it with what the evaluator cannot know (agent,
+  pane, host, family→manifest, screen size, OSC title). The price of one
+  type is that a field added for evaluation would ship by default, so
+  `TestExplainWireKeysAreDeliberate` pins the exact key set: adding a
+  field is fine, adding it silently is not.
+- ★ **Agent-kind tokens are refused (403).** The record carries bounded
+  pane text, and `teamGate` checks only the team, so any team-scoped
+  token reaches the route — including a spawned agent's, because the
+  egress proxy is a plain reverse proxy with **no path allowlist**
+  (`egress_proxy.go`: it forwards everything). Without the refusal one
+  agent could read another agent's terminal through a debugging tool.
+  This is the narrow, asked-for exception to P3's rule that automatic
+  output carries a rule id and never pane text: the tick publishes to a
+  feed, the verb answers one person.
+- **A coverage endpoint came along** (`GET .../pane_explain`): D-3's
+  family→manifest table, which was otherwise readable only by opening a
+  YAML compiled into the binary. It feeds the supplied-mode picker and
+  answers "why is this agent never classified" directly. Unmapped
+  families are ABSENT rather than listed as false — a row would imply a
+  manifest exists.
+- **Live mode ignores the capture gate and the startup grace.** Both
+  exist to skip work nobody asked for, and this call is the asking; a
+  debugger that answered from a cached classification would describe a
+  pane it did not read.
+- `datasetVerbJSON`/`datasetVerbError` became `verbJSON`/`verbError` —
+  they were never dataset-specific, and P4 is the second caller.
+
+**A gap this wedge found and did not close:** the state-authority order
+(structured driver > screen manifest > nothing) exists only here, as
+D-2. `spine/agent-lifecycle.md` is an axiom doc that predates screen
+rules and does not mention them, so the fleet's actual answer to "how is
+an agent's state decided" is not in the spine. Recorded rather than
+patched in a feature wedge — an axiom edit deserves its own pass.
+
+**Still not verified:** the Inspect card has never been rendered. No
+display on the authoring machine; the parsing layer
+(`state/paneExplain.ts`) is pure and unit-tested, the CSS classes are
+checked against the stylesheet, and everything past that is unproven.
+Joins the same device-verify line as the rest of this lane.
+
 ### P5 — hub-distributed manifest updates (deferrable)
 
 Hub stores per-agent manifest files (versioned rows, no new

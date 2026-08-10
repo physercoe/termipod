@@ -3611,3 +3611,201 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   gap: var(--spacing-s8);
 }
+
+/* --- Inspect: pane-state rule debugger (pane-state-manifests P4) --------
+   The card's job is to make "why does it think that" answerable at a glance,
+   so the two scannable axes are the state chip (what it concluded) and the
+   per-rule verdict glyph (which rules got it there). Everything else is
+   supporting detail and is styled down. */
+.ps-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+  overflow-y: auto;
+  min-height: 0;
+}
+.ps-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.ps-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.ps-chip {
+  border-radius: var(--radius-pill);
+  padding: 1px var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  border: var(--hairline) solid var(--border);
+  white-space: nowrap;
+}
+.ps-chip.big {
+  font-size: var(--font-size-body);
+  padding: var(--spacing-s2) var(--spacing-s12);
+}
+/* State colours reuse the app's semantic tokens rather than minting new ones:
+   blocked is the one that wants a human, working is progress, idle is calm. */
+.ps-chip.ps-blocked {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.ps-chip.ps-working {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.ps-chip.ps-idle {
+  background: var(--hover);
+}
+.ps-chip.ps-unknown {
+  background: transparent;
+  border-style: dashed;
+}
+.ps-chip.ps-win {
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+.ps-chip.ps-frozen {
+  background: var(--hover);
+  border-style: dashed;
+}
+.ps-mode {
+  font-size: var(--font-size-caption);
+  color: var(--accent-text);
+  text-transform: lowercase;
+}
+.ps-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--spacing-s4) var(--spacing-s12);
+  margin: 0;
+}
+.ps-facts dt {
+  font-size: var(--font-size-caption);
+  opacity: 0.7;
+}
+.ps-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ps-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s4);
+}
+.ps-rules-title {
+  margin: 0;
+  font-size: var(--font-size-label);
+}
+.ps-rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+}
+.ps-rule {
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+/* A matched rule is lifted, the winner more so. Deliberately an accent BAR
+   rather than a fill: the row still has to be readable, and the verdict glyph
+   is what carries the meaning for anyone who cannot see the colour. */
+.ps-rule.matched {
+  border-left: var(--spacing-s2) solid color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.ps-rule.winner {
+  border-left-color: var(--accent);
+  background: var(--accent-tint);
+}
+.ps-rule-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.ps-rule-head:hover {
+  background: var(--hover);
+}
+.ps-verdict {
+  opacity: 0.45;
+}
+.ps-verdict.hit {
+  opacity: 1;
+  color: var(--ok);
+}
+.ps-rule-id {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-small);
+}
+.ps-rule-region {
+  margin-left: auto;
+}
+.ps-rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  padding: 0 var(--spacing-s8) var(--spacing-s8);
+}
+.ps-rule-line {
+  overflow-wrap: anywhere;
+}
+/* The region preview is terminal text: monospace, and it scrolls in its own
+   box so a wide capture never widens the surface. */
+.ps-preview {
+  margin: 0;
+  padding: var(--spacing-s8);
+  background: var(--canvas);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 12em;
+}
+.ps-pick-body {
+  padding: var(--spacing-s12);
+  overflow-y: auto;
+  min-height: 0;
+}
+.ps-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s2);
+}
+.ps-pick-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.ps-pick-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+/* An engine with no manifest stays visible and disabled: "this engine has no
+   rules" is the answer to "why is it never classified", and hiding the row
+   would leave the reader to guess. */
+.ps-pick-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ps-pick-handle {
+  font-weight: 600;
+}

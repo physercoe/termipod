@@ -36,8 +36,6 @@ import {
   SOURCES,
   sourceById,
   type DiscoveryPaper,
-  type ScrapePatch,
-  type ScrapeSeed,
 } from '../discovery';
 import { hostOf, isShell, openExternal, revealPath } from '../platform';
 import { useCompanionContext } from '../state/companionContext';
@@ -82,14 +80,15 @@ function saveWidth(key: string, v: number): void {
 
 /// J1 — Read papers/reports in depth, as a **reference library** (Zotero-shaped)
 /// fused with **discovery** (Semantic Scholar). Three panes: collections/tags
-/// rail · items list · inspector (Info / Read / Notes / Cite). Discover mode
+/// rail · items list · inspector (Info / Abstract / Notes / Cite). Discover mode
 /// searches Semantic Scholar (TLDR + abstract + citations + open-access PDF) and
 /// imports a result into the library in one click. Storage is device-local this
 /// round; the hub-backed library + PDF blobs + agent-driven extraction (Elicit /
 /// Undermind patterns) are specced in `reference-library-and-reading.md`.
 
 type Mode = 'library' | 'discover';
-type Tab = 'info' | 'read' | 'notes' | 'cite' | 'meta';
+type Tab = 'info' | 'abstract' | 'notes' | 'cite';
+type CitationStyle = 'apa' | 'bibtex';
 const ALL = '__all__';
 
 // An open tab in the reader region: a PDF reader (a library item) or an in-app
@@ -251,42 +250,6 @@ function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
     collectionIds: [],
     notes: '',
   };
-}
-
-// The identifiers the scraper resolves a work from. `externalId` is the OpenAlex
-// work URL for OpenAlex-imported items, so pass it as the openAlexId seed.
-function refToSeed(r: Reference): ScrapeSeed {
-  const oaId = r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined;
-  return { doi: r.doi, arxivId: r.arxivId, openAlexId: oaId, title: r.title, url: r.url, abstract: r.abstract };
-}
-
-// Apply a scrape patch to an existing reference: enrichment fields always
-// overwrite (they're derived), core bibliographic fields are backfilled only
-// when the current value is empty so a re-scrape never clobbers hand edits.
-function patchToRefFields(patch: ScrapePatch, cur?: Reference): Partial<Reference> {
-  const empty = (v: unknown): boolean => v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
-  const out: Partial<Reference> = {
-    referenceCount: patch.referenceCount,
-    citedByCount: patch.citedByCount,
-    references: patch.references,
-    citations: patch.citations,
-    journal: patch.journal,
-    openAccess: patch.openAccess,
-    topics: patch.topics,
-    resourceLinks: patch.resourceLinks,
-    enrichedAt: patch.enrichedAt,
-    enrichSource: patch.enrichSource,
-  };
-  if (patch.title !== undefined && (cur === undefined || empty(cur.title))) out.title = patch.title;
-  if (patch.authors !== undefined && (cur === undefined || empty(cur.authors))) out.authors = patch.authors;
-  if (patch.year !== undefined && (cur === undefined || cur.year === undefined)) out.year = patch.year;
-  if (patch.venue !== undefined && (cur === undefined || empty(cur.venue))) out.venue = patch.venue;
-  if (patch.doi !== undefined && (cur === undefined || empty(cur.doi))) out.doi = patch.doi;
-  if (patch.arxivId !== undefined && (cur === undefined || empty(cur.arxivId))) out.arxivId = patch.arxivId;
-  if (patch.abstract !== undefined && (cur === undefined || empty(cur.abstract))) out.abstract = patch.abstract;
-  if (patch.pdfUrl !== undefined && (cur === undefined || empty(cur.pdfUrl))) out.pdfUrl = patch.pdfUrl;
-  if (patch.detailsAdd !== undefined) out.details = { ...(cur?.details ?? {}), ...patch.detailsAdd };
-  return out;
 }
 
 function citeApa(r: Reference): string {
@@ -820,36 +783,32 @@ function WorkList({ label, works, total }: { label: string; works?: WorkLink[]; 
   );
 }
 
-// The Meta tab: the rich metadata the plain form doesn't cover — citation-graph
-// counts, journal metrics (an IF-like signal), open-access status, topics,
-// code/data links, and the reference + cited-by lists. Populated by the scraper.
+// Citation data that complements the formatted citation: citation-graph counts,
+// journal metrics (an IF-like signal), open-access status, topics, code/data
+// links, and the reference + cited-by lists. It lives in Cite rather than
+// competing with citation output as a separate inspector destination.
 // NOTE: the prop is `reference`, not `ref` — `ref` is a React-reserved prop that
 // is never passed to a function component, so a prop literally named `ref` arrives
 // as `undefined` and the first `ref.` access throws (blanking the whole app when
 // there is no error boundary). We alias it to a local `ref` to keep the body terse.
-function RefMeta({
-  reference: ref,
-  scraping,
-  msg,
-  onScrape,
-}: {
-  reference: Reference;
-  scraping: boolean;
-  msg: string | null;
-  onScrape: () => void;
-}): JSX.Element {
+function CitationData({ reference: ref }: { reference: Reference }): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
   const j = ref.journal;
   const cited = ref.citedByCount ?? ref.citationCount;
   const enriched = ref.enrichedAt !== undefined;
   const hasMetrics = cited !== undefined || ref.referenceCount !== undefined || j?.twoYearMeanCitedness !== undefined;
+  const hasData =
+    hasMetrics ||
+    j?.name !== undefined ||
+    (ref.topics?.length ?? 0) > 0 ||
+    (ref.resourceLinks?.length ?? 0) > 0 ||
+    (ref.references?.length ?? 0) > 0 ||
+    (ref.citations?.length ?? 0) > 0;
   return (
-    <div className="ref-meta region-pad">
-      <div className="ref-meta-actions">
-        <button className="primary small" disabled={scraping} onClick={onScrape}>
-          {scraping ? t('read.scraping') : enriched ? t('read.rescrape') : t('read.scrape')}
-        </button>
+    <section className="ref-citation-data">
+      <div className="ref-citation-data-head">
+        <span className="ref-section-label">{t('read.citationDetails')}</span>
         {enriched && (
           <span className="muted small">
             {t('read.enrichedVia')
@@ -858,8 +817,7 @@ function RefMeta({
           </span>
         )}
       </div>
-      {msg !== null && <div className="ref-meta-msg muted small">{msg}</div>}
-      {!enriched && msg === null && <div className="muted small">{t('read.scrapeHint')}</div>}
+      {!hasData && <div className="muted small ref-citation-empty">{t('read.citationDetailsEmpty')}</div>}
 
       {hasMetrics && (
         <div className="ref-metrics">
@@ -921,7 +879,7 @@ function RefMeta({
 
       <WorkList label={t('read.mRefList')} works={ref.references} total={ref.referenceCount} />
       <WorkList label={t('read.mCiteList')} works={ref.citations} total={ref.citedByCount ?? ref.citationCount} />
-    </div>
+    </section>
   );
 }
 
@@ -975,6 +933,7 @@ function Inspector({
   const storageLinked = useZoteroStorage((s) => s.count > 0);
   const openLink = useOpenLink();
   const [tab, setTab] = useState<Tab>('info');
+  const [citationStyle, setCitationStyle] = useState<CitationStyle>('apa');
   // Edit vs preview for the reading body is an EXPLICIT state, not derived from
   // whether the body is empty — deriving it flips to preview on the first
   // keystroke (the block would go read-only after one character). Default to
@@ -984,37 +943,11 @@ function Inspector({
   // webview (WebView2 returns without showing a dialog → the item deleted with no
   // prompt), so the confirm is an explicit two-step inline state instead.
   const [confirming, setConfirming] = useState(false);
-  // The scraper enriches the item with citation-graph + metrics + code/data links.
-  const [scraping, setScraping] = useState(false);
-  const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
   useEffect(() => {
     const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
     setEditingBody(b === '');
     setConfirming(false);
-    setScrapeMsg(null);
   }, [refId]);
-
-  async function runScrape(): Promise<void> {
-    const cur = useLibrary.getState().references.find((r) => r.id === refId);
-    if (cur === undefined) return;
-    setScraping(true);
-    setScrapeMsg(null);
-    try {
-      const res = await scrapeMetadata(refToSeed(cur));
-      if (res.patch === null) {
-        setScrapeMsg(t('read.scrapeNone'));
-      } else {
-        update(cur.id, patchToRefFields(res.patch, cur));
-        setScrapeMsg(
-          res.found.length > 0 ? t('read.scrapeDone').replace('{what}', res.found.join(', ')) : t('read.scrapeThin'),
-        );
-      }
-    } catch {
-      setScrapeMsg(t('read.scrapeFailed'));
-    } finally {
-      setScraping(false);
-    }
-  }
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
@@ -1081,10 +1014,9 @@ function Inspector({
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'info', label: t('read.tabInfo') },
-    { id: 'read', label: t('read.tabRead') },
+    { id: 'abstract', label: t('read.tabAbstract') },
     { id: 'notes', label: t('read.tabNotes') },
     { id: 'cite', label: t('read.tabCite') },
-    { id: 'meta', label: t('read.tabMeta') },
   ];
 
   return (
@@ -1125,24 +1057,12 @@ function Inspector({
                 <button
                   className="ref-pdf-btn muted"
                   title={storageLinked ? t('read.pdfNotFound') : t('read.pdfLinkHint')}
-                  onClick={() => setTab('read')}
+                  onClick={() => setTab('abstract')}
                 >
                   <Icon name={KIND_ICON[primaryKind]} size={14} />
                   {t(KIND_LABEL[primaryKind])}
                 </button>
               ))}
-            <button
-              className="ref-scrape-btn"
-              disabled={scraping}
-              title={t('read.scrapeTitle')}
-              onClick={() => {
-                setTab('meta');
-                void runScrape();
-              }}
-            >
-              {scraping ? <span className="ref-scrape-busy">…</span> : <Icon name="refresh" />}
-              {t('read.scrape')}
-            </button>
             {confirming ? (
               <span className="ref-confirm">
                 <span className="muted small">{t('read.confirmDelete')}</span>
@@ -1331,7 +1251,7 @@ function Inspector({
           </div>
         )}
 
-        {tab === 'read' && (
+        {tab === 'abstract' && (
           <div className="region-pad doc-body">
             {ref.tldr !== undefined && (
               <div className="ref-tldr">
@@ -1458,30 +1378,31 @@ function Inspector({
 
         {tab === 'cite' && (
           <div className="ref-cite region-pad">
-            <div className="ref-cite-block">
-              <div className="ref-cite-head">
-                <span className="muted small">APA</span>
-                <span className="spacer" />
-                <button className="link-btn" onClick={() => copy(citeApa(ref))}>
-                  {t('read.copy')}
+            <section className="ref-cite-output">
+              <div className="ref-cite-toolbar">
+                <label className="ref-cite-format">
+                  <span>{t('read.citationFormat')}</span>
+                  <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}>
+                    <option value="apa">APA</option>
+                    <option value="bibtex">BibTeX</option>
+                  </select>
+                </label>
+                <button
+                  className="link-btn ref-cite-copy"
+                  onClick={() => copy(citationStyle === 'apa' ? citeApa(ref) : citeBibtex(ref))}
+                >
+                  <Icon name="copy" size={14} /> {t('read.copy')}
                 </button>
               </div>
-              <div className="ref-cite-text">{citeApa(ref)}</div>
-            </div>
-            <div className="ref-cite-block">
-              <div className="ref-cite-head">
-                <span className="muted small">BibTeX</span>
-                <span className="spacer" />
-                <button className="link-btn" onClick={() => copy(citeBibtex(ref))}>
-                  {t('read.copy')}
-                </button>
-              </div>
-              <pre className="ref-cite-text mono">{citeBibtex(ref)}</pre>
-            </div>
+              {citationStyle === 'apa' ? (
+                <div className="ref-cite-text">{citeApa(ref)}</div>
+              ) : (
+                <pre className="ref-cite-text mono">{citeBibtex(ref)}</pre>
+              )}
+            </section>
+            <CitationData reference={ref} />
           </div>
         )}
-
-        {tab === 'meta' && <RefMeta reference={ref} scraping={scraping} msg={scrapeMsg} onScrape={() => void runScrape()} />}
       </div>
     </div>
   );
@@ -1490,7 +1411,7 @@ function Inspector({
 // ---- Reader ----------------------------------------------------------------
 
 // A dedicated reading view (one open PDF tab). The PDF is the main pane; a
-// resizable side column reuses the Inspector (Info / Read / Notes / Cite) so
+// resizable side column reuses the Inspector (Info / Abstract / Notes / Cite) so
 // notes are written next to the document. Multiple of these live behind the tab
 // strip; switching tabs swaps which one renders (director: "the PDF viewer can be
 // opened in several tabs at the same time").

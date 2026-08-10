@@ -131,7 +131,7 @@
 }
 
 /* Reader — a full-surface reading view: the PDF is the main pane, the Inspector
-   (Info / Read / Notes / Cite) sits in a resizable side column so notes are
+   (Info / Abstract / Notes / Cite) sits in a resizable side column so notes are
    written alongside the document. */
 .reader-view {
   flex: 1;

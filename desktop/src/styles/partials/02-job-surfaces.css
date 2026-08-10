@@ -182,15 +182,11 @@ button > .ui-icon:not(:only-child):first-child,
 .term-dock-hide,
 .ref-open-link,
 .ref-pdf-btn,
-.ref-scrape-btn,
 .att-open,
 .import-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-.ref-scrape-busy {
-  margin-right: 0.35em;
 }
 .activity-label {
   font-size: var(--font-size-caption);

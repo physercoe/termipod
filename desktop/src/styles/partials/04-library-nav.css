@@ -407,26 +407,7 @@
   margin-bottom: var(--spacing-s12);
 }
 
-/* ---- Scraper / Meta tab -------------------------------------------------- */
-.ref-scrape-btn {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-s2) var(--spacing-s8);
-  font-size: var(--font-size-label);
-  font-weight: 600;
-  cursor: pointer;
-  margin-right: 0;
-}
-.ref-scrape-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.ref-scrape-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+/* ---- Citation data ------------------------------------------------------- */
 .discover-addid {
   border: 1px solid var(--accent);
   background: var(--accent-tint);
@@ -440,19 +421,25 @@
   background: var(--accent);
   color: var(--accent-ink);
 }
-.ref-meta {
+.ref-citation-data {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s12);
+  padding-top: var(--spacing-s4);
+  border-top: var(--hairline) solid var(--glass-rim);
 }
-.ref-meta-actions {
+.ref-citation-data-head {
   display: flex;
   align-items: center;
-  gap: var(--spacing-s8);
+  justify-content: space-between;
+  gap: var(--spacing-s12);
   flex-wrap: wrap;
 }
-.ref-meta-msg {
-  color: var(--text);
+.ref-citation-data-head .ref-section-label {
+  margin: 0;
+}
+.ref-citation-empty {
+  padding: var(--spacing-s4) 0;
 }
 .ref-metrics {
   display: flex;
@@ -566,20 +553,39 @@
   flex-direction: column;
   gap: var(--spacing-s16);
 }
-.ref-cite-block {
-  border: 1px solid var(--border);
+.ref-cite-output {
+  border: var(--hairline) solid var(--glass-rim);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--glass-control);
   overflow: hidden;
+  box-shadow: var(--sh-1);
 }
-.ref-cite-head {
+.ref-cite-toolbar {
   display: flex;
   align-items: center;
-  padding: var(--spacing-s4) var(--spacing-s12);
-  border-bottom: 1px solid var(--border);
-  background: var(--canvas);
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  background: var(--glass-surface);
+}
+.ref-cite-format {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+.ref-cite-format select {
+  min-width: 112px;
+  padding: var(--spacing-s4) 28px var(--spacing-s4) var(--spacing-s8);
+}
+.ref-cite-copy {
+  margin-left: auto;
+  white-space: nowrap;
 }
 .ref-cite-text {
+  margin: 0;
   padding: var(--spacing-s12);
   line-height: 1.5;
   font-size: var(--font-size-body-small);

@@ -36,6 +36,7 @@ import { disposeKimiWebWin } from './kimiwebwin';
 import { disposeRerun } from './rerun';
 import { disposeBrowserBridge } from './browserbridge_host';
 import { disposeAnnotations } from './annotation_host';
+import { disposeLocalAgents } from './localagent/host';
 // D3: importing the module registers the gated-screenshot provider on the
 // bridge server; setShellWindow tells it which window "the desktop" means.
 import { setShellWindow } from './uicapture_host';
@@ -278,6 +279,7 @@ if (!app.requestSingleInstanceLock()) {
     disposeRerun();
     disposeBrowserBridge();
     disposeAnnotations();
+    disposeLocalAgents();
   });
 
   app.on('window-all-closed', () => {

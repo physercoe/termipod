@@ -30,6 +30,9 @@ first — it defines what every doc must declare and where it lives.
 7. [`how-to/debug-pane-state.md`](how-to/debug-pane-state.md)
    — why an agent reads as idle / working / blocked, when its state
    comes from screen rules rather than a structured driver.
+8. [`how-to/run-a-local-agent-session.md`](how-to/run-a-local-agent-session.md)
+   — run a claude session in the desktop itself, with no hub, and what
+   its tool posture does and does not allow.
 
 **I'm trying to understand a piece of the system.**
 1. Start with [`spine/blueprint.md`](spine/blueprint.md) for the

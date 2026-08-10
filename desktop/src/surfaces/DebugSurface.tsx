@@ -3,6 +3,7 @@ import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { invoke } from '../bridge';
 import { Icon, type IconName } from '../ui/Icon';
+import { InspectFileIcon } from '../ui/InspectFileIcon';
 import { WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
@@ -1275,7 +1276,7 @@ export function DebugSurface(): JSX.Element {
                 onClick={() => setActive(tb.id)}
                 onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setActive(tb.id)}
               >
-                <Icon name={kindIcon(tb.kind)} size={13} />
+                {tb.kind === 'code' ? <InspectFileIcon filename={tb.title} size={13} /> : <Icon name={kindIcon(tb.kind)} size={13} />}
                 <span className="inspect-tab-title">{tb.title}</span>
                 <button
                   className="inspect-tab-close"

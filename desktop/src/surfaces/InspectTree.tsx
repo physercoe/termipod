@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon, type IconName } from '../ui/Icon';
+import { InspectFileIcon } from '../ui/InspectFileIcon';
 import { useContextMenu, type MenuItem } from '../ui/ContextMenu';
-import { kindForInspectFile } from '../state/inspect';
+import { kindForInspectFile, useInspect } from '../state/inspect';
 import { useInspectRoots, type InspectRoot } from '../state/inspectRoots';
 import { foldHubDocs, nodeMatches, type TreeNode } from '../state/inspectTree';
 import { localList, treeIndex, treeSearch, type TreeIndexEntry, type SearchHit } from '../state/localfs';
@@ -96,6 +97,7 @@ interface BranchCtx {
   onOpen: (node: TreeNode) => void;
   onMenu: (node: TreeNode, e: React.MouseEvent) => void;
   onRetry: (key: string) => void;
+  activePath?: string;
 }
 
 function Branch({ nodeKey, depth, ctx }: { nodeKey: string; depth: number; ctx: BranchCtx }): JSX.Element {
@@ -129,7 +131,9 @@ function Branch({ nodeKey, depth, ctx }: { nodeKey: string; depth: number; ctx: 
           <div key={n.key}>
             <button className="inspect-tree-row" style={pad} onClick={() => ctx.onToggle(n.key)} title={n.key}>
               <Icon name={ctx.expanded.has(ctx.ckOf(n.key)) ? 'chevron-down' : 'chevron-right'} size={12} />
-              <Icon name="folder" size={13} />
+              <span className={`inspect-folder-icon${ctx.expanded.has(ctx.ckOf(n.key)) ? ' open' : ''}`}>
+                <Icon name="folder" size={14} />
+              </span>
               <span className="inspect-tree-name">{n.name}</span>
               {HEAVY_DIRS.has(n.name) && <span className="inspect-tree-tag small muted">{t('inspect.heavyDir')}</span>}
             </button>
@@ -138,7 +142,7 @@ function Branch({ nodeKey, depth, ctx }: { nodeKey: string; depth: number; ctx: 
         ) : (
           <button
             key={n.key}
-            className="inspect-tree-row file"
+            className={`inspect-tree-row file${n.key === ctx.activePath ? ' active' : ''}`}
             style={pad}
             onClick={() => ctx.onOpen(n)}
             onContextMenu={(e) => {
@@ -148,7 +152,7 @@ function Branch({ nodeKey, depth, ctx }: { nodeKey: string; depth: number; ctx: 
             title={n.key}
           >
             <span className="inspect-tree-spacer" />
-            <Icon name="file-text" size={13} />
+            <InspectFileIcon filename={n.name} />
             <span className="inspect-tree-name">{n.name}</span>
           </button>
         ),
@@ -177,6 +181,7 @@ export function InspectTree({
 }): JSX.Element {
   const t = useT();
   const roots = useInspectRoots((s) => s.roots);
+  const activePath = useInspect((s) => s.tabs.find((tab) => tab.id === s.activeId)?.path);
   const removeRoot = useInspectRoots((s) => s.removeRoot);
   const renameRoot = useInspectRoots((s) => s.renameRoot);
   const client = useSession((s) => s.client);
@@ -535,6 +540,7 @@ export function InspectTree({
             onOpen: (n) => openFile(root, n),
             onMenu: (n, e) => menu.open(e, fileMenu(root, n)),
             onRetry: (k) => loadDir(root, k),
+            activePath,
           };
           return (
             <div key={root.id} className="inspect-tree-root">
@@ -600,6 +606,7 @@ export function InspectTree({
                   loadedMatches={loadedMatches}
                   onOpen={(n) => openFile(root, n)}
                   onMenu={(n, e) => menu.open(e, fileMenu(root, n))}
+                  activePath={activePath}
                 />
               ) : (
                 expanded.has(ck(root.id, key)) && <Branch nodeKey={key} depth={1} ctx={ctx} />
@@ -625,6 +632,7 @@ function FilterResults({
   loadedMatches,
   onOpen,
   onMenu,
+  activePath,
 }: {
   root: InspectRoot;
   q: string;
@@ -635,6 +643,7 @@ function FilterResults({
   loadedMatches: (root: InspectRoot, qLower: string) => TreeNode[];
   onOpen: (node: TreeNode) => void;
   onMenu: (node: TreeNode, e: React.MouseEvent) => void;
+  activePath?: string;
 }): JSX.Element {
   const t = useT();
   const CAP = 500;
@@ -690,7 +699,7 @@ function FilterResults({
       {results.rows.map((n) => (
         <button
           key={n.key}
-          className="inspect-tree-row file"
+          className={`inspect-tree-row file${n.key === activePath ? ' active' : ''}`}
           onClick={() => onOpen(n)}
           // Filter hits are file rows too: a `meta/info.json` typed into the
           // filter is the fastest way to find every dataset under a root, so
@@ -701,7 +710,7 @@ function FilterResults({
           }}
           title={n.key}
         >
-          <Icon name="file-text" size={13} />
+          <InspectFileIcon filename={n.name} />
           <span className="inspect-tree-name">{label(n)}</span>
         </button>
       ))}

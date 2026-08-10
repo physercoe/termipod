@@ -1186,11 +1186,42 @@ button > .ui-icon:not(:only-child):first-child,
 .inspect-tree-row.file {
   color: var(--text);
 }
+.inspect-folder-icon,
+.inspect-file-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.inspect-folder-icon {
+  color: var(--file-icon-folder);
+}
+.inspect-folder-icon.open {
+  color: var(--file-icon-folder-open);
+}
+.inspect-file-icon.tone-neutral { color: var(--file-icon-neutral); }
+.inspect-file-icon.tone-blue { color: var(--file-icon-blue); }
+.inspect-file-icon.tone-cyan { color: var(--file-icon-cyan); }
+.inspect-file-icon.tone-green { color: var(--file-icon-green); }
+.inspect-file-icon.tone-yellow { color: var(--file-icon-yellow); }
+.inspect-file-icon.tone-orange { color: var(--file-icon-orange); }
+.inspect-file-icon.tone-red { color: var(--file-icon-red); }
+.inspect-file-icon.tone-violet { color: var(--file-icon-violet); }
+.inspect-file-icon.tone-pink { color: var(--file-icon-pink); }
 .inspect-tree-row.dir-match {
   cursor: default;
 }
 .inspect-tree-row:hover:not(.dir-match) {
   background: var(--hover);
+}
+.inspect-tree-row.active {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--text) 42%, transparent);
+}
+.inspect-tree-row.active .inspect-tree-name {
+  font-weight: 550;
 }
 .inspect-tree-spacer {
   width: 12px;
@@ -1412,12 +1443,20 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  padding: var(--spacing-s4) var(--spacing-s8);
+  min-height: var(--control-md);
+  padding: var(--spacing-s2) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--canvas) 58%, var(--bg));
 }
 .code-view-lang {
   text-transform: lowercase;
-  letter-spacing: var(--track-body);
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono);
+  line-height: 20px;
+  padding: 0 var(--spacing-s6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--raised) 55%, transparent);
 }
 .code-view-host {
   flex: 1;

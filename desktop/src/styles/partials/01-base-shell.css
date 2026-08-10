@@ -75,18 +75,37 @@
    * of a hybrid stack, set against the standard-attention blue — the reference
    * figures' "novelty accent vs neutral" device. */
   --archgraph-linear: var(--color-terminal-cyan);
-  /* Code syntax palette — the Inspect (J3) CodeView maps lezer highlight tags
-   * to these aliases, so code highlighting stays theme-aware and on-token (no
-   * per-editor hex). Restrained: accent for keywords, one hue each for
-   * string/number/type/func, muted for comments. Light theme darkens the bright
-   * hues below for contrast on white. */
-  --syntax-keyword: var(--accent-strong);
-  --syntax-string: var(--color-terminal-green);
-  --syntax-number: var(--color-terminal-magenta);
-  --syntax-comment: var(--text-muted);
+  /* Code is the one product surface where colour encodes grammar rather than
+   * brand. These VS Code-like roles stay derived from the terminal palette and
+   * mix toward theme text, which keeps them legible in both dark and light mode
+   * without spreading editor colours into the surrounding app chrome. */
+  --syntax-keyword: color-mix(in srgb, var(--color-terminal-magenta) 66%, var(--text));
+  --syntax-string: color-mix(in srgb, var(--warn) 62%, var(--text));
+  --syntax-number: color-mix(in srgb, var(--color-terminal-green) 58%, var(--text));
+  --syntax-comment: color-mix(in srgb, var(--color-terminal-green) 34%, var(--text-muted));
   --syntax-name: var(--text);
-  --syntax-type: var(--color-terminal-cyan);
-  --syntax-func: var(--color-terminal-blue);
+  --syntax-property: color-mix(in srgb, var(--color-terminal-blue) 68%, var(--text));
+  --syntax-type: color-mix(in srgb, var(--color-terminal-cyan) 64%, var(--text));
+  --syntax-func: color-mix(in srgb, var(--color-terminal-yellow) 62%, var(--text));
+  --syntax-constant: color-mix(in srgb, var(--color-terminal-cyan) 48%, var(--text));
+  --syntax-tag: color-mix(in srgb, var(--color-terminal-blue) 70%, var(--text));
+  --syntax-attribute: color-mix(in srgb, var(--color-terminal-cyan) 46%, var(--text));
+  --syntax-regexp: color-mix(in srgb, var(--color-terminal-red) 54%, var(--text));
+  --syntax-punctuation: color-mix(in srgb, var(--text-muted) 82%, var(--text));
+  --syntax-meta: color-mix(in srgb, var(--color-terminal-magenta) 42%, var(--text-secondary));
+  /* File-tree identity uses the same grammar palette, but only on the glyph —
+   * filenames remain neutral so the navigation pane never reads as confetti. */
+  --file-icon-neutral: var(--text-muted);
+  --file-icon-folder: color-mix(in srgb, var(--text-muted) 80%, var(--color-terminal-yellow));
+  --file-icon-folder-open: color-mix(in srgb, var(--text-secondary) 72%, var(--color-terminal-yellow));
+  --file-icon-blue: color-mix(in srgb, var(--color-terminal-blue) 78%, var(--text));
+  --file-icon-cyan: color-mix(in srgb, var(--color-terminal-cyan) 72%, var(--text));
+  --file-icon-green: color-mix(in srgb, var(--color-terminal-green) 72%, var(--text));
+  --file-icon-yellow: color-mix(in srgb, var(--color-terminal-yellow) 78%, var(--text));
+  --file-icon-orange: color-mix(in srgb, var(--warn) 78%, var(--text));
+  --file-icon-red: color-mix(in srgb, var(--danger) 72%, var(--text));
+  --file-icon-violet: color-mix(in srgb, var(--color-terminal-magenta) 70%, var(--text));
+  --file-icon-pink: color-mix(in srgb, var(--color-terminal-magenta) 58%, var(--text));
   /* Elevation — hairline-first: cards carry NO shadow (Linear "resists drop
    * shadows on dark almost entirely"). Shadow is reserved for things that truly
    * float: --sh-2 for raised affordances, --sh-3 for overlays / popovers. */
@@ -176,12 +195,20 @@
   --ok: var(--color-success-on-light);
   --warn: var(--color-on-warning-container-light);
   --danger: var(--color-error);
-  /* Darken the bright syntax hues for contrast on white (keyword/comment/name
-   * inherit the theme-aware aliases above). */
-  --syntax-string: color-mix(in srgb, var(--color-terminal-green) 55%, var(--text));
-  --syntax-number: color-mix(in srgb, var(--color-terminal-magenta) 68%, var(--text));
-  --syntax-type: color-mix(in srgb, var(--color-terminal-cyan) 52%, var(--text));
-  --syntax-func: color-mix(in srgb, var(--color-terminal-blue) 68%, var(--text));
+  /* The base syntax roles already mix toward theme text; reduce the saturated
+   * share a little further on white to preserve contrast and avoid neon ink. */
+  --syntax-keyword: color-mix(in srgb, var(--color-terminal-magenta) 52%, var(--text));
+  --syntax-string: color-mix(in srgb, var(--warn) 46%, var(--text));
+  --syntax-number: color-mix(in srgb, var(--color-terminal-green) 44%, var(--text));
+  --syntax-comment: color-mix(in srgb, var(--color-terminal-green) 30%, var(--text-muted));
+  --syntax-property: color-mix(in srgb, var(--color-terminal-blue) 52%, var(--text));
+  --syntax-type: color-mix(in srgb, var(--color-terminal-cyan) 46%, var(--text));
+  --syntax-func: color-mix(in srgb, var(--color-terminal-yellow) 44%, var(--text));
+  --syntax-constant: color-mix(in srgb, var(--color-terminal-cyan) 38%, var(--text));
+  --syntax-tag: color-mix(in srgb, var(--color-terminal-blue) 54%, var(--text));
+  --syntax-attribute: color-mix(in srgb, var(--color-terminal-cyan) 36%, var(--text));
+  --syntax-regexp: color-mix(in srgb, var(--color-terminal-red) 44%, var(--text));
+  --syntax-meta: color-mix(in srgb, var(--color-terminal-magenta) 32%, var(--text-secondary));
   /* Same darkening for the Δ hues — the bright terminal blue/magenta are
    * ~3:1 on white. */
   --delta-up: color-mix(in srgb, var(--color-terminal-blue) 68%, var(--text));

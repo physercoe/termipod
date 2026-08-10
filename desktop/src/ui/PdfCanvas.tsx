@@ -2200,6 +2200,17 @@ export function PdfCanvas({
             </button>
           </div>
         )}
+        {onToggleDetails !== undefined && (
+          <button
+            className={`pdfjs-zoom pdfjs-details-toggle${detailsOpen ? ' active' : ''}`}
+            title={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            aria-label={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            aria-pressed={detailsOpen}
+            onClick={onToggleDetails}
+          >
+            <Icon name="sidebar" size={16} />
+          </button>
+        )}
         <button
           ref={overflowAnchorRef}
           className={`pdfjs-zoom pdfjs-overflow-trigger${overflowOpen ? ' active' : ''}`}
@@ -2319,18 +2330,6 @@ export function PdfCanvas({
               }}
             >
               <Icon name="external" size={16} /> {t('read.openUrl')}
-            </button>
-          )}
-          {onToggleDetails !== undefined && (
-            <button
-              className={`inspect-menu-item${detailsOpen ? ' active' : ''}`}
-              role="menuitem"
-              onClick={() => {
-                onToggleDetails();
-                setOverflowOpen(false);
-              }}
-            >
-              <Icon name="sidebar" size={16} /> {detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
             </button>
           )}
         </PopoverMenu>

@@ -577,6 +577,9 @@
 .pdfjs-overflow-trigger {
   flex: 0 0 auto;
 }
+.pdfjs-details-toggle {
+  flex: 0 0 auto;
+}
 .pdfjs-overflow-menu {
   width: 224px;
 }

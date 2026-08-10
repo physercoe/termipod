@@ -1633,7 +1633,7 @@ function ReaderView({
 
 const SOURCE_LS = 'termipod.discover.source';
 
-function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.Element {
+function DiscoverPanel({ onAddById }: { onAddById: (id: string) => void }): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
   const add = useLibrary((s) => s.addReference);
@@ -1704,8 +1704,9 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   }
 
   function importPaper(p: DiscoveryPaper): void {
-    const id = add(paperToRef(p));
-    onSelect(id);
+    // Discovery is a batch workflow: save the result in place and let the card
+    // update to “In library” without discarding the search or scroll position.
+    add(paperToRef(p));
   }
 
   // Import + download the open-access PDF in one flow (§1.6). A download failure
@@ -1713,7 +1714,6 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
   async function addWithPdf(p: DiscoveryPaper): Promise<void> {
     const cardId = p.paperId || p.title;
     const id = add(paperToRef(p));
-    onSelect(id);
     if (p.pdfUrl === undefined) return;
     setPdfBusy(cardId);
     setPdfErr(null);
@@ -1765,7 +1765,9 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
         collectionIds: [],
         notes: '',
       });
-      onSelect(id);
+      // A direct identifier lookup has no persistent result card to acknowledge
+      // the import, so keep its existing behavior of revealing the new item.
+      onAddById(id);
     } catch {
       setErr(t('read.searchFailed'));
     } finally {
@@ -1845,8 +1847,10 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
         )}
         {results.map((p) => {
           const imported = p.paperId !== '' && importedIds.has(p.paperId);
+          const cardId = p.paperId || p.title;
+          const downloading = pdfBusy === cardId;
           return (
-            <div key={p.paperId || p.title} className="discover-card">
+            <div key={cardId} className="discover-card">
               <div className="discover-card-title">{p.title}</div>
               <div className="discover-card-meta muted small">
                 {p.authors.slice(0, 4).join(', ')}
@@ -1865,20 +1869,20 @@ function DiscoverPanel({ onSelect }: { onSelect: (id: string) => void }): JSX.El
                   {imported ? t('read.inLibrary') : t('read.addToLibrary')}
                 </button>
                 {p.pdfUrl !== undefined &&
-                  (isShell() && !imported ? (
+                  (isShell() && (!imported || downloading) ? (
                     <button
                       className="small"
-                      disabled={pdfBusy === (p.paperId || p.title)}
+                      disabled={downloading}
                       onClick={() => void addWithPdf(p)}
                     >
                       <Icon name="download" size={13} />{' '}
-                      {pdfBusy === (p.paperId || p.title) ? t('read.attDownloading') : t('read.addWithPdf')}
+                      {downloading ? t('read.attDownloading') : t('read.addWithPdf')}
                     </button>
                   ) : (
                     <span className="pill ok small">PDF</span>
                   ))}
               </div>
-              {pdfErr !== null && pdfErr.id === (p.paperId || p.title) && (
+              {pdfErr !== null && pdfErr.id === cardId && (
                 <div className="muted small att-err">{pdfErr.msg}</div>
               )}
             </div>
@@ -2726,7 +2730,7 @@ export function ReadSurface(): JSX.Element {
         <div className="read-center">
           {mode === 'discover' ? (
             <DiscoverPanel
-              onSelect={(id) => {
+              onAddById={(id) => {
                 setMode('library');
                 setSelected(id);
               }}

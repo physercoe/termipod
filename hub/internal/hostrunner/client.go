@@ -264,6 +264,27 @@ func (c *Client) PostAttention(ctx context.Context, in AttentionIn) (AttentionOu
 	return out, err
 }
 
+// ResolveAttention closes an open row WITHOUT fanning a reply to any agent —
+// the hub's dismiss path (`/resolve`), not the decision path (`/decide`).
+//
+// host-runner uses it to retract a row whose cause is gone: a pane-state
+// `blocked` streak that ended because the human answered the dialog in the
+// terminal (plan P3). Nothing is owed to the agent — the row was a state
+// report, so there is no parked turn to wake.
+//
+// The hub REFUSES /resolve for kinds that owe a waiting agent a reply
+// (`attentionAwaitsAgentReply`), which is one more reason a detector-raised
+// row must not borrow one of those kinds.
+//
+// A 409 means the row was already resolved — the director dismissed it before
+// we noticed the pane moved on. That is the normal race, not a fault: callers
+// log at debug and drop the id either way.
+func (c *Client) ResolveAttention(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost,
+		fmt.Sprintf("/v1/teams/%s/attention/%s/resolve", c.Team, id),
+		map[string]any{}, nil)
+}
+
 type AgentPatch struct {
 	Status     *string `json:"status,omitempty"`
 	PauseState *string `json:"pause_state,omitempty"`

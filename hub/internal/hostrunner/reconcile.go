@@ -2,6 +2,7 @@ package hostrunner
 
 import (
 	"context"
+	"strconv"
 	"strings"
 )
 
@@ -45,38 +46,63 @@ func listTmuxPanes(ctx context.Context) (map[string]paneInfo, error) {
 	return m, nil
 }
 
-// listTmuxPaneTitles returns pane_id → pane_title for every pane on the
-// server in ONE round-trip (pane-state plan D-4: the manifests' `osc_title`
-// region is fed from tmux's view of the title the app set via OSC 0/2).
+// paneMeta is what the pane-state watcher needs to know about a pane besides
+// its screen: the OSC title the app set, and when output last reached it.
+//
+// activity is `#{window_activity}` — epoch SECONDS, and per WINDOW, not per
+// pane. tmux 3.4 has no per-pane activity stamp (the `pane_*` format list has
+// none; verified against the 3.4 man page and source), so a window holding two
+// agent panes reports one timestamp for both. That errs towards capturing when
+// nothing changed, which is the harmless direction. 0 means "unknown" — an
+// unparseable or absent value must never look like "nothing happened".
+type paneMeta struct {
+	title    string
+	activity int64
+}
+
+// listTmuxPaneMeta returns pane_id → paneMeta for every pane on the server in
+// ONE round-trip (pane-state plan D-4 for the title, B5 for the activity
+// stamp; P2 left a note that P3's gating folds into this same call).
 //
 // Kept separate from listTmuxPanes rather than folded into it: a title is
 // free-form text that can contain spaces, so it has to be LAST in the format
 // string and parsed positionally, and widening the reconcile format to carry
 // it would put a field that can contain anything ahead of nothing but still
-// change a parser three transitions depend on. P3's capture-cost gating adds
-// `#{window_activity}` to this same call and is the moment to merge the two.
-func listTmuxPaneTitles(ctx context.Context) (map[string]string, error) {
-	out, err := runTmux(ctx, "list-panes", "-a", "-F", "#{pane_id} #{pane_title}")
+// change a parser three transitions depend on.
+func listTmuxPaneMeta(ctx context.Context) (map[string]paneMeta, error) {
+	out, err := runTmux(ctx, "list-panes", "-a", "-F",
+		"#{pane_id} #{window_activity} #{pane_title}")
 	if err != nil {
 		return nil, err
 	}
-	return parsePaneTitles(out), nil
+	return parsePaneMeta(out), nil
 }
 
-// parsePaneTitles splits `<pane_id> <title...>` lines. Split on the FIRST
-// space only: a pane id never contains one (`%17`), a title routinely does.
-func parsePaneTitles(out string) map[string]string {
-	m := map[string]string{}
+// parsePaneMeta splits `<pane_id> <window_activity> <title...>` lines. Cut on
+// the first two spaces only: neither a pane id (`%17`) nor an epoch stamp ever
+// contains one, and a title routinely does.
+//
+// A tmux too old to know `#{window_activity}` expands it to the empty string,
+// which lands here as an unparseable field and resolves to activity 0 — the
+// gate then never skips. Same for a title-only line from any other shape we
+// have not anticipated: the pane id is the only field this function insists on.
+func parsePaneMeta(out string) map[string]paneMeta {
+	m := map[string]paneMeta{}
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		if line == "" {
 			continue
 		}
-		id, title, _ := strings.Cut(line, " ")
+		id, rest, _ := strings.Cut(line, " ")
 		if id == "" {
 			continue
 		}
-		m[id] = title
+		activity, title, _ := strings.Cut(rest, " ")
+		secs, err := strconv.ParseInt(activity, 10, 64)
+		if err != nil || secs < 0 {
+			secs = 0
+		}
+		m[id] = paneMeta{title: title, activity: secs}
 	}
 	return m
 }

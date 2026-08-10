@@ -465,6 +465,13 @@ const en: Dict = {
   'approval.attn.permission_prompt': 'Permission needed',
   'approval.attn.select': 'Choose',
   'approval.attn.help_request': 'Help needed',
+  // Host-runner's agent-state rows: the legacy stall detector, and lane P's
+  // manifest classifier when a pane shows a blocked dialog. Labelled for what
+  // the reader must do (nothing but look), not for the classification — the
+  // summary carries "blocked". Without this line the card's kind label falls
+  // back to the raw wire value and the dock shows a blocked agent under the
+  // word "idle".
+  'approval.attn.idle': 'Waiting at a prompt',
   // D3: the desktop screenshot card. No "Allow session" button exists for it —
   // this line says why, so the missing option reads as a decision.
   'att.perCallOnly': 'Screenshots are approved one call at a time — there is no standing grant.',
@@ -2616,6 +2623,7 @@ const zh: Dict = {
   'approval.attn.permission_prompt': '需要授权',
   'approval.attn.select': '请选择',
   'approval.attn.help_request': '需要协助',
+  'approval.attn.idle': '等待输入',
   'att.perCallOnly': '截屏需逐次批准，不提供长期授权。',
 
   'kanban.todo': '待办',

@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { invoke } from '../bridge';
 import { useT } from '../i18n';
 import { Icon, type IconName } from '../ui/Icon';
 import { isShell, revealPath } from '../platform';
 import { fileToBody, kindForFile, useDocuments } from '../state/documents';
+import { useAgentEdits } from '../state/agentEdits';
 import { useWorkspace } from '../state/workspace';
 import { writeDocToWorkspace } from '../state/workspaceFiles';
 import { useSyncJob } from '../state/syncJob';
@@ -78,6 +87,16 @@ function parentDir(path: string): string {
   return i > 0 ? path.slice(0, i) : path;
 }
 
+function pathIsWithin(candidate: string, root: string): boolean {
+  const normalize = (path: string): string => {
+    const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+  };
+  const child = normalize(candidate);
+  const parent = normalize(root);
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
 function extOf(path: string): string {
   return path.split('.').pop()?.toLowerCase() ?? '';
 }
@@ -120,7 +139,9 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
   const setActive = useDocuments((s) => s.setActive);
   const create = useDocuments((s) => s.create);
   const update = useDocuments((s) => s.update);
+  const remove = useDocuments((s) => s.remove);
   const markSaved = useDocuments((s) => s.markSaved);
+  const clearAgentEdits = useAgentEdits((s) => s.clear);
   const folder = useWorkspace((s) => s.folder);
   const setFolder = useWorkspace((s) => s.setFolder);
   const touch = useWorkspace((s) => s.touch);
@@ -139,6 +160,7 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
   // On-disk file-tree right-click menu + its two-step delete confirm.
   const [fileMenu, setFileMenu] = useState<FileMenu | null>(null);
   const [fileConfirmDelete, setFileConfirmDelete] = useState(false);
+  const fileMenuRef = useRef<HTMLDivElement>(null);
   const tauri = isShell();
 
   const placeActions = useCallback((): void => {
@@ -300,6 +322,19 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
     };
   }, [fileMenu]);
 
+  // The file menu is portalled out of the scrolling nav pane. Measure the real
+  // menu (including a wrapped confirm label) and clamp it to the window before
+  // paint, so a last-row/right-edge click never opens a clipped menu.
+  useLayoutEffect(() => {
+    if (fileMenu === null) return;
+    const menu = fileMenuRef.current;
+    if (menu === null) return;
+    const edge = 8;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(edge, Math.min(fileMenu.x, window.innerWidth - rect.width - edge))}px`;
+    menu.style.top = `${Math.max(edge, Math.min(fileMenu.y, window.innerHeight - rect.height - edge))}px`;
+  }, [fileConfirmDelete, fileMenu]);
+
   // --- File-tree operations (Rust workspacefs commands). All refresh the tree
   // (touch → re-list) and surface any error inline. Open documents whose file was
   // renamed/moved are re-pointed so Save keeps round-tripping to the right path. ---
@@ -350,11 +385,20 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
       opFailed(e);
     }
   }
-  async function deleteEntry(path: string): Promise<void> {
+  async function deleteEntry(path: string, dir: boolean): Promise<void> {
     setFileMenu(null);
     setFileConfirmDelete(false);
     try {
       await invoke('workspace_delete', { path });
+      // The filesystem is authoritative: once a backing file (or a containing
+      // directory) is gone, its editor tab must not remain as a stale save target.
+      const closed = docs.filter(
+        (doc) => doc.filePath !== undefined && (dir ? pathIsWithin(doc.filePath, path) : doc.filePath === path),
+      );
+      for (const doc of closed) {
+        clearAgentEdits(doc.id);
+        remove(doc.id);
+      }
       touch();
     } catch (e) {
       opFailed(e);
@@ -503,7 +547,7 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
 
       {showSync && <WorkspaceSyncModal root={folder} onClose={() => setShowSync(false)} />}
 
-      {fileMenu !== null && (
+      {fileMenu !== null && createPortal(
         <>
           <div
             className="context-backdrop"
@@ -514,6 +558,7 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
             onContextMenu={(e) => e.preventDefault()}
           />
           <div
+            ref={fileMenuRef}
             className="context-menu"
             style={{ left: fileMenu.x, top: fileMenu.y }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -533,7 +578,7 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
                 <button onClick={() => void moveOrCopy(fileMenu.path, true)}>{t('author.fCopy')}</button>
                 <div className="context-menu-sep" />
                 {fileConfirmDelete ? (
-                  <button className="danger" onClick={() => void deleteEntry(fileMenu.path)}>
+                  <button className="danger" onClick={() => void deleteEntry(fileMenu.path, fileMenu.dir)}>
                     {t('author.fDeleteConfirm')}
                   </button>
                 ) : (
@@ -550,7 +595,8 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
               </>
             )}
           </div>
-        </>
+        </>,
+        document.body,
       )}
       {promptNode}
     </div>

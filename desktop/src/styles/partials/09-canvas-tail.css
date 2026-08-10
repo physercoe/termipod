@@ -1208,6 +1208,9 @@
      children (direct-child file rows) crush below their content height
      (11px rows) instead of scrolling. */
   overflow-y: auto;
+  /* Let the final row scroll clear of the pane edge, leaving a reliable target
+     for right-click and drag operations. */
+  padding-bottom: var(--spacing-s16);
 }
 .author-nav-sec.grow > * {
   flex-shrink: 0;

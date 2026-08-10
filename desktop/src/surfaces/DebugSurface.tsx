@@ -27,6 +27,8 @@ import { usePanelWidth, ResizeHandle } from '../ui/ResizeHandle';
 import type { LogSource } from '../ui/LogView';
 import { InspectOpenDialog, type OpenMode, type PickResult, type PinRoot } from './InspectOpen';
 import { InspectTree } from './InspectTree';
+import { PaneStateCard } from './PaneStateCard';
+import { PaneStatePickDialog } from './PaneStatePick';
 import { InspectRepoAddDialog } from './InspectRepoAdd';
 import { RepoPickDialog } from './InspectForgePick';
 import { PopoverMenu } from '../ui/PopoverMenu';
@@ -151,6 +153,8 @@ function kindIcon(kind: InspectKind): IconName {
       return 'music';
     case 'pdf':
       return 'file-text';
+    case 'panestate':
+      return 'terminal';
     default:
       return 'code';
   }
@@ -391,6 +395,14 @@ function CodeTab({
           {(isHfConfig || isPolicyConfig) && (
             <button className="import-btn" onClick={() => setKind(tab.id, 'model')}>
               <Icon name="sliders" size={14} /> {t('model.analyze')}
+            </button>
+          )}
+          {/* Supplied-screen mode (P4): run the pane-state manifests over a
+              screen someone pasted out of a bug report. Offered on any paste
+              tab because a captured screen has no extension to sniff. */}
+          {tab.source === 'paste' && body.trim() !== '' && (
+            <button className="import-btn" onClick={() => setKind(tab.id, 'panestate')}>
+              <Icon name="terminal" size={14} /> {t('panestate.viewAsPaneState')}
             </button>
           )}
           {isPython && (
@@ -953,6 +965,7 @@ export function DebugSurface(): JSX.Element {
   // The Compare menu's repo picker (#460) — resolve + browse a GitHub/HF repo
   // for side B WITHOUT pinning it as a tree root (that's `repoDialog`).
   const [repoPick, setRepoPick] = useState(false);
+  const [panePick, setPanePick] = useState(false);
   // When set, the next file/tab the user picks becomes side B of a compare tab
   // whose side A is this base tab (W2 tier 2).
   const [cmpBase, setCmpBase] = useState<InspectTab | null>(null);
@@ -964,6 +977,20 @@ export function DebugSurface(): JSX.Element {
 
   function newScratch(): void {
     openTab({ kind: 'code', source: 'paste', title: t('inspect.scratch') }, '');
+  }
+
+  // Live mode: explain the pane of a running agent (pane-state-manifests P4).
+  // `ephemeral` because the record is a snapshot of somebody's terminal — it
+  // is re-fetched on open and never written to localStorage.
+  function openPaneState(p: { agentId: string; title: string }): void {
+    openTab({
+      kind: 'panestate',
+      source: 'paste',
+      title: t('panestate.tabTitle').replace('{agent}', p.title),
+      agentId: p.agentId,
+      ephemeral: true,
+    });
+    setPanePick(false);
   }
 
   function setTree(open: boolean): void {
@@ -1156,6 +1183,11 @@ export function DebugSurface(): JSX.Element {
                       <Icon name="cloud" size={14} /> {t('inspect.fromHub')}
                     </button>
                   )}
+                  {client !== null && (
+                    <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setPanePick(true))}>
+                      <Icon name="terminal" size={14} /> {t('panestate.openLive')}
+                    </button>
+                  )}
                   <button className="inspect-menu-item" role="menuitem" onClick={() => (setMenu(false), setRepoDialog(true))}>
                     <Icon name="git-branch" size={14} /> {t('inspect.fromRepo')}
                   </button>
@@ -1294,6 +1326,8 @@ export function DebugSurface(): JSX.Element {
             <ArchGraphTab key={active.id} tab={active} />
           ) : active.kind === 'image' || active.kind === 'video' || active.kind === 'audio' || active.kind === 'pdf' ? (
             <MediaTab key={active.id} tab={active} />
+          ) : active.kind === 'panestate' ? (
+            <PaneStateCard key={active.id} tab={active} />
           ) : (
             <ModelTab key={active.id} tab={active} />
           )}
@@ -1315,6 +1349,7 @@ export function DebugSurface(): JSX.Element {
         {dialog !== null && <InspectOpenDialog mode={dialog} onClose={() => (setDialog(null), setCmpBase(null))} onPick={pick} onPinRoot={pinRoot} />}
         {repoDialog && <InspectRepoAddDialog onClose={() => setRepoDialog(false)} onAdd={(r) => (pinRoot(r), setRepoDialog(false))} />}
         {repoPick && <RepoPickDialog onClose={() => (setRepoPick(false), setCmpBase(null))} onPick={(r) => (setRepoPick(false), pick(r))} />}
+        {panePick && <PaneStatePickDialog onClose={() => setPanePick(false)} onPick={openPaneState} />}
       </div>
     </WorkbenchSurface>
   );

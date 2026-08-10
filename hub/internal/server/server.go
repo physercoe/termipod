@@ -874,6 +874,16 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				})
 			})
 		})
+		// Pane-state rule debugger (pane-state-manifests P4). Two modes in
+		// one handler: `{agent_id}` reads a live pane through its host,
+		// `{family, screen}` evaluates supplied text with no host at all.
+		// POST because the supplied-screen mode carries a body; it mutates
+		// nothing either way.
+		r.Post("/pane_explain", s.handlePaneExplain)
+		// GET is the coverage table (D-3): which engine families have a
+		// manifest at all. Feeds the supplied-screen picker, and answers
+		// "why is my agent never classified" without reading embedded YAML.
+		r.Get("/pane_explain", s.handlePaneCoverage)
 		r.Route("/attention", func(r chi.Router) {
 			r.Post("/", s.handleCreateAttention)
 			r.Get("/", s.handleListAttention)

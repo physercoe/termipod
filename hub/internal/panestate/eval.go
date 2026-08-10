@@ -15,59 +15,64 @@ type regexpMatcher = regexp.Regexp
 // match — because P4's `host.pane_explain` needs to show why the rules that
 // did NOT match did not match. Manifests are ~5-14 rules, so the cost is
 // noise next to the `capture-pane` subprocess that produced the screen.
+// The json tags make this the WIRE shape of `host.pane_explain` (P4) as well
+// as the evaluator's internal record — one type rather than two that drift.
+// The cost of that choice is that a field added here for evaluation would ship
+// to a client by default, so `TestExplainWireKeysAreDeliberate` pins the exact
+// key set: adding a field is fine, adding it silently is not.
 type Explain struct {
-	ManifestID      string
-	ManifestVersion string
-	Source          string // "vendor" | "overlay"
+	ManifestID      string `json:"manifest_id"`
+	ManifestVersion string `json:"manifest_version"`
+	Source          string `json:"source"` // "vendor" | "overlay"
 
-	State       State
-	MatchedRule *MatchedRule
+	State       State        `json:"state"`
+	MatchedRule *MatchedRule `json:"matched_rule,omitempty"`
 	// FallbackReason is set when no rule matched. A known agent whose screen
 	// matches nothing is idle, and this records that it was a fallback rather
 	// than a positive classification.
-	FallbackReason string
+	FallbackReason string `json:"fallback_reason,omitempty"`
 
-	VisibleIdle     bool
-	VisibleBlocker  bool
-	VisibleWorking  bool
-	SkipStateUpdate bool
+	VisibleIdle     bool `json:"visible_idle,omitempty"`
+	VisibleBlocker  bool `json:"visible_blocker,omitempty"`
+	VisibleWorking  bool `json:"visible_working,omitempty"`
+	SkipStateUpdate bool `json:"skip_state_update,omitempty"`
 	// SkippedUpdateReason names the rule that froze the state, so a surface
 	// can say "held by transcript-viewer rule" instead of showing a stale
 	// state with no explanation.
-	SkippedUpdateReason string
+	SkippedUpdateReason string `json:"skipped_update_reason,omitempty"`
 
-	EvaluatedRules []EvaluatedRule
+	EvaluatedRules []EvaluatedRule `json:"rules"`
 }
 
 // MatchedRule is the winning rule.
 type MatchedRule struct {
-	ID       string
-	Priority int
-	Region   string
-	State    State
+	ID       string `json:"id"`
+	Priority int    `json:"priority"`
+	Region   string `json:"region"`
+	State    State  `json:"state"`
 }
 
 // EvaluatedRule is one rule's outcome plus bounded evidence.
 type EvaluatedRule struct {
-	ID       string
-	Priority int
-	Region   string
-	State    State
-	Matched  bool
-	Evidence Evidence
+	ID       string   `json:"id"`
+	Priority int      `json:"priority"`
+	Region   string   `json:"region"`
+	State    State    `json:"state"`
+	Matched  bool     `json:"matched"`
+	Evidence Evidence `json:"evidence"`
 }
 
 // Evidence is what the rule looked for and what it looked at. The region
 // preview is bounded because this travels to a UI and a pane is 24x200.
 type Evidence struct {
-	Contains      []string
-	Regex         []string
-	LineRegex     []string
-	AllCount      int
-	AnyCount      int
-	NotCount      int
-	RegionBytes   int
-	RegionPreview string
+	Contains      []string `json:"contains,omitempty"`
+	Regex         []string `json:"regex,omitempty"`
+	LineRegex     []string `json:"line_regex,omitempty"`
+	AllCount      int      `json:"all_count,omitempty"`
+	AnyCount      int      `json:"any_count,omitempty"`
+	NotCount      int      `json:"not_count,omitempty"`
+	RegionBytes   int      `json:"region_bytes"`
+	RegionPreview string   `json:"region_preview"`
 }
 
 const maxPreviewChars = 240

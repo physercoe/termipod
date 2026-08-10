@@ -255,6 +255,42 @@ export class HubClient {
   deleteDataset(id: string): Promise<Json> {
     return this.transport.delete(this.transport.team(`/datasets/${id}`));
   }
+  /**
+   * Why pane-state thinks an agent is idle / working / blocked
+   * (pane-state-manifests P4). Two modes, exclusive by contract:
+   *
+   *  - `{agentId}` captures that agent's pane on its host and evaluates it.
+   *  - `{family, screen}` evaluates text you already have — herdr's `--file`
+   *    mode, for a screen pasted out of a bug report. No host is involved.
+   *
+   * The answer carries every rule's outcome, not just the winner, plus a
+   * BOUNDED preview of the region each rule read. The full pane never leaves
+   * the host: this is a rule debugger, not a screenshot.
+   *
+   * Refused for agent-kind tokens hub-side — an agent must not read another
+   * agent's terminal through a debugging tool.
+   */
+  explainPane(
+    q: { agentId: string } | { family: string; screen: string; oscTitle?: string },
+  ): Promise<Entity> {
+    const body =
+      'agentId' in q
+        ? { agent_id: q.agentId }
+        : { family: q.family, screen: q.screen, ...(q.oscTitle !== undefined ? { osc_title: q.oscTitle } : {}) };
+    return this.transport.post(this.transport.team('/pane_explain'), body) as Promise<Entity>;
+  }
+
+  /**
+   * Which engine families pane-state classifies at all, and with which
+   * manifest. This is D-3's mapping table; an engine that is absent has no
+   * rules, which is usually the answer to "why is this agent never
+   * classified".
+   */
+  async listPaneCoverage(): Promise<Entity[]> {
+    const out = (await this.transport.get(this.transport.team('/pane_explain'))) as Record<string, unknown>;
+    return asArray(out?.['families']);
+  }
+
   /** Ask the owning host to re-read the root and store the fold. Manual by
    * design — nothing re-reads a dataset unasked. */
   refreshDataset(id: string): Promise<Entity> {

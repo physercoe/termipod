@@ -27,6 +27,9 @@ first — it defines what every doc must declare and where it lives.
    — ship agent-run traces to Jaeger / a Collector / Phoenix.
 6. [`how-to/agent-collaboration.md`](how-to/agent-collaboration.md)
    — how multiple AI agents on different hosts share this repo via GitHub.
+7. [`how-to/debug-pane-state.md`](how-to/debug-pane-state.md)
+   — why an agent reads as idle / working / blocked, when its state
+   comes from screen rules rather than a structured driver.
 
 **I'm trying to understand a piece of the system.**
 1. Start with [`spine/blueprint.md`](spine/blueprint.md) for the

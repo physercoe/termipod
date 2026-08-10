@@ -1633,7 +1633,15 @@ function ReaderView({
 
 const SOURCE_LS = 'termipod.discover.source';
 
-function DiscoverPanel({ onAddById }: { onAddById: (id: string) => void }): JSX.Element {
+function DiscoverPanel({
+  selectedId,
+  onInspect,
+  onAddById,
+}: {
+  selectedId: string | null;
+  onInspect: (id: string) => void;
+  onAddById: (id: string) => void;
+}): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
   const add = useLibrary((s) => s.addReference);
@@ -1661,8 +1669,13 @@ function DiscoverPanel({ onAddById }: { onAddById: (id: string) => void }): JSX.
   const source = sourceById(sourceId);
   const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
 
-  const importedIds = useMemo(
-    () => new Set(references.map((r) => r.externalId).filter((x): x is string => x !== undefined)),
+  const importedByExternalId = useMemo(
+    () =>
+      new Map(
+        references
+          .filter((r): r is Reference & { externalId: string } => r.externalId !== undefined)
+          .map((r) => [r.externalId, r.id]),
+      ),
     [references],
   );
 
@@ -1846,11 +1859,28 @@ function DiscoverPanel({ onAddById }: { onAddById: (id: string) => void }): JSX.
           <div className="muted region-pad">{t('read.discoverHint')}</div>
         )}
         {results.map((p) => {
-          const imported = p.paperId !== '' && importedIds.has(p.paperId);
+          const importedRefId = p.paperId !== '' ? importedByExternalId.get(p.paperId) : undefined;
+          const imported = importedRefId !== undefined;
           const cardId = p.paperId || p.title;
           const downloading = pdfBusy === cardId;
+          const selected = importedRefId !== undefined && selectedId === importedRefId;
           return (
-            <div key={cardId} className="discover-card">
+            <div
+              key={cardId}
+              className={`discover-card${imported ? ' interactive' : ''}${selected ? ' selected' : ''}`}
+              role={imported ? 'button' : undefined}
+              tabIndex={imported ? 0 : undefined}
+              aria-pressed={imported ? selected : undefined}
+              title={imported ? t('read.showDetails') : undefined}
+              onClick={importedRefId !== undefined ? () => onInspect(importedRefId) : undefined}
+              onKeyDown={(event) => {
+                if (importedRefId === undefined || event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onInspect(importedRefId);
+                }
+              }}
+            >
               <div className="discover-card-title">{p.title}</div>
               <div className="discover-card-meta muted small">
                 {p.authors.slice(0, 4).join(', ')}
@@ -1865,7 +1895,14 @@ function DiscoverPanel({ onAddById }: { onAddById: (id: string) => void }): JSX.
                 </div>
               )}
               <div className="discover-card-actions">
-                <button className="primary small" disabled={imported} onClick={() => importPaper(p)}>
+                <button
+                  className="primary small"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (importedRefId !== undefined) onInspect(importedRefId);
+                    else importPaper(p);
+                  }}
+                >
                   {imported ? t('read.inLibrary') : t('read.addToLibrary')}
                 </button>
                 {p.pdfUrl !== undefined &&
@@ -1873,7 +1910,10 @@ function DiscoverPanel({ onAddById }: { onAddById: (id: string) => void }): JSX.
                     <button
                       className="small"
                       disabled={downloading}
-                      onClick={() => void addWithPdf(p)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void addWithPdf(p);
+                      }}
                     >
                       <Icon name="download" size={13} />{' '}
                       {downloading ? t('read.attDownloading') : t('read.addWithPdf')}
@@ -2730,6 +2770,11 @@ export function ReadSurface(): JSX.Element {
         <div className="read-center">
           {mode === 'discover' ? (
             <DiscoverPanel
+              selectedId={selected}
+              onInspect={(id) => {
+                setSelected(id);
+                foldInsp(false);
+              }}
               onAddById={(id) => {
                 setMode('library');
                 setSelected(id);

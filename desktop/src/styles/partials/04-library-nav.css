@@ -642,6 +642,27 @@
   padding: var(--spacing-s12);
   margin-bottom: var(--spacing-s8);
 }
+.discover-card.interactive {
+  cursor: pointer;
+  transition:
+    border-color 0.12s var(--ease),
+    background 0.12s var(--ease),
+    box-shadow 0.12s var(--ease);
+}
+.discover-card.interactive:hover {
+  border-color: var(--border-strong);
+  background: var(--raised);
+  box-shadow: var(--sh-1);
+}
+.discover-card.interactive:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+.discover-card.interactive.selected {
+  border-color: var(--border-strong);
+  background: var(--raised);
+  box-shadow: inset 3px 0 0 var(--text-secondary);
+}
 .discover-card-title {
   font-weight: 600;
   line-height: 1.4;

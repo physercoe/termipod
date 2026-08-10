@@ -36,6 +36,8 @@ import {
   SOURCES,
   sourceById,
   type DiscoveryPaper,
+  type ScrapePatch,
+  type ScrapeSeed,
 } from '../discovery';
 import { hostOf, isShell, openExternal, revealPath } from '../platform';
 import { useCompanionContext } from '../state/companionContext';
@@ -250,6 +252,41 @@ function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
     collectionIds: [],
     notes: '',
   };
+}
+
+// Resolve an existing library item using its strongest identifiers. Enrichment
+// lives with Citation data, but its patch still preserves hand-edited core fields.
+function refToSeed(r: Reference): ScrapeSeed {
+  const openAlexId =
+    r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined;
+  return { doi: r.doi, arxivId: r.arxivId, openAlexId, title: r.title, url: r.url, abstract: r.abstract };
+}
+
+function patchToRefFields(patch: ScrapePatch, cur: Reference): Partial<Reference> {
+  const empty = (value: unknown): boolean =>
+    value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
+  const out: Partial<Reference> = {
+    referenceCount: patch.referenceCount,
+    citedByCount: patch.citedByCount,
+    references: patch.references,
+    citations: patch.citations,
+    journal: patch.journal,
+    openAccess: patch.openAccess,
+    topics: patch.topics,
+    resourceLinks: patch.resourceLinks,
+    enrichedAt: patch.enrichedAt,
+    enrichSource: patch.enrichSource,
+  };
+  if (patch.title !== undefined && empty(cur.title)) out.title = patch.title;
+  if (patch.authors !== undefined && empty(cur.authors)) out.authors = patch.authors;
+  if (patch.year !== undefined && cur.year === undefined) out.year = patch.year;
+  if (patch.venue !== undefined && empty(cur.venue)) out.venue = patch.venue;
+  if (patch.doi !== undefined && empty(cur.doi)) out.doi = patch.doi;
+  if (patch.arxivId !== undefined && empty(cur.arxivId)) out.arxivId = patch.arxivId;
+  if (patch.abstract !== undefined && empty(cur.abstract)) out.abstract = patch.abstract;
+  if (patch.pdfUrl !== undefined && empty(cur.pdfUrl)) out.pdfUrl = patch.pdfUrl;
+  if (patch.detailsAdd !== undefined) out.details = { ...(cur.details ?? {}), ...patch.detailsAdd };
+  return out;
 }
 
 function citeApa(r: Reference): string {
@@ -791,7 +828,17 @@ function WorkList({ label, works, total }: { label: string; works?: WorkLink[]; 
 // is never passed to a function component, so a prop literally named `ref` arrives
 // as `undefined` and the first `ref.` access throws (blanking the whole app when
 // there is no error boundary). We alias it to a local `ref` to keep the body terse.
-function CitationData({ reference: ref }: { reference: Reference }): JSX.Element {
+function CitationData({
+  reference: ref,
+  scraping,
+  msg,
+  onScrape,
+}: {
+  reference: Reference;
+  scraping: boolean;
+  msg: string | null;
+  onScrape: () => void;
+}): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
   const j = ref.journal;
@@ -809,14 +856,21 @@ function CitationData({ reference: ref }: { reference: Reference }): JSX.Element
     <section className="ref-citation-data">
       <div className="ref-citation-data-head">
         <span className="ref-section-label">{t('read.citationDetails')}</span>
-        {enriched && (
-          <span className="muted small">
-            {t('read.enrichedVia')
-              .replace('{src}', ref.enrichSource ?? '')
-              .replace('{time}', new Date(ref.enrichedAt ?? 0).toLocaleDateString())}
-          </span>
-        )}
+        <div className="ref-citation-data-actions">
+          {enriched && (
+            <span className="muted small">
+              {t('read.enrichedVia')
+                .replace('{src}', ref.enrichSource ?? '')
+                .replace('{time}', new Date(ref.enrichedAt ?? 0).toLocaleDateString())}
+            </span>
+          )}
+          <button className="link-btn ref-citation-enrich" disabled={scraping} title={t('read.scrapeTitle')} onClick={onScrape}>
+            <Icon name="refresh" size={14} />
+            {scraping ? t('read.scraping') : enriched ? t('read.rescrape') : t('read.scrape')}
+          </button>
+        </div>
       </div>
+      {msg !== null && <div className="ref-citation-msg muted small">{msg}</div>}
       {!hasData && <div className="muted small ref-citation-empty">{t('read.citationDetailsEmpty')}</div>}
 
       {hasMetrics && (
@@ -943,11 +997,38 @@ function Inspector({
   // webview (WebView2 returns without showing a dialog → the item deleted with no
   // prompt), so the confirm is an explicit two-step inline state instead.
   const [confirming, setConfirming] = useState(false);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
   useEffect(() => {
     const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
     setEditingBody(b === '');
     setConfirming(false);
+    setScrapeMsg(null);
   }, [refId]);
+
+  async function runScrape(): Promise<void> {
+    const current = useLibrary.getState().references.find((r) => r.id === refId);
+    if (current === undefined) return;
+    setScraping(true);
+    setScrapeMsg(null);
+    try {
+      const result = await scrapeMetadata(refToSeed(current));
+      if (result.patch === null) {
+        setScrapeMsg(t('read.scrapeNone'));
+      } else {
+        update(current.id, patchToRefFields(result.patch, current));
+        setScrapeMsg(
+          result.found.length > 0
+            ? t('read.scrapeDone').replace('{what}', result.found.join(', '))
+            : t('read.scrapeThin'),
+        );
+      }
+    } catch {
+      setScrapeMsg(t('read.scrapeFailed'));
+    } finally {
+      setScraping(false);
+    }
+  }
 
   if (ref === undefined) return <div className="muted region-pad">{t('read.pickItem')}</div>;
 
@@ -1400,7 +1481,12 @@ function Inspector({
                 <pre className="ref-cite-text mono">{citeBibtex(ref)}</pre>
               )}
             </section>
-            <CitationData reference={ref} />
+            <CitationData
+              reference={ref}
+              scraping={scraping}
+              msg={scrapeMsg}
+              onScrape={() => void runScrape()}
+            />
           </div>
         )}
       </div>

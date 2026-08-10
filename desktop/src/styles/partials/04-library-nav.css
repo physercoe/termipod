@@ -438,6 +438,25 @@
 .ref-citation-data-head .ref-section-label {
   margin: 0;
 }
+.ref-citation-data-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-s8);
+  min-width: 0;
+}
+.ref-citation-enrich {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.ref-citation-msg {
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-radius: var(--radius-sm);
+  background: var(--glass-control);
+}
 .ref-citation-empty {
   padding: var(--spacing-s4) 0;
 }

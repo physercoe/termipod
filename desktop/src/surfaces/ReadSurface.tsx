@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { invoke, listen } from '../bridge';
 import { TableVirtuoso, type ItemProps, type TableComponents } from 'react-virtuoso';
 import { useT, tStatic } from '../i18n';
@@ -23,7 +33,7 @@ import {
   writeNoteImage,
 } from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
-import { useDiscoverySearch } from '../state/discoverySearch';
+import { useDiscoverySearch, type DiscoverySort } from '../state/discoverySearch';
 import { syncAnnotations } from '../state/annotationSync';
 import { useReadTabs } from '../state/readTabs';
 import { useSession } from '../state/session';
@@ -108,6 +118,51 @@ const SORT_COLS: { key: SortKey; labelKey: string }[] = [
   { key: 'venue', labelKey: 'read.colVenue' },
   { key: 'type', labelKey: 'read.colType' },
 ];
+type LibraryColumnWidths = Record<SortKey, number>;
+const LIB_COLUMN_WIDTHS_KEY = 'termipod.read.libraryColumnWidths';
+const DEFAULT_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
+  title: 40,
+  creator: 22,
+  year: 9,
+  venue: 19,
+  type: 10,
+};
+const MIN_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
+  title: 20,
+  creator: 14,
+  year: 7,
+  venue: 12,
+  type: 8,
+};
+
+function loadLibraryColumnWidths(): LibraryColumnWidths {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LIB_COLUMN_WIDTHS_KEY) ?? '') as Partial<LibraryColumnWidths>;
+    const values = SORT_COLS.map(({ key }) => parsed[key]);
+    if (!values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+      return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    }
+    const total = values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+    if (total <= 0) return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    const normalized = Object.fromEntries(
+      SORT_COLS.map(({ key }) => [key, ((parsed[key] ?? DEFAULT_LIB_COLUMN_WIDTHS[key]) / total) * 100]),
+    ) as LibraryColumnWidths;
+    if (SORT_COLS.some(({ key }) => normalized[key] < MIN_LIB_COLUMN_WIDTHS[key])) {
+      return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    }
+    return normalized;
+  } catch {
+    return { ...DEFAULT_LIB_COLUMN_WIDTHS };
+  }
+}
+
+function saveLibraryColumnWidths(widths: LibraryColumnWidths): void {
+  try {
+    localStorage.setItem(LIB_COLUMN_WIDTHS_KEY, JSON.stringify(widths));
+  } catch {
+    /* ignore */
+  }
+}
 function sortVal(r: Reference, key: SortKey): string | number {
   switch (key) {
     case 'title':
@@ -143,16 +198,10 @@ interface LibRowCtx {
   hasPdf: (r: Reference) => boolean;
 }
 
-// Custom table wrapper so the column widths (colgroup) + class survive.
+// Custom table wrapper keeps the class stable. Header widths control the fixed
+// table layout and are user-adjustable below.
 const LibTable: TableComponents<Reference, LibRowCtx>['Table'] = (props) => (
   <table {...props} className="read-table">
-    <colgroup>
-      <col style={{ width: '44%' }} />
-      <col style={{ width: '20%' }} />
-      <col style={{ width: '3.5rem' }} />
-      <col style={{ width: '22%' }} />
-      <col style={{ width: '6rem' }} />
-    </colgroup>
     {props.children}
   </table>
 );
@@ -1653,6 +1702,15 @@ function DiscoverPanel({
   const setQ = useDiscoverySearch((s) => s.setQuery);
   const results = useDiscoverySearch((s) => s.results);
   const setResults = useDiscoverySearch((s) => s.setResults);
+  const authorFilter = useDiscoverySearch((s) => s.authorFilter);
+  const yearFrom = useDiscoverySearch((s) => s.yearFrom);
+  const yearTo = useDiscoverySearch((s) => s.yearTo);
+  const resultSort = useDiscoverySearch((s) => s.sort);
+  const setAuthorFilter = useDiscoverySearch((s) => s.setAuthorFilter);
+  const setYearFrom = useDiscoverySearch((s) => s.setYearFrom);
+  const setYearTo = useDiscoverySearch((s) => s.setYearTo);
+  const setResultSort = useDiscoverySearch((s) => s.setSort);
+  const clearFilters = useDiscoverySearch((s) => s.clearFilters);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string>(() => localStorage.getItem(SOURCE_LS) ?? 'openalex');
@@ -1665,6 +1723,8 @@ function DiscoverPanel({
   // "Add + PDF" per-card state (which card is downloading, and a keyed error).
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [pdfErr, setPdfErr] = useState<{ id: string; msg: string } | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersAnchorRef = useRef<HTMLButtonElement>(null);
 
   const source = sourceById(sourceId);
   const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
@@ -1678,6 +1738,29 @@ function DiscoverPanel({
       ),
     [references],
   );
+
+  const visibleResults = useMemo(() => {
+    const author = authorFilter.trim().toLocaleLowerCase();
+    const from = yearFrom === '' ? null : Number(yearFrom);
+    const to = yearTo === '' ? null : Number(yearTo);
+    const filtered = results.filter((paper) => {
+      if (author !== '' && !paper.authors.some((name) => name.toLocaleLowerCase().includes(author))) return false;
+      if (from !== null && Number.isFinite(from) && (paper.year === undefined || paper.year < from)) return false;
+      if (to !== null && Number.isFinite(to) && (paper.year === undefined || paper.year > to)) return false;
+      return true;
+    });
+    if (resultSort === 'relevance') return filtered;
+    return [...filtered].sort((a, b) => {
+      if (resultSort === 'title') return a.title.localeCompare(b.title);
+      if (resultSort === 'citations') return (b.citationCount ?? -1) - (a.citationCount ?? -1);
+      const aYear = a.year;
+      const bYear = b.year;
+      if (aYear === undefined) return bYear === undefined ? 0 : 1;
+      if (bYear === undefined) return -1;
+      return resultSort === 'newest' ? bYear - aYear : aYear - bYear;
+    });
+  }, [authorFilter, resultSort, results, yearFrom, yearTo]);
+  const activeFilterCount = Number(authorFilter.trim() !== '') + Number(yearFrom !== '') + Number(yearTo !== '');
 
   function pickSource(id: string): void {
     setSourceId(id);
@@ -1854,11 +1937,98 @@ function DiscoverPanel({
         </div>
       )}
       {err !== null && <div className="error region-pad">{err}</div>}
+      {results.length > 0 && (
+        <div className="discover-result-tools">
+          <span className="muted small tnum">
+            {t('read.resultsShown')
+              .replace('{shown}', String(visibleResults.length))
+              .replace('{total}', String(results.length))}
+          </span>
+          <span className="spacer" />
+          <button
+            ref={filtersAnchorRef}
+            type="button"
+            className={`discover-filter-trigger${activeFilterCount > 0 ? ' active' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            <Icon name="sliders" size={14} />
+            {t('read.filters')}
+            {activeFilterCount > 0 && <span className="discover-filter-count">{activeFilterCount}</span>}
+          </button>
+          <label className="discover-sort-label">
+            <span>{t('read.sort')}</span>
+            <select
+              value={resultSort}
+              aria-label={t('read.sortResults')}
+              onChange={(event) => setResultSort(event.target.value as DiscoverySort)}
+            >
+              <option value="relevance">{t('read.sortRelevance')}</option>
+              <option value="newest">{t('read.sortNewest')}</option>
+              <option value="oldest">{t('read.sortOldest')}</option>
+              <option value="citations">{t('read.sortCitations')}</option>
+              <option value="title">{t('read.sortTitle')}</option>
+            </select>
+          </label>
+          <PopoverMenu
+            anchorRef={filtersAnchorRef}
+            open={filtersOpen}
+            onClose={() => setFiltersOpen(false)}
+            className="discover-filter-menu"
+            ariaLabel={t('read.filters')}
+          >
+            <label className="discover-filter-field">
+              <span>{t('read.author')}</span>
+              <input
+                value={authorFilter}
+                onChange={(event) => setAuthorFilter(event.target.value)}
+                placeholder={t('read.authorFilterPlaceholder')}
+                autoFocus
+              />
+            </label>
+            <div className="discover-filter-years">
+              <label className="discover-filter-field">
+                <span>{t('read.yearFrom')}</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={yearFrom}
+                  min="1000"
+                  max="9999"
+                  placeholder="1900"
+                  onChange={(event) => setYearFrom(event.target.value)}
+                />
+              </label>
+              <label className="discover-filter-field">
+                <span>{t('read.yearTo')}</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={yearTo}
+                  min="1000"
+                  max="9999"
+                  placeholder={String(new Date().getFullYear())}
+                  onChange={(event) => setYearTo(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="discover-filter-footer">
+              <button type="button" className="link-btn" disabled={activeFilterCount === 0} onClick={clearFilters}>
+                {t('read.clearFilters')}
+              </button>
+            </div>
+          </PopoverMenu>
+        </div>
+      )}
       <div className="discover-results scroll">
         {!busy && results.length === 0 && err === null && (
           <div className="muted region-pad">{t('read.discoverHint')}</div>
         )}
-        {results.map((p) => {
+        {!busy && results.length > 0 && visibleResults.length === 0 && (
+          <div className="muted region-pad">{t('read.noFilteredResults')}</div>
+        )}
+        {visibleResults.map((p) => {
           const importedRefId = p.paperId !== '' ? importedByExternalId.get(p.paperId) : undefined;
           const imported = importedRefId !== undefined;
           const cardId = p.paperId || p.title;
@@ -1964,6 +2134,7 @@ export function ReadSurface(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('title');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [libraryColumnWidths, setLibraryColumnWidths] = useState<LibraryColumnWidths>(loadLibraryColumnWidths);
   // Open reader / browser tabs (director: PDFs open in several tabs at once, and
   // links open in a dedicated in-app browser tab). `activeTab === null` = library.
   // Store-owned since G1 so the focus publisher can see them.
@@ -2258,6 +2429,72 @@ export function ReadSurface(): JSX.Element {
       setSortKey(key);
       setSortDir('asc');
     }
+  }
+
+  function startColumnResize(event: ReactPointerEvent<HTMLSpanElement>, index: number): void {
+    const current = SORT_COLS[index]?.key;
+    const next = SORT_COLS[index + 1]?.key;
+    if (current === undefined || next === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const tableWidth = event.currentTarget.closest('table')?.getBoundingClientRect().width ?? 0;
+    if (tableWidth <= 0) return;
+    const startX = event.clientX;
+    const startCurrent = libraryColumnWidths[current];
+    const pairTotal = startCurrent + libraryColumnWidths[next];
+    let latest = libraryColumnWidths;
+    document.body.classList.add('read-column-resizing');
+
+    const onMove = (moveEvent: PointerEvent): void => {
+      const delta = ((moveEvent.clientX - startX) / tableWidth) * 100;
+      const nextCurrent = clamp(
+        startCurrent + delta,
+        MIN_LIB_COLUMN_WIDTHS[current],
+        pairTotal - MIN_LIB_COLUMN_WIDTHS[next],
+      );
+      latest = {
+        ...libraryColumnWidths,
+        [current]: nextCurrent,
+        [next]: pairTotal - nextCurrent,
+      };
+      setLibraryColumnWidths(latest);
+    };
+    const finish = (): void => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('read-column-resizing');
+      saveLibraryColumnWidths(latest);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }
+
+  function resetColumnWidths(): void {
+    const defaults = { ...DEFAULT_LIB_COLUMN_WIDTHS };
+    setLibraryColumnWidths(defaults);
+    saveLibraryColumnWidths(defaults);
+  }
+
+  function resizeColumnsByKeyboard(index: number, delta: number): void {
+    const current = SORT_COLS[index]?.key;
+    const next = SORT_COLS[index + 1]?.key;
+    if (current === undefined || next === undefined) return;
+    const pairTotal = libraryColumnWidths[current] + libraryColumnWidths[next];
+    const nextCurrent = clamp(
+      libraryColumnWidths[current] + delta,
+      MIN_LIB_COLUMN_WIDTHS[current],
+      pairTotal - MIN_LIB_COLUMN_WIDTHS[next],
+    );
+    const widths = {
+      ...libraryColumnWidths,
+      [current]: nextCurrent,
+      [next]: pairTotal - nextCurrent,
+    };
+    setLibraryColumnWidths(widths);
+    saveLibraryColumnWidths(widths);
   }
 
   const activeTabObj = activeTab !== null ? tabs.find((tb) => tb.id === activeTab) : undefined;
@@ -2805,10 +3042,11 @@ export function ReadSurface(): JSX.Element {
                     computeItemKey={(_i, r) => r.id}
                     fixedHeaderContent={() => (
                       <tr>
-                        {SORT_COLS.map((c) => (
+                        {SORT_COLS.map((c, index) => (
                           <th
                             key={c.key}
                             className={`read-th${sortKey === c.key ? ' sorted' : ''}`}
+                            style={{ width: `${libraryColumnWidths[c.key]}%` }}
                             aria-sort={
                               sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
                             }
@@ -2826,6 +3064,35 @@ export function ReadSurface(): JSX.Element {
                                 )}
                               </span>
                             </button>
+                            {index < SORT_COLS.length - 1 && (
+                              <span
+                                className="read-th-resizer"
+                                role="separator"
+                                tabIndex={0}
+                                aria-orientation="vertical"
+                                aria-valuemin={MIN_LIB_COLUMN_WIDTHS[c.key]}
+                                aria-valuemax={
+                                  libraryColumnWidths[c.key] + libraryColumnWidths[SORT_COLS[index + 1]!.key] -
+                                  MIN_LIB_COLUMN_WIDTHS[SORT_COLS[index + 1]!.key]
+                                }
+                                aria-valuenow={Math.round(libraryColumnWidths[c.key])}
+                                aria-label={t('read.resizeColumn').replace('{col}', t(c.labelKey))}
+                                title={t('read.resizeColumnHint')}
+                                onPointerDown={(event) => startColumnResize(event, index)}
+                                onKeyDown={(event) => {
+                                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  const direction = event.key === 'ArrowRight' ? 1 : -1;
+                                  resizeColumnsByKeyboard(index, direction * (event.shiftKey ? 5 : 1));
+                                }}
+                                onDoubleClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  resetColumnWidths();
+                                }}
+                              />
+                            )}
                           </th>
                         ))}
                       </tr>

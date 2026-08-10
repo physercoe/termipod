@@ -1233,6 +1233,9 @@
   user-select: none;
   white-space: nowrap;
 }
+.read-table thead th:not(:last-child) {
+  padding-right: var(--spacing-s12);
+}
 .read-table thead th.sorted {
   color: var(--accent-text);
 }
@@ -1254,6 +1257,40 @@
 }
 .read-th-arrow {
   font-size: 0.7em;
+}
+.read-th-resizer {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  z-index: 2;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.read-th-resizer::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.12s var(--ease);
+}
+.read-th-resizer:hover::after,
+.read-th-resizer:focus-visible::after,
+.read-column-resizing .read-th-resizer::after {
+  background: var(--text-muted);
+}
+.read-th-resizer:focus-visible {
+  outline: 1px solid var(--text-secondary);
+  outline-offset: -2px;
+}
+.read-column-resizing,
+.read-column-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .read-table tbody tr:focus-visible {
   outline: 2px solid var(--accent);

@@ -176,8 +176,10 @@ binding). Seed entries prior to that are in
   falls back to `"@principal"` for an absent handle, an absent role and
   unparseable scope JSON alike. So the branch was unreachable, and every
   row the codex approval bridge has raised since ADR-012 D3 recorded
-  `actor_kind=operator` plus the host token's principal instead of
-  `agent` plus the agent's handle. The condition is now the token
+  `actor_kind=host` plus the host token's principal instead of
+  `agent` plus the agent's handle (the stored kind is the caller's
+  token kind verbatim, and host-runners run under `host` tokens — an
+  audit of the affected rows should filter on `actor_kind='host'`). The condition is now the token
   *kind*: only a `host` token may name someone else, so an agent's own
   token still loses to its context identity. Found by testing the new
   pane-state row against the real handler instead of a stub; neither

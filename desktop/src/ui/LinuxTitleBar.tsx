@@ -1,6 +1,5 @@
 import type { MouseEvent } from 'react';
 import { invoke } from '../bridge';
-import { JobIcon } from './JobIcon';
 
 type MenuSection = 'file' | 'edit' | 'view' | 'window';
 
@@ -30,7 +29,21 @@ export function LinuxTitleBar(): JSX.Element {
     <header className="linux-titlebar" aria-label="Window title bar">
       <div className="linux-titlebar-inner">
         <span className="linux-titlebar-icon" role="img" aria-label="TermiPod">
-          <JobIcon id="fleet" size={16} />
+          <svg viewBox="128 128 256 256" aria-hidden="true">
+            <defs>
+              <linearGradient id="linux-brand-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#14e2c6" />
+                <stop offset="48%" stopColor="#0cbdf4" />
+                <stop offset="100%" stopColor="#1f8fff" />
+              </linearGradient>
+              <linearGradient id="linux-brand-spark" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#8ef2ff" />
+                <stop offset="100%" stopColor="#45c2f7" />
+              </linearGradient>
+            </defs>
+            <path d="M162 182 L232 252 L162 322" fill="none" stroke="url(#linux-brand-accent)" strokeWidth="31" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M326.5 223 Q330.85 247.65 355.5 252 Q330.85 256.35 326.5 281 Q322.15 256.35 297.5 252 Q322.15 247.65 326.5 223Z" fill="url(#linux-brand-spark)" />
+          </svg>
         </span>
         <nav className="linux-titlebar-menu" aria-label="Application menu">
           {MENU_SECTIONS.map((section) => (

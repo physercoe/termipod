@@ -354,6 +354,11 @@ pre {
   opacity: 0.9;
   pointer-events: none;
 }
+.linux-titlebar-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
 .linux-titlebar-menu {
   display: flex;
   align-items: center;

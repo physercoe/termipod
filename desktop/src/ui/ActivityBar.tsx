@@ -79,6 +79,7 @@ export function ActivityBar(): JSX.Element {
         })}
       </div>
       <button
+        data-job={SETTINGS_JOB.id}
         className={`activity-tab activity-tab-pinned${job === SETTINGS_JOB.id ? ' active' : ''}`}
         aria-current={job === SETTINGS_JOB.id ? 'page' : undefined}
         title={t(SETTINGS_JOB.hintKey)}

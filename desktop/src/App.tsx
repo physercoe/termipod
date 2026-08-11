@@ -1,3 +1,4 @@
+import { useApplyAppearance } from './state/appearance';
 import { useApplyTheme } from './state/theme';
 import { AppShell } from './ui/AppShell';
 
@@ -7,5 +8,6 @@ import { AppShell } from './ui/AppShell';
 /// login; work offline though not fully functional").
 export function App(): JSX.Element {
   useApplyTheme();
+  useApplyAppearance();
   return <AppShell />;
 }

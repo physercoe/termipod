@@ -7,6 +7,13 @@ import { comboFromEvent, formatCombo, isBindable, useKeybindings, type BindingAc
 import { listProfiles, removeProfile, type HubProfile } from '../state/profiles';
 import { useSession } from '../state/session';
 import { useTheme, type ThemePref } from '../state/theme';
+import {
+  UI_FONT_SCALE_MAX,
+  UI_FONT_SCALE_MIN,
+  UI_FONT_SCALE_STEP,
+  useAppearance,
+  type UiFontFamily,
+} from '../state/appearance';
 import { getVoiceApiKey, getVoiceModel, setVoiceApiKey, setVoiceModel, VOICE_MODELS } from '../voice/settings';
 import { activeRootLabel, useAttachmentConfig } from '../state/attachments';
 import { PROXY_CONNS, useProxy, type ProxyConn } from '../state/proxy';
@@ -128,6 +135,10 @@ function AppearanceSettings(): JSX.Element {
   const t = useT();
   const pref = useTheme((s) => s.pref);
   const setPref = useTheme((s) => s.setPref);
+  const font = useAppearance((s) => s.font);
+  const fontScale = useAppearance((s) => s.fontScale);
+  const setFont = useAppearance((s) => s.setFont);
+  const setFontScale = useAppearance((s) => s.setFontScale);
   const lang = useLang((s) => s.lang);
   const setLang = useLang((s) => s.setLang);
   const themes: { v: ThemePref; label: string }[] = [
@@ -138,6 +149,11 @@ function AppearanceSettings(): JSX.Element {
   const langs: { v: Lang; label: string }[] = [
     { v: 'en', label: 'English' },
     { v: 'zh', label: '中文' },
+  ];
+  const fonts: { v: UiFontFamily; label: string }[] = [
+    { v: 'inter', label: 'Inter' },
+    { v: 'system', label: t('settings.fontSystem') },
+    { v: 'mono', label: 'JetBrains Mono' },
   ];
   return (
     <section className="setting-group">
@@ -150,6 +166,34 @@ function AppearanceSettings(): JSX.Element {
               {o.label}
             </button>
           ))}
+        </div>
+      </div>
+      <div className="setting-row">
+        <label htmlFor="settings-ui-font">{t('settings.font')}</label>
+        <select
+          id="settings-ui-font"
+          className="settings-font-select"
+          value={font}
+          onChange={(event) => setFont(event.target.value as UiFontFamily)}
+        >
+          {fonts.map((option) => (
+            <option key={option.v} value={option.v}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+      <div className="setting-row">
+        <label htmlFor="settings-ui-font-size">{t('settings.fontSize')}</label>
+        <div className="settings-font-size-control">
+          <input
+            id="settings-ui-font-size"
+            type="range"
+            min={UI_FONT_SCALE_MIN * 100}
+            max={UI_FONT_SCALE_MAX * 100}
+            step={UI_FONT_SCALE_STEP * 100}
+            value={fontScale * 100}
+            onChange={(event) => setFontScale(Number(event.target.value) / 100)}
+          />
+          <output htmlFor="settings-ui-font-size">{Math.round(fontScale * 100)}%</output>
         </div>
       </div>
       <div className="setting-row">

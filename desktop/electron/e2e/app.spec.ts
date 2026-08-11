@@ -117,6 +117,8 @@ test('linux: app menus share one title row and native controls reserve their edg
   }
 
   await expect(titlebar).toBeVisible();
+  await expect(titlebar.locator('.linux-titlebar-icon svg')).toHaveCount(1);
+  await expect(titlebar.locator('.linux-titlebar-icon .job-icon')).toHaveCount(0);
   await expect(titlebar.locator('.linux-titlebar-menu-item')).toHaveText([
     'File', 'Edit', 'View', 'Window',
   ]);
@@ -146,6 +148,52 @@ test('linux: app menus share one title row and native controls reserve their edg
   );
 
 });
+
+test('appearance font and size update live and persist across reload', async () => {
+  await dismissConnectModal();
+  const original = await page.evaluate(() => ({
+    font: localStorage.getItem('termipod.uiFont'),
+    scale: localStorage.getItem('termipod.uiFontScale'),
+    category: localStorage.getItem('termipod.settings.cat'),
+  }));
+
+  try {
+    await page.locator('[data-job="settings"]').click();
+    await page.locator('.settings-cat').nth(1).click();
+
+    await page.locator('#settings-ui-font').selectOption('mono');
+    await page.locator('#settings-ui-font-size').fill('120');
+    await expect.poll(() => page.evaluate(() => ({
+      font: document.documentElement.dataset.uiFont,
+      scale: document.documentElement.dataset.uiFontScale,
+      sans: document.documentElement.style.getPropertyValue('--sans'),
+      body: document.documentElement.style.getPropertyValue('--font-size-body'),
+    }))).toEqual({
+      font: 'mono',
+      scale: '120',
+      sans: '"JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace',
+      body: '16.80px',
+    });
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.evaluate(() => ({
+      font: document.documentElement.dataset.uiFont,
+      scale: document.documentElement.dataset.uiFontScale,
+    }))).toEqual({ font: 'mono', scale: '120' });
+  } finally {
+    await page.evaluate(({ font, scale, category }) => {
+      const restore = (key: string, value: string | null): void => {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      };
+      restore('termipod.uiFont', font);
+      restore('termipod.uiFontScale', scale);
+      restore('termipod.settings.cat', category);
+    }, original);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 // ── Terminal flow ──────────────────────────────────────────────────────────
 // A real local shell over node-pty. This is the layer the M4 base64→bytes IPC
 // paydown (§7 row 4 / §6 row 6) will change, so pin the whole PTY round-trip:

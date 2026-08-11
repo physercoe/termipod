@@ -17,6 +17,36 @@
           : 'light'
         : p;
     document.documentElement.dataset.theme = t;
+
+    // Apply typography before first paint too. state/appearance.ts owns the
+    // same keys, narrowing and live updates once React mounts.
+    var font = localStorage.getItem('termipod.uiFont') || 'inter';
+    var stacks = {
+      inter: '"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+      system: 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif',
+      mono: '"JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace',
+    };
+    if (!Object.prototype.hasOwnProperty.call(stacks, font)) font = 'inter';
+    var scale = Number.parseFloat(localStorage.getItem('termipod.uiFontScale') || '1');
+    if (!Number.isFinite(scale)) scale = 1;
+    scale = Math.min(1.3, Math.max(0.8, scale));
+    scale = Math.round((scale - 0.8) / 0.05) * 0.05 + 0.8;
+    var sizes = {
+      '--font-size-label': 11,
+      '--font-size-caption': 12,
+      '--font-size-body-small': 13,
+      '--font-size-body': 14,
+      '--font-size-subtitle': 16,
+      '--font-size-title': 18,
+      '--font-size-title-large': 20,
+    };
+    var root = document.documentElement;
+    root.dataset.uiFont = font;
+    root.dataset.uiFontScale = String(Math.round(scale * 100));
+    root.style.setProperty('--sans', stacks[font]);
+    Object.keys(sizes).forEach(function (token) {
+      root.style.setProperty(token, String(sizes[token] * scale) + 'px');
+    });
   } catch (e) {
     /* ignore — falls back to the CSS default (dark) */
   }

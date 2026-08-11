@@ -115,6 +115,36 @@
 .setting-row label {
   color: var(--text-secondary);
 }
+.settings-font-select {
+  min-width: 180px;
+}
+.settings-font-size-control {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  min-width: 240px;
+}
+.settings-font-size-control input[type='range'] {
+  width: 190px;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.settings-font-size-control output {
+  min-width: 42px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  text-align: right;
+}
+@media (max-width: 720px) {
+  .settings-font-size-control {
+    min-width: 0;
+  }
+  .settings-font-size-control input[type='range'] {
+    width: min(42vw, 190px);
+  }
+}
 /* Network → proxy config + per-connection toggles. */
 .network-proxy-input {
   flex: 1 1 auto;

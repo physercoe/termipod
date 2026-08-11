@@ -32,13 +32,13 @@ export function LinuxTitleBar(): JSX.Element {
           <svg viewBox="128 128 256 256" aria-hidden="true">
             <defs>
               <linearGradient id="linux-brand-accent" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#14e2c6" />
-                <stop offset="48%" stopColor="#0cbdf4" />
-                <stop offset="100%" stopColor="#1f8fff" />
+                <stop offset="0%" stopColor="var(--brand-mark-accent-start)" />
+                <stop offset="48%" stopColor="var(--brand-mark-accent-mid)" />
+                <stop offset="100%" stopColor="var(--brand-mark-accent-end)" />
               </linearGradient>
               <linearGradient id="linux-brand-spark" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#8ef2ff" />
-                <stop offset="100%" stopColor="#45c2f7" />
+                <stop offset="0%" stopColor="var(--brand-mark-spark-start)" />
+                <stop offset="100%" stopColor="var(--brand-mark-spark-end)" />
               </linearGradient>
             </defs>
             <path d="M162 182 L232 252 L162 322" fill="none" stroke="url(#linux-brand-accent)" strokeWidth="31" strokeLinecap="round" strokeLinejoin="round" />

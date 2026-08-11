@@ -40,6 +40,13 @@
   --accent-text: #f4f4f4;
   --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 42%, transparent);
+  /* Canonical TermiPod prompt/spark gradient. Components consume these
+   * semantic aliases instead of duplicating raw logo colours in TSX. */
+  --brand-mark-accent-start: #14e2c6;
+  --brand-mark-accent-mid: #0cbdf4;
+  --brand-mark-accent-end: #1f8fff;
+  --brand-mark-spark-start: #8ef2ff;
+  --brand-mark-spark-end: #45c2f7;
   /* Soft-glass chrome — translucency is intentionally limited to persistent
    * navigation, toolbar and overlay surfaces. Reading/editing canvases stay
    * opaque so depth never competes with content. Half-pixel rules render as

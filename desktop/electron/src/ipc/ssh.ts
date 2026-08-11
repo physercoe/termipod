@@ -191,6 +191,8 @@ interface SftpEntry {
   name: string;
   is_dir: boolean;
   size: number;
+  modified_ms: number | null;
+  mode: number | null;
 }
 
 /// Promisified SFTP primitives used by the directory-transfer / file-op
@@ -479,6 +481,10 @@ export const sshHandlers: Record<string, Handler> = {
             name: e.filename,
             is_dir: e.attrs.isDirectory(),
             size: e.attrs.size ?? 0,
+            // SFTP v3 timestamps are epoch seconds; the renderer uses epoch ms
+            // like the local Node stat contract.
+            modified_ms: Number.isFinite(e.attrs.mtime) ? e.attrs.mtime * 1000 : null,
+            mode: Number.isInteger(e.attrs.mode) ? e.attrs.mode : null,
           }));
           // Dirs first, then name ascending (code-unit compare, matching ssh.rs's
           // byte ordering for ASCII paths).

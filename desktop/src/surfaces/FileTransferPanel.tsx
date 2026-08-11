@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   onSftpProgress,
   sftpDelete,
@@ -22,10 +22,19 @@ import {
 } from '../state/localfs';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
+import { InspectFileIcon } from '../ui/InspectFileIcon';
 import { useConfirm } from '../ui/ConfirmModal';
 import { useContextMenu } from '../ui/ContextMenu';
 import { useTextPrompt } from '../ui/PromptModal';
 import { Modal } from '../ui/Modal';
+import {
+  formatModifiedTime,
+  formatPermissions,
+  nextFileSort,
+  sortFileEntries,
+  type FileSort,
+  type FileSortKey,
+} from '../ssh/fileListing';
 
 /// Two-pane file transfer (FileZilla-style): the local machine on the left, the
 /// remote host (over the session's SFTP subsystem) on the right.
@@ -90,6 +99,43 @@ function nameValid(name: string): boolean {
 /** Files above this size are not previewed in the View modal. */
 const PREVIEW_MAX = 5 * 1024 * 1024;
 
+function EntryIcon({ name, isDir }: { name: string; isDir: boolean }): JSX.Element {
+  return isDir ? (
+    <span className="inspect-folder-icon" aria-hidden="true">
+      <Icon name="folder" size={15} />
+    </span>
+  ) : (
+    <InspectFileIcon filename={name} size={15} />
+  );
+}
+
+function FileListHeader({ sort, onSort }: { sort: FileSort; onSort: (key: FileSortKey) => void }): JSX.Element {
+  const t = useT();
+  const sortable = (key: FileSortKey, label: string): JSX.Element => {
+    const active = sort.key === key;
+    const direction = active ? sort.direction : undefined;
+    return (
+      <button
+        className={`sftp-sort-btn${active ? ' active' : ''}`}
+        onClick={() => onSort(key)}
+        aria-label={`${t('a11y.sortBy').replace('{col}', label)}${direction === undefined ? '' : `, ${t(direction === 'asc' ? 'sftp.ascending' : 'sftp.descending')}`}`}
+      >
+        <span>{label}</span>
+        {active && <Icon name={direction === 'asc' ? 'chevron-up' : 'chevron-down'} size={12} />}
+      </button>
+    );
+  };
+  return (
+    <div className="sftp-list-head">
+      <div>{sortable('name', t('sftp.name'))}</div>
+      <div className="sftp-col-size">{t('sftp.size')}</div>
+      <div>{sortable('modified', t('sftp.modified'))}</div>
+      <div>{t('sftp.permissions')}</div>
+      <span aria-hidden="true" />
+    </div>
+  );
+}
+
 /** A pre-scanned directory tree: directory relpaths (for recreating empty
  *  dirs) plus file relpaths with sizes (for the aggregate progress total). */
 interface DirScan {
@@ -106,11 +152,13 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
   const [rdir, setRdir] = useState('.');
   const [rentries, setREntries] = useState<SftpEntry[]>([]);
   const [rbusy, setRBusy] = useState(false);
+  const [rSort, setRSort] = useState<FileSort>({ key: 'name', direction: 'asc' });
   // Local pane — `local` carries the absolute path + parent so navigation never
   // re-joins paths client-side; `lpath` is the editable path field.
   const [local, setLocal] = useState<LocalListing | null>(null);
   const [lpath, setLpath] = useState('');
   const [lbusy, setLBusy] = useState(false);
+  const [lSort, setLSort] = useState<FileSort>({ key: 'name', direction: 'asc' });
   // Selection is by NAME (what the listing shows) — purely visual, no action.
   const [selL, setSelL] = useState<string | null>(null);
   const [selR, setSelR] = useState<string | null>(null);
@@ -119,6 +167,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
   const [busy, setBusy] = useState(false);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const sortedLocalEntries = useMemo(() => sortFileEntries(local?.entries ?? [], lSort), [local?.entries, lSort]);
+  const sortedRemoteEntries = useMemo(() => sortFileEntries(rentries, rSort), [rentries, rSort]);
 
   const settle = useCallback((id: string, patch: Partial<Transfer>): void => {
     setTransfer((prev) => (prev !== null && prev.id === id ? { ...prev, ...patch } : prev));
@@ -559,7 +609,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
               ])
             }
           >
-            {(local?.entries ?? []).map((e) => (
+            <FileListHeader sort={lSort} onSort={(key) => setLSort((current) => nextFileSort(current, key))} />
+            {sortedLocalEntries.map((e) => (
               <div
                 key={e.path}
                 className={`sftp-row${selL === e.name ? ' selected' : ''}`}
@@ -596,12 +647,13 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
                     }
                   }}
                 >
-                  <Icon name={e.is_dir ? 'folder' : 'file-text'} size={15} className="sftp-icon" />
+                  <EntryIcon name={e.name} isDir={e.is_dir} />
                   <span className="sftp-name">{e.name}</span>
                 </button>
-                <span className="spacer" />
-                <span className="muted small">{e.is_dir ? '' : formatBytes(e.size)}</span>
-                <button className="link-btn" disabled={busy} title={t('sftp.upload')} onClick={() => void upload(e)}>
+                <span className="muted small sftp-col-size">{e.is_dir ? '' : formatBytes(e.size)}</span>
+                <span className="muted small sftp-col-modified">{formatModifiedTime(e.modified_ms)}</span>
+                <span className="muted small mono sftp-col-permissions">{formatPermissions(e.mode, e.is_dir)}</span>
+                <button className="link-btn sftp-col-action" disabled={busy} title={t('sftp.upload')} onClick={() => void upload(e)}>
                   {t('sftp.toRemote')} <Icon name="chevron-right" size={13} />
                 </button>
               </div>
@@ -641,7 +693,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
               ])
             }
           >
-            {rentries.map((e) => (
+            <FileListHeader sort={rSort} onSort={(key) => setRSort((current) => nextFileSort(current, key))} />
+            {sortedRemoteEntries.map((e) => (
               <div
                 key={e.name}
                 className={`sftp-row${selR === e.name ? ' selected' : ''}`}
@@ -676,12 +729,13 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
                     }
                   }}
                 >
-                  <Icon name={e.is_dir ? 'folder' : 'file-text'} size={15} className="sftp-icon" />
+                  <EntryIcon name={e.name} isDir={e.is_dir} />
                   <span className="sftp-name">{e.name}</span>
                 </button>
-                <span className="spacer" />
-                <span className="muted small">{e.is_dir ? '' : formatBytes(e.size)}</span>
-                <button className="link-btn" disabled={busy} title={t('sftp.download')} onClick={() => void download(e)}>
+                <span className="muted small sftp-col-size">{e.is_dir ? '' : formatBytes(e.size)}</span>
+                <span className="muted small sftp-col-modified">{formatModifiedTime(e.modified_ms)}</span>
+                <span className="muted small mono sftp-col-permissions">{formatPermissions(e.mode, e.is_dir)}</span>
+                <button className="link-btn sftp-col-action" disabled={busy} title={t('sftp.download')} onClick={() => void download(e)}>
                   <Icon name="chevron-left" size={13} /> {t('sftp.toLocal')}
                 </button>
               </div>

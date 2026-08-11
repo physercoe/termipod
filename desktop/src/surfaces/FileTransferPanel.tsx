@@ -111,12 +111,12 @@ function EntryIcon({ name, isDir }: { name: string; isDir: boolean }): JSX.Eleme
 
 function FileListHeader({ sort, onSort }: { sort: FileSort; onSort: (key: FileSortKey) => void }): JSX.Element {
   const t = useT();
-  const sortable = (key: FileSortKey, label: string): JSX.Element => {
+  const sortable = (key: FileSortKey, label: string, className = ''): JSX.Element => {
     const active = sort.key === key;
     const direction = active ? sort.direction : undefined;
     return (
       <button
-        className={`sftp-sort-btn${active ? ' active' : ''}`}
+        className={`sftp-sort-btn${className === '' ? '' : ` ${className}`}${active ? ' active' : ''}`}
         onClick={() => onSort(key)}
         aria-label={`${t('a11y.sortBy').replace('{col}', label)}${direction === undefined ? '' : `, ${t(direction === 'asc' ? 'sftp.ascending' : 'sftp.descending')}`}`}
       >
@@ -127,10 +127,10 @@ function FileListHeader({ sort, onSort }: { sort: FileSort; onSort: (key: FileSo
   };
   return (
     <div className="sftp-list-head">
-      <div>{sortable('name', t('sftp.name'))}</div>
-      <div className="sftp-col-size">{t('sftp.size')}</div>
-      <div>{sortable('modified', t('sftp.modified'))}</div>
-      <div>{t('sftp.permissions')}</div>
+      {sortable('name', t('sftp.name'))}
+      {sortable('size', t('sftp.size'), 'sftp-col-size')}
+      {sortable('modified', t('sftp.modified'))}
+      {sortable('permissions', t('sftp.permissions'))}
       <span aria-hidden="true" />
     </div>
   );

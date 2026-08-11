@@ -1,4 +1,4 @@
-export type FileSortKey = 'name' | 'modified';
+export type FileSortKey = 'name' | 'size' | 'modified' | 'permissions';
 export type SortDirection = 'asc' | 'desc';
 
 export interface FileSort {
@@ -9,28 +9,45 @@ export interface FileSort {
 export interface FileListMetadata {
   name: string;
   is_dir: boolean;
+  size: number;
   modified_ms: number | null;
+  mode: number | null;
 }
 
 const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 export function nextFileSort(current: FileSort, key: FileSortKey): FileSort {
-  if (current.key !== key) return { key, direction: key === 'modified' ? 'desc' : 'asc' };
+  if (current.key !== key) return { key, direction: key === 'modified' || key === 'size' ? 'desc' : 'asc' };
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+}
+
+function compareNullableNumber(a: number | null, b: number | null, direction: SortDirection): number {
+  // Missing metadata stays at the bottom in either direction.
+  if (a === null || b === null) {
+    if (a === b) return 0;
+    return a === null ? 1 : -1;
+  }
+  const delta = a - b;
+  return direction === 'asc' ? delta : -delta;
 }
 
 /** Keep folders grouped first, then apply the pane's selected ordering. */
 export function sortFileEntries<T extends FileListMetadata>(entries: readonly T[], sort: FileSort): T[] {
   return entries.slice().sort((a, b) => {
     if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    if (sort.key === 'size') {
+      const bySize = compareNullableNumber(a.size, b.size, sort.direction);
+      if (bySize !== 0) return bySize;
+      return NAME_COLLATOR.compare(a.name, b.name);
+    }
     if (sort.key === 'modified') {
-      // Unknown timestamps stay at the bottom in either direction.
-      if (a.modified_ms === null || b.modified_ms === null) {
-        if (a.modified_ms === b.modified_ms) return NAME_COLLATOR.compare(a.name, b.name);
-        return a.modified_ms === null ? 1 : -1;
-      }
-      const delta = a.modified_ms - b.modified_ms;
-      if (delta !== 0) return sort.direction === 'asc' ? delta : -delta;
+      const byModified = compareNullableNumber(a.modified_ms, b.modified_ms, sort.direction);
+      if (byModified !== 0) return byModified;
+      return NAME_COLLATOR.compare(a.name, b.name);
+    }
+    if (sort.key === 'permissions') {
+      const byMode = compareNullableNumber(a.mode, b.mode, sort.direction);
+      if (byMode !== 0) return byMode;
       return NAME_COLLATOR.compare(a.name, b.name);
     }
     const byName = NAME_COLLATOR.compare(a.name, b.name);

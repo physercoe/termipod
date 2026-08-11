@@ -237,21 +237,37 @@
   font-weight: 600;
 }
 .sftp-sort-btn {
-  display: inline-flex;
+  position: relative;
+  align-self: stretch;
+  display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  max-width: 100%;
-  padding: 0;
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--spacing-s4);
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
+  text-align: left;
+}
+.sftp-sort-btn::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--spacing-s4) * -1);
+  right: calc(var(--spacing-s8) * -0.5);
+  bottom: calc(var(--spacing-s4) * -1);
+  width: 1px;
+  background: var(--border);
 }
 .sftp-sort-btn:hover,
 .sftp-sort-btn.active {
   color: var(--text);
 }
+.sftp-sort-btn:hover { background: var(--hover); }
+.sftp-sort-btn.sftp-col-size { justify-content: flex-end; }
 .sftp-name-btn {
   display: flex;
   align-items: center;

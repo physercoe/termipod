@@ -118,6 +118,53 @@ func TestReferenceEnrichmentRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReferenceAttachmentsRoundTrip(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+	team := defaultTeamID
+
+	created, err := s.createReference(ctx, team, referenceBody{
+		Title: "Portable attachments",
+		ZoteroStorage: &zoteroStorageRef{
+			Key: "ZKEY", File: "legacy.pdf", ContentType: "application/pdf",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Attachments == nil || len(created.Attachments) != 0 {
+		t.Fatalf("empty manifest must round-trip as []: %#v", created.Attachments)
+	}
+
+	patched, err := s.patchReference(ctx, team, created.ID, json.RawMessage(`{
+		"attachments":[
+			{"id":"managed-1","file":"paper.pdf","content_type":"application/pdf","source":"managed","key":"paper-key","src_url":"https://example.test/paper.pdf","added_at":42,"path":"/host-only/paper.pdf"},
+			{"id":"zotero-1","file":"z.pdf","source":"zotero","key":"ZKEY"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("patch attachments: %v", err)
+	}
+	if len(patched.Attachments) != 2 || patched.Attachments[0].Key != "paper-key" {
+		t.Fatalf("attachments not round-tripped: %#v", patched.Attachments)
+	}
+	encoded, _ := json.Marshal(patched)
+	if json_contains(encoded, "host-only") || json_contains(encoded, `"path"`) {
+		t.Fatalf("host-local path leaked into reference response: %s", encoded)
+	}
+	if patched.ZoteroStorage == nil || patched.ZoteroStorage.Key != "ZKEY" {
+		t.Fatalf("legacy Zotero coordinate was not preserved: %#v", patched.ZoteroStorage)
+	}
+
+	preserved, err := s.patchReference(ctx, team, created.ID, json.RawMessage(`{"notes":"keep manifest"}`))
+	if err != nil || len(preserved.Attachments) != 2 {
+		t.Fatalf("unrelated patch dropped manifest: %v %#v", err, preserved.Attachments)
+	}
+	cleared, err := s.patchReference(ctx, team, created.ID, json.RawMessage(`{"attachments":[]}`))
+	if err != nil || cleared.Attachments == nil || len(cleared.Attachments) != 0 {
+		t.Fatalf("explicit empty manifest did not clear attachments: %v %#v", err, cleared.Attachments)
+	}
+}
 func TestReferenceMCPCreateList(t *testing.T) {
 	s, _ := newTestServer(t)
 	ctx := context.Background()

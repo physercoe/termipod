@@ -221,7 +221,7 @@ func buildNativeTools() []nativeTool {
 		{
 			Name:        "reference_create",
 			Short:       "Add a reference to the library.",
-			Description: "Create a reference. Provide at least title or external_id. Fields: type (article|preprint|book|report|webpage|note), title, authors (string array), year, venue, doi, arxiv_id, url, pdf_url, abstract, tldr, source, external_id (dedupe key), tags, collections (name array), notes, body_markdown.",
+			Description: "Create a reference. Provide at least title or external_id. Fields: type (article|preprint|book|report|webpage|note), title, authors (string array), year, venue, doi, arxiv_id, url, pdf_url, abstract, tldr, source, external_id (dedupe key), tags, collections (name array), notes, body_markdown, attachments (portable key/file descriptors; never absolute paths).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -239,6 +239,24 @@ func buildNativeTools() []nativeTool {
 					"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"collections": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"notes":       map[string]any{"type": "string"},
+					"attachments": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"id":           map[string]any{"type": "string"},
+								"file":         map[string]any{"type": "string"},
+								"content_type": map[string]any{"type": "string"},
+								"source": map[string]any{
+									"type": "string", "enum": []string{"zotero", "managed"},
+								},
+								"key":      map[string]any{"type": "string"},
+								"src_url":  map[string]any{"type": "string"},
+								"added_at": map[string]any{"type": "integer"},
+							},
+							"required": []string{"file", "source", "key"},
+						},
+					},
 				},
 			},
 			Tier: TierRoutine, WorkerEligible: true,
@@ -261,6 +279,24 @@ func buildNativeTools() []nativeTool {
 					"collections": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"notes":       map[string]any{"type": "string"},
 					"abstract":    map[string]any{"type": "string"},
+					"attachments": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"id":           map[string]any{"type": "string"},
+								"file":         map[string]any{"type": "string"},
+								"content_type": map[string]any{"type": "string"},
+								"source": map[string]any{
+									"type": "string", "enum": []string{"zotero", "managed"},
+								},
+								"key":      map[string]any{"type": "string"},
+								"src_url":  map[string]any{"type": "string"},
+								"added_at": map[string]any{"type": "integer"},
+							},
+							"required": []string{"file", "source", "key"},
+						},
+					},
 				},
 				"required": []string{"id"},
 			},

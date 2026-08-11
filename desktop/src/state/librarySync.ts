@@ -1,5 +1,6 @@
 import type { HubClient } from '../hub/client';
 import { arr, num, obj, str, type Entity } from '../hub/types';
+import { attachmentsForPush, attachmentsFromHub, needsAttachmentBackfill, portableAttachmentBodies } from './attachmentManifest.ts';
 import { useLibrary, type ImportItem, type Reference } from './library';
 
 /// Sync the device-local reference library with the hub's Reference entity
@@ -60,6 +61,8 @@ function applyEnrichment(ref: Partial<Reference>, enr: Entity): void {
 // Desktop Reference → hub reference body (snake_case wire shape). collectionIds
 // are mapped to collection *names* (the hub stores names, not local ids).
 function refToHubBody(r: Reference, collName: Map<string, string>): Record<string, unknown> {
+  const attachments = portableAttachmentBodies(r);
+  const z = attachments.find((attachment) => attachment.source === 'zotero');
   return {
     type: r.type,
     title: r.title,
@@ -80,12 +83,9 @@ function refToHubBody(r: Reference, collName: Map<string, string>): Record<strin
     notes: r.notes,
     body_markdown: r.bodyMarkdown,
     details: r.details,
-    // The hub schema carries a single attachment; sync the first Zotero-indexed
-    // one (managed/local-path attachments stay host-local — bytes never leave).
-    zotero_storage: (() => {
-      const z = (r.attachments ?? []).find((a) => a.source === 'zotero' && a.key !== undefined);
-      return z !== undefined ? { key: z.key ?? '', file: z.file, content_type: z.contentType } : undefined;
-    })(),
+    attachments,
+    // Keep writing the legacy coordinate while older clients are supported.
+    zotero_storage: z !== undefined ? { key: z.key, file: z.file, content_type: z.content_type } : undefined,
     enrichment: buildEnrichment(r),
   };
 }
@@ -93,7 +93,6 @@ function refToHubBody(r: Reference, collName: Map<string, string>): Record<strin
 // Hub reference row → an ImportItem the library store can merge (carrying the
 // hub id as `hubId` so the row links, and collection *names* to find-or-create).
 function hubToImportItem(h: Entity): ImportItem {
-  const zs = obj(h, 'zotero_storage');
   const ref: ImportItem['ref'] = {
     type: (str(h, 'type') as Reference['type'] | undefined) ?? 'article',
     title: str(h, 'title') ?? '',
@@ -113,12 +112,10 @@ function hubToImportItem(h: Entity): ImportItem {
     notes: str(h, 'notes') ?? '',
     bodyMarkdown: str(h, 'body_markdown'),
     details: obj(h, 'details') as Record<string, string> | undefined,
-    zoteroStorage:
-      zs !== undefined && str(zs, 'key') !== undefined
-        ? { key: str(zs, 'key') ?? '', file: str(zs, 'file') ?? '', contentType: str(zs, 'content_type') }
-        : undefined,
+    attachments: attachmentsFromHub(h),
     hubId: str(h, 'id'),
     syncedAt: Date.now(),
+    attachmentManifestSynced: true,
   };
   const enr = obj(h, 'enrichment');
   if (enr !== undefined) applyEnrichment(ref, enr);
@@ -185,6 +182,11 @@ export async function syncLibrary(client: HubClient): Promise<SyncResult> {
   const locals = lib.references;
   const hubRefs = await client.listReferences();
   const byKey = indexHub(hubRefs);
+  const byId = new Map<string, Entity>();
+  for (const hubRef of hubRefs) {
+    const id = str(hubRef, 'id');
+    if (id !== undefined) byId.set(id, hubRef);
+  }
   let pushed = 0;
   let created = 0;
   let failed = 0;
@@ -193,10 +195,13 @@ export async function syncLibrary(client: HubClient): Promise<SyncResult> {
     // its last successful push has nothing new to upload — skip the PUT and its
     // write-back. Rows without a hubId always attempt the push (create / link),
     // and a FAILED push leaves the row dirty so the next sync retries it.
-    if (r.hubId !== undefined && r.dirty !== true) continue;
+    const linkId = r.hubId ?? matchHubId(r, byKey);
+    const backfill = r.dirty !== true && needsAttachmentBackfill(r, linkId !== undefined ? byId.get(linkId) : undefined);
+    if (r.hubId !== undefined && r.dirty !== true && !backfill) continue;
+    const pushAttachments = attachmentsForPush(r, linkId !== undefined ? byId.get(linkId) : undefined);
+    const pushRef = pushAttachments === r.attachments ? r : { ...r, attachments: pushAttachments };
     try {
-      const body = refToHubBody(r, collName);
-      const linkId = r.hubId ?? matchHubId(r, byKey);
+      const body = refToHubBody(pushRef, collName);
       if (linkId !== undefined) {
         await client.updateReference(linkId, body);
         writeBack(r, linkId);

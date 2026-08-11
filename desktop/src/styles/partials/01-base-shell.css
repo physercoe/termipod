@@ -323,6 +323,72 @@ pre {
   min-height: 0;
 }
 
+/* Electron Linux: one compact app/menu/drag row, with the right edge sized by
+   the Window Controls Overlay CSS environment so native buttons own no content. */
+.linux-titlebar {
+  --linux-titlebar-height: 32px;
+  flex: 0 0 var(--linux-titlebar-height);
+  height: var(--linux-titlebar-height);
+  min-height: var(--linux-titlebar-height);
+  display: flex;
+  align-items: center;
+  background: #242424;
+  color: #ececec;
+  border-bottom: var(--hairline) solid #303030;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.linux-titlebar-inner {
+  display: flex;
+  align-items: center;
+  height: env(titlebar-area-height, var(--linux-titlebar-height));
+  width: env(titlebar-area-width, calc(100% - 138px));
+  max-width: 100%;
+  min-width: 0;
+}
+.linux-titlebar-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  height: 100%;
+  opacity: 0.9;
+  pointer-events: none;
+}
+.linux-titlebar-menu {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+.linux-titlebar-menu-item {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: 400 var(--font-size-caption) / 1 var(--sans);
+  line-height: 1;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+.linux-titlebar-menu-item:hover,
+.linux-titlebar-menu-item:focus-visible {
+  background: rgba(255, 255, 255, 0.10);
+  outline: none;
+}
+.linux-titlebar-menu-item:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+.linux-titlebar-drag {
+  flex: 1;
+  align-self: stretch;
+  min-width: 24px;
+}
+.shell.is-fullscreen .linux-titlebar {
+  display: none;
+}
+
 /* Electron macOS uses BrowserWindow.hiddenInset: content replaces the redundant
    native title row while the real traffic lights remain. Reserve their compact
    corner only inside the activity rail; the active workbench toolbar occupies

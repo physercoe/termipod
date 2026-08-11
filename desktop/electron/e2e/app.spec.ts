@@ -107,6 +107,45 @@ test('the app shell renders (no blank screen)', async () => {
   await expect.poll(async () => root.locator('> *').count(), { timeout: 15_000 }).toBeGreaterThan(0);
 });
 
+test('linux: app menus share one title row and native controls reserve their edge', async () => {
+  const os = await page.evaluate(() => window.__ELECTRON_BRIDGE__!.invoke<string>('platform_os'));
+  const titlebar = page.locator('.linux-titlebar');
+
+  if (os !== 'linux') {
+    await expect(titlebar).toHaveCount(0);
+    return;
+  }
+
+  await expect(titlebar).toBeVisible();
+  await expect(titlebar.locator('.linux-titlebar-menu-item')).toHaveText([
+    'File', 'Edit', 'View', 'Window',
+  ]);
+
+  const metrics = await page.evaluate(() => {
+    const bar = document.querySelector<HTMLElement>('.linux-titlebar')!;
+    const inner = document.querySelector<HTMLElement>('.linux-titlebar-inner')!;
+    const workbench = document.querySelector<HTMLElement>('.workbench-row')!;
+    const barRect = bar.getBoundingClientRect();
+    const innerRect = inner.getBoundingClientRect();
+    const workbenchRect = workbench.getBoundingClientRect();
+    return {
+      top: barRect.top,
+      height: barRect.height,
+      bottom: barRect.bottom,
+      workbenchTop: workbenchRect.top,
+      reservedControlWidth: window.innerWidth - innerRect.right,
+    };
+  });
+  expect(metrics.top).toBe(0);
+  expect(metrics.height).toBe(32);
+  expect(metrics.workbenchTop).toBeGreaterThanOrEqual(metrics.bottom);
+  expect(metrics.reservedControlWidth).toBeGreaterThan(0);
+
+  await page.evaluate(() =>
+    window.__ELECTRON_BRIDGE__!.invoke('menu_show_application', { section: 'invalid' }),
+  );
+
+});
 // ── Terminal flow ──────────────────────────────────────────────────────────
 // A real local shell over node-pty. This is the layer the M4 base64→bytes IPC
 // paydown (§7 row 4 / §6 row 6) will change, so pin the whole PTY round-trip:
@@ -294,6 +333,71 @@ test('bytes over IPC: attachment write→read round-trips raw bytes (no base64)'
     return { original, readback };
   });
   expect(rt.readback).toEqual(rt.original);
+});
+
+test('read: synced Zotero files open from the default attachment location', async () => {
+  await dismissConnectModal();
+  const fixture = await page.evaluate(async () => {
+    const b = window.__ELECTRON_BRIDGE__!;
+    const root = await b.invoke<string>('attachment_default_dir');
+    const added = await b.invoke<{ key: string; file: string; path: string }>('attachment_write_bytes', {
+      root,
+      filename: 'e2e-default-storage.txt',
+      bytes: new TextEncoder().encode('opened from the default storage root'),
+    });
+    const libraryKey = 'termipod.library.v1';
+    const linkKey = 'termipod.zotero.storagePath';
+    const originalLibrary = localStorage.getItem(libraryKey);
+    const originalLink = localStorage.getItem(linkKey);
+    localStorage.removeItem(linkKey);
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-e2e-default-storage',
+        type: 'article',
+        title: 'E2E default storage attachment',
+        authors: ['TermiPod'],
+        tags: [],
+        collectionIds: [],
+        notes: '',
+        source: 'zotero',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [{
+          id: 'att-e2e-default-storage',
+          file: added.file,
+          contentType: 'text/plain',
+          source: 'zotero',
+          key: added.key,
+          addedAt: Date.now(),
+        }],
+      }],
+      collections: [],
+    }));
+    return { path: added.path, originalLibrary, originalLink };
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+
+    const row = page.locator('.read-table tbody tr').filter({ hasText: 'E2E default storage attachment' });
+    await expect(row).toBeVisible();
+    await expect(page.locator('.read-import-msg.attn')).toHaveCount(0);
+    await row.dblclick();
+    await expect(page.locator('.att-text')).toContainText('opened from the default storage root');
+  } finally {
+    await page.evaluate(async ({ path, originalLibrary, originalLink }) => {
+      const libraryKey = 'termipod.library.v1';
+      const linkKey = 'termipod.zotero.storagePath';
+      if (originalLibrary === null) localStorage.removeItem(libraryKey);
+      else localStorage.setItem(libraryKey, originalLibrary);
+      if (originalLink === null) localStorage.removeItem(linkKey);
+      else localStorage.setItem(linkKey, originalLink);
+      await window.__ELECTRON_BRIDGE__!.invoke('attachment_delete', { path });
+    }, fixture);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
 });
 
 // ── Excalidraw sketch editor (figure-plan Phase C) ───────────────────────────

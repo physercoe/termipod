@@ -50,7 +50,7 @@ function loadCustom(): string | null {
   }
 }
 
-export const useAttachmentConfig = create<AttachmentConfigState>((set) => ({
+export const useAttachmentConfig = create<AttachmentConfigState>((set, get) => ({
   customRoot: loadCustom(),
   defaultRoot: null,
 
@@ -59,6 +59,12 @@ export const useAttachmentConfig = create<AttachmentConfigState>((set) => ({
     try {
       const dir = await invoke<string>('attachment_default_dir');
       set({ defaultRoot: dir });
+      const zs = useZoteroStorage.getState();
+      if (zs.linkedPath === null && get().customRoot === null) {
+        // The default store is also a valid Zotero-layout read root. Index it so
+        // synced attachments open without requiring a duplicate manual link.
+        await zs.indexNative(dir);
+      }
     } catch {
       /* leave null — add will surface the error */
     }
@@ -71,6 +77,10 @@ export const useAttachmentConfig = create<AttachmentConfigState>((set) => ({
       if (dir === null) return null; // cancelled
       persist(dir);
       set({ customRoot: dir });
+      const zs = useZoteroStorage.getState();
+      if (zs.linkedPath === null) {
+        await zs.indexNative(dir);
+      }
       return null;
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
@@ -80,13 +90,18 @@ export const useAttachmentConfig = create<AttachmentConfigState>((set) => ({
   clearCustom: () => {
     persist(null);
     set({ customRoot: null });
+    const root = get().defaultRoot;
+    const zs = useZoteroStorage.getState();
+    if (root !== null && zs.linkedPath === null) {
+      void zs.indexNative(root);
+    }
   },
 }));
 
 /// The active write root: a linked Zotero storage folder wins, else the user
 /// override, else the app default. Null only before the default resolves.
 export function activeAttachmentRoot(): string | null {
-  const zot = useZoteroStorage.getState().path;
+  const zot = useZoteroStorage.getState().linkedPath;
   if (zot !== null && zot !== '') return zot;
   const cfg = useAttachmentConfig.getState();
   return cfg.customRoot ?? cfg.defaultRoot;
@@ -94,7 +109,7 @@ export function activeAttachmentRoot(): string | null {
 
 /// A human label for where the active root is (for Settings / the inspector).
 export function activeRootLabel(): { kind: 'zotero' | 'custom' | 'default' | 'none'; path: string | null } {
-  const zot = useZoteroStorage.getState().path;
+  const zot = useZoteroStorage.getState().linkedPath;
   if (zot !== null && zot !== '') return { kind: 'zotero', path: zot };
   const cfg = useAttachmentConfig.getState();
   if (cfg.customRoot !== null && cfg.customRoot !== '') return { kind: 'custom', path: cfg.customRoot };

@@ -40,7 +40,11 @@ interface NativeFile {
 interface ZoteroStorageState {
   folderName: string | null;
   count: number;
-  path: string | null; // tauri: absolute linked-folder path (persisted)
+  /** Root currently indexed for reads. This can be the app's default/custom
+   * attachment root even when the user did not explicitly link Zotero. */
+  path: string | null;
+  /** Explicitly linked Zotero root (persisted); wins as the attachment write root. */
+  linkedPath: string | null;
   rels: Map<string, string>; // tauri: "key/file" -> path relative to root
   files: Map<string, File>; // browser: "key/file" -> live File handle
   /**
@@ -50,6 +54,8 @@ interface ZoteroStorageState {
    * Returns an error message, or null on success/cancel.
    */
   linkNative: (start?: string) => Promise<string | null>;
+  /** Index an already-known native attachment root without marking it linked. */
+  indexNative: (path: string) => Promise<string | null>;
   /** Re-index the persisted path on startup (Tauri). No-op with nothing saved. */
   reindex: () => Promise<void>;
   /** Browser fallback — index a `<input webkitdirectory>` FileList (session-only). */
@@ -76,6 +82,7 @@ export const useZoteroStorage = create<ZoteroStorageState>((set) => ({
   folderName: null,
   count: 0,
   path: null,
+  linkedPath: null,
   rels: new Map(),
   files: new Map(),
 
@@ -85,6 +92,18 @@ export const useZoteroStorage = create<ZoteroStorageState>((set) => ({
       if (idx === null) return null; // user cancelled
       const rels = relsFrom(idx);
       persistPath(idx.path);
+      set({ path: idx.path, linkedPath: idx.path, folderName: idx.folderName, rels, count: rels.size });
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  },
+
+  indexNative: async (path) => {
+    if (path === '') return 'not a directory';
+    try {
+      const idx = await invoke<RustIndex>('storage_reindex', { path });
+      const rels = relsFrom(idx);
       set({ path: idx.path, folderName: idx.folderName, rels, count: rels.size });
       return null;
     } catch (e) {
@@ -103,11 +122,11 @@ export const useZoteroStorage = create<ZoteroStorageState>((set) => ({
     try {
       const idx = await invoke<RustIndex>('storage_reindex', { path: saved });
       const rels = relsFrom(idx);
-      set({ path: idx.path, folderName: idx.folderName, rels, count: rels.size });
+      set({ path: idx.path, linkedPath: idx.path, folderName: idx.folderName, rels, count: rels.size });
     } catch {
       // Folder moved/removed — drop the stale path so the UI prompts a re-link.
       persistPath(null);
-      set({ path: null, folderName: null, rels: new Map(), count: 0 });
+      set({ path: null, linkedPath: null, folderName: null, rels: new Map(), count: 0 });
     }
   },
 
@@ -129,7 +148,7 @@ export const useZoteroStorage = create<ZoteroStorageState>((set) => ({
 
   clear: () => {
     persistPath(null);
-    set({ folderName: null, count: 0, path: null, rels: new Map(), files: new Map() });
+    set({ folderName: null, count: 0, path: null, linkedPath: null, rels: new Map(), files: new Map() });
   },
 }));
 

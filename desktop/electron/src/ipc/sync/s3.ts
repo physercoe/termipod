@@ -8,7 +8,7 @@
 ///
 /// PROXY: the `proxy` arg is honoured — every signed request goes through
 /// `proxyFetch` (undici ProxyAgent when a proxy is set, direct fetch otherwise).
-import type { WebContents } from 'electron';
+import { app, type WebContents } from 'electron';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { emit } from '../../events';
@@ -29,12 +29,19 @@ import {
 import {
   buildProp,
   enumerateLocalZotero,
+  localCacheFrom,
   parseProp,
   unzipInto,
   zipFiles,
   type LocalAtt,
 } from './zotero';
 import { EMPTY_SHA256, sha256Hex, signRequest, uriEncode, utcStamps } from './sigv4';
+import {
+  loadZoteroSyncCache,
+  planIncrementalZoteroWork,
+  saveZoteroSyncCache,
+  zoteroCacheScope,
+} from './zotero_cache.ts';
 
 const S3_TIMEOUT_MS = 90_000;
 const ZOTERO_SUB = 'zotero/';
@@ -118,6 +125,7 @@ async function sendSigned(cfg: S3Cfg, method: string, url: URL, query: string, b
 interface RemoteObj {
   size: number;
   mtime: number | null;
+  etag: string | null;
 }
 
 /// ListObjectsV2, paginated. Keyed by the rel path (prefix stripped). Mirrors
@@ -155,7 +163,8 @@ async function listObjects(cfg: S3Cfg): Promise<Map<string, RemoteObj>> {
       if (rel === '') continue;
       const size = Number.parseInt((extractAll(block, 'Size')[0] ?? '').trim(), 10);
       const mtime = iso8601ToMs((extractAll(block, 'LastModified')[0] ?? '').trim());
-      out.set(rel, { size: Number.isFinite(size) ? size : 0, mtime });
+      const etag = (extractAll(block, 'ETag')[0] ?? '').trim();
+      out.set(rel, { size: Number.isFinite(size) ? size : 0, mtime, etag: etag === '' ? null : xmlUnescape(etag) });
     }
     const truncated = (extractAll(body, 'IsTruncated')[0] ?? '').trim().toLowerCase() === 'true';
     if (!truncated || out.size >= MAX_ENTRIES) break;
@@ -199,17 +208,17 @@ async function getBytesOpt(cfg: S3Cfg, rel: string): Promise<Buffer | null> {
   return Buffer.from(await resp.arrayBuffer());
 }
 
-async function zoteroRemoteKeys(cfg: S3Cfg): Promise<Set<string>> {
-  const keys = new Set<string>();
-  for (const rel of (await listObjects(cfg)).keys()) {
+async function zoteroRemoteMarkers(cfg: S3Cfg): Promise<Map<string, string>> {
+  const markers = new Map<string, string>();
+  for (const [rel, remote] of await listObjects(cfg)) {
     if (!rel.startsWith(ZOTERO_SUB)) continue;
     const name = rel.slice(ZOTERO_SUB.length);
     if (name.endsWith('.prop')) {
       const k = name.slice(0, -'.prop'.length);
-      if (isKey(k)) keys.add(k);
+      if (isKey(k)) markers.set(k, remote.etag ?? '');
     }
   }
-  return keys;
+  return markers;
 }
 
 async function zoteroUpload(cfg: S3Cfg, key: string, local: LocalAtt): Promise<void> {
@@ -325,50 +334,76 @@ export const s3Handlers: Record<string, Handler> = {
     const sender = ctx.sender;
 
     const report: ZoteroReport = { uploaded: 0, downloaded: 0, skipped: 0, conflicts: 0, downloadedKeys: [], errors: [] };
-    const locals = await enumerateLocalZotero(root);
-    const remoteKeys = await zoteroRemoteKeys(cfg);
-    const all = new Set<string>([...locals.keys(), ...remoteKeys]);
+    const scope = zoteroCacheScope('s3', [
+      root,
+      cfg.scheme,
+      cfg.host,
+      cfg.bucket,
+      cfg.prefix,
+      cfg.region,
+      cfg.access,
+    ]);
+    const cache = await loadZoteroSyncCache(app.getPath('userData'), scope);
+    const locals = await enumerateLocalZotero(root, cache.local);
+    const remotes = await zoteroRemoteMarkers(cfg);
+    const { work, skipped, remote: nextRemote } = planIncrementalZoteroWork(locals, remotes, cache.remote);
+    report.skipped += skipped;
 
-    const total = all.size;
+    const total = work.length;
     progress(sender, progressId, 0, total);
     let done = 0;
 
-    for (const key of all) {
+    for (const key of work) {
       const local = locals.get(key);
-      const remote = remoteKeys.has(key);
+      const marker = remotes.get(key);
+      const remote = marker !== undefined;
       try {
         if (local !== undefined && !remote) {
           await zoteroUpload(cfg, key, local);
           report.uploaded += 1;
         } else if (local === undefined && remote) {
+          const pb = marker !== '' ? await getBytesOpt(cfg, `${ZOTERO_SUB}${key}.prop`) : null;
+          const prop = pb === null ? null : parseProp(pb.toString('utf8'));
           if (await zoteroDownload(cfg, key, root)) {
             report.downloaded += 1;
             report.downloadedKeys.push(key);
+            if (marker !== '' && prop !== null) nextRemote[key] = { marker, ...prop };
           } else {
             report.skipped += 1;
           }
         } else if (local !== undefined && remote) {
-          const pb = await getBytesOpt(cfg, `${ZOTERO_SUB}${key}.prop`);
-          if (pb === null) {
+          const cached = marker !== '' && cache.remote[key]?.marker === marker
+            ? cache.remote[key]
+            : undefined;
+          const pb = cached === undefined
+            ? await getBytesOpt(cfg, `${ZOTERO_SUB}${key}.prop`)
+            : null;
+          const prop = cached !== undefined
+            ? { mtime: cached.mtime, hash: cached.hash }
+            : pb === null
+              ? null
+              : parseProp(pb.toString('utf8'));
+          if (marker !== '' && prop !== null) nextRemote[key] = { marker, ...prop };
+
+          if (prop === null) {
             await zoteroUpload(cfg, key, local);
+            delete nextRemote[key];
             report.uploaded += 1;
-          } else {
-            const { mtime: rmtime, hash: rhash } = parseProp(pb.toString('utf8'));
-            if (rhash !== '' && rhash.toLowerCase() === local.hash.toLowerCase()) {
-              report.skipped += 1;
-            } else if (local.mtimeMs > rmtime) {
-              await zoteroUpload(cfg, key, local);
-              report.uploaded += 1;
-            } else if (rmtime > local.mtimeMs) {
-              if (await zoteroDownload(cfg, key, root)) {
-                report.downloaded += 1;
-                report.downloadedKeys.push(key);
-              } else {
-                report.skipped += 1;
-              }
+          } else if (prop.hash !== '' && prop.hash.toLowerCase() === local.hash.toLowerCase()) {
+            report.skipped += 1;
+          } else if (local.mtimeMs > prop.mtime) {
+            await zoteroUpload(cfg, key, local);
+            delete nextRemote[key];
+            report.uploaded += 1;
+          } else if (prop.mtime > local.mtimeMs) {
+            if (await zoteroDownload(cfg, key, root)) {
+              report.downloaded += 1;
+              report.downloadedKeys.push(key);
             } else {
-              report.conflicts += 1;
+              report.skipped += 1;
             }
+          } else {
+            report.conflicts += 1;
           }
         }
       } catch (e) {
@@ -377,6 +412,12 @@ export const s3Handlers: Record<string, Handler> = {
       done += 1;
       progress(sender, progressId, done, total);
     }
+
+    await saveZoteroSyncCache(app.getPath('userData'), scope, {
+      version: 1,
+      local: localCacheFrom(locals),
+      remote: nextRemote,
+    }).catch(() => undefined);
     return report;
   },
 };

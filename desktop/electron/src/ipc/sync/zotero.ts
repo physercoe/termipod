@@ -16,6 +16,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { extractAll, isKey } from './core.ts';
+import type { CachedLocalAttachment } from './zotero_cache.ts';
 
 // jszip is a CommonJS `export =` module; dynamic import wraps it under `default`.
 // Pure JS (pako) — kept external + lazy like the other engine modules.
@@ -50,14 +51,7 @@ export interface LocalAtt {
   files: string[]; // absolute paths, sorted; primary = files[0]
   mtimeMs: number;
   hash: string; // MD5 of the primary file
-}
-
-function fileMtimeMs(abs: string): number {
-  try {
-    return Math.trunc(statSync(abs).mtimeMs);
-  } catch {
-    return 0;
-  }
+  signature: string; // filename/size/mtime/ctime fingerprint for incremental hash reuse
 }
 
 /// Every `storage/<KEY>/` folder holding at least one file, keyed by KEY. The
@@ -65,7 +59,10 @@ function fileMtimeMs(abs: string): number {
 /// attachments are single-file (Zotero's `imported_file` model). Async so the MD5
 /// reads yield to the event loop rather than blocking the main process on a large
 /// store. Mirrors webdav.rs `enumerate_local`.
-export async function enumerateLocalZotero(root: string): Promise<Map<string, LocalAtt>> {
+export async function enumerateLocalZotero(
+  root: string,
+  cached: Record<string, CachedLocalAttachment> = {},
+): Promise<Map<string, LocalAtt>> {
   const out = new Map<string, LocalAtt>();
   let entries: string[];
   try {
@@ -82,19 +79,51 @@ export async function enumerateLocalZotero(root: string): Promise<Map<string, Lo
     } catch {
       continue;
     }
-    const files = inner
-      .filter((e) => e.isFile() && !e.name.startsWith('.'))
-      .map((e) => path.join(keyDir, e.name))
-      .sort();
-    if (files.length === 0) continue;
-    let hash: string;
-    try {
-      hash = md5Hex(await readFile(files[0]));
-    } catch {
-      continue;
+    const rows = inner
+      .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+      .map((entry) => {
+        const abs = path.join(keyDir, entry.name);
+        try {
+          const md = statSync(abs);
+          return {
+            abs,
+            name: entry.name,
+            size: md.size,
+            mtimeMs: Math.trunc(md.mtimeMs),
+            ctimeMs: Math.trunc(md.ctimeMs),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (rows.length === 0) continue;
+
+    const files = rows.map((row) => row.abs);
+    const mtimeMs = Math.max(...rows.map((row) => row.mtimeMs));
+    const signature = createHash('sha256')
+      .update(rows.map((row) => [row.name, row.size, row.mtimeMs, row.ctimeMs].join('\\0')).join('\\1'))
+      .digest('hex');
+    let hash = cached[key]?.signature === signature ? cached[key].hash : '';
+    if (hash === '') {
+      try {
+        hash = md5Hex(await readFile(files[0]));
+      } catch {
+        continue;
+      }
     }
-    const mtimeMs = Math.max(...files.map(fileMtimeMs));
-    out.set(key, { files, mtimeMs, hash });
+    out.set(key, { files, mtimeMs, hash, signature });
+  }
+  return out;
+}
+
+export function localCacheFrom(
+  locals: Map<string, LocalAtt>,
+): Record<string, CachedLocalAttachment> {
+  const out: Record<string, CachedLocalAttachment> = {};
+  for (const [key, local] of locals) {
+    out[key] = { signature: local.signature, hash: local.hash };
   }
   return out;
 }

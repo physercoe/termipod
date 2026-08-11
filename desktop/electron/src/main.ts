@@ -103,9 +103,10 @@ function installApplicationMenu(): void {
   };
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [appMenu] : []),
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
+    { id: 'application-menu-file', role: 'fileMenu' },
+    { id: 'application-menu-edit', role: 'editMenu' },
     {
+      id: 'application-menu-view',
       label: 'View',
       submenu: [
         {
@@ -125,7 +126,7 @@ function installApplicationMenu(): void {
         { role: 'togglefullscreen' },
       ],
     },
-    { role: 'windowMenu' },
+    { id: 'application-menu-window', role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -140,11 +141,20 @@ function createWindow(): void {
     // On macOS the native title row duplicated the app's own persistent chrome
     // and cost ~52px on every workbench. hiddenInset keeps the standard traffic
     // lights/window behaviour while allowing the app surface to fill that row.
+    // Linux otherwise stacks a native title row above the application menu.
+    // `hidden` + a 32px window-controls overlay lets the renderer supply one
+    // compact VS Code-style row; the row reserves the overlay's right edge, so
+    // native minimize/maximize/close controls never cover workbench content.
     ...(process.platform === 'darwin'
       ? {
           titleBarStyle: 'hiddenInset' as const,
           trafficLightPosition: { x: 14, y: 14 },
         }
+      : process.platform === 'linux'
+        ? {
+            titleBarStyle: 'hidden' as const,
+            titleBarOverlay: { color: '#242424', symbolColor: '#ececec', height: 32 },
+          }
       : {}),
     icon: ICON,
     backgroundColor: '#0b0b10',
@@ -163,6 +173,11 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  // The renderer exposes the same native application menus inside its compact
+  // Linux title row. Keep the application Menu installed (accelerators + popup
+  // authority), but suppress Electron's separate native menu strip.
+  if (process.platform === 'linux') win.setMenuBarVisibility(false);
+
   setShellWindow(win);
   // A `window.open` from any embedded content would spawn a child window that
   // INHERITS this window's webPreferences — preload included — handing

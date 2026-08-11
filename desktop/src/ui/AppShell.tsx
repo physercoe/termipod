@@ -42,6 +42,7 @@ import { CommandPalette, type Command } from './CommandPalette';
 import { ConnectPanel } from './ConnectPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Icon } from './Icon';
+import { LinuxTitleBar } from './LinuxTitleBar';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { ResizeHandle } from './ResizeHandle';
 import { StatusBar } from './StatusBar';
@@ -224,6 +225,8 @@ export function AppShell(): JSX.Element {
 
   // Platform-aware modifier glyph for the palette shortcut hints.
   const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  const linux = isShell()
+    && typeof navigator !== 'undefined' && /Linux/.test(navigator.platform);
   const modKey = mac ? '⌘' : 'Ctrl+';
   const bindings = useKeybindings((s) => s.bindings);
   // D2.1: the annotate palette entry + status-bar chip share the compose
@@ -417,7 +420,9 @@ export function AppShell(): JSX.Element {
   );
 
   return (
-    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}${activityRailOpen ? '' : ' rail-hidden'}${fullScreen ? ' is-fullscreen' : ''}`}>
+    <div className={`shell${isShell() && mac ? ' shell-macos' : ''}${linux ? ' shell-linux' : ''}${activityRailOpen ? '' : ' rail-hidden'}${fullScreen ? ' is-fullscreen' : ''}`}>
+      {linux && <LinuxTitleBar />}
+
       {client !== null && !online && (
         <div className="offline-banner" role="status" aria-live="polite">
           {t('shell.offlineBanner')}

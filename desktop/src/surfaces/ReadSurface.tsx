@@ -2144,6 +2144,7 @@ export function ReadSurface(): JSX.Element {
   const openTab = useReadTabs((s) => s.open);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [relinkDismissed, setRelinkDismissed] = useState(false);
   // W2b: a download started inside a web tab, awaiting the user's chooser
   // decision (attach to the selected reference, or save to disk).
   const [dlChooser, setDlChooser] = useState<{ id: string; url: string; filename: string } | null>(null);
@@ -2296,10 +2297,13 @@ export function ReadSurface(): JSX.Element {
   // survives a restart instead of being lost (director report). Also resolve the
   // default attachment-store dir so "Add file" has a root even before Settings.
   useEffect(() => {
-    if (isShell()) {
-      void reindex();
-      void useAttachmentConfig.getState().resolveDefault();
-    }
+    if (!isShell()) return;
+    // Sequence these: a persisted explicit link must win over automatic indexing
+    // of the default root, regardless of native filesystem response timing.
+    void (async () => {
+      await reindex();
+      await useAttachmentConfig.getState().resolveDefault();
+    })();
   }, [reindex]);
 
   // `webkitdirectory` isn't in the input TS types — set it (plus the vendor
@@ -2327,15 +2331,17 @@ export function ReadSurface(): JSX.Element {
     }
   }
 
-  // Attachments exist but no folder is linked — prompt a (re-)link.
+  // Zotero attachments need an indexed read root. The root can be an explicitly
+  // linked Zotero directory OR the active default/custom attachment location.
   const needsRelink = useMemo(
-    // Only Zotero-sourced attachments need the linked folder; managed ones resolve
-    // by their own path.
     () =>
-      storageCount === 0 &&
+      storagePath === null &&
       references.some((r) => (r.attachments ?? []).some((a) => a.source === 'zotero')),
-    [storageCount, references],
+    [storagePath, references],
   );
+  useEffect(() => {
+    if (!needsRelink) setRelinkDismissed(false);
+  }, [needsRelink]);
 
   function onPickStorage(e: React.ChangeEvent<HTMLInputElement>): void {
     const list = e.target.files;
@@ -2854,12 +2860,20 @@ export function ReadSurface(): JSX.Element {
         )
       ) : (
         <>
-          {needsRelink && (
+          {needsRelink && !relinkDismissed && (
             <div className="read-import-msg attn">
               <span>{t('read.relinkStorage')}</span>
               <span className="spacer" />
               <button className="link-btn" onClick={() => void onLinkStorage()}>
                 {t('read.linkStorage')}
+              </button>
+              <button
+                className="link-btn"
+                title={t('common.close')}
+                aria-label={t('common.close')}
+                onClick={() => setRelinkDismissed(true)}
+              >
+                <Icon name="close" size={13} />
               </button>
             </div>
           )}

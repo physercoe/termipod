@@ -18,7 +18,33 @@ import { clipboard, Menu, nativeImage, shell, type MenuItemConstructorOptions } 
 import type { Handler } from './dispatch';
 import { isSafeExternal } from './platform';
 
+const APPLICATION_MENU_SECTIONS = new Set(['file', 'edit', 'view', 'window']);
+
+function popupCoordinate(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return Math.max(0, Math.round(value));
+}
+
 export const menuHandlers: Record<string, Handler> = {
+  /// Open one installed application-menu submenu below the renderer's compact
+  /// Linux title-row button. The installed Menu remains the single authority
+  /// for labels, roles, enabled state, callbacks and keyboard accelerators.
+  /// Section names are allowlisted and coordinates are narrowed before they
+  /// reach Electron's native popup API.
+  menu_show_application: (args, ctx): void => {
+    if (ctx.win === null) return;
+    const section = typeof args.section === 'string' ? args.section : '';
+    if (!APPLICATION_MENU_SECTIONS.has(section)) return;
+
+    const item = Menu.getApplicationMenu()?.getMenuItemById(`application-menu-${section}`);
+    if (item?.submenu === undefined || item.submenu === null) return;
+
+    item.submenu.popup({
+      window: ctx.win,
+      x: popupCoordinate(args.x),
+      y: popupCoordinate(args.y),
+    });
+  },
   /// Pop a native context menu at the cursor. `editable` widens it to the full
   /// edit set; `hasSelection` gates cut/copy; `selectAll` keeps document-frame
   /// whitespace useful; an image target adds "Copy image".

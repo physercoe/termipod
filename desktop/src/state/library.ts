@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { backupCorrupt } from './persist';
+import { mergeSyncedAttachments } from './attachmentManifest.ts';
 
 /// The reference library — a Zotero-shaped store of research references
 /// (papers, books, reports, notes) with collections and tags. Round-1 storage is
@@ -99,10 +100,14 @@ export interface Reference {
   //   - 'zotero'  : imported; keyed `<key>/<file>` under the linked Zotero
   //                 `storage/` folder, resolved through that folder's index.
   //   - 'managed' : added in-app; copied into the active storage root as
-  //                 `<key>/<file>` and resolved by its absolute `path`.
+  //                 `<key>/<file>` and resolved by its absolute `path` locally,
+  //                 or by the portable key/file coordinate after cross-device sync.
   // Legacy single-attachment rows (`zoteroStorage`) are migrated into this array
   // on load (see migrateReference).
   attachments?: Attachment[];
+  // Set after this device has pulled the portable hub manifest. It distinguishes
+  // an intentional remove-all from an old receiver that has not hydrated it yet.
+  attachmentManifestSynced?: boolean;
   // Deprecated — read only for migration into `attachments`. Do not write.
   zoteroStorage?: { key: string; file: string; contentType?: string };
 }
@@ -402,23 +407,27 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         if (cur === undefined) continue;
         // Overwrite bibliographic fields from the source; preserve the reader's
         // own curation (notes, body, and the union of tags/collections).
-        // Preserve user-added (managed) attachments; refresh the Zotero one from
-        // the (single-attachment) importer.
         const curAtts = cur.attachments ?? [];
-        const managed = curAtts.filter((a) => a.source === 'managed');
-        const zot: Attachment[] =
-          it.ref.zoteroStorage !== undefined
-            ? [
-                {
-                  id: `att${cur.id}z`,
-                  file: it.ref.zoteroStorage.file,
-                  contentType: it.ref.zoteroStorage.contentType,
-                  source: 'zotero',
-                  key: it.ref.zoteroStorage.key,
-                  addedAt: cur.addedAt,
-                },
-              ]
-            : curAtts.filter((a) => a.source === 'zotero');
+        let attachments: Attachment[];
+        if (it.ref.syncedAt !== undefined) {
+          attachments = mergeSyncedAttachments(curAtts, it.ref.attachments ?? [], cur.dirty === true);
+        } else {
+          const managed = curAtts.filter((a) => a.source === 'managed');
+          const zot: Attachment[] =
+            it.ref.zoteroStorage !== undefined
+              ? [
+                  {
+                    id: `att${cur.id}z`,
+                    file: it.ref.zoteroStorage.file,
+                    contentType: it.ref.zoteroStorage.contentType,
+                    source: 'zotero',
+                    key: it.ref.zoteroStorage.key,
+                    addedAt: cur.addedAt,
+                  },
+                ]
+              : curAtts.filter((a) => a.source === 'zotero');
+          attachments = [...zot, ...managed];
+        }
         byId.set(matchId, {
           ...cur,
           ...it.ref,
@@ -428,7 +437,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           bodyMarkdown: cur.bodyMarkdown ?? it.ref.bodyMarkdown,
           tags: [...new Set([...cur.tags, ...it.ref.tags])],
           collectionIds: [...new Set([...cur.collectionIds, ...collectionIds])],
-          attachments: [...zot, ...managed],
+          attachments,
           zoteroStorage: undefined,
           details: it.ref.details ?? cur.details,
           // Dirty tracking (#311): a hub-sourced item (it carries `syncedAt`)

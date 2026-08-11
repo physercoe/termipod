@@ -38,29 +38,43 @@ type zoteroStorageRef struct {
 	ContentType string `json:"content_type,omitempty"`
 }
 
+// referenceAttachment is intentionally path-free. The attachment backend owns
+// bytes; reference rows carry only portable coordinates under its
+// `<key>/<file>` layout so another device can resolve a downloaded file.
+type referenceAttachment struct {
+	ID          string `json:"id,omitempty"`
+	File        string `json:"file"`
+	ContentType string `json:"content_type,omitempty"`
+	Source      string `json:"source"`
+	Key         string `json:"key"`
+	SrcURL      string `json:"src_url,omitempty"`
+	AddedAt     int64  `json:"added_at,omitempty"`
+}
+
 // referenceBody is the mutable projection — the fields a create/update sets.
 // Embedded into referenceOut so the wire shape is flat.
 type referenceBody struct {
-	Type          string            `json:"type"`
-	Title         string            `json:"title"`
-	Authors       []string          `json:"authors"`
-	Year          *int              `json:"year,omitempty"`
-	Venue         string            `json:"venue,omitempty"`
-	DOI           string            `json:"doi,omitempty"`
-	ArxivID       string            `json:"arxiv_id,omitempty"`
-	URL           string            `json:"url,omitempty"`
-	PDFURL        string            `json:"pdf_url,omitempty"`
-	Abstract      string            `json:"abstract,omitempty"`
-	TLDR          string            `json:"tldr,omitempty"`
-	CitationCount *int              `json:"citation_count,omitempty"`
-	Source        string            `json:"source,omitempty"`
-	ExternalID    string            `json:"external_id,omitempty"`
-	Tags          []string          `json:"tags"`
-	Collections   []string          `json:"collections"`
-	Notes         string            `json:"notes"`
-	BodyMarkdown  string            `json:"body_markdown,omitempty"`
-	Details       map[string]string `json:"details,omitempty"`
-	ZoteroStorage *zoteroStorageRef `json:"zotero_storage,omitempty"`
+	Type          string                `json:"type"`
+	Title         string                `json:"title"`
+	Authors       []string              `json:"authors"`
+	Year          *int                  `json:"year,omitempty"`
+	Venue         string                `json:"venue,omitempty"`
+	DOI           string                `json:"doi,omitempty"`
+	ArxivID       string                `json:"arxiv_id,omitempty"`
+	URL           string                `json:"url,omitempty"`
+	PDFURL        string                `json:"pdf_url,omitempty"`
+	Abstract      string                `json:"abstract,omitempty"`
+	TLDR          string                `json:"tldr,omitempty"`
+	CitationCount *int                  `json:"citation_count,omitempty"`
+	Source        string                `json:"source,omitempty"`
+	ExternalID    string                `json:"external_id,omitempty"`
+	Tags          []string              `json:"tags"`
+	Collections   []string              `json:"collections"`
+	Notes         string                `json:"notes"`
+	BodyMarkdown  string                `json:"body_markdown,omitempty"`
+	Details       map[string]string     `json:"details,omitempty"`
+	ZoteroStorage *zoteroStorageRef     `json:"zotero_storage,omitempty"`
+	Attachments   []referenceAttachment `json:"attachments"`
 	// Enrichment is derived metadata the desktop scraper attaches (citation graph,
 	// journal metrics, code/data links, topics, OA status). Opaque to the hub — it
 	// is stored and returned verbatim so it round-trips to agents, but the hub
@@ -119,21 +133,29 @@ func nullInt(p *int) sql.NullInt64 {
 	return sql.NullInt64{Int64: int64(*p), Valid: true}
 }
 
+func referenceAttachmentsJSON(v []referenceAttachment) string {
+	if v == nil {
+		v = []referenceAttachment{}
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
 // ---- shared store methods (used by REST + MCP) -----------------------------
 
 const referenceCols = `id, team_id, type, title, authors_json, year, venue, doi, arxiv_id,
 	url, pdf_url, abstract, tldr, citation_count, source, external_id, tags_json,
 	collections_json, notes, body_markdown, details_json, zotero_storage_json,
-	enrichment_json, created_at, updated_at`
+	attachments_json, enrichment_json, created_at, updated_at`
 
 func scanReference(row interface{ Scan(...any) error }) (referenceOut, error) {
 	var r referenceOut
 	var authors, tags, collections string
 	var year, citation sql.NullInt64
-	var venue, doi, arxiv, url, pdfURL, abstract, tldr, source, extID, bodyMD, details, zotero, enrichment sql.NullString
+	var venue, doi, arxiv, url, pdfURL, abstract, tldr, source, extID, bodyMD, details, zotero, attachments, enrichment sql.NullString
 	err := row.Scan(&r.ID, &r.TeamID, &r.Type, &r.Title, &authors, &year, &venue, &doi, &arxiv,
 		&url, &pdfURL, &abstract, &tldr, &citation, &source, &extID, &tags,
-		&collections, &r.Notes, &bodyMD, &details, &zotero, &enrichment, &r.CreatedAt, &r.UpdatedAt)
+		&collections, &r.Notes, &bodyMD, &details, &zotero, &attachments, &enrichment, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return r, err
 	}
@@ -161,6 +183,12 @@ func scanReference(row interface{ Scan(...any) error }) (referenceOut, error) {
 		var z zoteroStorageRef
 		if json.Unmarshal([]byte(zotero.String), &z) == nil {
 			r.ZoteroStorage = &z
+		}
+	}
+	r.Attachments = []referenceAttachment{}
+	if attachments.Valid && attachments.String != "" {
+		if err := json.Unmarshal([]byte(attachments.String), &r.Attachments); err != nil || r.Attachments == nil {
+			r.Attachments = []referenceAttachment{}
 		}
 	}
 	return r, nil
@@ -194,13 +222,13 @@ func (s *Server) createReference(ctx context.Context, team string, b referenceBo
 	now := NowUTC()
 	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO reference_items (`+referenceCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, team, normalizeRefType(b.Type), b.Title, jsonStrArray(b.Authors), nullInt(b.Year),
 		refNullStr(b.Venue), refNullStr(b.DOI), refNullStr(b.ArxivID), refNullStr(b.URL), refNullStr(b.PDFURL),
 		refNullStr(b.Abstract), refNullStr(b.TLDR), nullInt(b.CitationCount), refNullStr(b.Source),
 		refNullStr(b.ExternalID), jsonStrArray(b.Tags), jsonStrArray(b.Collections), b.Notes,
 		refNullStr(b.BodyMarkdown), detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage),
-		enrichmentJSON(b.Enrichment), now, now)
+		referenceAttachmentsJSON(b.Attachments), enrichmentJSON(b.Enrichment), now, now)
 	if err != nil {
 		return referenceOut{}, err
 	}
@@ -282,13 +310,14 @@ func (s *Server) patchReference(ctx context.Context, team, id string, patch json
 			type = ?, title = ?, authors_json = ?, year = ?, venue = ?, doi = ?, arxiv_id = ?,
 			url = ?, pdf_url = ?, abstract = ?, tldr = ?, citation_count = ?, source = ?,
 			external_id = ?, tags_json = ?, collections_json = ?, notes = ?, body_markdown = ?,
-			details_json = ?, zotero_storage_json = ?, enrichment_json = ?, updated_at = ?
+			details_json = ?, zotero_storage_json = ?, attachments_json = ?, enrichment_json = ?, updated_at = ?
 		WHERE team_id = ? AND id = ?`,
 		normalizeRefType(b.Type), b.Title, jsonStrArray(b.Authors), nullInt(b.Year), refNullStr(b.Venue),
 		refNullStr(b.DOI), refNullStr(b.ArxivID), refNullStr(b.URL), refNullStr(b.PDFURL), refNullStr(b.Abstract),
 		refNullStr(b.TLDR), nullInt(b.CitationCount), refNullStr(b.Source), refNullStr(b.ExternalID),
 		jsonStrArray(b.Tags), jsonStrArray(b.Collections), b.Notes, refNullStr(b.BodyMarkdown),
-		detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage), enrichmentJSON(b.Enrichment), NowUTC(), team, id)
+		detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage), referenceAttachmentsJSON(b.Attachments),
+		enrichmentJSON(b.Enrichment), NowUTC(), team, id)
 	if err != nil {
 		return referenceOut{}, err
 	}

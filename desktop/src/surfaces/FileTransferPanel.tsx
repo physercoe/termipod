@@ -628,6 +628,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
                     { label: t('sftp.newFile'), disabled: busy, onClick: () => void newLocalFile() },
                     { label: t('sftp.rename'), disabled: busy, onClick: () => void renameLocal(e) },
                     { label: t('sftp.delete'), danger: true, disabled: busy, onClick: () => void deleteLocal(e) },
+                    { label: t('sftp.refresh'), onClick: () => local !== null && void loadLocal(local.path) },
                   ]);
                 }}
               >
@@ -712,6 +713,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
                     { label: t('sftp.newFile'), disabled: busy, onClick: () => void newRemoteFile() },
                     { label: t('sftp.rename'), disabled: busy, onClick: () => void renameRemote(e) },
                     { label: t('sftp.delete'), danger: true, disabled: busy, onClick: () => void deleteRemote(e) },
+                    { label: t('sftp.refresh'), onClick: () => void loadRemote(rdir) },
                   ]);
                 }}
               >

@@ -7,13 +7,19 @@
 /// left untouched (never clobbered). Consumes the shared Zotero helpers
 /// (`./zotero`) + the Basic-auth header from `./webdav_url`; only the HTTP is
 /// here.
-import type { WebContents } from 'electron';
+import { app, type WebContents } from 'electron';
 import { emit } from '../../events';
 import { proxyFetch } from '../net';
 import type { Handler } from '../dispatch';
 import { authHeader } from './webdav_url';
-import { buildProp, enumerateLocalZotero, parseProp, unzipInto, zipFiles, type LocalAtt } from './zotero';
-import { extractAll, isKey } from './core';
+import { buildProp, enumerateLocalZotero, localCacheFrom, parseProp, unzipInto, zipFiles, type LocalAtt } from './zotero';
+import { elementBlocks, extractAll, isKey, pctDecode } from './core';
+import {
+  loadZoteroSyncCache,
+  planIncrementalZoteroWork,
+  saveZoteroSyncCache,
+  zoteroCacheScope,
+} from './zotero_cache.ts';
 
 const DAV_TIMEOUT_MS = 90_000;
 
@@ -60,32 +66,39 @@ async function put(url: string, body: Uint8Array, contentType: string, auth: str
   if (!resp.ok) throw new Error(`PUT → HTTP ${resp.status}`);
 }
 
-/// The attachment keys present on the server (those with a `.prop` marker); empty
-/// on 404 (first sync just uploads). Mirrors webdav.rs `propfind_keys`.
-async function propfindKeys(dav: string, auth: string, proxy: string | undefined): Promise<Set<string>> {
+/// Parse one Depth-1 listing into attachment key → reliable server marker.
+/// ETag is deliberately the only reusable marker: last-modified timestamps can
+/// have one-second precision, so treating them as a change token could miss a
+/// rapid same-size update. A blank marker keeps that server on the full-check path.
+export function parseWebdavPropMarkers(body: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const block of elementBlocks(body, 'response')) {
+    const href = extractAll(block, 'href')[0];
+    if (href === undefined) continue;
+    const name = pctDecode(href).replace(/\/+$/, '');
+    const base = name.slice(name.lastIndexOf('/') + 1);
+    if (!base.endsWith('.prop')) continue;
+    const key = base.slice(0, -'.prop'.length);
+    if (!isKey(key)) continue;
+    out.set(key, (extractAll(block, 'getetag')[0] ?? '').trim());
+  }
+  return out;
+}
+
+/// The attachment keys present on the server plus their ETags; empty on 404.
+async function propfindRemote(dav: string, auth: string, proxy: string | undefined): Promise<Map<string, string>> {
   // Depth: 1 (immediate children only) — a header-less PROPFIND is
-  // Depth: infinity per RFC 4918, which servers like Apache mod_dav refuse
-  // (403) by default. Mirrors webdav.rs `propfind_keys`.
+  // Depth: infinity per RFC 4918, which servers like Apache mod_dav refuse.
   const resp = await req(dav, 'PROPFIND', auth, proxy, {
-    body: '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><getlastmodified/></prop></propfind>',
+    body: '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><getetag/><getlastmodified/></prop></propfind>',
     contentType: 'application/xml; charset=utf-8',
     depth: '1',
   });
   const s = resp.status;
-  if (s === 404) return new Set();
+  if (s === 404) return new Map();
   if (s === 401) throw new Error('authentication failed (check username / password)');
   if (!(s === 207 || (s >= 200 && s < 300))) throw new Error(`PROPFIND zotero/ → HTTP ${s}`);
-  const body = await resp.text();
-  const keys = new Set<string>();
-  for (const href of extractAll(body, 'href')) {
-    const name = href.replace(/\/+$/, '');
-    const base = name.slice(name.lastIndexOf('/') + 1);
-    if (base.endsWith('.prop')) {
-      const k = base.slice(0, -'.prop'.length);
-      if (isKey(k)) keys.add(k);
-    }
-  }
-  return keys;
+  return parseWebdavPropMarkers(await resp.text());
 }
 
 /// The remote `{mtime, hash}` from `<KEY>.prop`; null if absent (404). Mirrors
@@ -154,40 +167,58 @@ export const webdavZoteroHandlers: Record<string, Handler> = {
     }
 
     const report: SyncReport = { uploaded: 0, downloaded: 0, skipped: 0, conflicts: 0, downloadedKeys: [], errors: [] };
-    const locals = await enumerateLocalZotero(root);
-    const remoteKeys = await propfindKeys(dav, auth, proxy);
+    const scope = zoteroCacheScope('webdav', [root, dav, String(args.user ?? '')]);
+    const cache = await loadZoteroSyncCache(app.getPath('userData'), scope);
+    const locals = await enumerateLocalZotero(root, cache.local);
+    const remotes = await propfindRemote(dav, auth, proxy);
+    // A fresh ETag plus an unchanged local signature proves the pair is still
+    // identical. These rows are the incremental fast path: no per-file GET and
+    // no progress-counter churn.
+    const { work, skipped, remote: nextRemote } = planIncrementalZoteroWork(locals, remotes, cache.remote);
+    report.skipped += skipped;
 
-    const all = new Set<string>([...locals.keys(), ...remoteKeys]);
-    // The per-key .prop fetch makes the transfer count unknowable up front —
-    // report items-processed / total-keys (still a real N/M bar).
-    const total = all.size;
+    const total = work.length;
     progress(sender, progressId, 0, total);
     let done = 0;
 
-    for (const key of all) {
+    for (const key of work) {
       const local = locals.get(key);
-      const remote = remoteKeys.has(key);
+      const marker = remotes.get(key);
+      const remote = marker !== undefined;
       try {
         if (local !== undefined && !remote) {
           await upload(dav, key, local, auth, proxy);
           report.uploaded += 1;
         } else if (local === undefined && remote) {
+          // Fetch the small prop once for a new remote row so the very next sync
+          // can take the fast path. The ZIP transfer remains the source of bytes.
+          const prop = marker !== '' ? await getProp(dav, key, auth, proxy) : null;
           if (await download(dav, key, root, auth, proxy)) {
             report.downloaded += 1;
             report.downloadedKeys.push(key);
+            if (marker !== '' && prop !== null) nextRemote[key] = { marker, ...prop };
           } else {
             report.skipped += 1;
           }
         } else if (local !== undefined && remote) {
-          const prop = await getProp(dav, key, auth, proxy);
+          const cached = marker !== '' && cache.remote[key]?.marker === marker
+            ? cache.remote[key]
+            : undefined;
+          const prop = cached !== undefined
+            ? { mtime: cached.mtime, hash: cached.hash }
+            : await getProp(dav, key, auth, proxy);
+          if (marker !== '' && prop !== null) nextRemote[key] = { marker, ...prop };
+
           if (prop === null) {
             // Zip listed but prop vanished — re-upload to restore it.
             await upload(dav, key, local, auth, proxy);
+            delete nextRemote[key]; // the PUT created a new ETag we have not listed
             report.uploaded += 1;
           } else if (prop.hash !== '' && prop.hash.toLowerCase() === local.hash.toLowerCase()) {
             report.skipped += 1;
           } else if (local.mtimeMs > prop.mtime) {
             await upload(dav, key, local, auth, proxy);
+            delete nextRemote[key]; // force one metadata refresh next run
             report.uploaded += 1;
           } else if (prop.mtime > local.mtimeMs) {
             if (await download(dav, key, root, auth, proxy)) {
@@ -206,6 +237,14 @@ export const webdavZoteroHandlers: Record<string, Handler> = {
       done += 1;
       progress(sender, progressId, done, total);
     }
+
+    // Cache failures never fail a completed sync; they only make the next run
+    // conservative again.
+    await saveZoteroSyncCache(app.getPath('userData'), scope, {
+      version: 1,
+      local: localCacheFrom(locals),
+      remote: nextRemote,
+    }).catch(() => undefined);
     return report;
   },
 };

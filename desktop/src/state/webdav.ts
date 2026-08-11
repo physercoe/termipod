@@ -219,11 +219,10 @@ export async function syncWebdav(onProgress?: (p: SyncProgress) => void): Promis
       onProgress,
     );
   }
-  // Downloaded files only become resolvable once the folder index is refreshed;
-  // reindex() is a no-op when no Zotero folder is linked (managed attachments
-  // resolve by absolute path and need no index).
-  if (report.downloaded > 0) {
-    await useZoteroStorage.getState().reindex();
-  }
+  // The sync root may be the default/custom attachment location rather than an
+  // explicitly linked Zotero folder. Index the actual root used for this run so
+  // downloaded Zotero-keyed attachments become immediately readable in either
+  // case (and refresh even when a backend reports only skips/conflicts).
+  await useZoteroStorage.getState().indexNative(root);
   return report;
 }

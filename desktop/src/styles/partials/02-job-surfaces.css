@@ -1425,6 +1425,172 @@ button > .ui-icon:not(:only-child):first-child,
   padding: var(--spacing-s6) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
 }
+.inspect-previewbar {
+  min-height: var(--control-md);
+  background: color-mix(in srgb, var(--canvas) 58%, var(--bg));
+}
+.inspect-rich-preview {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+.inspect-rich-preview > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Read-only CSV/TSV viewer. The table is virtualized, so a long file keeps only
+   its visible rows mounted; the source representation remains a sibling mode. */
+.inspect-csv-preview {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inspect-csv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-csv-search {
+  min-width: 180px;
+  width: min(360px, 45%);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: 0 var(--spacing-s8);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+}
+.inspect-csv-search:focus-within {
+  border-color: var(--accent);
+}
+.inspect-csv-search input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--spacing-s6) 0;
+  color: var(--text);
+  border: none;
+  outline: none;
+  background: transparent;
+}
+.inspect-csv-warning,
+.inspect-csv-error {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+.inspect-csv-warning {
+  padding: var(--spacing-s6) var(--spacing-s12);
+  font-size: var(--font-size-caption);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-csv-error {
+  align-items: flex-start;
+}
+.inspect-csv-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.inspect-csv-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-size-body-small);
+}
+.inspect-csv-table th,
+.inspect-csv-table td {
+  min-width: 140px;
+  max-width: 360px;
+  padding: var(--spacing-s6) var(--spacing-s12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.inspect-csv-table th {
+  padding: 0;
+  background: var(--surface);
+  position: relative;
+}
+.inspect-csv-table th button {
+  width: 100%;
+  min-height: var(--control-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s6) var(--spacing-s12);
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.inspect-csv-table th button:hover {
+  color: var(--text);
+  background: var(--hover);
+  transform: none;
+}
+.inspect-csv-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.inspect-csv-resizer::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+.inspect-csv-resizer:hover::after,
+.inspect-csv-resizer:focus-visible::after {
+  background: var(--accent);
+}
+.inspect-csv-resizing,
+.inspect-csv-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.inspect-csv-row:nth-child(even) td {
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
+.inspect-csv-row:hover td {
+  background: var(--accent-tint);
+}
+.inspect-csv-table .inspect-csv-rownum {
+  min-width: 54px;
+  width: 54px;
+  max-width: 54px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-sunken, var(--surface));
+}
 .inspect-code {
   flex: 1;
   min-height: 0;

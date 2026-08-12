@@ -23,6 +23,7 @@ import { mediaKindFor } from './inspectMedia.ts';
 
 export type InspectKind =
   | 'code' | 'diff' | 'log' | 'model' | 'graph' | 'megraph' | 'modgraph' | 'archgraph'
+  | 'markdown' | 'table'
   /// Media previews. These tabs never enter `content` — their bytes stream from
   /// the main process on demand, so a 2 GB video costs the store nothing.
   | 'image' | 'video' | 'audio' | 'pdf'
@@ -100,6 +101,8 @@ const DIFF_EXTS = new Set(['diff', 'patch']);
 const LOG_EXTS = new Set(['log']);
 const MODEL_EXTS = new Set(['safetensors', 'gguf', 'onnx']);
 const GRAPH_EXTS = new Set(['dot', 'gv']);
+const MARKDOWN_EXTS = new Set(['md', 'markdown']);
+const TABLE_EXTS = new Set(['csv', 'tsv']);
 
 export function kindForInspectFile(ext: string, content: string): InspectKind {
   const e = ext.toLowerCase();
@@ -112,6 +115,8 @@ export function kindForInspectFile(ext: string, content: string): InspectKind {
   if (media !== null) return media;
   if (MODEL_EXTS.has(e)) return 'model';
   if (GRAPH_EXTS.has(e)) return 'graph';
+  if (MARKDOWN_EXTS.has(e)) return 'markdown';
+  if (TABLE_EXTS.has(e)) return 'table';
   if (DIFF_EXTS.has(e)) return 'diff';
   if (LOG_EXTS.has(e)) return 'log';
   // Content sniff: a unified diff / git patch pasted without an extension.

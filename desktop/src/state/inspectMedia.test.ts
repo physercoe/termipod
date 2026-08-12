@@ -40,6 +40,10 @@ test('non-media extensions are untouched', () => {
   assert.equal(kindForInspectFile('patch', ''), 'diff');
   assert.equal(kindForInspectFile('safetensors', ''), 'model');
   assert.equal(kindForInspectFile('dot', ''), 'graph');
+  assert.equal(kindForInspectFile('md', ''), 'markdown');
+  assert.equal(kindForInspectFile('markdown', ''), 'markdown');
+  assert.equal(kindForInspectFile('csv', ''), 'table');
+  assert.equal(kindForInspectFile('tsv', ''), 'table');
 });
 
 test('svg stays text', () => {

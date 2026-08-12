@@ -503,6 +503,10 @@
      this each item is a raised, bordered, shadowed pill, which in a narrow column
      reads as an overlapping cramped mess. */
   display: block;
+  /* A long outline is a scroll list, not a flex-shrink target. Without this,
+     many wrapped headings are compressed below their content height and the
+     second line paints underneath the following row. */
+  flex: 0 0 auto;
   width: 100%;
   text-align: left;
   padding: 5px 10px;

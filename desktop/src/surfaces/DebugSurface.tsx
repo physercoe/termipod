@@ -504,6 +504,7 @@ function RichTextTab({ tab }: { tab: InspectTab }): JSX.Element {
   const setError = useInspect((s) => s.setError);
   const setSelection = useInspect((s) => s.setSelection);
   const [mode, setMode] = useState<'preview' | 'source'>('preview');
+  const [softWrap, setSoftWrap] = useState(false);
 
   useEffect(() => {
     if (tab.source === 'paste' || content !== undefined || loading === true) return;
@@ -539,6 +540,18 @@ function RichTextTab({ tab }: { tab: InspectTab }): JSX.Element {
       <div className="inspect-runbar inspect-previewbar">
         <span className="muted small">{tab.kind === 'markdown' ? t('inspect.markdownPreview') : t('inspect.tablePreview')}</span>
         <span className="spacer" />
+        {mode === 'preview' && (
+          <button
+            type="button"
+            className={`icon-btn${softWrap ? ' active' : ''}`}
+            title={t('inspect.wrap')}
+            aria-label={t('inspect.wrap')}
+            aria-pressed={softWrap}
+            onClick={() => setSoftWrap((current) => !current)}
+          >
+            <Icon name="wrap" size={15} />
+          </button>
+        )}
         <div className="patch-modes" role="group" aria-label={t('inspect.previewMode')}>
           <button
             type="button"
@@ -564,9 +577,9 @@ function RichTextTab({ tab }: { tab: InspectTab }): JSX.Element {
           {mode === 'source' ? (
             <CodeView value={body} filename={filename} onSelection={(selection) => setSelection(tab.id, selection)} />
           ) : tab.kind === 'markdown' ? (
-            <MarkdownReader text={body} />
+            <MarkdownReader text={body} softWrap={softWrap} />
           ) : (
-            <DelimitedPreview text={body} delimiter={delimiter} />
+            <DelimitedPreview text={body} delimiter={delimiter} softWrap={softWrap} />
           )}
         </Suspense>
       </div>

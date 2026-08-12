@@ -1521,6 +1521,13 @@ button > .ui-icon:not(:only-child):first-child,
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
+.inspect-csv-preview.soft-wrap .inspect-csv-table th,
+.inspect-csv-preview.soft-wrap .inspect-csv-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+}
 .inspect-csv-table th {
   padding: 0;
   background: var(--surface);

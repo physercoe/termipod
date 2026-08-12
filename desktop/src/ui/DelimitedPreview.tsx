@@ -26,7 +26,15 @@ type SortState = { column: number; direction: 'asc' | 'desc' } | null;
 
 /// Read-only, virtualized CSV/TSV grid for Inspect. It intentionally has no
 /// mutation affordances: Inspect explains bytes; Author owns document editing.
-export function DelimitedPreview({ text, delimiter }: { text: string; delimiter: Delimiter }): JSX.Element {
+export function DelimitedPreview({
+  text,
+  delimiter,
+  softWrap = false,
+}: {
+  text: string;
+  delimiter: Delimiter;
+  softWrap?: boolean;
+}): JSX.Element {
   const t = useT();
   const parsed = useMemo(() => parseDelimited(text, delimiter), [delimiter, text]);
   const [query, setQuery] = useState('');
@@ -92,7 +100,7 @@ export function DelimitedPreview({ text, delimiter }: { text: string; delimiter:
   if (headers.length === 0) return <div className="muted region-pad">{t('inspect.csvEmpty')}</div>;
 
   return (
-    <div className="inspect-csv-preview">
+    <div className={`inspect-csv-preview${softWrap ? ' soft-wrap' : ''}`}>
       <div className="inspect-csv-toolbar">
         <div className="inspect-csv-search">
           <Icon name="search" size={14} />

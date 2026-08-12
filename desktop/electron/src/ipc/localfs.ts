@@ -24,6 +24,8 @@ interface LocalEntry {
   path: string;
   is_dir: boolean;
   size: number;
+  modified_ms: number | null;
+  mode: number | null;
 }
 interface LocalListing {
   path: string;
@@ -55,7 +57,14 @@ export const localfsHandlers: Record<string, Handler> = {
       const full = path.join(base, name);
       const md = await stat(full).catch(() => null);
       const isDir = md?.isDirectory() ?? false;
-      entries.push({ name, path: full, is_dir: isDir, size: isDir ? 0 : (md?.size ?? 0) });
+      entries.push({
+        name,
+        path: full,
+        is_dir: isDir,
+        size: isDir ? 0 : (md?.size ?? 0),
+        modified_ms: md !== null && Number.isFinite(md.mtimeMs) ? md.mtimeMs : null,
+        mode: md !== null && Number.isInteger(md.mode) ? md.mode : null,
+      });
     }
     sortDirsFirst(entries, (e) => e.is_dir, (e) => e.name);
     return { path: base, parent: parentOrNull(base), entries, truncated };

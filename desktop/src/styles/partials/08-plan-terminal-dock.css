@@ -215,14 +215,59 @@
   border-bottom: 1px solid var(--border);
 }
 .sftp-path { flex: 1 1 auto; min-width: 0; }
-.sftp-list { flex: 1 1 auto; min-height: 0; }
+.sftp-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.sftp-list-head,
 .sftp-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 72px 148px 102px 88px;
   align-items: center;
   gap: var(--spacing-s8);
   padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
+  min-width: 610px;
 }
+.sftp-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 27px;
+  background: var(--canvas);
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.sftp-sort-btn {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--spacing-s4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sftp-sort-btn::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--spacing-s4) * -1);
+  right: calc(var(--spacing-s8) * -0.5);
+  bottom: calc(var(--spacing-s4) * -1);
+  width: 1px;
+  background: var(--border);
+}
+.sftp-sort-btn:hover,
+.sftp-sort-btn.active {
+  color: var(--text);
+}
+.sftp-sort-btn:hover { background: var(--hover); }
+.sftp-sort-btn.sftp-col-size { justify-content: flex-end; }
 .sftp-name-btn {
   display: flex;
   align-items: center;
@@ -232,8 +277,22 @@
   cursor: pointer;
   text-align: left;
   min-width: 0;
+  width: 100%;
 }
 .sftp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sftp-col-size,
+.sftp-col-modified,
+.sftp-col-permissions {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sftp-col-size { text-align: right; }
+.sftp-col-action {
+  justify-self: end;
+  white-space: nowrap;
+}
 /* Select-only click model: the highlighted row is just the selection — actions
    come from the context menu / the per-row transfer button / double-click. */
 .sftp-row.selected {

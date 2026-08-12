@@ -9,6 +9,8 @@ export interface LocalEntry {
   path: string;
   is_dir: boolean;
   size: number;
+  modified_ms: number | null;
+  mode: number | null;
 }
 export interface LocalListing {
   path: string;

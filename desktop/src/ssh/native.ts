@@ -94,6 +94,10 @@ export interface SftpEntry {
   name: string;
   is_dir: boolean;
   size: number;
+  /** Epoch milliseconds, or null when the server omitted the SFTP attribute. */
+  modified_ms: number | null;
+  /** POSIX mode bits, including file type, or null when unavailable. */
+  mode: number | null;
 }
 /** List a remote directory over an SFTP subsystem on the session. */
 export function sftpList(id: string, path: string): Promise<SftpEntry[]> {

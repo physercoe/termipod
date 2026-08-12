@@ -130,11 +130,8 @@ function loadColumnWidths(side: SftpPaneSide): SftpColumnWidths {
 
 function columnStyle(widths: SftpColumnWidths): CSSProperties {
   return {
-    '--sftp-col-name': `${widths.name}px`,
-    '--sftp-col-size': `${widths.size}px`,
-    '--sftp-col-modified': `${widths.modified}px`,
-    '--sftp-col-permissions': `${widths.permissions}px`,
-  } as CSSProperties;
+    gridTemplateColumns: `${widths.name}px ${widths.size}px ${widths.modified}px ${widths.permissions}px minmax(96px, 1fr)`,
+  };
 }
 
 function EntryIcon({ name, isDir }: { name: string; isDir: boolean }): JSX.Element {
@@ -724,7 +721,9 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
       <div
         className="sftp-dual"
         ref={dualRef}
-        style={{ '--sftp-local-share': `${localPaneShare}%` } as CSSProperties}
+        style={{
+          gridTemplateColumns: `minmax(0, calc(${localPaneShare}% - 0.5px)) 1px minmax(0, 1fr)`,
+        }}
       >
         {/* Local pane */}
         <div className="sftp-pane">

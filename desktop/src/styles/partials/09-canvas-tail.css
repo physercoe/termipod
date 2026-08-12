@@ -550,6 +550,31 @@
   min-height: 0;
   overflow: auto;
 }
+.mdreader.soft-wrap .md {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.mdreader.soft-wrap .md table {
+  width: 100%;
+  table-layout: fixed;
+}
+.mdreader.soft-wrap .md th,
+.mdreader.soft-wrap .md td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.mdreader.soft-wrap .md pre,
+.mdreader.soft-wrap .md pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.mdreader.soft-wrap .md :not(pre) > code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* A reference's note opened in its own reader tab: outline rail (reusing the
    .mdreader-outline styles) + a main column with the mode bar and the editor. */
 .notetab {

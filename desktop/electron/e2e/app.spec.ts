@@ -1134,9 +1134,11 @@ test('inspect: a GitHub repo root resolves, lists its tree, and opens a blob (T3
     const readme = root.locator('.inspect-tree-row.file', { hasText: 'README.md' });
     await expect(readme).toBeVisible({ timeout: 15000 });
 
-    // Opening the blob reads it (2 MB-capped) and renders it in CodeMirror.
+    // Opening the blob reads it (2 MB-capped) and dispatches `.md` to the
+    // rendered Markdown preview; literal bytes remain available via Source.
     await readme.click();
-    await expect(page.locator('.inspect-code .cm-content')).toContainText('hello from the loopback forge', { timeout: 15000 });
+    await expect(page.locator('.inspect-rich-preview .md')).toContainText('hello from the loopback forge', { timeout: 15000 });
+    await expect(page.getByRole('button', { name: 'Source', exact: true })).toBeVisible();
   } finally {
     // Don't leak the override / the pinned root into later runs.
     await page.evaluate(() => {

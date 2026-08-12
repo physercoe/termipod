@@ -14,14 +14,14 @@ import { ZoomBar, wheelZoom } from './ZoomBar';
 /// The outline rail itself is the shared `MarkdownOutline` (also used by the
 /// note tab) — heading extraction + rail chrome live there (#322).
 
-export function MarkdownReader({ text }: { text: string }): JSX.Element {
+export function MarkdownReader({ text, softWrap = false }: { text: string; softWrap?: boolean }): JSX.Element {
   const t = useT();
   const headings = useMemo(() => extractHeadings(text), [text]);
   const zoom = useDocZoom('md');
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   return (
-    <div className="mdreader">
+    <div className={`mdreader${softWrap ? ' soft-wrap' : ''}`}>
       <MarkdownOutline headings={headings} bodyRef={bodyRef} widthKey="termipod.read.mdOutlineW" />
       <div
         className="mdreader-body region-pad"

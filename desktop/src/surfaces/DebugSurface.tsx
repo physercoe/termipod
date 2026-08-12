@@ -37,6 +37,10 @@ import { PopoverMenu } from '../ui/PopoverMenu';
 // CodeMirror 6 + its search/language-data deps ride a lazy chunk (never the boot
 // bundle — plan §7 bundle discipline), loaded the first time a code tab renders.
 const CodeView = lazy(() => import('../ui/CodeView').then((m) => ({ default: m.CodeView })));
+// Rich text/table readers remain off the boot path, just like every specialized
+// Inspect viewer. Markdown shares Read's document renderer; CSV owns a lean grid.
+const MarkdownReader = lazy(() => import('../ui/MarkdownReader').then((m) => ({ default: m.MarkdownReader })));
+const DelimitedPreview = lazy(() => import('../ui/DelimitedPreview').then((m) => ({ default: m.DelimitedPreview })));
 // W2 diff viewers — each its own lazy chunk (git-diff-view + @codemirror/merge
 // never touch the boot bundle), loaded the first time a diff / compare tab shows.
 const PatchDiffView = lazy(() => import('../ui/PatchDiffView').then((m) => ({ default: m.PatchDiffView })));
@@ -132,6 +136,10 @@ function langFromPath(path: string | undefined): string | undefined {
 
 function kindIcon(kind: InspectKind): IconName {
   switch (kind) {
+    case 'markdown':
+      return 'note';
+    case 'table':
+      return 'table';
     case 'diff':
       return 'split-h';
     case 'log':
@@ -478,6 +486,103 @@ function CodeTab({
       </div>
       {trace !== null && <TraceLens trace={trace} onOpen={(f) => onOpenFrame(f, tab)} />}
       {runOut !== null && <RunOutput res={runOut} />}
+    </div>
+  );
+}
+
+// ── rendered text tabs (Markdown + CSV/TSV) ──────────────────────────────────
+// Both use the same source-loading contract as CodeTab, but default to a useful
+// semantic preview. Source is always one click away: Inspect must never hide or
+// reinterpret the bytes without giving the user the literal representation.
+function RichTextTab({ tab }: { tab: InspectTab }): JSX.Element {
+  const t = useT();
+  const content = useInspect((s) => s.content[tab.id]);
+  const loading = useInspect((s) => s.loading[tab.id]);
+  const error = useInspect((s) => s.error[tab.id]);
+  const setContent = useInspect((s) => s.setContent);
+  const setLoading = useInspect((s) => s.setLoading);
+  const setError = useInspect((s) => s.setError);
+  const setSelection = useInspect((s) => s.setSelection);
+  const [mode, setMode] = useState<'preview' | 'source'>('preview');
+  const [softWrap, setSoftWrap] = useState(false);
+
+  useEffect(() => {
+    if (tab.source === 'paste' || content !== undefined || loading === true) return;
+    let cancelled = false;
+    setLoading(tab.id, true);
+    setError(tab.id, undefined);
+    void (async () => {
+      try {
+        const body = await readSource(tab);
+        if (!cancelled) setContent(tab.id, body);
+      } catch (e) {
+        if (!cancelled) setError(tab.id, e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(tab.id, false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
+
+  useEffect(() => () => setSelection(tab.id, null), [setSelection, tab.id]);
+
+  if (loading === true) return <div className="muted region-pad">{t('inspect.loading')}</div>;
+  if (error !== undefined) return <ReadError message={error} />;
+
+  const body = content ?? '';
+  const filename = tab.path !== undefined ? baseName(tab.path) : tab.title;
+  const delimiter = extOf(filename).toLowerCase() === 'tsv' ? '\t' : ',';
+  return (
+    <div className="inspect-tabbody">
+      <div className="inspect-runbar inspect-previewbar">
+        <span className="muted small">{tab.kind === 'markdown' ? t('inspect.markdownPreview') : t('inspect.tablePreview')}</span>
+        <span className="spacer" />
+        {mode === 'preview' && (
+          <button
+            type="button"
+            className={`icon-btn${softWrap ? ' active' : ''}`}
+            title={t('inspect.wrap')}
+            aria-label={t('inspect.wrap')}
+            aria-pressed={softWrap}
+            onClick={() => setSoftWrap((current) => !current)}
+          >
+            <Icon name="wrap" size={15} />
+          </button>
+        )}
+        <div className="patch-modes" role="group" aria-label={t('inspect.previewMode')}>
+          <button
+            type="button"
+            className={`seg-btn${mode === 'preview' ? ' active' : ''}`}
+            onClick={() => {
+              setSelection(tab.id, null);
+              setMode('preview');
+            }}
+          >
+            {t('inspect.preview')}
+          </button>
+          <button
+            type="button"
+            className={`seg-btn${mode === 'source' ? ' active' : ''}`}
+            onClick={() => setMode('source')}
+          >
+            {t('inspect.source')}
+          </button>
+        </div>
+      </div>
+      <div className="inspect-rich-preview">
+        <Suspense fallback={<div className="muted region-pad">{t('inspect.loading')}</div>}>
+          {mode === 'source' ? (
+            <CodeView value={body} filename={filename} onSelection={(selection) => setSelection(tab.id, selection)} />
+          ) : tab.kind === 'markdown' ? (
+            <MarkdownReader text={body} softWrap={softWrap} />
+          ) : (
+            <DelimitedPreview text={body} delimiter={delimiter} softWrap={softWrap} />
+          )}
+        </Suspense>
+      </div>
     </div>
   );
 }
@@ -1313,6 +1418,10 @@ export function DebugSurface(): JSX.Element {
               }
               onOpenFrame={(f, from) => void resolveFrame(f, from)}
             />
+          ) : active.kind === 'markdown' ? (
+            <RichTextTab key={active.id} tab={active} />
+          ) : active.kind === 'table' ? (
+            <RichTextTab key={active.id} tab={active} />
           ) : active.kind === 'diff' ? (
             <DiffTab key={active.id} tab={active} />
           ) : active.kind === 'log' ? (

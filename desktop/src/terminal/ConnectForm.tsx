@@ -24,6 +24,7 @@ import {
 import { getKeyMaterial, listKeys, type SshKeyMeta } from '../state/keys';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { useConfirm } from '../ui/ConfirmModal';
+import { rememberConnection, type ConnectionDraft } from './connectionDraft';
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -251,64 +252,56 @@ export function ConnectForm({
     });
   }
 
+  function currentSnapshot(): FormSnapshot {
+    return {
+      name,
+      group,
+      host,
+      port,
+      user,
+      auth,
+      password,
+      keyId,
+      privateKey,
+      passphrase,
+      useJump,
+      jumpHost,
+      jumpPort,
+      jumpUser,
+      jumpAuth,
+      jumpKeyId,
+      jumpPassword,
+      useProxy,
+      proxyHost,
+      proxyPort,
+      proxyUser,
+      proxyPassword,
+    };
+  }
+
+  async function persistCurrent(): Promise<Connection> {
+    const snapshot = currentSnapshot();
+    const conn = await rememberConnection(
+      { id, ...snapshot } satisfies ConnectionDraft,
+      {
+        defaultGroup: DEFAULT_GROUP,
+        upsert: upsertConnection,
+        setPassword: setConnectionPassword,
+        setJumpPassword: setConnectionJumpPassword,
+      },
+    );
+    setId(conn.id);
+    // What is on screen is now what is stored: re-baseline the dirty-close
+    // guard (#313) so cancelling after Save or Connect no longer warns.
+    setBase(snapshot);
+    onSaved?.();
+    return conn;
+  }
+
   async function saveCurrent(): Promise<void> {
     setError(null);
     try {
-      const jumpOn = useJump && jumpHost.trim() !== '';
-      const proxyOn = useProxy && proxyHost.trim() !== '';
-      const conn = upsertConnection({
-        id: id ?? undefined,
-        name: name.trim() || host.trim(),
-        group: group.trim() || DEFAULT_GROUP,
-        host: host.trim(),
-        port: Number(port) || 22,
-        username: user.trim(),
-        authMethod: auth,
-        keyId: auth === 'key' && keyId !== '' ? keyId : null,
-        // Explicit nulls clear a disabled section (presence-keyed carry-over in
-        // upsertConnection) — same shape the mobile form writes.
-        jumpHost: jumpOn ? jumpHost.trim() : null,
-        jumpPort: jumpOn ? Number(jumpPort) || 22 : null,
-        jumpUsername: jumpOn && jumpUser.trim() !== '' ? jumpUser.trim() : null,
-        jumpAuthMethod: jumpOn ? jumpAuth : null,
-        jumpKeyId: jumpOn && jumpAuth === 'key' && jumpKeyId !== '' ? jumpKeyId : null,
-        proxyHost: proxyOn ? proxyHost.trim() : null,
-        proxyPort: proxyOn ? Number(proxyPort) || 1080 : null,
-        proxyUsername: proxyOn && proxyUser.trim() !== '' ? proxyUser.trim() : null,
-        proxyPassword: proxyOn && proxyPassword !== '' ? proxyPassword : null,
-      });
-      if (auth === 'password' && password !== '') await setConnectionPassword(conn.id, password);
-      // Empty (or disabled jump / key-auth jump) deletes the keychain slot.
-      await setConnectionJumpPassword(conn.id, jumpOn && jumpAuth === 'password' ? jumpPassword : '');
-      setId(conn.id);
-      // What is on screen is now what is stored: re-baseline the dirty-close
-      // guard (#313) so cancelling after a save no longer warns about edits
-      // that were in fact kept.
-      setBase({
-        name,
-        group,
-        host,
-        port,
-        user,
-        auth,
-        password,
-        keyId,
-        privateKey,
-        passphrase,
-        useJump,
-        jumpHost,
-        jumpPort,
-        jumpUser,
-        jumpAuth,
-        jumpKeyId,
-        jumpPassword,
-        useProxy,
-        proxyHost,
-        proxyPort,
-        proxyUser,
-        proxyPassword,
-      });
-      onSaved?.();
+      await persistCurrent();
     } catch (e) {
       setError(msg(e));
     }
@@ -332,22 +325,28 @@ export function ConnectForm({
     setPhase(null);
     const attempt = { cancelled: false };
     attemptRef.current = attempt;
-    // Each extra hop (SOCKS5 handshake, jump-host auth + forward) adds its own
-    // round-trips, so the single-hop ceiling would abort legitimate chains.
-    const timeoutMs = CONNECT_TIMEOUT_MS + (useJump ? 15_000 : 0) + (useProxy ? 10_000 : 0);
-    const timer = setTimeout(() => {
-      if (attempt.cancelled) return;
-      attempt.cancelled = true;
-      attemptRef.current = null;
-      setBusy(false);
-      setPhase(null);
-      setError(t('term.connectTimeout'));
-    }, timeoutMs);
-    // Minted per attempt and echoed on the core's phase ticks, so a stale
-    // attempt's ticks never update this attempt's display.
-    const attemptId = `c${++connectSeq}`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let unlisten: UnlistenFn | null = null;
     try {
+      // Connect is also Save/Update. Persist before starting the network
+      // attempt so a failed or cancelled handshake is still reusable and the
+      // user never has to re-enter the form.
+      const conn = await persistCurrent();
+      if (attempt.cancelled) return;
+      // Each extra hop (SOCKS5 handshake, jump-host auth + forward) adds its own
+      // round-trips, so the single-hop ceiling would abort legitimate chains.
+      const timeoutMs = CONNECT_TIMEOUT_MS + (useJump ? 15_000 : 0) + (useProxy ? 10_000 : 0);
+      timer = setTimeout(() => {
+        if (attempt.cancelled) return;
+        attempt.cancelled = true;
+        attemptRef.current = null;
+        setBusy(false);
+        setPhase(null);
+        setError(t('term.connectTimeout'));
+      }, timeoutMs);
+      // Minted per attempt and echoed on the core's phase ticks, so a stale
+      // attempt's ticks never update this attempt's display.
+      const attemptId = `c${++connectSeq}`;
       // Attached before the invoke so no phase tick is missed.
       unlisten = await onSshConnectPhase(attemptId, setPhase);
       const base = {
@@ -396,12 +395,12 @@ export function ConnectForm({
         void sshClose(sid);
         return;
       }
-      if (id !== null) touchConnection(id);
-      onConnected(sid, `${user.trim()}@${host.trim()}`, id ?? undefined);
+      touchConnection(conn.id);
+      onConnected(sid, `${user.trim()}@${host.trim()}`, conn.id);
     } catch (e) {
       if (!attempt.cancelled) setError(msg(e));
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       unlisten?.();
       // A newer attempt may already be running (this one timed out and the user
       // retried) — only reset the UI when this attempt is still the current one.

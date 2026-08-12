@@ -487,7 +487,28 @@
 .mdreader-outline-head {
   display: flex;
   align-items: center;
+  gap: var(--spacing-s4);
   padding: var(--spacing-s8) var(--spacing-s8) var(--spacing-s4);
+}
+.mdreader-outline-all-toggle,
+.mdreader-outline-branch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 22px;
+  width: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+.mdreader-outline-all-toggle:hover,
+.mdreader-outline-branch:hover {
+  background: var(--accent-tint);
+  color: var(--text);
 }
 .mdreader-outline-list {
   flex: 1;
@@ -498,14 +519,28 @@
   flex-direction: column;
   gap: 1px;
 }
+.mdreader-outline-row {
+  display: flex;
+  align-items: flex-start;
+  flex: 0 0 auto;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+.mdreader-outline-row:hover { background: var(--accent-tint); }
+.mdreader-outline-branch { margin-top: 4px; }
+.mdreader-outline-branch-placeholder { flex: 0 0 22px; }
 .mdreader-outline-item {
   /* Reset the global button chrome — these are list rows, not buttons. Without
      this each item is a raised, bordered, shadowed pill, which in a narrow column
      reads as an overlapping cramped mess. */
   display: block;
-  width: 100%;
+  /* A long outline is a scroll list, not a flex-shrink target. Without this,
+     many wrapped headings are compressed below their content height and the
+     second line paints underneath the following row. */
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
-  padding: 5px 10px;
+  padding: 5px 8px 5px 2px;
   background: none;
   border: none;
   box-shadow: none;
@@ -525,7 +560,7 @@
   word-break: break-word;
 }
 .mdreader-outline-item:hover {
-  background: var(--accent-tint);
+  background: none;
   color: var(--text);
   border: none;
   box-shadow: none;

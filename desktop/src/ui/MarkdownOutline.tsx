@@ -19,6 +19,12 @@ export interface Head {
   line: number;
 }
 
+interface OutlineHead {
+  head: Head;
+  key: string;
+  hasChildren: boolean;
+}
+
 // Strip inline markdown so the outline label + slug match the rendered heading's
 // text (which react-markdown emits with formatting removed).
 function cleanInline(s: string): string {
@@ -83,8 +89,34 @@ export function MarkdownOutline({
 }): JSX.Element | null {
   const t = useT();
   const [open, setOpen] = useState(() => (foldKey !== undefined ? localStorage.getItem(foldKey) !== '0' : true));
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [outlineW, resizeOutline] = usePanelWidth(widthKey, 240, 160, 460, side === 'right' ? -1 : 1);
   const minDepth = useMemo(() => Math.min(6, ...headings.map((h) => h.depth)), [headings]);
+  const outlineHeads = useMemo<OutlineHead[]>(() => {
+    const slugCounts = new Map<string, number>();
+    return headings.map((head, index) => {
+      const occurrence = slugCounts.get(head.slug) ?? 0;
+      slugCounts.set(head.slug, occurrence + 1);
+      return {
+        head,
+        key: `${head.slug}-${occurrence}`,
+        hasChildren: index + 1 < headings.length && headings[index + 1].depth > head.depth,
+      };
+    });
+  }, [headings]);
+  const branchKeys = useMemo(() => outlineHeads.filter((item) => item.hasChildren).map((item) => item.key), [outlineHeads]);
+  const visibleHeads = useMemo(() => {
+    let hiddenBelowDepth: number | null = null;
+    return outlineHeads.filter((item) => {
+      if (hiddenBelowDepth !== null) {
+        if (item.head.depth > hiddenBelowDepth) return false;
+        hiddenBelowDepth = null;
+      }
+      if (item.hasChildren && collapsed.has(item.key)) hiddenBelowDepth = item.head.depth;
+      return true;
+    });
+  }, [collapsed, outlineHeads]);
+  const allBranchesCollapsed = branchKeys.length > 0 && branchKeys.every((key) => collapsed.has(key));
   const right = side === 'right';
 
   function fold(next: boolean): void {
@@ -107,6 +139,19 @@ export function MarkdownOutline({
     bodyRef.current?.querySelector(`#${sel}`)?.scrollIntoView({ behavior: 'auto', block: 'start' });
   }
 
+  function toggleBranch(key: string): void {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllBranches(): void {
+    setCollapsed(allBranchesCollapsed ? new Set() : new Set(branchKeys));
+  }
+
   // A lone heading (or none) is no outline — the rail hides entirely.
   if (headings.length <= 1) return null;
   const foldBtn = (
@@ -119,21 +164,47 @@ export function MarkdownOutline({
       <div className="mdreader-outline-head">
         {right && foldBtn}
         <span className="muted small">{t('read.mdOutline')}</span>
+        {branchKeys.length > 0 && (
+          <button
+            className="mdreader-outline-all-toggle"
+            title={t(allBranchesCollapsed ? 'read.expandAllHeadings' : 'read.collapseAllHeadings')}
+            aria-label={t(allBranchesCollapsed ? 'read.expandAllHeadings' : 'read.collapseAllHeadings')}
+            onClick={toggleAllBranches}
+          >
+            <Icon name={allBranchesCollapsed ? 'chevron-right' : 'chevron-down'} size={13} />
+          </button>
+        )}
         <span className="spacer" />
         {!right && foldBtn}
       </div>
       <div className="mdreader-outline-list">
-        {headings.map((h, i) => (
-          <button
-            key={`${h.slug}-${i}`}
-            className="mdreader-outline-item"
-            style={{ paddingLeft: `${8 + (h.depth - minDepth) * 12}px` }}
-            title={h.text}
-            onClick={() => go(h)}
-          >
-            {h.text}
-          </button>
-        ))}
+        {visibleHeads.map(({ head, key, hasChildren }) => {
+          const isCollapsed = collapsed.has(key);
+          return (
+            <div
+              key={key}
+              className="mdreader-outline-row"
+              style={{ paddingLeft: `${4 + (head.depth - minDepth) * 12}px` }}
+            >
+              {hasChildren ? (
+                <button
+                  className="mdreader-outline-branch"
+                  title={t(isCollapsed ? 'read.expandHeading' : 'read.collapseHeading')}
+                  aria-label={t(isCollapsed ? 'read.expandHeading' : 'read.collapseHeading')}
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggleBranch(key)}
+                >
+                  <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
+                </button>
+              ) : (
+                <span className="mdreader-outline-branch-placeholder" aria-hidden="true" />
+              )}
+              <button className="mdreader-outline-item" title={head.text} onClick={() => go(head)}>
+                {head.text}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

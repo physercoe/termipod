@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   onSftpProgress,
   sftpDelete,
@@ -136,6 +136,10 @@ function columnStyle(widths: SftpColumnWidths): CSSProperties {
   } as CSSProperties;
 }
 
+function columnContentWidth(widths: SftpColumnWidths): number {
+  return widths.name + widths.size + widths.modified + widths.permissions + 144;
+}
+
 function EntryIcon({ name, isDir }: { name: string; isDir: boolean }): JSX.Element {
   return isDir ? (
     <span className="inspect-folder-icon" aria-hidden="true">
@@ -223,6 +227,80 @@ function FileListHeader({
   );
 }
 
+function SftpHorizontalScroll({
+  targetRef,
+  contentWidth,
+}: {
+  targetRef: RefObject<HTMLDivElement | null>;
+  contentWidth: number;
+}): JSX.Element | null {
+  const t = useT();
+  const [position, setPosition] = useState(0);
+  const [maximum, setMaximum] = useState(0);
+
+  useEffect(() => {
+    const target = targetRef.current;
+    if (target === null) return;
+    const sync = (): void => {
+      const nextMaximum = Math.max(0, target.scrollWidth - target.clientWidth);
+      setMaximum(nextMaximum);
+      setPosition(Math.min(nextMaximum, target.scrollLeft));
+    };
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(sync);
+    observer?.observe(target);
+    if (target.firstElementChild instanceof HTMLElement) observer?.observe(target.firstElementChild);
+    target.addEventListener('scroll', sync, { passive: true });
+    sync();
+    return () => {
+      observer?.disconnect();
+      target.removeEventListener('scroll', sync);
+    };
+  }, [contentWidth, targetRef]);
+
+  if (maximum <= 0) return null;
+  const scrollByPage = (direction: -1 | 1): void => {
+    const target = targetRef.current;
+    if (target === null) return;
+    target.scrollBy({ left: direction * Math.max(120, target.clientWidth * 0.7), behavior: 'smooth' });
+  };
+  return (
+    <div className="sftp-xscroll">
+      <button
+        className="sftp-xscroll-btn"
+        disabled={position <= 0}
+        title={t('sftp.scrollLeft')}
+        aria-label={t('sftp.scrollLeft')}
+        onClick={() => scrollByPage(-1)}
+      >
+        <Icon name="chevron-left" size={13} />
+      </button>
+      <input
+        className="sftp-xscroll-range"
+        type="range"
+        min={0}
+        max={maximum}
+        step={1}
+        value={position}
+        aria-label={t('sftp.horizontalPosition')}
+        onChange={(event) => {
+          const next = Number(event.currentTarget.value);
+          if (targetRef.current !== null) targetRef.current.scrollLeft = next;
+          setPosition(next);
+        }}
+      />
+      <button
+        className="sftp-xscroll-btn"
+        disabled={position >= maximum}
+        title={t('sftp.scrollRight')}
+        aria-label={t('sftp.scrollRight')}
+        onClick={() => scrollByPage(1)}
+      >
+        <Icon name="chevron-right" size={13} />
+      </button>
+    </div>
+  );
+}
+
 /** A pre-scanned directory tree: directory relpaths (for recreating empty
  *  dirs) plus file relpaths with sizes (for the aggregate progress total). */
 interface DirScan {
@@ -260,6 +338,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
   const [localColumnWidths, setLocalColumnWidths] = useState(() => loadColumnWidths('local'));
   const [remoteColumnWidths, setRemoteColumnWidths] = useState(() => loadColumnWidths('remote'));
   const dualRef = useRef<HTMLDivElement>(null);
+  const localListRef = useRef<HTMLDivElement>(null);
+  const remoteListRef = useRef<HTMLDivElement>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const panePersistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const columnPersistTimers = useRef<Partial<Record<SftpPaneSide, ReturnType<typeof setTimeout>>>>({});
@@ -720,9 +800,13 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
         </div>
       )}
 
-      <div className="sftp-dual" ref={dualRef}>
+      <div
+        className="sftp-dual"
+        ref={dualRef}
+        style={{ '--sftp-local-share': `${localPaneShare}%` } as CSSProperties}
+      >
         {/* Local pane */}
-        <div className="sftp-pane" style={{ flex: `0 0 ${localPaneShare}%` }}>
+        <div className="sftp-pane">
           <div className="sftp-pane-head">{t('sftp.local')}</div>
           <div className="sftp-bar">
             <button
@@ -746,6 +830,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
           </div>
           <div
             className="sftp-list scroll"
+            ref={localListRef}
             style={columnStyle(localColumnWidths)}
             onContextMenu={(e) =>
               ctxMenu.open(e, [
@@ -814,6 +899,10 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
               <div className="muted small region-pad">{t('sftp.empty')}</div>
             )}
           </div>
+          <SftpHorizontalScroll
+            targetRef={localListRef}
+            contentWidth={columnContentWidth(localColumnWidths)}
+          />
         </div>
 
         <ResizeHandle onResize={resizePanes} />
@@ -839,6 +928,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
           </div>
           <div
             className="sftp-list scroll"
+            ref={remoteListRef}
             style={columnStyle(remoteColumnWidths)}
             onContextMenu={(e) =>
               ctxMenu.open(e, [
@@ -903,6 +993,10 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
             ))}
             {!rbusy && rentries.length === 0 && <div className="muted small region-pad">{t('sftp.empty')}</div>}
           </div>
+          <SftpHorizontalScroll
+            targetRef={remoteListRef}
+            contentWidth={columnContentWidth(remoteColumnWidths)}
+          />
         </div>
       </div>
     </div>

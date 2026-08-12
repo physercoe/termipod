@@ -215,7 +215,20 @@
   border-bottom: 1px solid var(--border);
 }
 .sftp-path { flex: 1 1 auto; min-width: 0; }
-.sftp-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.sftp-list {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  contain: inline-size;
+}
+/* The persistent slider below owns horizontal navigation. Hide Chromium's
+   platform-dependent horizontal track (macOS auto-hides it; Windows would
+   otherwise show a redundant second control) while keeping vertical scroll. */
+.sftp-list::-webkit-scrollbar:horizontal { height: 0; }
 .sftp-list-head,
 .sftp-row {
   display: grid;
@@ -333,6 +346,39 @@
   justify-self: end;
   white-space: nowrap;
 }
+.sftp-xscroll {
+  flex: 0 0 28px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  min-width: 0;
+  padding: 2px var(--spacing-s4);
+  border-top: 1px solid var(--border);
+  background: var(--canvas);
+}
+.sftp-xscroll-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  box-shadow: none;
+}
+.sftp-xscroll-btn:hover:not(:disabled) { background: var(--hover); }
+.sftp-xscroll-range {
+  flex: 1 1 auto;
+  min-width: 48px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: ew-resize;
+}
 /* Select-only click model: the highlighted row is just the selection — actions
    come from the context menu / the per-row transfer button / double-click. */
 .sftp-row.selected {
@@ -372,15 +418,20 @@
 /* Two-pane (local | remote) transfer layout. */
 .sftp-dual {
   flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, var(--sftp-local-share, 50%)) 1px minmax(0, 1fr);
+  overflow: hidden;
 }
 .sftp-pane {
-  flex: 1 1 0;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .sftp-pane-head {
   padding: var(--spacing-s4) var(--spacing-s8);

@@ -102,14 +102,20 @@ const PREVIEW_MAX = 5 * 1024 * 1024;
 
 type SftpColumnKey = 'name' | 'size' | 'modified' | 'permissions';
 type SftpColumnWidths = Record<SftpColumnKey, number>;
+type SftpPaneSide = 'local' | 'remote';
 
-const SFTP_COLUMN_WIDTHS_KEY = 'termipod.sftp.columnWidths';
+const LEGACY_SFTP_COLUMN_WIDTHS_KEY = 'termipod.sftp.columnWidths';
+const SFTP_COLUMN_WIDTHS_KEYS: Record<SftpPaneSide, string> = {
+  local: 'termipod.sftp.localColumnWidths',
+  remote: 'termipod.sftp.remoteColumnWidths',
+};
 const DEFAULT_COLUMN_WIDTHS: SftpColumnWidths = { name: 240, size: 92, modified: 170, permissions: 126 };
 const MIN_COLUMN_WIDTHS: SftpColumnWidths = { name: 120, size: 64, modified: 108, permissions: 88 };
 
-function loadColumnWidths(): SftpColumnWidths {
+function loadColumnWidths(side: SftpPaneSide): SftpColumnWidths {
   try {
-    const saved = JSON.parse(localStorage.getItem(SFTP_COLUMN_WIDTHS_KEY) ?? '{}') as Partial<SftpColumnWidths>;
+    const raw = localStorage.getItem(SFTP_COLUMN_WIDTHS_KEYS[side]) ?? localStorage.getItem(LEGACY_SFTP_COLUMN_WIDTHS_KEY);
+    const saved = JSON.parse(raw ?? '{}') as Partial<SftpColumnWidths>;
     return Object.fromEntries(
       (Object.keys(DEFAULT_COLUMN_WIDTHS) as SftpColumnKey[]).map((key) => {
         const value = saved[key];
@@ -119,6 +125,15 @@ function loadColumnWidths(): SftpColumnWidths {
   } catch {
     return DEFAULT_COLUMN_WIDTHS;
   }
+}
+
+function columnStyle(widths: SftpColumnWidths): CSSProperties {
+  return {
+    '--sftp-col-name': `${widths.name}px`,
+    '--sftp-col-size': `${widths.size}px`,
+    '--sftp-col-modified': `${widths.modified}px`,
+    '--sftp-col-permissions': `${widths.permissions}px`,
+  } as CSSProperties;
 }
 
 function EntryIcon({ name, isDir }: { name: string; isDir: boolean }): JSX.Element {
@@ -242,11 +257,12 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     const saved = Number(localStorage.getItem('termipod.sftp.localPaneShare'));
     return Number.isFinite(saved) && saved >= 20 && saved <= 80 ? saved : 50;
   });
-  const [columnWidths, setColumnWidths] = useState(loadColumnWidths);
+  const [localColumnWidths, setLocalColumnWidths] = useState(() => loadColumnWidths('local'));
+  const [remoteColumnWidths, setRemoteColumnWidths] = useState(() => loadColumnWidths('remote'));
   const dualRef = useRef<HTMLDivElement>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const panePersistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const columnPersistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const columnPersistTimers = useRef<Partial<Record<SftpPaneSide, ReturnType<typeof setTimeout>>>>({});
   const sortedLocalEntries = useMemo(() => sortFileEntries(local?.entries ?? [], lSort), [local?.entries, lSort]);
   const sortedRemoteEntries = useMemo(() => sortFileEntries(rentries, rSort), [rentries, rSort]);
 
@@ -264,7 +280,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     () => () => {
       if (clearTimer.current !== undefined) clearTimeout(clearTimer.current);
       if (panePersistTimer.current !== undefined) clearTimeout(panePersistTimer.current);
-      if (columnPersistTimer.current !== undefined) clearTimeout(columnPersistTimer.current);
+      if (columnPersistTimers.current.local !== undefined) clearTimeout(columnPersistTimers.current.local);
+      if (columnPersistTimers.current.remote !== undefined) clearTimeout(columnPersistTimers.current.remote);
     },
     [],
   );
@@ -286,13 +303,14 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     });
   }, []);
 
-  const resizeColumn = useCallback((key: SftpColumnKey, dx: number): void => {
-    setColumnWidths((current) => {
+  const resizeColumn = useCallback((side: SftpPaneSide, key: SftpColumnKey, dx: number): void => {
+    const setWidths = side === 'local' ? setLocalColumnWidths : setRemoteColumnWidths;
+    setWidths((current) => {
       const next = { ...current, [key]: Math.max(MIN_COLUMN_WIDTHS[key], current[key] + dx) };
-      if (columnPersistTimer.current !== undefined) clearTimeout(columnPersistTimer.current);
-      columnPersistTimer.current = setTimeout(() => {
+      if (columnPersistTimers.current[side] !== undefined) clearTimeout(columnPersistTimers.current[side]);
+      columnPersistTimers.current[side] = setTimeout(() => {
         try {
-          localStorage.setItem(SFTP_COLUMN_WIDTHS_KEY, JSON.stringify(next));
+          localStorage.setItem(SFTP_COLUMN_WIDTHS_KEYS[side], JSON.stringify(next));
         } catch {
           /* ignore */
         }
@@ -301,24 +319,18 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     });
   }, []);
 
-  const resetColumn = useCallback((key: SftpColumnKey): void => {
-    setColumnWidths((current) => {
+  const resetColumn = useCallback((side: SftpPaneSide, key: SftpColumnKey): void => {
+    const setWidths = side === 'local' ? setLocalColumnWidths : setRemoteColumnWidths;
+    setWidths((current) => {
       const next = { ...current, [key]: DEFAULT_COLUMN_WIDTHS[key] };
       try {
-        localStorage.setItem(SFTP_COLUMN_WIDTHS_KEY, JSON.stringify(next));
+        localStorage.setItem(SFTP_COLUMN_WIDTHS_KEYS[side], JSON.stringify(next));
       } catch {
         /* ignore */
       }
       return next;
     });
   }, []);
-
-  const columnStyle = {
-    '--sftp-col-name': `${columnWidths.name}px`,
-    '--sftp-col-size': `${columnWidths.size}px`,
-    '--sftp-col-modified': `${columnWidths.modified}px`,
-    '--sftp-col-permissions': `${columnWidths.permissions}px`,
-  } as CSSProperties;
 
   const loadRemote = useCallback(
     async (path: string): Promise<void> => {
@@ -662,7 +674,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
   }
 
   return (
-    <div className="sftp-panel" style={columnStyle}>
+    <div className="sftp-panel">
       {confirm.node}
       {prompt.node}
       {ctxMenu.node}
@@ -734,6 +746,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
           </div>
           <div
             className="sftp-list scroll"
+            style={columnStyle(localColumnWidths)}
             onContextMenu={(e) =>
               ctxMenu.open(e, [
                 { label: t('sftp.newFolder'), disabled: busy, onClick: () => void newLocalFolder() },
@@ -745,8 +758,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
             <FileListHeader
               sort={lSort}
               onSort={(key) => setLSort((current) => nextFileSort(current, key))}
-              onResize={resizeColumn}
-              onReset={resetColumn}
+              onResize={(key, dx) => resizeColumn('local', key, dx)}
+              onReset={(key) => resetColumn('local', key)}
             />
             {sortedLocalEntries.map((e) => (
               <div
@@ -826,6 +839,7 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
           </div>
           <div
             className="sftp-list scroll"
+            style={columnStyle(remoteColumnWidths)}
             onContextMenu={(e) =>
               ctxMenu.open(e, [
                 { label: t('sftp.newFolder'), disabled: busy, onClick: () => void newRemoteFolder() },
@@ -837,8 +851,8 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
             <FileListHeader
               sort={rSort}
               onSort={(key) => setRSort((current) => nextFileSort(current, key))}
-              onResize={resizeColumn}
-              onReset={resetColumn}
+              onResize={(key, dx) => resizeColumn('remote', key, dx)}
+              onReset={(key) => resetColumn('remote', key)}
             />
             {sortedRemoteEntries.map((e) => (
               <div

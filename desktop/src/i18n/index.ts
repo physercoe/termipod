@@ -1624,6 +1624,10 @@ const en: Dict = {
   'read.openLink': 'Open link',
   'read.openLinkHint': 'Open a website in a new in-app tab',
   'read.collapse': 'Collapse',
+  'read.collapseHeading': 'Collapse subheadings',
+  'read.expandHeading': 'Expand subheadings',
+  'read.collapseAllHeadings': 'Show top-level headings only',
+  'read.expandAllHeadings': 'Show all heading levels',
   'read.showSidebar': 'Show collections',
   'read.showDetails': 'Show details',
 
@@ -3835,6 +3839,10 @@ const zh: Dict = {
   'read.openLink': '打开链接',
   'read.openLinkHint': '在应用内新标签页中打开网站',
   'read.collapse': '折叠',
+  'read.collapseHeading': '折叠子标题',
+  'read.expandHeading': '展开子标题',
+  'read.collapseAllHeadings': '仅显示一级标题',
+  'read.expandAllHeadings': '显示全部标题层级',
   'read.showSidebar': '显示分组',
   'read.showDetails': '显示详情',
 

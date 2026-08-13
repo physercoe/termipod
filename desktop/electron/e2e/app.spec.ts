@@ -240,10 +240,27 @@ test('terminal UI: opening a local shell mounts an xterm screen', async () => {
   await page.locator('[data-job="terminal"]').click();
   await page.locator('.term-add-btn').first().click(); // the "+" new-session menu
   await page.locator('.term-add-menu button').first().click(); // "Local shell"
-  // xterm mounted its screen — proves the UI PTY path renders without crashing
-  // (the black-screen render class doesn't reproduce under Chromium). We assert
-  // the element, not its text: xterm paints to canvas/WebGL, not the DOM.
+  // xterm mounted its screen — proves the UI PTY path renders without crashing.
   await expect(page.locator('.xterm').first()).toBeVisible({ timeout: 15_000 });
+  const os = await page.evaluate(() => window.__ELECTRON_BRIDGE__!.invoke<string>('platform_os'));
+  if (os === 'macos') {
+    // macOS deliberately keeps xterm's DOM renderer for sharper Retina text.
+    await expect(page.locator('.xterm .xterm-rows').first()).toBeVisible();
+    const edge = await page.locator('.term-screen').first().evaluate(async (host) => {
+      await document.fonts.ready;
+      const root = host.querySelector<HTMLElement>(':scope > .xterm')!;
+      const screen = root.querySelector<HTMLElement>('.xterm-screen')!;
+      return {
+        hostRight: host.getBoundingClientRect().right,
+        screenRight: screen.getBoundingClientRect().right,
+        reservedRight: Number.parseFloat(getComputedStyle(root).paddingRight),
+      };
+    });
+    // The explicit reserve is part of FitAddon's width calculation, keeping the
+    // final DOM cell (notably a right-aligned `%`) inside the clipped host.
+    expect(edge.reservedRight).toBeGreaterThanOrEqual(8);
+    expect(edge.screenRight).toBeLessThan(edge.hostRight);
+  }
 });
 
 // ── draw.io embed ──────────────────────────────────────────────────────────

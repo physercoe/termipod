@@ -551,6 +551,17 @@
      on .term-screen-wrap instead. */
   overflow: hidden;
 }
+/* The DOM renderer rounds its CSS canvas width after FitAddon chooses a column
+   count. With a large web font at fractional Retina metrics, that final canvas
+   can land a few pixels past the host and clip the last cell (for example the
+   trailing `%` in a right-aligned progress line). Reserve one small gutter on
+   macOS by padding xterm itself: FitAddon explicitly subtracts this element's
+   padding when proposing dimensions, so the PTY receives the honest narrower
+   column count and no content is painted beneath the right edge. Keep the host
+   `.term-screen` padding-free because it is FitAddon's measured parent. */
+.shell-macos .term-screen > .xterm {
+  padding-right: var(--spacing-s8);
+}
 /* Deterministic terminal scrollbar. xterm's FitAddon reserves a FIXED 15px for the
    scrollbar when sizing columns (its Viewport measures 0 before any overflow and
    falls back to `|| 15`). The platform's native scrollbar can be wider than that

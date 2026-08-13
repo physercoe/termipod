@@ -118,3 +118,78 @@ test('different SSH sessions run independently and failures do not block the nex
   assert.equal(failed.error, 'network lost');
   assert.equal((await afterFailure.completion).status, 'done');
 });
+
+test('a queued job cancels immediately and is skipped', async () => {
+  let seq = 0;
+  const queue = new SftpTransferQueue({ makeId: () => `t${++seq}`, retentionMs: -1 });
+  const gate = deferred();
+  const order: string[] = [];
+  const active = queue.enqueue({
+    sessionId: 'ssh-1',
+    name: 'active',
+    dir: 'down',
+    total: 1,
+    run: async () => gate.promise,
+  });
+  const queued = queue.enqueue({
+    sessionId: 'ssh-1',
+    name: 'cancel-me',
+    dir: 'down',
+    total: 1,
+    run: async () => {
+      order.push('cancelled job ran');
+    },
+  });
+  const after = queue.enqueue({
+    sessionId: 'ssh-1',
+    name: 'after',
+    dir: 'down',
+    total: 1,
+    run: async () => {
+      order.push('after');
+    },
+  });
+
+  assert.equal(queue.cancel('ssh-1', queued.id), true);
+  assert.equal((await queued.completion).status, 'cancelled');
+  assert.equal(queue.cancel('ssh-1', queued.id), false);
+  gate.resolve();
+  await active.completion;
+  await after.completion;
+  assert.deepEqual(order, ['after']);
+});
+
+test('cancelling an active job aborts its signal and advances the queue', async () => {
+  let seq = 0;
+  const queue = new SftpTransferQueue({ makeId: () => `t${++seq}`, retentionMs: -1 });
+  let sawAbort = false;
+  const active = queue.enqueue({
+    sessionId: 'ssh-1',
+    name: 'active',
+    dir: 'down',
+    total: 10,
+    run: ({ signal }) =>
+      new Promise<void>((_resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            sawAbort = true;
+            reject(new Error('native stream cancelled'));
+          },
+          { once: true },
+        );
+      }),
+  });
+  const next = queue.enqueue({
+    sessionId: 'ssh-1',
+    name: 'next',
+    dir: 'down',
+    total: 1,
+    run: async () => {},
+  });
+
+  assert.equal(queue.cancel('ssh-1', active.id), true);
+  assert.equal((await active.completion).status, 'cancelled');
+  assert.equal(sawAbort, true);
+  assert.equal((await next.completion).status, 'done');
+});

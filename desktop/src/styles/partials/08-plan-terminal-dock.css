@@ -428,6 +428,12 @@
   font-size: var(--font-size-caption);
 }
 .sftp-transfer-head .muted { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.sftp-transfer-cancel {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 1px var(--spacing-s8);
+  font-size: var(--font-size-caption);
+}
 .sftp-progress-track {
   height: 6px;
   border-radius: var(--radius-sm);
@@ -443,6 +449,7 @@
 }
 .sftp-transfer.done .sftp-progress-fill { background: var(--accent); }
 .sftp-transfer.error .sftp-progress-fill { background: var(--danger); }
+.sftp-transfer.cancelled .sftp-progress-fill { background: var(--text-muted); }
 .sftp-transfer.queued .sftp-progress-track { opacity: 0.55; }
 /* Unknown-size transfer: a sliding sliver instead of a filled fraction. */
 .sftp-progress-fill.indeterminate {

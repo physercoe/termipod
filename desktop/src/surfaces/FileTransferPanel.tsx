@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import {
+  sftpCancel,
   onSftpProgress,
   sftpDelete,
   sftpList,
@@ -21,6 +22,7 @@ import {
   type LocalListing,
 } from '../state/localfs';
 import {
+  cancelSftpTransfer,
   enqueueSftpTransfer,
   listSftpTransfers,
   subscribeSftpTransfers,
@@ -68,6 +70,10 @@ function formatBytes(n: number): string {
 
 function nextTransferId(): string {
   return `tx${crypto.randomUUID()}`;
+}
+
+function throwIfTransferCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('transfer cancelled', 'AbortError');
 }
 
 // Remote paths are always POSIX ('/'); local targets use the listed absolute dir
@@ -221,12 +227,14 @@ interface DirScan {
 }
 
 /** Recursive pre-scan of a local directory (for upload). */
-async function scanLocalDir(root: string): Promise<DirScan> {
+async function scanLocalDir(root: string, signal: AbortSignal): Promise<DirScan> {
   const dirs: string[] = [];
   const files: { rel: string; size: number }[] = [];
   const walk = async (abs: string, rel: string): Promise<void> => {
+    throwIfTransferCancelled(signal);
     const listing = await localList(abs);
     for (const entry of listing.entries) {
+      throwIfTransferCancelled(signal);
       const nextRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
       if (entry.is_dir) {
         dirs.push(nextRel);
@@ -241,12 +249,14 @@ async function scanLocalDir(root: string): Promise<DirScan> {
 }
 
 /** Recursive pre-scan of a remote directory (for download). */
-async function scanRemoteDir(sessionId: string, root: string): Promise<DirScan> {
+async function scanRemoteDir(sessionId: string, root: string, signal: AbortSignal): Promise<DirScan> {
   const dirs: string[] = [];
   const files: { rel: string; size: number }[] = [];
   const walk = async (abs: string, rel: string): Promise<void> => {
+    throwIfTransferCancelled(signal);
     const listing = await sftpList(sessionId, abs);
     for (const entry of listing) {
+      throwIfTransferCancelled(signal);
       const nextRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
       if (entry.is_dir) {
         dirs.push(nextRel);
@@ -260,18 +270,26 @@ async function scanRemoteDir(sessionId: string, root: string): Promise<DirScan> 
   return { dirs, files };
 }
 
-function TransferProgress({ transfer }: { transfer: SftpTransfer }): JSX.Element {
+function TransferProgress({
+  transfer,
+  onCancel,
+}: {
+  transfer: SftpTransfer;
+  onCancel: () => void;
+}): JSX.Element {
   const t = useT();
   const statusLabel =
     transfer.status === 'queued'
       ? t('sftp.queued')
-      : transfer.status === 'error'
-        ? t('sftp.failed')
-        : transfer.status === 'done'
-          ? t('sftp.done')
-          : transfer.total > 0
-            ? `${formatBytes(transfer.done)} / ${formatBytes(transfer.total)}`
-            : formatBytes(transfer.done);
+      : transfer.status === 'cancelled'
+        ? t('sftp.cancelled')
+        : transfer.status === 'error'
+          ? t('sftp.failed')
+          : transfer.status === 'done'
+            ? t('sftp.done')
+            : transfer.total > 0
+              ? `${formatBytes(transfer.done)} / ${formatBytes(transfer.total)}`
+              : formatBytes(transfer.done);
   return (
     <div className={`sftp-transfer ${transfer.status}`}>
       <div className="sftp-transfer-head">
@@ -280,6 +298,11 @@ function TransferProgress({ transfer }: { transfer: SftpTransfer }): JSX.Element
         {transfer.note !== undefined && <span className="muted small sftp-transfer-note">{transfer.note}</span>}
         <span className="spacer" />
         <span className="muted small">{statusLabel}</span>
+        {(transfer.status === 'queued' || transfer.status === 'active') && (
+          <button type="button" className="sftp-transfer-cancel" onClick={onCancel}>
+            {t('common.cancel')}
+          </button>
+        )}
       </div>
       <div className="sftp-progress-track">
         <div
@@ -486,33 +509,48 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
       name: entry.name,
       dir: 'down',
       total: entry.is_dir ? 0 : entry.size,
-      run: async ({ id: transferId, update }) => {
+      run: async ({ id: transferId, signal, update }) => {
         // `base` = bytes finished in earlier files; backend progress ticks are
         // per-file cumulative, so aggregate = base + tick.
         let base = 0;
+        const abortNative = (): void => {
+          void sftpCancel(transferId);
+        };
+        signal.addEventListener('abort', abortNative, { once: true });
+        throwIfTransferCancelled(signal);
         const unlisten = await onSftpProgress(transferId, (done) => update({ done: base + done }));
         try {
+          throwIfTransferCancelled(signal);
           if (!entry.is_dir) {
             const bytes = await sftpRead(sessionId, src, transferId);
+            throwIfTransferCancelled(signal);
             await localWrite(dest, bytes);
+            throwIfTransferCancelled(signal);
             update({ done: entry.size > 0 ? entry.size : 0 });
             return;
           }
           update({ note: t('sftp.scanning') });
-          const { dirs, files } = await scanRemoteDir(sessionId, src);
+          const { dirs, files } = await scanRemoteDir(sessionId, src, signal);
           const total = files.reduce((sum, file) => sum + file.size, 0);
           update({ total, note: undefined });
+          throwIfTransferCancelled(signal);
           await localMkdir(dest);
-          for (const dir of dirs) await localMkdir(joinPosix(dest, dir));
+          for (const dir of dirs) {
+            throwIfTransferCancelled(signal);
+            await localMkdir(joinPosix(dest, dir));
+          }
           for (const [index, file] of files.entries()) {
+            throwIfTransferCancelled(signal);
             update({ note: `${index + 1}/${files.length} · ${file.rel}` });
             const bytes = await sftpRead(sessionId, joinPosix(src, file.rel), transferId);
+            throwIfTransferCancelled(signal);
             await localWrite(joinPosix(dest, file.rel), bytes);
             base += file.size;
             update({ done: base });
           }
         } finally {
           unlisten();
+          signal.removeEventListener('abort', abortNative);
         }
       },
     });
@@ -529,31 +567,46 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
       name: entry.name,
       dir: 'up',
       total: entry.is_dir ? 0 : entry.size,
-      run: async ({ id: transferId, update }) => {
+      run: async ({ id: transferId, signal, update }) => {
         let base = 0;
+        const abortNative = (): void => {
+          void sftpCancel(transferId);
+        };
+        signal.addEventListener('abort', abortNative, { once: true });
+        throwIfTransferCancelled(signal);
         const unlisten = await onSftpProgress(transferId, (done) => update({ done: base + done }));
         try {
+          throwIfTransferCancelled(signal);
           if (!entry.is_dir) {
             const bytes = await localRead(entry.path);
+            throwIfTransferCancelled(signal);
             await sftpWrite(sessionId, dest, bytes, transferId);
+            throwIfTransferCancelled(signal);
             update({ done: entry.size });
             return;
           }
           update({ note: t('sftp.scanning') });
-          const { dirs, files } = await scanLocalDir(entry.path);
+          const { dirs, files } = await scanLocalDir(entry.path, signal);
           const total = files.reduce((sum, file) => sum + file.size, 0);
           update({ total, note: undefined });
+          throwIfTransferCancelled(signal);
           await sftpMkdir(sessionId, dest);
-          for (const dir of dirs) await sftpMkdir(sessionId, joinPosix(dest, dir));
+          for (const dir of dirs) {
+            throwIfTransferCancelled(signal);
+            await sftpMkdir(sessionId, joinPosix(dest, dir));
+          }
           for (const [index, file] of files.entries()) {
+            throwIfTransferCancelled(signal);
             update({ note: `${index + 1}/${files.length} · ${file.rel}` });
             const bytes = await localRead(joinPosix(entry.path, file.rel));
+            throwIfTransferCancelled(signal);
             await sftpWrite(sessionId, joinPosix(dest, file.rel), bytes, transferId);
             base += file.size;
             update({ done: base });
           }
         } finally {
           unlisten();
+          signal.removeEventListener('abort', abortNative);
         }
       },
     });
@@ -730,7 +783,11 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
       {transfers.length > 0 && (
         <div className="sftp-transfers scroll">
           {transfers.map((transfer) => (
-            <TransferProgress key={transfer.id} transfer={transfer} />
+            <TransferProgress
+              key={transfer.id}
+              transfer={transfer}
+              onCancel={() => cancelSftpTransfer(sessionId, transfer.id)}
+            />
           ))}
         </div>
       )}

@@ -1,5 +1,5 @@
 export type SftpTransferDirection = 'up' | 'down';
-export type SftpTransferStatus = 'queued' | 'active' | 'done' | 'error';
+export type SftpTransferStatus = 'queued' | 'active' | 'done' | 'error' | 'cancelled';
 
 export interface SftpTransfer {
   id: string;
@@ -15,6 +15,7 @@ export interface SftpTransfer {
 
 export interface SftpTransferRunContext {
   id: string;
+  signal: AbortSignal;
   update: (patch: Partial<Pick<SftpTransfer, 'done' | 'total' | 'note'>>) => void;
 }
 
@@ -34,6 +35,7 @@ export interface SftpTransferHandle {
 interface InternalTransfer extends SftpTransfer {
   run: SftpTransferRequest['run'];
   finish: (transfer: SftpTransfer) => void;
+  controller: AbortController;
 }
 
 interface QueueOptions {
@@ -93,11 +95,25 @@ export class SftpTransferQueue {
       status: 'queued',
       run: request.run,
       finish,
+      controller: new AbortController(),
     };
     this.jobs.set(request.sessionId, [...(this.jobs.get(request.sessionId) ?? []), job]);
     this.publish(request.sessionId);
     void this.pump(request.sessionId);
     return { id, completion };
+  }
+
+  cancel(sessionId: string, id: string): boolean {
+    const job = (this.jobs.get(sessionId) ?? []).find((candidate) => candidate.id === id);
+    if (job === undefined || (job.status !== 'queued' && job.status !== 'active')) return false;
+    job.controller.abort();
+    this.update(sessionId, id, { status: 'cancelled', note: undefined });
+    if (job.status === 'queued') {
+      const terminal = this.list(sessionId).find((candidate) => candidate.id === id);
+      if (terminal !== undefined) job.finish(terminal);
+      this.scheduleRemoval(sessionId, id);
+    }
+    return true;
   }
 
   private update(sessionId: string, id: string, patch: Partial<SftpTransfer>): void {
@@ -110,7 +126,9 @@ export class SftpTransferQueue {
   }
 
   private publish(sessionId: string): void {
-    const snapshot = (this.jobs.get(sessionId) ?? []).map(({ run: _run, finish: _finish, ...job }) => job);
+    const snapshot = (this.jobs.get(sessionId) ?? []).map(
+      ({ run: _run, finish: _finish, controller: _controller, ...job }) => job,
+    );
     this.snapshots.set(sessionId, snapshot);
     for (const listener of this.listeners.get(sessionId) ?? []) listener();
   }
@@ -126,29 +144,43 @@ export class SftpTransferQueue {
         try {
           await job.run({
             id: job.id,
+            signal: job.controller.signal,
             update: (patch) => this.update(sessionId, job.id, patch),
           });
           const latest = (this.jobs.get(sessionId) ?? []).find((candidate) => candidate.id === job.id);
-          const done = latest?.total !== undefined && latest.total > 0 ? latest.total : (latest?.done ?? 0);
-          this.update(sessionId, job.id, { status: 'done', done, note: undefined });
+          if (job.controller.signal.aborted) {
+            this.update(sessionId, job.id, { status: 'cancelled', note: undefined });
+          } else {
+            const done = latest?.total !== undefined && latest.total > 0 ? latest.total : (latest?.done ?? 0);
+            this.update(sessionId, job.id, { status: 'done', done, note: undefined });
+          }
         } catch (error) {
-          this.update(sessionId, job.id, { status: 'error', error: message(error) });
+          this.update(
+            sessionId,
+            job.id,
+            job.controller.signal.aborted
+              ? { status: 'cancelled', note: undefined }
+              : { status: 'error', error: message(error) },
+          );
         }
         const terminal = this.list(sessionId).find((candidate) => candidate.id === job.id);
         if (terminal !== undefined) job.finish(terminal);
-        if (this.retentionMs >= 0) {
-          setTimeout(() => {
-            const remaining = (this.jobs.get(sessionId) ?? []).filter((candidate) => candidate.id !== job.id);
-            this.jobs.set(sessionId, remaining);
-            this.publish(sessionId);
-          }, this.retentionMs);
-        }
+        this.scheduleRemoval(sessionId, job.id);
       }
     } finally {
       this.running.delete(sessionId);
       // A job may have arrived between the final lookup and clearing `running`.
       if ((this.jobs.get(sessionId) ?? []).some((candidate) => candidate.status === 'queued')) void this.pump(sessionId);
     }
+  }
+
+  private scheduleRemoval(sessionId: string, id: string): void {
+    if (this.retentionMs < 0) return;
+    setTimeout(() => {
+      const remaining = (this.jobs.get(sessionId) ?? []).filter((candidate) => candidate.id !== id);
+      this.jobs.set(sessionId, remaining);
+      this.publish(sessionId);
+    }, this.retentionMs);
   }
 }
 
@@ -165,4 +197,8 @@ export function listSftpTransfers(sessionId: string): readonly SftpTransfer[] {
 
 export function subscribeSftpTransfers(sessionId: string, listener: () => void): () => void {
   return queue.subscribe(sessionId, listener);
+}
+
+export function cancelSftpTransfer(sessionId: string, id: string): boolean {
+  return queue.cancel(sessionId, id);
 }

@@ -113,6 +113,11 @@ export function sftpRead(id: string, path: string, transferId: string): Promise<
 export function sftpWrite(id: string, path: string, bytes: Uint8Array, transferId: string): Promise<void> {
   return invoke('sftp_write', { id, path, bytes, transferId });
 }
+/** Stop the active native stream for a transfer id. Queued transfers never
+ * reach the backend and are cancelled entirely in the renderer queue. */
+export function sftpCancel(transferId: string): Promise<boolean> {
+  return invoke<boolean>('sftp_cancel', { transferId });
+}
 /** mkdir -p on the remote (New Folder, directory-upload destination). */
 export function sftpMkdir(id: string, path: string): Promise<void> {
   return invoke('sftp_mkdir', { id, path });

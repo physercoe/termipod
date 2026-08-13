@@ -88,7 +88,11 @@
   min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-s24) var(--spacing-s32);
-  max-width: 760px;
+}
+.settings-content-inner {
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
 }
 .settings-content-title {
   margin: 0 0 var(--spacing-s16);

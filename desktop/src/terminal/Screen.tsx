@@ -7,7 +7,8 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { isWindows, openExternal, shellKind, windowsBuildNumber } from '../platform';
+import { openExternal, platformOs, shellKind, windowsBuildNumber } from '../platform';
+import { CATPPUCCIN_MOCHA, TERMINAL_FONT_FAMILY } from './appearance';
 
 // Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
 // screens so zoom is a global preference, clamped to a sane, legible range.
@@ -54,7 +55,7 @@ interface Props {
 }
 
 /// A live xterm.js screen bound to one session (SSH or local), with the fit +
-/// search addons (no WebGL — see the renderer note in the mount effect). The
+/// search addons and the platform renderer policy documented in the mount effect. The
 /// effect depends on `sessionId` ALONE: its cleanup calls sessionClose(), so
 /// re-running it on a parent re-render would tear the session down (the
 /// black-terminal / dead-input bug fixed in desktop-v0.3.10). Unmount closes the
@@ -92,14 +93,13 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     setExited(null);
     const term = new XTerm({
       cursorBlink: true,
-      // Modern, professional monospace stack — prefer ligature-friendly coding
-      // faces, fall back through the OS defaults. Slightly airier metrics than
-      // xterm's defaults so long sessions read cleanly.
-      fontFamily:
-        '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace',
+      // Maple Mono NF CN is bundled so CJK text and Powerline/Nerd Font prompts
+      // render consistently without requiring a system font install. The stack
+      // retains robust fallbacks while the web font is loading.
+      fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: loadFontSize(),
       fontWeight: 400,
-      fontWeightBold: 600,
+      fontWeightBold: 700,
       lineHeight: 1.25,
       // 10k lines of scrollback (xterm default is 1000) — long build logs and
       // agent transcripts scroll back much further before the head is dropped.
@@ -119,13 +119,7 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       // menu's Copy is permanently disabled (director report). Shift+drag is
       // the built-in equivalent on Windows/Linux; this is the iTerm2 idiom.
       macOptionClickForcesSelection: true,
-      theme: {
-        background: '#0d1117',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
-        cursorAccent: '#0d1117',
-        selectionBackground: '#2d4a72',
-      },
+      theme: CATPPUCCIN_MOCHA,
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
@@ -154,6 +148,18 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       }),
     );
     term.open(el);
+
+    // Maple Mono includes programming ligatures; xterm needs this addon to
+    // shape them without changing terminal cell geometry. Keep it off the boot
+    // path: plain glyph rendering is immediately available while the optional
+    // shaper loads, and remains the safe fallback if a platform rejects it.
+    void import('@xterm/addon-ligatures')
+      .then(({ LigaturesAddon }) => {
+        if (!disposed) term.loadAddon(new LigaturesAddon());
+      })
+      .catch(() => {
+        /* ordinary glyph rendering stays */
+      });
 
     // Right-button suppression, capture phase (must be after term.open so `el`
     // has xterm's element inside it). xterm's "always on" mousedown handler
@@ -187,7 +193,9 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     // output bursts, and 10k-scrollback resize reflows. Upgrade per platform, best
     // effort, with self-healing fall-back and lazy imports (addons stay out of the
     // main chunk):
-    //   • macOS / Linux → WebGL (GPU texture-atlas glyphs); on context loss, drop
+    //   • macOS         → DOM. Native DOM text is intentionally preferred here
+    //     for crisper small-font rendering on Retina displays.
+    //   • Linux         → WebGL (GPU texture-atlas glyphs); on context loss, drop
     //     to canvas so a lost GPU context never freezes on a blank canvas.
     //   • Windows        → WebGL under Electron (Chromium/ANGLE is fine), canvas
     //     only under Tauri. WebView2's ANGLE black-screened WebGL and could wedge
@@ -208,7 +216,8 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       }
     };
     void (async () => {
-      const win = await isWindows();
+      const os = await platformOs();
+      const win = os === 'windows';
       if (disposed) return;
       if (win) {
         // Tell xterm the pty is ConPTY (the desktop terminal is portable-pty →
@@ -226,7 +235,9 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
         if (disposed) return;
         term.options.windowsPty = build !== null ? { backend: 'conpty', buildNumber: build } : { backend: 'conpty' };
       }
-      // WebGL everywhere except Windows-under-Tauri (see the ladder note above).
+      // Keep xterm's built-in DOM renderer on macOS for the sharpest small text.
+      if (os === 'macos') return;
+      // WebGL on Linux/browser and Windows-under-Electron (see the ladder note).
       const tryWebgl = !win || shellKind() === 'electron';
       if (tryWebgl) {
         try {
@@ -277,9 +288,8 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       }
       return true;
     });
-    // (Renderer selection happens right after term.open above — WebGL on
-    // macOS/Linux, canvas on Windows, DOM fallback everywhere. WebGL is gated OFF
-    // Windows because it black-screened WebView2/ANGLE in v0.3.11.)
+    // Renderer selection happens right after term.open above: DOM on macOS,
+    // WebGL on Linux, and WebGL (Electron) or canvas (Tauri) on Windows.
     termRef.current = term;
     searchRef.current = search;
 
@@ -369,10 +379,11 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     };
 
     applyFit(false);
-    // The terminal font (JetBrains Mono) is an async web font: the first fit runs
-    // with a fallback metric. Force a re-measure + re-fit once the real font is
-    // ready, plus a couple of delayed re-fits to catch late layout settling (dock
-    // open animation, first pane reveal).
+    // The bundled Maple Mono NF CN face is an async web font: the first fit may
+    // run with fallback metrics, especially now that each CJK face is sizeable.
+    // Force a re-measure + re-fit once the real font is ready, plus a couple of
+    // delayed re-fits to catch late layout settling (dock open animation, first
+    // pane reveal).
     void document.fonts?.ready.then(() => scheduleFit(true));
     const settle1 = setTimeout(() => scheduleFit(true), 120);
     const settle2 = setTimeout(() => scheduleFit(false), 450);

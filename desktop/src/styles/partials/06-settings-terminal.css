@@ -543,13 +543,34 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background: #000;
+  background: var(--terminal-surface);
   border-radius: var(--radius-sm);
   /* No padding here: FitAddon measures THIS element (the xterm's parent) and
      can't subtract its padding, so any padding here makes it over-count columns
      and slide the rightmost column under the scrollbar. The visual gutter lives
      on .term-screen-wrap instead. */
   overflow: hidden;
+}
+/* The DOM renderer rounds its CSS canvas width after FitAddon chooses a column
+   count. With a large web font at fractional Retina metrics, that final canvas
+   can land a few pixels past the host and clip the last cell (for example the
+   trailing `%` in a right-aligned progress line). Reserve one small gutter on
+   macOS by padding xterm itself: FitAddon explicitly subtracts this element's
+   padding when proposing dimensions, so the PTY receives the honest narrower
+   column count and no content is painted beneath the right edge. Keep the host
+   `.term-screen` padding-free because it is FitAddon's measured parent. */
+.shell-macos .term-screen > .xterm {
+  padding-right: var(--spacing-s8);
+}
+/* DomRenderer sets every `.xterm-rows > div` to the exact logical canvas
+   width AND `overflow:hidden`. Browser letter-spacing/advance rounding can put
+   the ink of the final glyph just beyond that logical width even though the
+   host has room, so the row itself clips `%`, CJK strokes, and similar glyphs.
+   Extend only the row's clipping box into the gutter reserved above; padding is
+   outside its inline content width and therefore does not alter cell positions. */
+.shell-macos .term-screen .xterm-rows > div {
+  box-sizing: content-box;
+  padding-right: var(--spacing-s8);
 }
 /* Deterministic terminal scrollbar. xterm's FitAddon reserves a FIXED 15px for the
    scrollbar when sizing columns (its Viewport measures 0 before any overflow and

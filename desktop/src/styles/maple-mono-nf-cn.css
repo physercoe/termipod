@@ -1,8 +1,8 @@
 /* Maple Mono NF CN v7.9, SIL Open Font License 1.1.
  * Source + license: https://github.com/subframe7536/maple-font
- * The unhinted CN build targets high-resolution displays and adds complete
- * Simplified/Traditional Chinese and Japanese glyphs to the Nerd Font face.
- * Only the two weights xterm uses are bundled. */
+ * The hinted CN build adds pixel-grid instructions for crisper small terminal
+ * text plus complete Simplified/Traditional Chinese and Japanese glyphs to the
+ * Nerd Font face. Only the two weights xterm uses are bundled. */
 @font-face {
   font-family: 'Maple Mono NF CN';
   src: url('/fonts/maple-mono-nf-cn/MapleMono-NF-CN-Regular.ttf') format('truetype');

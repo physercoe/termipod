@@ -9,6 +9,7 @@ import {
   extForDoc,
   extForKind,
   fileToBody,
+  fingerprintBody,
   kindForFile,
   seedBody,
   useDocuments,
@@ -299,6 +300,8 @@ export function AuthorSurface(): JSX.Element {
   const remove = useDocuments((s) => s.remove);
   const setActive = useDocuments((s) => s.setActive);
   const markSaved = useDocuments((s) => s.markSaved);
+  const replaceFromDisk = useDocuments((s) => s.replaceFromDisk);
+  const acceptDiskFingerprint = useDocuments((s) => s.acceptDiskFingerprint);
   const update = useDocuments((s) => s.update);
   // B6: which documents an agent has written to, and their pre-write bodies.
   const agentEdits = useAgentEdits((s) => s.byDoc);
@@ -321,9 +324,88 @@ export function AuthorSurface(): JSX.Element {
   const newMenuAnchorRef = useRef<HTMLDivElement>(null);
   const tabStripRef = useRef<HTMLDivElement>(null);
   const [tabOverflow, setTabOverflow] = useState({ overflowing: false, before: false, after: false });
+  const [diskConflicts, setDiskConflicts] = useState<Record<string, { body: string; fingerprint: string }>>({});
+  const [compareConflictId, setCompareConflictId] = useState<string | null>(null);
+  const docsRef = useRef(docs);
+  docsRef.current = docs;
 
   const active = docs.find((d) => d.id === activeId);
   const tauri = isShell();
+
+  // Keep every linked Author tab synchronized with its local file, including
+  // while another surface is selected. A clean tab reloads automatically. If
+  // the user has unsaved edits, preserve both versions and ask which one wins.
+  useEffect(() => {
+    if (!tauri) return;
+    let stopped = false;
+    let running = false;
+    async function refreshLinkedFiles(): Promise<void> {
+      if (running || document.visibilityState === 'hidden') return;
+      running = true;
+      try {
+        await Promise.all(
+          docsRef.current.map(async (snapshot) => {
+            if (snapshot.filePath === undefined) return;
+            try {
+              const res = await invoke<{ path: string; content: string }>('doc_read', { path: snapshot.filePath });
+              if (stopped) return;
+              const ext = extOf(snapshot.filePath);
+              const diskBody = fileToBody(snapshot.kind, res.content, ext, tStatic('table.colName'));
+              const diskFingerprint = fingerprintBody(diskBody);
+              const current = useDocuments.getState().docs.find((d) => d.id === snapshot.id);
+              if (current === undefined || current.filePath !== snapshot.filePath) return;
+
+              // One-time migration for tabs opened before fingerprints existed.
+              if (current.fileFingerprint === undefined) {
+                if (current.dirty !== true && diskFingerprint !== fingerprintBody(current.body)) {
+                  replaceFromDisk(current.id, diskBody, diskFingerprint);
+                  liveApply(current.id, diskBody);
+                } else {
+                  acceptDiskFingerprint(current.id, diskFingerprint);
+                }
+                return;
+              }
+              if (diskFingerprint === current.fileFingerprint) {
+                setDiskConflicts((all) => {
+                  if (all[current.id] === undefined) return all;
+                  const next = { ...all };
+                  delete next[current.id];
+                  return next;
+                });
+              } else if (current.dirty === true) {
+                setDiskConflicts((all) => ({ ...all, [current.id]: { body: diskBody, fingerprint: diskFingerprint } }));
+              } else {
+                replaceFromDisk(current.id, diskBody, diskFingerprint);
+                liveApply(current.id, diskBody);
+                setDiskConflicts((all) => {
+                  if (all[current.id] === undefined) return all;
+                  const next = { ...all };
+                  delete next[current.id];
+                  return next;
+                });
+              }
+            } catch {
+              // A temporarily unavailable/deleted file must not discard the
+              // cached document. The next poll retries naturally.
+            }
+          }),
+        );
+      } finally {
+        running = false;
+      }
+    }
+    void refreshLinkedFiles();
+    const timer = window.setInterval(() => void refreshLinkedFiles(), 2000);
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') void refreshLinkedFiles();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [acceptDiskFingerprint, replaceFromDisk, tauri]);
 
   // Document tabs keep a useful, stable width instead of shrinking into a row
   // of indistinguishable file icons. Track the scroll edges so compact previous /
@@ -544,8 +626,24 @@ export function AuthorSurface(): JSX.Element {
       const ext = active.filePath !== undefined ? extOf(active.filePath) : extForDoc(active);
       const content = bodyToFile(active.kind, active.body, ext, t('table.colName'));
       if (active.filePath !== undefined) {
+        // Re-read immediately before writing as well as polling. This closes the
+        // race where an external editor saves between two background checks.
+        const disk = await invoke<{ path: string; content: string }>('doc_read', { path: active.filePath });
+        const diskBody = fileToBody(active.kind, disk.content, ext, t('table.colName'));
+        const diskFingerprint = fingerprintBody(diskBody);
+        if (active.fileFingerprint !== undefined && diskFingerprint !== active.fileFingerprint) {
+          setDiskConflicts((all) => ({ ...all, [active.id]: { body: diskBody, fingerprint: diskFingerprint } }));
+          toast.error(t('author.externalSaveBlocked'));
+          return;
+        }
         await invoke('doc_write', { path: active.filePath, content });
         markSaved(active.id, active.filePath);
+        setDiskConflicts((all) => {
+          if (all[active.id] === undefined) return all;
+          const next = { ...all };
+          delete next[active.id];
+          return next;
+        });
       } else {
         const name = (active.title !== '' ? active.title : 'document').replace(/[^\w.-]+/g, '-');
         const path = await invoke<string | null>('doc_save', {
@@ -839,6 +937,60 @@ export function AuthorSurface(): JSX.Element {
       )}
       {active !== undefined ? (
         <div className="author-split">
+          {diskConflicts[active.id] !== undefined && (
+            <div className="author-file-conflict" role="alert">
+              <Icon name="alert" size={16} />
+              <span className="author-file-conflict-text">{t('author.externalChanged')}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const conflict = diskConflicts[active.id];
+                  if (conflict === undefined) return;
+                  replaceFromDisk(active.id, conflict.body, conflict.fingerprint);
+                  liveApply(active.id, conflict.body);
+                  setDiskConflicts((all) => {
+                    const next = { ...all };
+                    delete next[active.id];
+                    return next;
+                  });
+                  setCompareConflictId(null);
+                }}
+              >
+                {t('author.reloadDisk')}
+              </button>
+              <button type="button" onClick={() => setCompareConflictId((id) => (id === active.id ? null : active.id))}>
+                {t('author.compareVersions')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const conflict = diskConflicts[active.id];
+                  if (conflict === undefined) return;
+                  acceptDiskFingerprint(active.id, conflict.fingerprint);
+                  setDiskConflicts((all) => {
+                    const next = { ...all };
+                    delete next[active.id];
+                    return next;
+                  });
+                  setCompareConflictId(null);
+                }}
+              >
+                {t('author.keepMine')}
+              </button>
+            </div>
+          )}
+          {compareConflictId === active.id && diskConflicts[active.id] !== undefined && (
+            <div className="author-file-compare">
+              <section>
+                <strong>{t('author.diskVersion')}</strong>
+                <pre>{diskConflicts[active.id].body}</pre>
+              </section>
+              <section>
+                <strong>{t('author.myVersion')}</strong>
+                <pre>{active.body}</pre>
+              </section>
+            </div>
+          )}
           {active.kind === 'diagram' ? (
             <DiagramEditor key={active.id} doc={active} />
           ) : active.kind === 'canvas' ? (

@@ -1051,9 +1051,11 @@ export function DebugSurface(): JSX.Element {
   const t = useT();
   const tabs = useInspect((s) => s.tabs);
   const activeId = useInspect((s) => s.activeId);
+  const activeHasContent = useInspect((s) => s.activeId !== null && s.content[s.activeId] !== undefined);
   const openTab = useInspect((s) => s.open);
   const closeTab = useInspect((s) => s.close);
   const setActive = useInspect((s) => s.setActive);
+  const setContent = useInspect((s) => s.setContent);
   const folder = useWorkspace((s) => s.folder);
   const client = useSession((s) => s.client);
   const roots = useInspectRoots((s) => s.roots);
@@ -1076,6 +1078,48 @@ export function DebugSurface(): JSX.Element {
   // whose side A is this base tab (W2 tier 2).
   const [cmpBase, setCmpBase] = useState<InspectTab | null>(null);
   const active = tabs.find((tb) => tb.id === activeId);
+
+  // File-backed Inspect tabs used to keep their first read forever. Re-read the
+  // active local text source in the background and swap the cached body only
+  // when bytes actually changed. The interval pauses while the window is hidden
+  // and an immediate check runs when the user returns from another app/surface.
+  useEffect(() => {
+    if (
+      active === undefined ||
+      (active.source !== 'local' && active.source !== 'workspace') ||
+      active.path === undefined ||
+      !activeHasContent
+    ) {
+      return;
+    }
+    const watched = active;
+    let stopped = false;
+    let running = false;
+    async function refresh(): Promise<void> {
+      if (running || document.visibilityState === 'hidden') return;
+      running = true;
+      try {
+        const body = await readSource(watched);
+        if (!stopped && body !== useInspect.getState().content[watched.id]) setContent(watched.id, body);
+      } catch {
+        // Preserve the last readable snapshot during an atomic-save rename or a
+        // temporarily unavailable mount. A later poll retries.
+      } finally {
+        running = false;
+      }
+    }
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2000);
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [active?.id, active?.path, active?.source, activeHasContent, setContent]);
   // A tab is comparable if we can read its content: any tab except an existing
   // compare tab (comparing a compare makes no sense).
   const canCompare = active !== undefined && !(active.left !== undefined && active.right !== undefined);

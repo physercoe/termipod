@@ -6,6 +6,8 @@ import { backupCorrupt } from './persist';
 import { isExcalidrawBody } from './authorBody';
 import { csvToTable, isTableBody, serializeTable, tableBodyToCsv } from './table';
 import { figureBySpec, specForFile, type FigureSpec } from './figures';
+import { fingerprintBody } from './fileRefresh';
+export { fingerprintBody } from './fileRefresh';
 
 /// The J2 Author workspace — multiple open documents as tabs (director request:
 /// "the Author tab should support multiple tabs").
@@ -41,6 +43,11 @@ export interface Doc {
   // Additive — persisted `termipod.documents.v1` blobs without it are unaffected.
   spec?: FigureSpec;
   filePath?: string; // linked on-disk file, if saved/opened via a native dialog
+  // Fingerprint of the last disk version Author accepted. This is deliberately
+  // content-based (not mtime-based): editors can preserve timestamps and rapid
+  // same-size writes can otherwise be missed. It also lets Save detect an
+  // external edit before overwriting it.
+  fileFingerprint?: string;
   dirty?: boolean; // unsaved changes relative to the linked file
   updatedAt: number;
 }
@@ -159,6 +166,8 @@ interface DocsState {
   remove: (id: string) => void;
   setActive: (id: string | null) => void;
   markSaved: (id: string, filePath: string, title?: string) => void;
+  replaceFromDisk: (id: string, body: string, fingerprint: string) => void;
+  acceptDiskFingerprint: (id: string, fingerprint: string) => void;
 }
 
 const LS_KEY = 'termipod.documents.v1';
@@ -279,6 +288,8 @@ export const useDocuments = create<DocsState>((set, get) => ({
       body: seed?.body ?? seedBody(kind),
       spec: seed?.spec, // which renderer, for a figure doc (dropped for other kinds)
       filePath: seed?.filePath,
+      fileFingerprint:
+        seed?.fileFingerprint ?? (seed?.filePath !== undefined ? fingerprintBody(seed?.body ?? seedBody(kind)) : undefined),
       updatedAt: Date.now(),
     };
     const docs = [...get().docs, doc];
@@ -319,8 +330,24 @@ export const useDocuments = create<DocsState>((set, get) => ({
 
   markSaved: (id, filePath, title) => {
     const docs = get().docs.map((d) =>
-      d.id === id ? { ...d, filePath, title: title ?? d.title, dirty: false, updatedAt: Date.now() } : d,
+      d.id === id
+        ? { ...d, filePath, fileFingerprint: fingerprintBody(d.body), title: title ?? d.title, dirty: false, updatedAt: Date.now() }
+        : d,
     );
+    set({ docs });
+    save({ docs, activeId: get().activeId });
+  },
+
+  replaceFromDisk: (id, body, fingerprint) => {
+    const docs = get().docs.map((d) =>
+      d.id === id ? { ...d, body, fileFingerprint: fingerprint, dirty: false, updatedAt: Date.now() } : d,
+    );
+    set({ docs });
+    save({ docs, activeId: get().activeId });
+  },
+
+  acceptDiskFingerprint: (id, fingerprint) => {
+    const docs = get().docs.map((d) => (d.id === id ? { ...d, fileFingerprint: fingerprint } : d));
     set({ docs });
     save({ docs, activeId: get().activeId });
   },

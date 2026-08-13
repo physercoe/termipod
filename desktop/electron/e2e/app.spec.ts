@@ -250,16 +250,21 @@ test('terminal UI: opening a local shell mounts an xterm screen', async () => {
       await document.fonts.ready;
       const root = host.querySelector<HTMLElement>(':scope > .xterm')!;
       const screen = root.querySelector<HTMLElement>('.xterm-screen')!;
+      const row = root.querySelector<HTMLElement>('.xterm-rows > div')!;
       return {
         hostRight: host.getBoundingClientRect().right,
         screenRight: screen.getBoundingClientRect().right,
         reservedRight: Number.parseFloat(getComputedStyle(root).paddingRight),
+        rowClipRight: row.getBoundingClientRect().right,
+        rowClipPadding: Number.parseFloat(getComputedStyle(row).paddingRight),
       };
     });
     // The explicit reserve is part of FitAddon's width calculation, keeping the
     // final DOM cell (notably a right-aligned `%`) inside the clipped host.
     expect(edge.reservedRight).toBeGreaterThanOrEqual(8);
     expect(edge.screenRight).toBeLessThan(edge.hostRight);
+    expect(edge.rowClipPadding).toBeGreaterThanOrEqual(8);
+    expect(edge.rowClipRight).toBeGreaterThan(edge.screenRight);
   }
 });
 

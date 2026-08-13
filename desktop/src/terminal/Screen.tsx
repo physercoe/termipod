@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { isWindows, openExternal, shellKind, windowsBuildNumber } from '../platform';
+import { CATPPUCCIN_MOCHA, TERMINAL_FONT_FAMILY } from './appearance';
 
 // Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
 // screens so zoom is a global preference, clamped to a sane, legible range.
@@ -92,14 +93,13 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     setExited(null);
     const term = new XTerm({
       cursorBlink: true,
-      // Modern, professional monospace stack — prefer ligature-friendly coding
-      // faces, fall back through the OS defaults. Slightly airier metrics than
-      // xterm's defaults so long sessions read cleanly.
-      fontFamily:
-        '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace',
+      // Maple Mono NF is bundled so Powerline/Nerd Font prompts render on every
+      // host without requiring a system font install. The stack retains robust
+      // fallbacks while the web font is loading.
+      fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: loadFontSize(),
       fontWeight: 400,
-      fontWeightBold: 600,
+      fontWeightBold: 700,
       lineHeight: 1.25,
       // 10k lines of scrollback (xterm default is 1000) — long build logs and
       // agent transcripts scroll back much further before the head is dropped.
@@ -119,13 +119,7 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       // menu's Copy is permanently disabled (director report). Shift+drag is
       // the built-in equivalent on Windows/Linux; this is the iTerm2 idiom.
       macOptionClickForcesSelection: true,
-      theme: {
-        background: '#0d1117',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
-        cursorAccent: '#0d1117',
-        selectionBackground: '#2d4a72',
-      },
+      theme: CATPPUCCIN_MOCHA,
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
@@ -154,6 +148,18 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       }),
     );
     term.open(el);
+
+    // Maple Mono includes programming ligatures; xterm needs this addon to
+    // shape them without changing terminal cell geometry. Keep it off the boot
+    // path: plain glyph rendering is immediately available while the optional
+    // shaper loads, and remains the safe fallback if a platform rejects it.
+    void import('@xterm/addon-ligatures')
+      .then(({ LigaturesAddon }) => {
+        if (!disposed) term.loadAddon(new LigaturesAddon());
+      })
+      .catch(() => {
+        /* ordinary glyph rendering stays */
+      });
 
     // Right-button suppression, capture phase (must be after term.open so `el`
     // has xterm's element inside it). xterm's "always on" mousedown handler

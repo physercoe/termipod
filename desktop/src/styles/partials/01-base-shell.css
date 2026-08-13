@@ -16,6 +16,9 @@
   /* Surface ladder — a tight near-black scale (Linear/Radix-grounded); 1px
    * hairlines carry separation, so the steps stay subtle and clean, not muddy. */
   --bg: #171717;          /* focused content canvas */
+  /* Fixed xterm palette surface (Catppuccin Mocha), independent of the app's
+   * light/dark chrome so the terminal gutter never flashes a mismatched color. */
+  --terminal-surface: #1e1e2e;
   --canvas: #242424;      /* navigation / inspector panes + persistent chrome */
   --surface: #1f1f1f;     /* cards and nested panel surfaces */
   --raised: #2f2f2f;      /* controls and genuinely raised regions */

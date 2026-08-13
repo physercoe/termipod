@@ -543,7 +543,7 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background: #000;
+  background: var(--terminal-surface);
   border-radius: var(--radius-sm);
   /* No padding here: FitAddon measures THIS element (the xterm's parent) and
      can't subtract its padding, so any padding here makes it over-count columns

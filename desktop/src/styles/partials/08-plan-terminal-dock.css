@@ -1106,7 +1106,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #0d1117;
+  background: var(--terminal-surface);
   /* The terminal's visual gutter — moved here off .term-screen so the element
      FitAddon measures (.term-screen) has zero padding (see 06-settings). */
   padding: var(--spacing-s4);

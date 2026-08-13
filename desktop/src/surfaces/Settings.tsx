@@ -655,8 +655,10 @@ export function SettingsSurface({ onConnect }: { onConnect?: (edit?: HubProfile)
         ))}
       </aside>
       <div className={`settings-content${active.id === 'vault' ? ' wide' : ''}`}>
-        <h2 className="settings-content-title">{active.label}</h2>
-        {active.render()}
+        <div className="settings-content-inner">
+          <h2 className="settings-content-title">{active.label}</h2>
+          {active.render()}
+        </div>
       </div>
     </div>
   );

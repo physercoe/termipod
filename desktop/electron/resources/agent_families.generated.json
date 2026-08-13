@@ -1,0 +1,760 @@
+[
+  {
+    "family": "claude-code",
+    "bin": "claude",
+    "version_flag": "--version",
+    "supports": [
+      "M1",
+      "M2",
+      "M4"
+    ],
+    "incompatibilities": [
+      {
+        "mode": "M1",
+        "billing": "subscription",
+        "reason": "M1 requires api_key billing for claude-code (Agent SDK limitation)"
+      }
+    ],
+    "launch": {
+      "M2": {
+        "mode_args": [
+          "--print",
+          "--output-format",
+          "stream-json",
+          "--input-format",
+          "stream-json",
+          "--verbose"
+        ]
+      }
+    },
+    "permission_modes": {
+      "prompt": "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt",
+      "skip": "--dangerously-skip-permissions"
+    },
+    "frame_profile": {
+      "description": "claude-code stream-json → typed agent_events.\nMost-specific match wins (largest match-keyset); ties fire in\ndeclaration order. Inside for_each, $.foo is the element and\n$$.foo is the parent frame. a || b returns the first non-nil\nterm; trailing literal acts as default.\n",
+      "profile_version": 1,
+      "rules": [
+        {
+          "match": {
+            "subtype": "init",
+            "type": "system"
+          },
+          "emit": {
+            "kind": "session.init",
+            "producer": "agent",
+            "payload": {
+              "agents": "$.agents",
+              "cwd": "$.cwd",
+              "fast_mode_state": "$.fast_mode_state || $.fastModeState",
+              "mcp_servers": "$.mcp_servers || $.mcpServers",
+              "model": "$.model",
+              "output_style": "$.output_style || $.outputStyle",
+              "permission_mode": "$.permissionMode || $.permission_mode",
+              "plugins": "$.plugins",
+              "session_id": "$.session_id",
+              "skills": "$.skills",
+              "slash_commands": "$.slash_commands || $.slashCommands",
+              "tools": "$.tools",
+              "version": "$.claude_code_version || $.version"
+            }
+          }
+        },
+        {
+          "match": {
+            "subtype": "rate_limit_event",
+            "type": "system"
+          },
+          "emit": {
+            "kind": "rate_limit",
+            "producer": "agent",
+            "payload": {
+              "is_using_overage": "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage",
+              "overage_status": "$.rate_limit_info.overageStatus || $.overageStatus || $.overage_status",
+              "reason": "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason",
+              "resets_at": "$.rate_limit_info.resetsAt || $.resetsAt || $.resets_at",
+              "status": "$.rate_limit_info.status || $.status",
+              "window": "$.rate_limit_info.rateLimitType || $.rateLimitType || $.rate_limit_type"
+            }
+          }
+        },
+        {
+          "match": {
+            "subtype": "task_progress",
+            "type": "system"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload": {
+              "description": "$.description",
+              "last_tool_name": "$.last_tool_name",
+              "subtype": "$.subtype",
+              "task_id": "$.task_id",
+              "text": "$.description"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "system"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload_expr": "$."
+          }
+        },
+        {
+          "match": {
+            "type": "rate_limit_event"
+          },
+          "emit": {
+            "kind": "rate_limit",
+            "producer": "agent",
+            "payload": {
+              "is_using_overage": "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage",
+              "overage_status": "$.rate_limit_info.overageStatus || $.overageStatus || $.overage_status",
+              "reason": "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason",
+              "resets_at": "$.rate_limit_info.resetsAt || $.resetsAt || $.resets_at",
+              "status": "$.rate_limit_info.status || $.status",
+              "window": "$.rate_limit_info.rateLimitType || $.rateLimitType || $.rate_limit_type"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "assistant"
+          },
+          "for_each": "$.message.content",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "match": {
+                "type": "text"
+              },
+              "emit": {
+                "kind": "text",
+                "producer": "agent",
+                "payload": {
+                  "message_id": "$$.message.id",
+                  "text": "$.text"
+                }
+              }
+            },
+            {
+              "match": {
+                "type": "tool_use"
+              },
+              "emit": {
+                "kind": "tool_call",
+                "producer": "agent",
+                "payload": {
+                  "id": "$.id",
+                  "input": "$.input",
+                  "name": "$.name"
+                }
+              }
+            },
+            {
+              "match": {
+                "type": "thinking"
+              },
+              "emit": {
+                "kind": "thought",
+                "producer": "agent",
+                "payload": {
+                  "marker_only": "absent($.thinking)",
+                  "message_id": "$$.message.id",
+                  "signature_present": "present($.signature)",
+                  "text": "nonempty($.thinking) || \"Thinking…\""
+                }
+              }
+            }
+          ]
+        },
+        {
+          "match": {
+            "type": "assistant"
+          },
+          "when_present": "$.message.usage",
+          "emit": {
+            "kind": "usage",
+            "producer": "agent",
+            "payload": {
+              "cache_create": "$.message.usage.cache_creation_input_tokens || $.message.usage.cache_create",
+              "cache_read": "$.message.usage.cache_read_input_tokens || $.message.usage.cache_read",
+              "input_tokens": "$.message.usage.input_tokens",
+              "message_id": "$.message.id",
+              "model": "$.message.model",
+              "output_tokens": "$.message.usage.output_tokens",
+              "service_tier": "$.message.usage.service_tier"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "user"
+          },
+          "for_each": "$.message.content",
+          "emit": {
+            "kind": ""
+          },
+          "sub_rules": [
+            {
+              "match": {
+                "type": "tool_result"
+              },
+              "emit": {
+                "kind": "tool_result",
+                "producer": "agent",
+                "payload": {
+                  "content": "$.content",
+                  "is_error": "$.is_error",
+                  "tool_use_id": "$.tool_use_id"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "match": {
+            "type": "result"
+          },
+          "emit": {
+            "kind": "turn.result",
+            "producer": "agent",
+            "payload": {
+              "cost_usd": "$.total_cost_usd || $.cost_usd",
+              "duration_ms": "$.duration_ms",
+              "fast_mode_state": "$.fast_mode_state || $.fastModeState",
+              "num_turns": "$.num_turns",
+              "permission_denials": "$.permission_denials",
+              "terminal_reason": "$.terminal_reason || $.subtype"
+            },
+            "payload_maps": {
+              "by_model": {
+                "source": "$.modelUsage || $.model_usage",
+                "fields": {
+                  "cache_create": "$.cacheCreationInputTokens || $.cache_creation_input_tokens",
+                  "cache_read": "$.cacheReadInputTokens || $.cache_read_input_tokens",
+                  "context_window": "$.contextWindow || $.context_window",
+                  "cost_usd": "$.costUSD || $.cost_usd",
+                  "input": "$.inputTokens || $.input_tokens",
+                  "max_output_tokens": "$.maxOutputTokens || $.max_output_tokens",
+                  "output": "$.outputTokens || $.output_tokens"
+                }
+              }
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "result"
+          },
+          "emit": {
+            "kind": "completion",
+            "producer": "agent",
+            "payload_expr": "$."
+          }
+        },
+        {
+          "match": {
+            "type": "error"
+          },
+          "emit": {
+            "kind": "error",
+            "producer": "agent",
+            "payload_expr": "$."
+          }
+        }
+      ]
+    },
+    "runtime_mode_switch": {
+      "M1": "respawn",
+      "M2": "respawn"
+    },
+    "prompt_image": {
+      "M1": true,
+      "M2": true,
+      "M4": false
+    },
+    "prompt_pdf": {
+      "M1": true,
+      "M2": true,
+      "M4": false
+    }
+  },
+  {
+    "family": "gemini-cli",
+    "bin": "gemini",
+    "version_flag": "--version",
+    "supports": [
+      "M1",
+      "M2",
+      "M4"
+    ],
+    "launch": {
+      "M2": {
+        "mode_args": [
+          "--output-format",
+          "stream-json",
+          "--skip-trust"
+        ]
+      }
+    },
+    "frame_profile": {
+      "description": "gemini-cli stream-json (`gemini -p ... --output-format\nstream-json`) → typed agent_events. ADR-013 is the\nauthoritative design.\n\nDispatch is on the top-level `type` field. Most-specific match\nwins (largest match-keyset; declaration order on ties).\n\nAssistant text emission (verified against gemini-cli@0.41.2):\nthe engine emits ONLY streaming chunks with `delta: true` —\nthere is no final `delta: false` consolidation frame. We match\n`delta: true` and emit a `text` event per chunk; the mobile\ntranscript renderer concatenates consecutive text/agent events\nfrom the same turn into one bubble. The earlier ADR-013 D7\nplan to emit on `delta: false` matched a protocol shape gemini\nnever actually shipped.\n\nUser echoes (role=user) still fall through to ApplyProfile's\nkind=raw fallback — the user's prompt is already in agent_events\nfrom the mobile POST, and re-emitting as text would duplicate\nthe bubble.\n\npermission_prompt is unsupported on gemini (ADR-013 D4): the CLI\noffers only flag-time `--yolo` / `--approval-mode` and no\nin-stream gate. Stewards route risky decisions through\nrequest_approval (turn-based, vendor-neutral) instead.\n",
+      "profile_version": 1,
+      "rules": [
+        {
+          "match": {
+            "type": "init"
+          },
+          "emit": {
+            "kind": "session.init",
+            "producer": "agent",
+            "payload": {
+              "model": "$.model",
+              "session_id": "$.session_id",
+              "timestamp": "$.timestamp"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "tool_use"
+          },
+          "emit": {
+            "kind": "tool_call",
+            "producer": "agent",
+            "payload": {
+              "id": "$.tool_id",
+              "input": "$.parameters",
+              "name": "$.tool_name",
+              "timestamp": "$.timestamp"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "tool_result"
+          },
+          "emit": {
+            "kind": "tool_result",
+            "producer": "agent",
+            "payload": {
+              "content": "$.output",
+              "status": "$.status",
+              "timestamp": "$.timestamp",
+              "tool_use_id": "$.tool_id"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "result"
+          },
+          "emit": {
+            "kind": "turn.result",
+            "producer": "agent",
+            "payload": {
+              "by_model": "$.stats.models",
+              "duration_ms": "$.stats.duration_ms",
+              "input_tokens": "$.stats.input_tokens",
+              "output_tokens": "$.stats.output_tokens",
+              "stats": "$.stats",
+              "status": "$.status",
+              "timestamp": "$.timestamp",
+              "tool_calls": "$.stats.tool_calls",
+              "total_tokens": "$.stats.total_tokens"
+            }
+          }
+        },
+        {
+          "match": {
+            "type": "error"
+          },
+          "emit": {
+            "kind": "error",
+            "producer": "agent",
+            "payload_expr": "$."
+          }
+        }
+      ]
+    },
+    "frame_translator": "profile",
+    "default_auth_method": "oauth-personal",
+    "runtime_mode_switch": {
+      "M1": "rpc",
+      "M2": "per_turn_argv"
+    },
+    "prompt_image": {
+      "M1": true,
+      "M2": false,
+      "M4": false
+    },
+    "prompt_pdf": {
+      "M1": true,
+      "M2": false,
+      "M4": false
+    },
+    "prompt_audio": {
+      "M1": true,
+      "M2": false,
+      "M4": false
+    },
+    "prompt_video": {
+      "M1": true,
+      "M2": false,
+      "M4": false
+    }
+  },
+  {
+    "family": "codex",
+    "bin": "codex",
+    "version_flag": "--version",
+    "supports": [
+      "M1",
+      "M2",
+      "M4"
+    ],
+    "launch": {
+      "M2": {
+        "mode_args": [
+          "app-server",
+          "--listen",
+          "stdio://"
+        ]
+      }
+    },
+    "frame_profile": {
+      "description": "codex app-server (JSON-RPC 2.0 notifications, line-delimited)\n→ typed agent_events. ADR-012 is the authoritative design;\nprotocol reference at developers.openai.com/codex/app-server.\n\nDispatch is on `method`. Nested matchers like\n`params.item.type` walk dotted paths. Most-specific match\nwins (largest match-keyset; declaration order on ties).\nUnmatched frames fall through to ApplyProfile's\nkind=raw fallback so new methods stay forward-compatible.\n\nItem-shaped notifications (`item/started`, `item/completed`)\ndispatch on `params.item.type` to map onto our existing\ntext/tool_call/tool_result vocabulary so the mobile renderer\nworks with no per-engine branches. Streaming deltas\n(item/agentMessage/delta, outputDelta) are *not* emitted in\nv1 — we emit on completion instead, which keeps the\ntranscript shape parallel with claude-code's. Streaming UI\nis a later wedge once the basic flow is proven.\n",
+      "profile_version": 1,
+      "rules": [
+        {
+          "match": {
+            "method": "thread/started"
+          },
+          "emit": {
+            "kind": "session.init",
+            "producer": "agent",
+            "payload": {
+              "created_at": "$.params.thread.createdAt",
+              "ephemeral": "$.params.thread.ephemeral",
+              "model": "$.params.thread.model || $.params.thread.modelProvider",
+              "preview": "$.params.thread.preview",
+              "session_id": "$.params.thread.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "thread/status/changed"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload_expr": "$.params"
+          }
+        },
+        {
+          "match": {
+            "method": "turn/started"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload": {
+              "kind": "\"turn_started\"",
+              "turn_id": "$.params.turn.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "turn/completed"
+          },
+          "emit": {
+            "kind": "turn.result",
+            "producer": "agent",
+            "payload": {
+              "duration_ms": "$.params.turn.durationMs",
+              "status": "$.params.turn.status",
+              "terminal_reason": "$.params.turn.error.message",
+              "turn_id": "$.params.turn.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "turn/diff/updated"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload_expr": "$.params"
+          }
+        },
+        {
+          "match": {
+            "method": "turn/plan/updated"
+          },
+          "emit": {
+            "kind": "plan",
+            "producer": "agent",
+            "payload": {
+              "explanation": "$.params.explanation",
+              "turn_id": "$.params.turnId"
+            },
+            "payload_lists": {
+              "entries": {
+                "source": "$.params.plan",
+                "fields": {
+                  "content": "$.step",
+                  "status": "$.status"
+                }
+              }
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "agentMessage"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload": {
+              "item_id": "$.params.item.id",
+              "kind": "\"agent_message_started\""
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "commandExecution"
+          },
+          "emit": {
+            "kind": "tool_call",
+            "producer": "agent",
+            "payload": {
+              "id": "$.params.item.id",
+              "input": "$.params.item",
+              "name": "\"commandExecution\""
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "fileChange"
+          },
+          "emit": {
+            "kind": "tool_call",
+            "producer": "agent",
+            "payload": {
+              "id": "$.params.item.id",
+              "input": "$.params.item",
+              "name": "\"fileChange\""
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "mcpToolCall"
+          },
+          "emit": {
+            "kind": "tool_call",
+            "producer": "agent",
+            "payload": {
+              "id": "$.params.item.id",
+              "input": "$.params.item.arguments",
+              "name": "$.params.item.tool",
+              "server": "$.params.item.server"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/started",
+            "params.item.type": "webSearch"
+          },
+          "emit": {
+            "kind": "tool_call",
+            "producer": "agent",
+            "payload": {
+              "id": "$.params.item.id",
+              "input": "$.params.item",
+              "name": "\"webSearch\""
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/completed",
+            "params.item.type": "agentMessage"
+          },
+          "emit": {
+            "kind": "text",
+            "producer": "agent",
+            "payload": {
+              "message_id": "$.params.item.id",
+              "phase": "$.params.item.phase",
+              "text": "$.params.item.text"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/completed",
+            "params.item.type": "commandExecution"
+          },
+          "emit": {
+            "kind": "tool_result",
+            "producer": "agent",
+            "payload": {
+              "content": "$.params.item.aggregatedOutput",
+              "duration_ms": "$.params.item.durationMs",
+              "exit_code": "$.params.item.exitCode",
+              "status": "$.params.item.status",
+              "tool_use_id": "$.params.item.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/completed",
+            "params.item.type": "fileChange"
+          },
+          "emit": {
+            "kind": "tool_result",
+            "producer": "agent",
+            "payload": {
+              "changes": "$.params.item.changes",
+              "status": "$.params.item.status",
+              "tool_use_id": "$.params.item.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "item/completed",
+            "params.item.type": "mcpToolCall"
+          },
+          "emit": {
+            "kind": "tool_result",
+            "producer": "agent",
+            "payload": {
+              "content": "$.params.item.result",
+              "is_error": "$.params.item.error",
+              "status": "$.params.item.status",
+              "tool_use_id": "$.params.item.id"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "thread/tokenUsage/updated"
+          },
+          "emit": {
+            "kind": "usage",
+            "producer": "agent",
+            "payload": {
+              "cached_input_tokens": "$.params.tokenUsage.total.cachedInputTokens",
+              "context_window": "$.params.tokenUsage.modelContextWindow",
+              "cumulative": "\"true\"",
+              "engine": "\"codex\"",
+              "input_tokens": "$.params.tokenUsage.total.inputTokens",
+              "last_cached_input_tokens": "$.params.tokenUsage.last.cachedInputTokens",
+              "last_input_tokens": "$.params.tokenUsage.last.inputTokens",
+              "last_output_tokens": "$.params.tokenUsage.last.outputTokens",
+              "last_reasoning_tokens": "$.params.tokenUsage.last.reasoningOutputTokens",
+              "last_total_tokens": "$.params.tokenUsage.last.totalTokens",
+              "output_tokens": "$.params.tokenUsage.total.outputTokens",
+              "reasoning_tokens": "$.params.tokenUsage.total.reasoningOutputTokens",
+              "thread_id": "$.params.threadId",
+              "total_tokens": "$.params.tokenUsage.total.totalTokens"
+            }
+          }
+        },
+        {
+          "match": {
+            "method": "mcpServer/startupStatus/updated"
+          },
+          "emit": {
+            "kind": "system",
+            "producer": "agent",
+            "payload": {
+              "error": "$.params.error",
+              "kind": "\"mcp_server_startup\"",
+              "name": "$.params.name",
+              "status": "$.params.status"
+            }
+          }
+        }
+      ]
+    },
+    "frame_translator": "profile",
+    "runtime_mode_switch": {
+      "M1": "respawn",
+      "M2": "respawn"
+    },
+    "prompt_image": {
+      "M1": true,
+      "M2": true,
+      "M4": false
+    },
+    "prompt_pdf": {
+      "M1": true,
+      "M2": true,
+      "M4": false
+    }
+  },
+  {
+    "family": "kimi-code-ts",
+    "bin": "kimi",
+    "version_flag": "--version",
+    "supports": [
+      "M1",
+      "M4"
+    ],
+    "launch": {
+      "M1": {
+        "mode_args": [
+          "acp"
+        ]
+      }
+    },
+    "runtime_mode_switch": {
+      "M1": "rpc"
+    },
+    "prompt_image": {
+      "M1": true,
+      "M4": false
+    },
+    "prompt_pdf": {
+      "M1": false,
+      "M4": false
+    }
+  },
+  {
+    "family": "antigravity",
+    "bin": "agy",
+    "version_flag": "--version",
+    "supports": [
+      "M4"
+    ],
+    "prompt_image": {
+      "M4": false
+    },
+    "prompt_pdf": {
+      "M4": false
+    }
+  }
+]

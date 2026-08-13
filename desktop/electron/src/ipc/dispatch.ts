@@ -46,6 +46,7 @@ import { desktopuiHandlers } from '../desktopui';
 import { authorHostHandlers } from '../author_host';
 import { desktopOpenHandlers } from '../desktopopen_host';
 import { annotationHostHandlers } from '../annotation_host';
+import { localAgentHandlers } from '../localagent/host';
 
 export interface Ctx {
   win: BrowserWindow | null;
@@ -89,6 +90,7 @@ const handlers: Record<string, Handler> = {
   ...authorHostHandlers,
   ...desktopOpenHandlers,
   ...annotationHostHandlers,
+  ...localAgentHandlers,
 };
 
 export function isAllowed(cmd: string): boolean {

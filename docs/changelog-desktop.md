@@ -42,6 +42,29 @@ This complements:
 ## Unreleased
 
 ### Added
+- **The Companion can run a claude session on this machine, with no hub.**
+  A local agent service in Electron main owns the engine child and keeps the
+  session's transcript in an append-only log with cursor semantics, so a
+  session outlives the view of it — closing the dock, switching agents or
+  reopening replays from the log instead of losing the turn. Local sessions
+  appear in the Companion's picker under *On this machine*, and the feed, the
+  folds and the composer are unchanged: the service logs the hub's own
+  `agent_events` shape, so nothing downstream learns which producer it is
+  reading. The launch argv and the frame profile come from
+  `agent_families.yaml` itself, marshalled into a generated artifact by a Go
+  test that fails when the two disagree — one source of truth for the hub and
+  the desktop both. (vision-parity L3a)
+
+  **A local session's tools are an allowlist, defaulting to read-only.** This
+  is the part worth knowing: measured against claude-code 2.1.220 under
+  `--print`, `--permission-mode` does not gate tool use at all — `manual` runs
+  Bash, **`plan` runs Bash**, and with no flag it runs Bash. Only `--tools`
+  gates, by removing the tool from the session outright. So a session launches
+  in one of three named postures — `converse` (no tools), `read_local`
+  (`Read`/`Glob`/`Grep`, the default), `unrestricted` (no restriction, and a
+  caller has to name it) — and the posture is recorded on the transcript's
+  lifecycle row rather than left for a reader to infer.
+
 - **`author_guide` — the agent looks up a format before it writes one.**
   `author_apply` refuses a malformed body rather than repairing it, which is
   only a fair trade if the rules are readable somewhere cheaper than a failed

@@ -72,6 +72,13 @@ extraResources:
   # file's bridge_path), so it must sit OUTSIDE the asar as a real file.
   - from: resources/browser_bridge_stdio.mjs
     to: browser_bridge_stdio.mjs
+  # The engine family registry (vision-parity L3): the local agent service
+  # reads its M2 launch argv and frame profiles from here, so a hub-less
+  # Companion still drives claude by the same contract the hub uses. Generated
+  # from hub/internal/agentfamilies/agent_families.yaml and drift-checked by
+  # `go test ./internal/agentfamilies/ -run Artifact`.
+  - from: resources/agent_families.generated.json
+    to: agent_families.generated.json
 
 # electron-updater feed (M3.2/M3.4). NOT the GitHub provider: that resolves the
 # update via GitHub's `releases/latest`, which in this shared repo belongs to

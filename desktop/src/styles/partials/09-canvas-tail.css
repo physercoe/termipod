@@ -1446,6 +1446,26 @@
   background: var(--accent);
   color: var(--accent-ink);
 }
+/* Start a local agent session (vision-parity L3a) — sits beside the agent
+   picker, so it borrows the picker's chrome rather than inventing its own. */
+.companion-new-local {
+  padding: 2px 8px;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.companion-new-local:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.companion-new-local:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Local-agent launcher — spawns the CLI into the shared terminal dock. */
 .companion-launch {
   display: flex;

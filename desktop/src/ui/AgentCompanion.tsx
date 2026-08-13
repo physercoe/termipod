@@ -4,7 +4,13 @@ import type { InputAttachments } from '../hub/client';
 import { useT } from '../i18n';
 import { isShell } from '../platform';
 import { appendEvent, followAgent } from '../state/agentSource';
-import { useAgentSource } from '../state/useAgentSource';
+import { isLocalSessionId, useAgentSource } from '../state/useAgentSource';
+import {
+  localSessionRow,
+  useCreateLocalSession,
+  useLocalFamilies,
+  useLocalSessions,
+} from '../state/localSessions';
 import { useAnnotation } from '../state/annotation';
 import { agentEngine } from '../state/agentEngine';
 import { loadCompanionBinding } from '../state/companionBinding';
@@ -60,9 +66,6 @@ export function AgentCompanion({
   onInsert?: (text: string) => void;
 }): JSX.Element {
   const t = useT();
-  // The bound event source (L1). Today it resolves to the hub SDK; the feed,
-  // the composer and the cards below never ask which producer it is.
-  const source = useAgentSource();
   const agentsQ = useAgents();
   // Pending approvals this agent raised — rendered inline (R1); the dock stays
   // the cross-agent aggregator over the same rows.
@@ -74,6 +77,16 @@ export function AgentCompanion({
     // keys (state/companionBinding.ts) so an existing binding survives.
     loadCompanionBinding((k) => localStorage.getItem(k), storageKey),
   );
+  // The bound event source (L1, resolved since L3a). The id decides the
+  // producer: a `local-` session is served by the Electron-main service with no
+  // hub in the loop, anything else by the hub SDK. The feed, the composer and
+  // the cards below never ask which one they got.
+  const source = useAgentSource(agentId);
+  // Sessions this app is running itself (L3a). Absent in the browser build.
+  const localSessionsQ = useLocalSessions();
+  const localFamiliesQ = useLocalFamilies();
+  const createLocal = useCreateLocalSession();
+  const localSessions = localSessionsQ.data ?? [];
   // Which PANEL this mount shows: the hub-attached chat, or the CLI launcher
   // that drops a local agent into the terminal dock. Desktop-only; persisted
   // per mount point.
@@ -170,6 +183,26 @@ export function AgentCompanion({
     }
   }
 
+  // A local session can be started when this build has a driver for one. The
+  // browser build has no service at all, so the affordance is absent rather
+  // than present-and-failing.
+  const canStartLocal = isShell() && (localFamiliesQ.data ?? []).length > 0;
+
+  async function startLocalSession(): Promise<void> {
+    // cwd is the open workspace folder. Refused rather than defaulted: the
+    // working directory decides which files the session can read, and guessing
+    // it (the app's cwd, the user's home) would scope an agent somewhere the
+    // director never chose.
+    if (folder === null) return;
+    try {
+      const created = await createLocal.mutateAsync({ cwd: folder });
+      pickAgent(created.id);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   function pickMode(s: 'hub' | 'local'): void {
     setCompanionMode(s);
     try {
@@ -207,13 +240,25 @@ export function AgentCompanion({
   // and the attach button on no knowledge at all. A loaded list that does not
   // name this engine still resolves to "nothing attachable".
   const capabilities = useMemo(() => {
+    // A local session is not in the hub's agent list and never will be, so
+    // falling through to the hub branch would leave it permanently ungated —
+    // offering audio and video attach for an engine that takes neither, and
+    // dropping them silently on send. Its family and mode are known exactly:
+    // the local service drives claude-code on M2 and nothing else.
+    if (isLocalSessionId(agentId)) {
+      const local = localFamiliesQ.data;
+      if (local === undefined) return undefined;
+      const session = localSessions.find((s) => s.id === agentId);
+      if (session === undefined) return undefined;
+      return promptCapabilities(session.family, 'M2', local);
+    }
     if (familiesQ.data === undefined) return undefined;
     const agent = agents.find((x) => str(x, 'id') === agentId);
     // The bound agent not being in the list yet is the same unknown: its
     // record loading is not its engine declining.
     if (agent === undefined) return undefined;
     return promptCapabilities(agentEngine(agent), drivingModeOf(agent), familiesQ.data);
-  }, [agents, agentId, familiesQ.data]);
+  }, [agents, agentId, familiesQ.data, localFamiliesQ.data, localSessions]);
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
 
@@ -305,18 +350,45 @@ export function AgentCompanion({
           </button>
         </div>
       )}
-      {companionMode === 'hub' && source !== null && (
+      {companionMode === 'hub' && (agents.length > 0 || localSessions.length > 0) && (
         <select className="companion-agent" value={agentId} onChange={(e) => pickAgent(e.target.value)}>
           <option value="">{t('companion.pickAgent')}</option>
-          {agents.map((a) => {
-            const id = str(a, 'id') ?? '';
-            return (
-              <option key={id} value={id}>
-                {agentLabel(a)}
-              </option>
-            );
-          })}
+          {agents.length > 0 && (
+            <optgroup label={t('companion.groupHub')}>
+              {agents.map((a) => {
+                const id = str(a, 'id') ?? '';
+                return (
+                  <option key={id} value={id}>
+                    {agentLabel(a)}
+                  </option>
+                );
+              })}
+            </optgroup>
+          )}
+          {localSessions.length > 0 && (
+            <optgroup label={t('companion.groupLocal')}>
+              {localSessions.map((s) => {
+                const row = localSessionRow(s);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {agentLabel(row)}
+                    {s.status === 'stopped' ? ` · ${t('companion.localStopped')}` : ''}
+                  </option>
+                );
+              })}
+            </optgroup>
+          )}
         </select>
+      )}
+      {companionMode === 'hub' && canStartLocal && (
+        <button
+          className="companion-new-local"
+          disabled={createLocal.isPending || folder === null}
+          title={folder === null ? t('companion.localNeedsFolder') : t('companion.newLocalHint')}
+          onClick={() => void startLocalSession()}
+        >
+          {t('companion.newLocal')}
+        </button>
       )}
     </div>
   );
@@ -340,7 +412,9 @@ export function AgentCompanion({
     return (
       <div className="companion">
         {head}
-        <div className="companion-empty muted">{t('companion.offline')}</div>
+        <div className="companion-empty muted">
+          {canStartLocal ? t('companion.offlineLocalAvailable') : t('companion.offline')}
+        </div>
       </div>
     );
   }

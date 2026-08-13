@@ -2,8 +2,11 @@
 
 > **Type:** plan
 > **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
-> **W2 complete** (L2, E2, R2, R3, F3). Principal review done. W3 next
-> (L3, E3, E4, R4) — L2 was its blocker
+> **W2 complete** (L2, E2, R2, R3, F3). Principal review done. **W3 in
+> flight**: L3 split into **L3a** (shipped 2026-08-10 — the local agent
+> service, claude M2 child, renderer source) and **L3b** (durable log,
+> restart rebind, session catalog, loopback WS). Remaining: L3b, E3,
+> E4, R4
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -288,6 +291,57 @@ transport rung (lane T), never the renderer's ceiling.
     recipes as **data with a language-neutral fixture corpus** (the L2
     recipe) precisely so this service can read the same file instead of
     re-deriving a second copy in TypeScript.
+  - *Split into L3a / L3b (2026-08-10), and what the engine actually
+    does.* L3 as written is a service, a driver, a permission story and
+    a durability story in one line, so it ships in two wedges: **L3a**
+    the service, the log, the claude M2 child, the IPC surface and the
+    renderer source; **L3b** the durable half — on-disk log, rebind
+    across an app restart via N1's recipes, the multi-root session
+    catalog, and the loopback WebSocket. L3a is `desktop/electron/src/
+    localagent/` plus `state/localAgentSource.ts`.
+    Four things were measured against claude-code 2.1.220 rather than
+    assumed, and three of them contradict what the wedge would
+    otherwise have been built on:
+
+    | Assumption | What the binary does |
+    |---|---|
+    | `--print` is one-shot, so a session needs respawn-per-turn | **It is not.** With `--input-format stream-json` and stdin held open, one child answered two prompts and reported the same `session_id` for both. That is what makes a session server possible at all. |
+    | `--permission-mode` gates tool use | **It does not, under `--print`.** `manual` ran Bash. **`plan` ran Bash.** With no flag at all it ran Bash. There is no interactive channel for a mode to hold a decision against, so none of them is a safety boundary. |
+    | permission mode is the lever, per the glossary | Only the **tool list** is. `--tools Read,Glob,Grep` removed Bash from the session outright — the model reported it unavailable and called nothing. Hence L3a's **tool posture** (`converse` / `read_local` / `unrestricted`), an allowlist defaulting to `read_local`, and *not* a second spelling of permission mode. A denylist was rejected: it fails open for every tool a future claude adds. |
+    | the vendored frame profile is current | It is. A live session emitted `system/thinking_tokens` — a subtype no rule names, new since the corpus was recorded — and the catch-all `{type: system}` rule absorbed it. Zero `raw` rows across a full turn. Worth knowing it renders as an unmodelled system row, which is a lane-R question, not L3's. |
+
+  - *The loader question L2 deferred, answered.* Electron main reads
+    `resources/agent_families.generated.json` — every family marshalled
+    from `agent_families.yaml` by a Go test that fails when the two
+    disagree, shipped as an electron-builder extraResource. So the M2
+    launch argv and the frame profile are the *same data* the hub uses,
+    and neither a YAML parser nor a hand-kept mirror exists on the TS
+    side. The wedge takes the whole `Family` rather than a chosen
+    subset: L3a already needed three of its fields, and picking would
+    be a third thing to keep in step.
+  - *Two deliberate narrowings, recorded rather than papered over.*
+    (1) The cursor is `{seq}`, not discussion §9's `{seq, epoch}`: this
+    log lives in main's heap, so anything that ends it also ends the
+    renderer holding the cursor, and an epoch would be a comparison
+    whose two sides can never differ. It arrives with L3b's on-disk
+    log. (2) `stampContextWindow` ports the engine-learned half but not
+    Go's static `ModelContextWindow` table — copying a heuristic that
+    goes stale as models ship would give the local service its own
+    drifting opinion. Cost: a local session's *first* turn has no
+    context ring, every turn after it does.
+  - *Verified against a real engine.* `engine.e2e.test.ts` spawns the
+    actual CLI and asserts the transcript — `session.init`, the engine
+    session id captured, the model's reply as typed `text`, turn
+    boundaries, dense `seq`, zero `raw`. Opt-in
+    (`TERMIPOD_LOCAL_ENGINE_E2E=1`) because it spends real tokens, so
+    CI skips it. **This is the first wedge in either desktop plan whose
+    engine behaviour was observed rather than inferred.**
+  - *Not done in L3a, and not silently:* the `companionMode` hub/local
+    toggle still exists. Its own comment says L3 is what retires it —
+    but retiring a mode is an offer-surface sweep (both i18n dicts,
+    the launcher panel, the persisted key), which is a wedge, not a
+    footnote. L3a merges local sessions into the existing picker and
+    leaves the toggle alone.
 - **L4 — codex via the vendor's service (D-8: use theirs when it
   exists).** Prefer **WebSocket attach** to a `codex app-server`
   daemon — spawn it detached if absent, authenticate with its bearer
@@ -593,7 +647,7 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
 ```
 W1 (unblock + correctness):  F1, F2, L1, E1, R1
 W2 (local + telemetry):      L2, E2, R2, R3, F3
-W3 (local claude + live):    L3, E3, E4, R4
+W3 (local claude + live):    L3a, L3b, E3, E4, R4
 W4 (local codex + controls): L4, R6, R5, F4
 parallel, any time:          D1 → D2 → D3;  T1 after F3
 ```

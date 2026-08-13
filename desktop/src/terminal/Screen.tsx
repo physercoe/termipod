@@ -7,7 +7,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
-import { isWindows, openExternal, shellKind, windowsBuildNumber } from '../platform';
+import { openExternal, platformOs, shellKind, windowsBuildNumber } from '../platform';
 import { CATPPUCCIN_MOCHA, TERMINAL_FONT_FAMILY } from './appearance';
 
 // Persisted terminal font size (Ctrl/Cmd +/-/0 zoom, #319). Shared across all
@@ -55,7 +55,7 @@ interface Props {
 }
 
 /// A live xterm.js screen bound to one session (SSH or local), with the fit +
-/// search addons (no WebGL — see the renderer note in the mount effect). The
+/// search addons and the platform renderer policy documented in the mount effect. The
 /// effect depends on `sessionId` ALONE: its cleanup calls sessionClose(), so
 /// re-running it on a parent re-render would tear the session down (the
 /// black-terminal / dead-input bug fixed in desktop-v0.3.10). Unmount closes the
@@ -193,7 +193,9 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     // output bursts, and 10k-scrollback resize reflows. Upgrade per platform, best
     // effort, with self-healing fall-back and lazy imports (addons stay out of the
     // main chunk):
-    //   • macOS / Linux → WebGL (GPU texture-atlas glyphs); on context loss, drop
+    //   • macOS         → DOM. Native DOM text is intentionally preferred here
+    //     for crisper small-font rendering on Retina displays.
+    //   • Linux         → WebGL (GPU texture-atlas glyphs); on context loss, drop
     //     to canvas so a lost GPU context never freezes on a blank canvas.
     //   • Windows        → WebGL under Electron (Chromium/ANGLE is fine), canvas
     //     only under Tauri. WebView2's ANGLE black-screened WebGL and could wedge
@@ -214,7 +216,8 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       }
     };
     void (async () => {
-      const win = await isWindows();
+      const os = await platformOs();
+      const win = os === 'windows';
       if (disposed) return;
       if (win) {
         // Tell xterm the pty is ConPTY (the desktop terminal is portable-pty →
@@ -232,7 +235,9 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
         if (disposed) return;
         term.options.windowsPty = build !== null ? { backend: 'conpty', buildNumber: build } : { backend: 'conpty' };
       }
-      // WebGL everywhere except Windows-under-Tauri (see the ladder note above).
+      // Keep xterm's built-in DOM renderer on macOS for the sharpest small text.
+      if (os === 'macos') return;
+      // WebGL on Linux/browser and Windows-under-Electron (see the ladder note).
       const tryWebgl = !win || shellKind() === 'electron';
       if (tryWebgl) {
         try {
@@ -283,9 +288,8 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       }
       return true;
     });
-    // (Renderer selection happens right after term.open above — WebGL on
-    // macOS/Linux, canvas on Windows, DOM fallback everywhere. WebGL is gated OFF
-    // Windows because it black-screened WebView2/ANGLE in v0.3.11.)
+    // Renderer selection happens right after term.open above: DOM on macOS,
+    // WebGL on Linux, and WebGL (Electron) or canvas (Tauri) on Windows.
     termRef.current = term;
     searchRef.current = search;
 

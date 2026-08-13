@@ -1,5 +1,5 @@
 @import './tokens.css';
-@import './maple-mono-nf.css';
+@import './maple-mono-nf-cn.css';
 
 /* App styling is split into ordered partials under ./partials/ — cascade order
  * is preserved by import order. See each partial header for its area. Keep new

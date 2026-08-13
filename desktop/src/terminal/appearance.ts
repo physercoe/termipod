@@ -1,10 +1,11 @@
 import type { ITheme } from '@xterm/xterm';
 
-/// Bundled terminal face. Maple Mono NF carries the Nerd Font private-use
-/// glyphs used by modern prompts/tmux configs; the remaining stack is a safe
-/// fallback while the web font finishes loading or if a platform rejects it.
+/// Bundled terminal face. Maple Mono NF CN carries Nerd Font private-use
+/// glyphs plus complete Simplified/Traditional Chinese and Japanese coverage;
+/// the remaining stack is a safe fallback while the web font finishes loading
+/// or if a platform rejects it.
 export const TERMINAL_FONT_FAMILY =
-  '"Maple Mono NF", "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace';
+  '"Maple Mono NF CN", "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", ui-monospace, "Menlo", "Consolas", "DejaVu Sans Mono", monospace';
 
 /// Catppuccin Mocha's official terminal palette. Keep all sixteen ANSI slots:
 /// applications such as tmux, vim, htop and shell prompts use these directly,

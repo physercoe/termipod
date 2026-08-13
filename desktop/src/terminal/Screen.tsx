@@ -93,9 +93,9 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     setExited(null);
     const term = new XTerm({
       cursorBlink: true,
-      // Maple Mono NF is bundled so Powerline/Nerd Font prompts render on every
-      // host without requiring a system font install. The stack retains robust
-      // fallbacks while the web font is loading.
+      // Maple Mono NF CN is bundled so CJK text and Powerline/Nerd Font prompts
+      // render consistently without requiring a system font install. The stack
+      // retains robust fallbacks while the web font is loading.
       fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: loadFontSize(),
       fontWeight: 400,
@@ -375,10 +375,11 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     };
 
     applyFit(false);
-    // The terminal font (JetBrains Mono) is an async web font: the first fit runs
-    // with a fallback metric. Force a re-measure + re-fit once the real font is
-    // ready, plus a couple of delayed re-fits to catch late layout settling (dock
-    // open animation, first pane reveal).
+    // The bundled Maple Mono NF CN face is an async web font: the first fit may
+    // run with fallback metrics, especially now that each CJK face is sizeable.
+    // Force a re-measure + re-fit once the real font is ready, plus a couple of
+    // delayed re-fits to catch late layout settling (dock open animation, first
+    // pane reveal).
     void document.fonts?.ready.then(() => scheduleFit(true));
     const settle1 = setTimeout(() => scheduleFit(true), 120);
     const settle2 = setTimeout(() => scheduleFit(false), 450);

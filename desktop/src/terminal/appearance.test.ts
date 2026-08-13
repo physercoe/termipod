@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CATPPUCCIN_MOCHA, TERMINAL_FONT_FAMILY } from './appearance.ts';
 
-test('terminal font prefers the bundled Maple Mono Nerd Font', () => {
-  assert.match(TERMINAL_FONT_FAMILY, /^"Maple Mono NF"/);
+test('terminal font prefers the bundled Maple Mono Nerd Font CN face', () => {
+  assert.match(TERMINAL_FONT_FAMILY, /^"Maple Mono NF CN"/);
   assert.match(TERMINAL_FONT_FAMILY, /monospace$/);
 });
 

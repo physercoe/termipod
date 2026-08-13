@@ -36,6 +36,7 @@ import { emit } from '../events';
 import { assertSafeRemoteDelete } from './fsutil';
 import { pinGet, pinSet } from './keychain';
 import { socks5Connect } from './socks5';
+import { SftpCancelRegistry } from './sftp_cancel';
 import { autoCloseForwards, disposeAllForwards, listForwards, startForward, stopForward } from './ssh_forward';
 import { loadSsh2 } from './ssh2mod';
 import type { Ssh2Module } from './ssh2mod';
@@ -44,6 +45,7 @@ import type { Handler } from './dispatch';
 /// The chunk size for streamed SFTP transfers — big enough to keep the pipe busy,
 /// small enough that a per-chunk progress tick feels live (ssh.rs SFTP_CHUNK).
 const SFTP_CHUNK = 256 * 1024;
+const sftpCancels = new SftpCancelRegistry();
 
 interface SshConnectReq {
   host: string;
@@ -508,6 +510,17 @@ export const sshHandlers: Record<string, Handler> = {
       const chunks: Buffer[] = [];
       let done = 0;
       let lastEmit = 0;
+      let settled = false;
+      const cleanupCancel = sftpCancels.register(sender.id, transferId, () => {
+        rs.destroy(new Error('transfer cancelled'));
+      });
+      const fail = (err: Error): void => {
+        if (settled) return;
+        settled = true;
+        cleanupCancel();
+        sftp.end();
+        reject(new Error(`read: ${err.message}`));
+      };
       rs.on('data', (d: Buffer) => {
         chunks.push(d);
         done += d.length;
@@ -516,11 +529,11 @@ export const sshHandlers: Record<string, Handler> = {
           emit(sender, 'sftp-progress', { transfer_id: transferId, done });
         }
       });
-      rs.on('error', (err: Error) => {
-        sftp.end();
-        reject(new Error(`read: ${err.message}`));
-      });
+      rs.on('error', fail);
       rs.on('end', () => {
+        if (settled) return;
+        settled = true;
+        cleanupCancel();
         const buf = Buffer.concat(chunks);
         emit(sender, 'sftp-progress', { transfer_id: transferId, done: buf.length }); // final exact tick
         sftp.end();
@@ -539,27 +552,46 @@ export const sshHandlers: Record<string, Handler> = {
     const sftp = await openSftp(id);
     return new Promise<void>((resolve, reject) => {
       const ws = sftp.createWriteStream(filePath);
+      let settled = false;
+      const cleanupCancel = sftpCancels.register(sender.id, transferId, () => {
+        ws.destroy();
+      });
       ws.on('error', (err: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanupCancel();
         sftp.end();
         reject(new Error(`write: ${err.message}`));
       });
       ws.on('close', () => {
+        if (settled) return;
+        settled = true;
+        cleanupCancel();
         sftp.end();
         resolve();
       });
       let done = 0;
-      let lastEmit = 0;
-      for (let off = 0; off < total; off += SFTP_CHUNK) {
-        const chunk = data.subarray(off, Math.min(off + SFTP_CHUNK, total));
-        ws.write(chunk);
-        done += chunk.length;
-        if (done - lastEmit >= SFTP_CHUNK || done === total) {
-          lastEmit = done;
-          emit(sender, 'sftp-progress', { transfer_id: transferId, done });
+      const writeNext = (): void => {
+        if (settled) return;
+        if (done >= total) {
+          ws.end();
+          return;
         }
-      }
-      ws.end();
+        const chunk = data.subarray(done, Math.min(done + SFTP_CHUNK, total));
+        ws.write(chunk, (err?: Error | null) => {
+          if (err !== undefined && err !== null) return; // stream error handler rejects
+          if (settled) return;
+          done += chunk.length;
+          emit(sender, 'sftp-progress', { transfer_id: transferId, done });
+          writeNext();
+        });
+      };
+      writeNext();
     });
+  },
+
+  sftp_cancel: async (args, ctx): Promise<boolean> => {
+    return sftpCancels.cancel(ctx.sender.id, String(args.transferId ?? ''));
   },
 
   /// mkdir -p on the remote (recursive — New Folder + directory upload).

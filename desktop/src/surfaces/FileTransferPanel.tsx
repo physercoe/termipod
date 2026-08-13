@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import {
+  sftpCancel,
   onSftpProgress,
   sftpDelete,
   sftpList,
@@ -20,6 +21,13 @@ import {
   type LocalEntry,
   type LocalListing,
 } from '../state/localfs';
+import {
+  cancelSftpTransfer,
+  enqueueSftpTransfer,
+  listSftpTransfers,
+  subscribeSftpTransfers,
+  type SftpTransfer,
+} from '../state/sftpTransfers';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { InspectFileIcon } from '../ui/InspectFileIcon';
@@ -53,29 +61,19 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-interface Transfer {
-  id: string;
-  name: string;
-  dir: 'up' | 'down';
-  done: number;
-  total: number;
-  status: 'active' | 'done' | 'error';
-  error?: string;
-  /** Secondary detail for multi-file transfers — `n/m · relative/path`. */
-  note?: string;
-}
-
-// Unique transfer id via crypto.randomUUID — available now the renderer serves
-// from the secure `app://` origin (ADR-055 §7 row 12).
-function nextTransferId(): string {
-  return `tx${crypto.randomUUID()}`;
-}
-
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function nextTransferId(): string {
+  return `tx${crypto.randomUUID()}`;
+}
+
+function throwIfTransferCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('transfer cancelled', 'AbortError');
 }
 
 // Remote paths are always POSIX ('/'); local targets use the listed absolute dir
@@ -228,6 +226,105 @@ interface DirScan {
   files: { rel: string; size: number }[];
 }
 
+/** Recursive pre-scan of a local directory (for upload). */
+async function scanLocalDir(root: string, signal: AbortSignal): Promise<DirScan> {
+  const dirs: string[] = [];
+  const files: { rel: string; size: number }[] = [];
+  const walk = async (abs: string, rel: string): Promise<void> => {
+    throwIfTransferCancelled(signal);
+    const listing = await localList(abs);
+    for (const entry of listing.entries) {
+      throwIfTransferCancelled(signal);
+      const nextRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
+      if (entry.is_dir) {
+        dirs.push(nextRel);
+        await walk(entry.path, nextRel);
+      } else {
+        files.push({ rel: nextRel, size: entry.size });
+      }
+    }
+  };
+  await walk(root, '');
+  return { dirs, files };
+}
+
+/** Recursive pre-scan of a remote directory (for download). */
+async function scanRemoteDir(sessionId: string, root: string, signal: AbortSignal): Promise<DirScan> {
+  const dirs: string[] = [];
+  const files: { rel: string; size: number }[] = [];
+  const walk = async (abs: string, rel: string): Promise<void> => {
+    throwIfTransferCancelled(signal);
+    const listing = await sftpList(sessionId, abs);
+    for (const entry of listing) {
+      throwIfTransferCancelled(signal);
+      const nextRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
+      if (entry.is_dir) {
+        dirs.push(nextRel);
+        await walk(joinPosix(abs, entry.name), nextRel);
+      } else {
+        files.push({ rel: nextRel, size: entry.size });
+      }
+    }
+  };
+  await walk(root, '');
+  return { dirs, files };
+}
+
+function TransferProgress({
+  transfer,
+  onCancel,
+}: {
+  transfer: SftpTransfer;
+  onCancel: () => void;
+}): JSX.Element {
+  const t = useT();
+  const statusLabel =
+    transfer.status === 'queued'
+      ? t('sftp.queued')
+      : transfer.status === 'cancelled'
+        ? t('sftp.cancelled')
+        : transfer.status === 'error'
+          ? t('sftp.failed')
+          : transfer.status === 'done'
+            ? t('sftp.done')
+            : transfer.total > 0
+              ? `${formatBytes(transfer.done)} / ${formatBytes(transfer.total)}`
+              : formatBytes(transfer.done);
+  return (
+    <div className={`sftp-transfer ${transfer.status}`}>
+      <div className="sftp-transfer-head">
+        <span className="sftp-transfer-dir">{transfer.dir === 'up' ? '⬆' : '⬇'}</span>
+        <span className="sftp-transfer-name mono">{transfer.name}</span>
+        {transfer.note !== undefined && <span className="muted small sftp-transfer-note">{transfer.note}</span>}
+        <span className="spacer" />
+        <span className="muted small">{statusLabel}</span>
+        {(transfer.status === 'queued' || transfer.status === 'active') && (
+          <button type="button" className="sftp-transfer-cancel" onClick={onCancel}>
+            {t('common.cancel')}
+          </button>
+        )}
+      </div>
+      <div className="sftp-progress-track">
+        <div
+          className={`sftp-progress-fill ${transfer.total === 0 && transfer.status === 'active' ? 'indeterminate' : ''}`}
+          style={
+            transfer.status === 'queued'
+              ? { width: '0%' }
+              : transfer.total > 0
+                ? { width: `${Math.min(100, Math.round((transfer.done / transfer.total) * 100))}%` }
+                : transfer.status !== 'active'
+                  ? { width: '100%' }
+                  : undefined
+          }
+        />
+      </div>
+      {transfer.status === 'error' && transfer.error !== undefined && (
+        <div className="error small">{transfer.error}</div>
+      )}
+    </div>
+  );
+}
+
 export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const t = useT();
   const confirm = useConfirm();
@@ -249,8 +346,9 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
   const [selR, setSelR] = useState<string | null>(null);
   const [view, setView] = useState<{ title: string; body: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // `busy` covers foreground file operations only (preview/rename/delete).
+  // Transfers run in the external session queue and never lock either pane.
   const [busy, setBusy] = useState(false);
-  const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [localPaneShare, setLocalPaneShare] = useState(() => {
     const saved = Number(localStorage.getItem(SFTP_PANE_SHARE_KEY));
     return Number.isFinite(saved) && saved >= 20 && saved <= 80 ? saved : 50;
@@ -258,25 +356,22 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
   const [localColumnWidths, setLocalColumnWidths] = useState(() => loadColumnWidths('local'));
   const [remoteColumnWidths, setRemoteColumnWidths] = useState(() => loadColumnWidths('remote'));
   const dualRef = useRef<HTMLDivElement>(null);
-  const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const panePersistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const columnPersistTimers = useRef<Partial<Record<SftpPaneSide, ReturnType<typeof setTimeout>>>>({});
   const sortedLocalEntries = useMemo(() => sortFileEntries(local?.entries ?? [], lSort), [local?.entries, lSort]);
   const sortedRemoteEntries = useMemo(() => sortFileEntries(rentries, rSort), [rentries, rSort]);
-
-  const settle = useCallback((id: string, patch: Partial<Transfer>): void => {
-    setTransfer((prev) => (prev !== null && prev.id === id ? { ...prev, ...patch } : prev));
-    if (patch.status === 'done') {
-      if (clearTimer.current !== undefined) clearTimeout(clearTimer.current);
-      clearTimer.current = setTimeout(() => {
-        setTransfer((prev) => (prev !== null && prev.id === id ? null : prev));
-      }, 4000);
-    }
-  }, []);
+  const subscribeTransfers = useCallback(
+    (listener: () => void) => subscribeSftpTransfers(sessionId, listener),
+    [sessionId],
+  );
+  const getTransfers = useCallback(() => listSftpTransfers(sessionId), [sessionId]);
+  const transfers = useSyncExternalStore(subscribeTransfers, getTransfers, getTransfers);
+  const observedTerminalTransfers = useRef(
+    new Set(transfers.filter((transfer) => transfer.status === 'done' || transfer.status === 'error').map((transfer) => transfer.id)),
+  );
 
   useEffect(
     () => () => {
-      if (clearTimer.current !== undefined) clearTimeout(clearTimer.current);
       if (panePersistTimer.current !== undefined) clearTimeout(panePersistTimer.current);
       if (columnPersistTimers.current.local !== undefined) clearTimeout(columnPersistTimers.current.local);
       if (columnPersistTimers.current.remote !== undefined) clearTimeout(columnPersistTimers.current.remote);
@@ -370,6 +465,23 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
       .catch((e) => setErr(msg(e)));
   }, [loadLocal]);
 
+  // Refresh whichever pane received bytes when a background job settles while
+  // this view is mounted. If it settled while unmounted, the normal mount loads
+  // already fetch the latest directory contents.
+  useEffect(() => {
+    let refreshLocal = false;
+    let refreshRemote = false;
+    for (const transfer of transfers) {
+      if (transfer.status !== 'done' && transfer.status !== 'error') continue;
+      if (observedTerminalTransfers.current.has(transfer.id)) continue;
+      observedTerminalTransfers.current.add(transfer.id);
+      if (transfer.status === 'done' && transfer.dir === 'down') refreshLocal = true;
+      if (transfer.status === 'done' && transfer.dir === 'up') refreshRemote = true;
+    }
+    if (refreshLocal && local !== null) void loadLocal(local.path);
+    if (refreshRemote) void loadRemote(rdir);
+  }, [transfers, local, loadLocal, loadRemote, rdir]);
+
   // A transfer would clobber an existing entry — confirm first. The destination
   // directory is already listed in memory (what the user is looking at), so the
   // existence check needs no extra round-trip and matches the visible pane.
@@ -382,137 +494,122 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
     });
   }
 
-  /** Recursive pre-scan of a local directory (for upload). */
-  async function scanLocalDir(root: string): Promise<DirScan> {
-    const dirs: string[] = [];
-    const files: { rel: string; size: number }[] = [];
-    const walk = async (abs: string, rel: string): Promise<void> => {
-      const listing = await localList(abs);
-      for (const e of listing.entries) {
-        const r = rel === '' ? e.name : `${rel}/${e.name}`;
-        if (e.is_dir) {
-          dirs.push(r);
-          await walk(e.path, r);
-        } else {
-          files.push({ rel: r, size: e.size });
-        }
-      }
-    };
-    await walk(root, '');
-    return { dirs, files };
-  }
-
-  /** Recursive pre-scan of a remote directory (for download). */
-  async function scanRemoteDir(root: string): Promise<DirScan> {
-    const dirs: string[] = [];
-    const files: { rel: string; size: number }[] = [];
-    const walk = async (abs: string, rel: string): Promise<void> => {
-      const listing = await sftpList(sessionId, abs);
-      for (const e of listing) {
-        const r = rel === '' ? e.name : `${rel}/${e.name}`;
-        if (e.is_dir) {
-          dirs.push(r);
-          await walk(joinPosix(abs, e.name), r);
-        } else {
-          files.push({ rel: r, size: e.size });
-        }
-      }
-    };
-    await walk(root, '');
-    return { dirs, files };
-  }
-
   // Download: remote → the local pane's current directory. Directories go
-  // recursively: pre-scan, mkdir the tree, then stream each file.
+  // recursively: pre-scan, mkdir the tree, then stream each file. The queue is
+  // outside React, so this continues if the user switches back to Terminal.
   async function download(entry: SftpEntry): Promise<void> {
     if (local === null) return;
     const exists = local.entries.some((e) => e.name === entry.name);
     if (!(await confirmOverwrite(entry.name, exists))) return;
-    setBusy(true);
     setErr(null);
-    const tid = nextTransferId();
     const src = joinPosix(rdir, entry.name);
     const dest = joinPosix(local.path, entry.name);
-    // `base` = bytes finished in earlier files; the backend's progress ticks are
-    // per-file cumulative, so aggregate = base + tick.
-    let base = 0;
-    const unlisten = await onSftpProgress(tid, (done) => settle(tid, { done: base + done }));
-    try {
-      if (!entry.is_dir) {
-        setTransfer({ id: tid, name: entry.name, dir: 'down', done: 0, total: entry.size, status: 'active' });
-        const bytes = await sftpRead(sessionId, src, tid);
-        await localWrite(dest, bytes);
-        settle(tid, { status: 'done', done: entry.size > 0 ? entry.size : 0 });
-      } else {
-        setTransfer({ id: tid, name: entry.name, dir: 'down', done: 0, total: 0, status: 'active', note: t('sftp.scanning') });
-        const { dirs, files } = await scanRemoteDir(src);
-        const total = files.reduce((s, f) => s + f.size, 0);
-        settle(tid, { total, note: undefined });
-        await localMkdir(dest);
-        for (const d of dirs) await localMkdir(joinPosix(dest, d));
-        let i = 0;
-        for (const f of files) {
-          i += 1;
-          settle(tid, { note: `${i}/${files.length} · ${f.rel}` });
-          const bytes = await sftpRead(sessionId, joinPosix(src, f.rel), tid);
-          await localWrite(joinPosix(dest, f.rel), bytes);
-          base += f.size;
-          settle(tid, { done: base });
+    enqueueSftpTransfer({
+      sessionId,
+      name: entry.name,
+      dir: 'down',
+      total: entry.is_dir ? 0 : entry.size,
+      run: async ({ id: transferId, signal, update }) => {
+        // `base` = bytes finished in earlier files; backend progress ticks are
+        // per-file cumulative, so aggregate = base + tick.
+        let base = 0;
+        const abortNative = (): void => {
+          void sftpCancel(transferId);
+        };
+        signal.addEventListener('abort', abortNative, { once: true });
+        throwIfTransferCancelled(signal);
+        const unlisten = await onSftpProgress(transferId, (done) => update({ done: base + done }));
+        try {
+          throwIfTransferCancelled(signal);
+          if (!entry.is_dir) {
+            const bytes = await sftpRead(sessionId, src, transferId);
+            throwIfTransferCancelled(signal);
+            await localWrite(dest, bytes);
+            throwIfTransferCancelled(signal);
+            update({ done: entry.size > 0 ? entry.size : 0 });
+            return;
+          }
+          update({ note: t('sftp.scanning') });
+          const { dirs, files } = await scanRemoteDir(sessionId, src, signal);
+          const total = files.reduce((sum, file) => sum + file.size, 0);
+          update({ total, note: undefined });
+          throwIfTransferCancelled(signal);
+          await localMkdir(dest);
+          for (const dir of dirs) {
+            throwIfTransferCancelled(signal);
+            await localMkdir(joinPosix(dest, dir));
+          }
+          for (const [index, file] of files.entries()) {
+            throwIfTransferCancelled(signal);
+            update({ note: `${index + 1}/${files.length} · ${file.rel}` });
+            const bytes = await sftpRead(sessionId, joinPosix(src, file.rel), transferId);
+            throwIfTransferCancelled(signal);
+            await localWrite(joinPosix(dest, file.rel), bytes);
+            base += file.size;
+            update({ done: base });
+          }
+        } finally {
+          unlisten();
+          signal.removeEventListener('abort', abortNative);
         }
-        settle(tid, { status: 'done', done: total, note: undefined });
-      }
-      await loadLocal(local.path);
-    } catch (e) {
-      setErr(msg(e));
-      settle(tid, { status: 'error', error: msg(e) });
-    } finally {
-      unlisten();
-      setBusy(false);
-    }
+      },
+    });
   }
 
   // Upload: a local file OR directory → the remote pane's current directory.
   async function upload(entry: LocalEntry): Promise<void> {
     const exists = rentries.some((e) => e.name === entry.name);
     if (!(await confirmOverwrite(entry.name, exists))) return;
-    setBusy(true);
     setErr(null);
-    const tid = nextTransferId();
     const dest = joinPosix(rdir, entry.name);
-    let base = 0;
-    const unlisten = await onSftpProgress(tid, (done) => settle(tid, { done: base + done }));
-    try {
-      if (!entry.is_dir) {
-        setTransfer({ id: tid, name: entry.name, dir: 'up', done: 0, total: entry.size, status: 'active' });
-        const bytes = await localRead(entry.path);
-        await sftpWrite(sessionId, dest, bytes, tid);
-        settle(tid, { status: 'done', done: entry.size });
-      } else {
-        setTransfer({ id: tid, name: entry.name, dir: 'up', done: 0, total: 0, status: 'active', note: t('sftp.scanning') });
-        const { dirs, files } = await scanLocalDir(entry.path);
-        const total = files.reduce((s, f) => s + f.size, 0);
-        settle(tid, { total, note: undefined });
-        await sftpMkdir(sessionId, dest);
-        for (const d of dirs) await sftpMkdir(sessionId, joinPosix(dest, d));
-        let i = 0;
-        for (const f of files) {
-          i += 1;
-          settle(tid, { note: `${i}/${files.length} · ${f.rel}` });
-          const bytes = await localRead(joinPosix(entry.path, f.rel));
-          await sftpWrite(sessionId, joinPosix(dest, f.rel), bytes, tid);
-          base += f.size;
-          settle(tid, { done: base });
+    enqueueSftpTransfer({
+      sessionId,
+      name: entry.name,
+      dir: 'up',
+      total: entry.is_dir ? 0 : entry.size,
+      run: async ({ id: transferId, signal, update }) => {
+        let base = 0;
+        const abortNative = (): void => {
+          void sftpCancel(transferId);
+        };
+        signal.addEventListener('abort', abortNative, { once: true });
+        throwIfTransferCancelled(signal);
+        const unlisten = await onSftpProgress(transferId, (done) => update({ done: base + done }));
+        try {
+          throwIfTransferCancelled(signal);
+          if (!entry.is_dir) {
+            const bytes = await localRead(entry.path);
+            throwIfTransferCancelled(signal);
+            await sftpWrite(sessionId, dest, bytes, transferId);
+            throwIfTransferCancelled(signal);
+            update({ done: entry.size });
+            return;
+          }
+          update({ note: t('sftp.scanning') });
+          const { dirs, files } = await scanLocalDir(entry.path, signal);
+          const total = files.reduce((sum, file) => sum + file.size, 0);
+          update({ total, note: undefined });
+          throwIfTransferCancelled(signal);
+          await sftpMkdir(sessionId, dest);
+          for (const dir of dirs) {
+            throwIfTransferCancelled(signal);
+            await sftpMkdir(sessionId, joinPosix(dest, dir));
+          }
+          for (const [index, file] of files.entries()) {
+            throwIfTransferCancelled(signal);
+            update({ note: `${index + 1}/${files.length} · ${file.rel}` });
+            const bytes = await localRead(joinPosix(entry.path, file.rel));
+            throwIfTransferCancelled(signal);
+            await sftpWrite(sessionId, joinPosix(dest, file.rel), bytes, transferId);
+            base += file.size;
+            update({ done: base });
+          }
+        } finally {
+          unlisten();
+          signal.removeEventListener('abort', abortNative);
         }
-        settle(tid, { status: 'done', done: total, note: undefined });
-      }
-      await loadRemote(rdir);
-    } catch (e) {
-      setErr(msg(e));
-      settle(tid, { status: 'error', error: msg(e) });
-    } finally {
-      unlisten();
-      setBusy(false);
-    }
+      },
+    });
   }
 
   // ---- File operations (context menu) ----
@@ -683,38 +780,15 @@ export function FileTransferPanel({ sessionId }: { sessionId: string }): JSX.Ele
         </Modal>
       )}
       {err !== null && <div className="error sftp-err">{err}</div>}
-      {transfer !== null && (
-        <div className={`sftp-transfer ${transfer.status}`}>
-          <div className="sftp-transfer-head">
-            <span className="sftp-transfer-dir">{transfer.dir === 'up' ? '⬆' : '⬇'}</span>
-            <span className="sftp-transfer-name mono">{transfer.name}</span>
-            {transfer.note !== undefined && <span className="muted small sftp-transfer-note">{transfer.note}</span>}
-            <span className="spacer" />
-            <span className="muted small">
-              {transfer.status === 'error'
-                ? t('sftp.failed')
-                : transfer.status === 'done'
-                  ? t('sftp.done')
-                  : transfer.total > 0
-                    ? `${formatBytes(transfer.done)} / ${formatBytes(transfer.total)}`
-                    : formatBytes(transfer.done)}
-            </span>
-          </div>
-          <div className="sftp-progress-track">
-            <div
-              className={`sftp-progress-fill ${transfer.total === 0 && transfer.status === 'active' ? 'indeterminate' : ''}`}
-              style={
-                transfer.total > 0
-                  ? { width: `${Math.min(100, Math.round((transfer.done / transfer.total) * 100))}%` }
-                  : transfer.status !== 'active'
-                    ? { width: '100%' }
-                    : undefined
-              }
+      {transfers.length > 0 && (
+        <div className="sftp-transfers scroll">
+          {transfers.map((transfer) => (
+            <TransferProgress
+              key={transfer.id}
+              transfer={transfer}
+              onCancel={() => cancelSftpTransfer(sessionId, transfer.id)}
             />
-          </div>
-          {transfer.status === 'error' && transfer.error !== undefined && (
-            <div className="error small">{transfer.error}</div>
-          )}
+          ))}
         </div>
       )}
 

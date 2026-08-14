@@ -3040,7 +3040,10 @@ export function ReadSurface(): JSX.Element {
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t('read.filter')}
                 />
-                <button onClick={addBlank}>+ {t('read.add')}</button>
+                <button className="primary read-list-add" onClick={addBlank}>
+                  <Icon name="plus" size={14} />
+                  {t('read.add')}
+                </button>
               </div>
               <div className="read-table-wrap scroll">
                 {items.length === 0 ? (

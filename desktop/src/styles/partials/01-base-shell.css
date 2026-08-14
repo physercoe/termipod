@@ -548,8 +548,9 @@ pre {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  min-height: 42px;
-  padding: var(--spacing-s4) var(--spacing-s12);
+  height: calc(var(--control-md) + var(--spacing-s16));
+  min-height: calc(var(--control-md) + var(--spacing-s16));
+  padding: var(--spacing-s6) var(--spacing-s12);
   background: var(--glass-pane);
   border-bottom: var(--hairline) solid var(--glass-rim);
   -webkit-backdrop-filter: var(--glass-filter);
@@ -564,6 +565,10 @@ pre {
 }
 .fleet-toolbar button {
   min-height: var(--control-sm);
+  height: var(--control-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s6);
   padding: 4px 9px;
   font-size: var(--font-size-body-small);
 }

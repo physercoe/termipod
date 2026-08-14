@@ -807,6 +807,52 @@ test('inspect: the Open menu launches the source picker modal', async () => {
   await expect(page.locator('.inspect-modal')).toHaveCount(0);
 });
 
+test('workbench: primary surface headers share one grid and action height', async () => {
+  await dismissConnectModal();
+  const surfaces = [
+    { job: 'fleet', header: '.fleet-toolbar' },
+    { job: 'projects', header: '.fleet-toolbar' },
+    { job: 'read', header: '.surface-read .surface-head' },
+    { job: 'author', header: '.surface-author .surface-head' },
+    { job: 'debug', header: '.surface-debug .surface-head' },
+  ];
+  const heights: number[] = [];
+  for (const surface of surfaces) {
+    await page.locator(`[data-job="${surface.job}"]`).click();
+    const header = page.locator(surface.header).first();
+    await expect(header).toBeVisible();
+    heights.push(await header.evaluate((node) => node.getBoundingClientRect().height));
+  }
+  expect(heights).toEqual([48, 48, 48, 48, 48]);
+
+  for (const job of ['fleet', 'projects', 'author', 'debug']) {
+    await page.locator(`[data-job="${job}"]`).click();
+    const primary = page.locator(job === 'fleet' || job === 'projects' ? '.fleet-toolbar button.primary' : `.surface-${job} .surface-head button.primary`).first();
+    await expect(primary).toBeVisible();
+    await expect.poll(() => primary.evaluate((node) => node.getBoundingClientRect().height)).toBe(28);
+  }
+});
+
+test('read: list controls and inspector tabs share the same horizontal grid line', async () => {
+  await page.locator('[data-job="read"]').click();
+  await page.locator('.surface-read .surface-head .seg-btn').first().click();
+  const listBar = page.locator('.read-list-bar');
+  const inspectorTabs = page.locator('.read-inspector-pane .ref-tabs');
+  await expect(listBar).toBeVisible();
+  await expect(inspectorTabs).toBeVisible();
+  const metrics = await Promise.all(
+    [listBar, inspectorTabs].map((locator) =>
+      locator.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, height: rect.height };
+      }),
+    ),
+  );
+  expect(metrics[0]).toEqual(metrics[1]);
+  expect(metrics[0]?.height).toBe(40);
+  await expect(listBar.locator('button.primary')).toContainText('Add');
+});
+
 test('inspect: tree filter and content search use two rows at most', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termipod-inspect-search-'));
   fs.writeFileSync(path.join(dir, 'sample.txt'), 'needle in a file\n');
@@ -822,6 +868,22 @@ test('inspect: tree filter and content search use two rows at most', async () =>
     await page.getByRole('button', { name: 'Inspect', exact: true }).click();
 
     const root = page.locator('.inspect-tree-root', { hasText: 'search-layout' });
+    await page.locator('.surface-debug .surface-head button.primary').click();
+    const treeHead = page.locator('.inspect-tree-head');
+    const tabs = page.locator('.inspect-tabs');
+    await expect(treeHead).toBeVisible();
+    await expect(tabs).toBeVisible();
+    const paneMetrics = await Promise.all(
+      [treeHead, tabs].map((locator) =>
+        locator.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, height: rect.height };
+        }),
+      ),
+    );
+    expect(paneMetrics[0]).toEqual(paneMetrics[1]);
+    expect(paneMetrics[0]?.height).toBe(40);
+
     const filterBar = root.locator('.inspect-tree-filterbar');
     await expect(filterBar).toBeVisible();
     await expect(filterBar.getByPlaceholder('Filter this tree…')).toBeVisible();
@@ -836,6 +898,7 @@ test('inspect: tree filter and content search use two rows at most', async () =>
     await expect(contentToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(root.locator('.inspect-tree-searchbar')).toBeVisible();
     await expect(root.getByPlaceholder('Search file contents…')).toBeFocused();
+    await page.locator('.inspect-tab .inspect-tab-close').last().click();
   } finally {
     await page.evaluate(() => localStorage.removeItem('termipod.inspect.roots'));
     await page.reload({ waitUntil: 'domcontentloaded' });

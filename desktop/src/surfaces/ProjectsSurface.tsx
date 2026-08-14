@@ -4,6 +4,7 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
+import { Icon } from '../ui/Icon';
 import { MissionLayout } from '../ui/MissionLayout';
 import { ProjectCreate } from './ProjectCreate';
 
@@ -141,7 +142,8 @@ export function ProjectsSurface(): JSX.Element {
     <>
       <span className="fleet-toolbar-label">{t('nav.projects')}</span>
       <span className="fleet-toolbar-sep" />
-      <button disabled={!connected} onClick={() => setCreating(true)}>
+      <button className="primary" disabled={!connected} onClick={() => setCreating(true)}>
+        <Icon name="plus" size={14} />
         {sub === 'standing' ? t('project.newWorkspace') : t('project.new')}
       </button>
     </>

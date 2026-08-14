@@ -740,12 +740,12 @@ export function AuthorSurface(): JSX.Element {
           <div ref={newMenuAnchorRef} className="author-figbtn author-newbtn">
             {/* Primary = new Document (the common case); the caret opens the
                 categorized menu. */}
-            <button className="import-btn" disabled={busy} onClick={() => void createDoc('markdown')}>
+            <button className="import-btn primary" disabled={busy} onClick={() => void createDoc('markdown')}>
               <Icon name="plus" size={14} />
               {t('author.newDoc')}
             </button>
             <button
-              className="import-btn author-newcaret"
+              className="import-btn primary author-newcaret"
               disabled={busy}
               aria-haspopup="menu"
               aria-expanded={newMenu}

@@ -1289,7 +1289,7 @@ export function DebugSurface(): JSX.Element {
               <Icon name="sidebar" size={14} /> {t('inspect.tree')}
             </button>
           )}
-          <button className="import-btn" onClick={newScratch}>
+          <button className="import-btn primary" onClick={newScratch}>
             <Icon name="plus" size={14} /> {t('inspect.newScratch')}
           </button>
           <div ref={openMenuAnchorRef} className="inspect-openwrap">

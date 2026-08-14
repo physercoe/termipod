@@ -30,7 +30,7 @@ export function WorkbenchSurface({
           <div className="surface-hint">{def ? t(def.hintKey) : ''}</div>
         </div>
         <span className="spacer" />
-        {actions}
+        {actions !== undefined && <div className="surface-actions">{actions}</div>}
       </header>
       <div className="surface-body scroll">{children}</div>
     </section>

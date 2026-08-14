@@ -207,8 +207,10 @@ button > .ui-icon:not(:only-child):first-child,
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: var(--spacing-s12);
-  padding: var(--spacing-s8) var(--spacing-s16);
+  gap: var(--spacing-s8);
+  height: calc(var(--control-md) + var(--spacing-s16));
+  min-height: calc(var(--control-md) + var(--spacing-s16));
+  padding: var(--spacing-s6) var(--spacing-s16);
   background: var(--glass-pane);
   border-bottom: var(--hairline) solid var(--glass-rim);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
@@ -220,13 +222,20 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   color: var(--accent-text);
 }
+.surface-icon .job-icon {
+  width: 18px;
+  height: 18px;
+}
 .surface-titles {
   min-width: 0;
+  display: flex;
+  align-items: center;
 }
 .surface-title {
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
+  font-size: var(--font-size-body-small);
   font-weight: 550;
   letter-spacing: -0.01em;
 }
@@ -240,8 +249,37 @@ button > .ui-icon:not(:only-child):first-child,
   letter-spacing: 0.04em;
 }
 .surface-hint {
-  font-size: var(--font-size-caption);
-  color: var(--text-muted);
+  display: none;
+}
+.surface-actions {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.surface-head button {
+  min-height: var(--control-sm);
+  height: var(--control-sm);
+  padding: 4px 9px;
+  font-size: var(--font-size-body-small);
+}
+.surface-head .import-btn:not(.primary) {
+  margin-right: 0;
+  gap: var(--spacing-s6);
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.surface-head .import-btn:not(.primary):hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: transparent;
+}
+.surface-head .import-btn.active:not(.primary) {
+  color: var(--text);
+  background: var(--raised);
+  border-color: var(--border);
 }
 .surface-body {
   flex: 1;
@@ -254,44 +292,6 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .surface-meta {
   white-space: nowrap;
-}
-
-/* Read carries the widest action set in the workbench. Keep it on the same
-   visual rhythm as Author's compact document controls: one 44px row, quiet
-   utility actions, and no second subtitle line consuming permanent space. */
-.surface-read .surface-head {
-  min-height: 44px;
-  gap: var(--spacing-s8);
-  padding: 6px var(--spacing-s12);
-}
-.surface-read .surface-icon .job-icon {
-  width: 18px;
-  height: 18px;
-}
-.surface-read .surface-titles {
-  display: flex;
-  align-items: center;
-}
-.surface-read .surface-title {
-  font-size: var(--font-size-body-small);
-}
-.surface-read .surface-hint {
-  display: none;
-}
-.surface-read .surface-head button {
-  min-height: var(--control-sm);
-  padding: 4px var(--spacing-s8);
-  font-size: var(--font-size-caption);
-}
-.surface-read .surface-head .import-btn {
-  color: var(--text-secondary);
-  background: transparent;
-  border-color: transparent;
-}
-.surface-read .surface-head .import-btn:hover {
-  color: var(--text);
-  background: var(--hover);
-  border-color: transparent;
 }
 
 /* honest placeholder for jobs whose primary EMBED hasn't shipped (J4) */
@@ -1131,10 +1131,13 @@ button > .ui-icon:not(:only-child):first-child,
   overflow: hidden;
 }
 .inspect-tree-head {
+  flex: 0 0 var(--control-lg);
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  padding: var(--spacing-s6) var(--spacing-s8);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
+  padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
 }
 .inspect-tree-title {
@@ -1416,8 +1419,12 @@ button > .ui-icon:not(:only-child):first-child,
   margin-top: var(--spacing-s4);
 }
 .inspect-tabs {
+  flex: 0 0 var(--control-lg);
   display: flex;
+  align-items: stretch;
   gap: var(--spacing-s2);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
   padding: var(--spacing-s4) var(--spacing-s8) 0;
   overflow-x: auto;
   border-bottom: 1px solid var(--border);

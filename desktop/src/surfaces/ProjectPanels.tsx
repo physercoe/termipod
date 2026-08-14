@@ -7,6 +7,7 @@ import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
+import { DocumentContent } from '../ui/StructuredDocumentView';
 import { ArtifactViewer } from './ArtifactViewer';
 
 // ---- Acceptance Criteria (parity — AcceptanceCriteriaScreen) ----------------
@@ -439,6 +440,7 @@ function ComponentView({
 
   const doc = docQ.data;
   const inline = doc !== undefined ? str(doc, 'content_inline') : undefined;
+  const schemaId = doc !== undefined ? str(doc, 'schema_id') : undefined;
   // The artifact to resolve: an artifact component's ref directly, or a
   // document's backing artifact when it has no inline body.
   const backingArtId = isDoc ? (doc !== undefined ? str(doc, 'artifact_id') : undefined) : refId;
@@ -475,7 +477,7 @@ function ComponentView({
           {loading && <div className="muted">{t('common.loading')}</div>}
           {isDoc && docQ.isError && <div className="error">{(docQ.error as Error).message}</div>}
           {!loading && inline !== undefined && inline !== '' ? (
-            <Markdown text={inline} />
+            <DocumentContent text={inline} schemaId={schemaId} />
           ) : !loading ? (
             <div className="muted">
               {t('deliv.componentUnviewable')} <span className="mono small">{kind} · {refId}</span>

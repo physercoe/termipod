@@ -6,8 +6,8 @@ import { num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { useConfirm } from '../ui/ConfirmModal';
-import { Markdown } from '../ui/Markdown';
 import { Modal } from '../ui/Modal';
+import { DocumentContent } from '../ui/StructuredDocumentView';
 
 const DOC_KINDS = ['memo', 'draft', 'report', 'review'];
 
@@ -103,7 +103,7 @@ function DocumentCompose({
 /// Documents surface (parity Phase 4). Lists a project's DB-row documents
 /// (`GET …/documents?project=`, `handleListDocuments` — list rows omit the body)
 /// and, on select, fetches the full document (`GET …/documents/{id}`) whose
-/// `content_inline` markdown is rendered via the F1 Markdown primitive. When a
+/// `content_inline` body is rendered as typed sections or plain Markdown. When a
 /// document is artifact-backed (no inline body) we show its artifact ref rather
 /// than fetching the blob bytes. Read-only.
 export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
@@ -139,6 +139,7 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
 
   const doc = docQ.data;
   const inline = doc !== undefined ? str(doc, 'content_inline') : undefined;
+  const schemaId = doc !== undefined ? str(doc, 'schema_id') : undefined;
   const artifactId = doc !== undefined ? str(doc, 'artifact_id') : undefined;
 
   return (
@@ -219,9 +220,9 @@ export function DocsPanel({ onClose }: { onClose: () => void }): JSX.Element {
               <div className="region-pad doc-body">
                 <div className="doc-toolbar">
                   <span className="spacer" />
-                  <button onClick={() => setEditing(true)}>{t('docs.editNewVersion')}</button>
+                  {schemaId === undefined && <button onClick={() => setEditing(true)}>{t('docs.editNewVersion')}</button>}
                 </div>
-                <Markdown text={inline} />
+                <DocumentContent text={inline} schemaId={schemaId} />
               </div>
             ) : artifactId !== undefined ? (
               <div className="region-pad muted">

@@ -55,6 +55,27 @@
 .yaml-editor { width: 100%; min-height: 320px; font-size: var(--font-size-caption); line-height: 1.5; }
 
 /* ---- pluggable overview hero widgets ---- */
+.hero-widget .hero-row {
+  align-items: center;
+  min-height: var(--control-lg);
+  gap: var(--spacing-s8);
+  padding: 0;
+}
+button.hero-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+button.hero-row:hover {
+  background: var(--surface-hover);
+  box-shadow: none;
+  transform: none;
+}
 .hero-widget h4 {
   margin: var(--spacing-s8) 0 var(--spacing-s4);
 }

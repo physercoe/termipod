@@ -433,6 +433,19 @@ pre {
   box-shadow: 1px 0 0 var(--glass-highlight);
   pointer-events: none;
 }
+/* The compact icon rail ends before the rightmost traffic light. Keep only the
+   first title row clear; the workbench body still gains the rail's full width. */
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .fleet-toolbar,
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .surface-head {
+  padding-left: calc(var(--control-sm) + var(--spacing-s8));
+}
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .settings-cats,
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .term-panel.surface .term-nav:not(.folded) {
+  padding-top: 46px;
+}
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .term-panel.surface .term-nav.folded ~ .term-main .term-head {
+  padding-left: calc(var(--control-sm) + var(--spacing-s8));
+}
 .shell-macos .fleet-toolbar,
 .shell-macos .surface-head,
 .shell-macos .settings-cats,

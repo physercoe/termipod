@@ -4,11 +4,11 @@
 
 .activity-bar {
   flex: 0 0 auto;
-  width: 72px;
+  width: calc(var(--control-lg) + var(--spacing-s8));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s2);
-  padding: var(--spacing-s8) var(--spacing-s6);
+  padding: var(--spacing-s8) var(--spacing-s4);
   background: var(--glass-pane);
   border-right: var(--hairline) solid var(--glass-rim);
   box-shadow: inset -1px 0 0 var(--glass-highlight);
@@ -22,11 +22,12 @@
 .activity-tab {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  min-height: 52px;
-  padding: 7px var(--spacing-s2);
+  justify-content: center;
+  width: var(--control-lg);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
+  padding: 0;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -45,8 +46,8 @@
 .activity-tab.active::before {
   content: '';
   position: absolute;
-  left: -6px;
-  top: 14px;
+  left: calc(-1 * var(--spacing-s4));
+  top: var(--spacing-s8);
   width: 2px;
   height: 24px;
   border-radius: var(--radius-stadium);
@@ -188,12 +189,6 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   justify-content: center;
 }
-.activity-label {
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-  letter-spacing: -0.005em;
-}
-
 /* --- shared job-surface chrome --- */
 .surface {
   flex: 1;

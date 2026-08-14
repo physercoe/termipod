@@ -7,9 +7,9 @@ import { JobIcon } from './JobIcon';
 /// the `JOBS` registry, with Settings pinned to the bottom (the gear idiom).
 /// Hub identity belongs to the persistent status bar; keeping it out of this
 /// narrow rail leaves the native macOS controls and job navigation visually
-/// independent. Icon-forward with a small label so the jobs stay discoverable;
-/// the active job is highlighted and switching is instant (surface state lives
-/// in each surface, not here).
+/// independent. The rail is icon-only; localized names remain available to
+/// assistive technology and in hover tooltips. The active job is highlighted
+/// and switching is instant (surface state lives in each surface, not here).
 /// The assistant toggle is NOT here — it lives in the status bar as a chip (#460),
 /// keeping the rail purely job navigation.
 ///
@@ -56,8 +56,9 @@ export function ActivityBar(): JSX.Element {
               data-job={j.id}
               data-beside={beside ? '1' : undefined}
               className={`activity-tab${job === j.id ? ' active' : ''}${beside ? ' beside' : ''}`}
+              aria-label={t(j.labelKey)}
               aria-current={job === j.id ? 'page' : undefined}
-              title={`${t(j.hintKey)}${canOpenBeside ? ` · ${t('job.openBesideHint')}` : ''}`}
+              title={`${t(j.labelKey)} · ${t(j.hintKey)}${canOpenBeside ? ` · ${t('job.openBesideHint')}` : ''}`}
               onClick={(e) => {
                 // Alt-click pins beside instead of switching. Guarded so a
                 // modifier press never asks for a state the store refuses.
@@ -72,7 +73,6 @@ export function ActivityBar(): JSX.Element {
               <span className="activity-icon">
                 <JobIcon id={j.id} size={20} />
               </span>
-              <span className="activity-label">{t(j.labelKey)}</span>
               {beside && <span className="activity-tab-dot" aria-hidden="true" />}
             </button>
           );
@@ -81,14 +81,14 @@ export function ActivityBar(): JSX.Element {
       <button
         data-job={SETTINGS_JOB.id}
         className={`activity-tab activity-tab-pinned${job === SETTINGS_JOB.id ? ' active' : ''}`}
+        aria-label={t(SETTINGS_JOB.labelKey)}
         aria-current={job === SETTINGS_JOB.id ? 'page' : undefined}
-        title={t(SETTINGS_JOB.hintKey)}
+        title={`${t(SETTINGS_JOB.labelKey)} · ${t(SETTINGS_JOB.hintKey)}`}
         onClick={() => setJob(SETTINGS_JOB.id)}
       >
         <span className="activity-icon">
           <JobIcon id={SETTINGS_JOB.id} size={20} />
         </span>
-        <span className="activity-label">{t(SETTINGS_JOB.labelKey)}</span>
       </button>
       {menuNode}
     </nav>

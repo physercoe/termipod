@@ -809,6 +809,18 @@ test('inspect: the Open menu launches the source picker modal', async () => {
 
 test('workbench: primary surface headers share one grid and action height', async () => {
   await dismissConnectModal();
+  const rail = page.locator('.activity-bar');
+  const railTabs = rail.locator('.activity-tab');
+  await expect.poll(() => rail.evaluate((node) => node.getBoundingClientRect().width)).toBe(48);
+  await expect(rail.locator('.activity-label')).toHaveCount(0);
+  await expect(railTabs).toHaveCount(10);
+  for (const tab of await railTabs.all()) {
+    await expect(tab).toHaveAttribute('aria-label', /\S/);
+    await expect.poll(() => tab.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    })).toEqual({ width: 40, height: 40 });
+  }
   const surfaces = [
     { job: 'fleet', header: '.fleet-toolbar' },
     { job: 'projects', header: '.fleet-toolbar' },

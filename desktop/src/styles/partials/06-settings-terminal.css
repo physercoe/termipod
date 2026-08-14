@@ -1229,11 +1229,6 @@ th {
   border-color: var(--accent-line);
   font-weight: 600;
 }
-.crit-new {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-s6);
-}
 /* files + activity */
 .file-row {
   display: flex;

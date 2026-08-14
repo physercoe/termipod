@@ -465,11 +465,12 @@ function RunsTab({ projectId }: { projectId: string }): JSX.Element {
   const runs = q.data ?? [];
   return (
     <>
-      <div className="kanban-bar">
+      <div className="kanban-bar project-list-toolbar">
         {error !== null && <span className="error small">{error}</span>}
         <span className="spacer" />
-        <button disabled={busy} onClick={launch}>
-          + {t('proj.launchRun')}
+        <button className="primary project-primary-action" disabled={busy} onClick={launch}>
+          <Icon name="plus" size={14} />
+          {t('proj.launchRun')}
         </button>
       </div>
       {runs.length === 0 ? (
@@ -522,11 +523,12 @@ function PlansTab({ projectId }: { projectId: string }): JSX.Element {
   const plans = q.data ?? [];
   return (
     <>
-      <div className="kanban-bar">
+      <div className="kanban-bar project-list-toolbar">
         {error !== null && <span className="error small">{error}</span>}
         <span className="spacer" />
-        <button disabled={busy} onClick={create}>
-          + {t('proj.newPlan')}
+        <button className="primary project-primary-action" disabled={busy} onClick={create}>
+          <Icon name="plus" size={14} />
+          {t('proj.newPlan')}
         </button>
       </div>
       {plans.length === 0 ? (
@@ -836,7 +838,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
         </select>
         <span className="spacer" />
         {dndErr !== null && <span className="error small">{dndErr}</span>}
-        <button className="primary task-kanban-new" onClick={() => setCreating(true)}>
+        <button className="primary project-primary-action" onClick={() => setCreating(true)}>
           <Icon name="plus" size={14} />
           {t('task.new')}
         </button>

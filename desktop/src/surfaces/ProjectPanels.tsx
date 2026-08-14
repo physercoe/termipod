@@ -185,7 +185,7 @@ export function CriteriaTab({ projectId }: { projectId: string }): JSX.Element {
           </button>
         ))}
         <span className="spacer" />
-        <button className="primary crit-new" onClick={() => setCreating(true)}>
+        <button className="primary project-primary-action" onClick={() => setCreating(true)}>
           <Icon name="plus" size={14} />
           {t('crit.new')}
         </button>
@@ -467,7 +467,7 @@ function ComponentView({
   const title = (doc !== undefined ? str(doc, 'title') : undefined) ?? kind ?? t('deliv.component');
 
   return (
-    <Modal onClose={onClose} className="task-detail" ariaLabel={title}>
+    <Modal onClose={onClose} className="task-detail document-view-modal" ariaLabel={title}>
         <div className="admin-tabs">
           <strong>{title}</strong>
           <span className="spacer" />

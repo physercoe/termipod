@@ -217,12 +217,16 @@ button.search-result-link:hover {
   min-width: 160px;
   max-width: 360px;
 }
-.task-kanban-new {
+.project-primary-action {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: var(--spacing-s6);
   padding-inline: var(--spacing-s16);
+}
+.project-list-toolbar {
+  padding: var(--spacing-s12) var(--spacing-s16);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
 .task-detail {
   width: 560px;
@@ -231,6 +235,23 @@ button.search-result-link:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
+}
+.document-view-modal {
+  width: 760px;
+  height: 76vh;
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+}
+.document-view-modal > .admin-tabs {
+  flex: 0 0 auto;
+}
+.document-view-modal > .doc-body {
+  flex: 1 1 0;
+  min-height: 0;
+  max-width: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ---- artifact / blob viewer ---- */

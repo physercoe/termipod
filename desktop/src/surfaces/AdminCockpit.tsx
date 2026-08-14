@@ -5,6 +5,7 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { useConfirm } from '../ui/ConfirmModal';
+import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { EnvProfilesManager } from './EnvProfilesManager';
 
@@ -512,12 +513,14 @@ function TemplatesTab(): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [edit, setEdit] = useState<{ category: string; name: string | null } | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<ReadonlySet<string>>(() => new Set());
   const q = useQuery({
     queryKey: ['templates'],
     enabled: client !== null,
     queryFn: () => client!.listTemplates(),
   });
   if (q.isError) return <div className="error">{msg(q.error)}</div>;
+  if (q.isLoading) return <div className="region-pad muted">{t('common.loading')}</div>;
   const templates = q.data ?? [];
   const byCategory = new Map<string, Entity[]>();
   for (const tpl of templates) {
@@ -527,29 +530,71 @@ function TemplatesTab(): JSX.Element {
     else byCategory.set(cat, [tpl]);
   }
   const categories = [...byCategory.keys()].sort();
+
+  function toggleCategory(category: string): void {
+    setExpandedCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }
+
   return (
-    <div className="scroll">
-      <p className="muted">{t('admin.templatesNote')}</p>
-      {categories.map((cat) => (
-        <section key={cat} className="setting-group">
-          <div className="setting-row">
-            <h3>{cat}</h3>
-            <span className="spacer" />
-            <button onClick={() => setEdit({ category: cat, name: null })}>+ {t('admin.new')}</button>
-          </div>
-          {(byCategory.get(cat) ?? []).map((tpl, i) => (
-            <button
-              key={str(tpl, 'name') ?? String(i)}
-              className="admin-row clickable-row"
-              onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
-            >
-              <span className="mono">{str(tpl, 'name') ?? '—'}</span>
-              <span className="spacer" />
-              <span className="muted small">{str(tpl, 'source') ?? ''}</span>
-            </button>
-          ))}
-        </section>
-      ))}
+    <div className="admin-templates scroll">
+      <p className="admin-templates-note muted">{t('admin.templatesNote')}</p>
+      <div className="admin-template-grid">
+        {categories.map((cat, categoryIndex) => {
+          const categoryTemplates = [...(byCategory.get(cat) ?? [])].sort((a, b) =>
+            (str(a, 'name') ?? '').localeCompare(str(b, 'name') ?? ''),
+          );
+          const expanded = expandedCategories.has(cat);
+          const listId = `admin-template-list-${String(categoryIndex)}`;
+          return (
+            <section key={cat} className={`admin-template-group${expanded ? ' expanded' : ''}`}>
+              <header className="admin-template-head">
+                <button
+                  className="admin-template-toggle"
+                  aria-expanded={expanded}
+                  aria-controls={listId}
+                  onClick={() => toggleCategory(cat)}
+                >
+                  <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={14} />
+                  <span className="admin-template-heading">
+                    <h3>{cat}</h3>
+                    <span className="admin-template-count small">{categoryTemplates.length}</span>
+                  </span>
+                </button>
+                <button className="admin-template-new" onClick={() => setEdit({ category: cat, name: null })}>
+                  <Icon name="plus" size={14} />
+                  {t('admin.new')}
+                </button>
+              </header>
+              {expanded && (
+                <div id={listId} className="admin-template-list">
+                  {categoryTemplates.map((tpl, i) => {
+                    const templateName = str(tpl, 'name') ?? '—';
+                    const source = str(tpl, 'source') ?? '';
+                    return (
+                      <button
+                        key={templateName === '—' ? String(i) : templateName}
+                        className="admin-template-row"
+                        title={templateName}
+                        onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
+                      >
+                        <span className="admin-template-icon"><Icon name="file-text" size={16} /></span>
+                        <span className="admin-template-name mono">{templateName}</span>
+                        {source !== '' && <span className="admin-template-source small">{source}</span>}
+                        <Icon name="chevron-right" size={14} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
       {templates.length === 0 && <div className="muted">{t('admin.noTemplates')}</div>}
       {edit !== null && (
         <YamlEditor target={{ kind: 'template', category: edit.category, name: edit.name }} onClose={() => setEdit(null)} />

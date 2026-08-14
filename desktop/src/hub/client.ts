@@ -377,6 +377,11 @@ export class HubClient {
   updateProject(id: string, patch: Record<string, unknown>): Promise<Entity> {
     return this.transport.patch(this.transport.team(`/projects/${id}`), patch) as Promise<Entity>;
   }
+  /** Archive a project or workspace. The hub retains its history but removes it
+   * from active project lists. */
+  archiveProject(id: string): Promise<Json> {
+    return this.transport.delete(this.transport.team(`/projects/${id}`));
+  }
 
   // --- agent spawn (Phase 4 / F3) ---
   /** Spawn an agent (`handleSpawn`, self-governing). Returns `{status, agent_id}`

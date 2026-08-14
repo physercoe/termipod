@@ -1081,6 +1081,7 @@ button.small,
   min-height: 0;
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
 }
 .transcript-bar {
   flex: 0 0 auto;
@@ -1089,6 +1090,16 @@ button.small,
   gap: var(--spacing-s8);
   padding: var(--spacing-s8) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
+}
+.transcript-toolbar {
+  min-width: 0;
+  padding-block: var(--spacing-s6);
+}
+.transcript-mode-tabs {
+  flex: 0 0 auto;
+}
+.transcript-toolbar .tab {
+  padding: var(--spacing-s6) var(--spacing-s8);
 }
 .tabs {
   display: flex;
@@ -1116,6 +1127,27 @@ button.small,
   color: var(--text);
   border-bottom-color: var(--accent);
   font-weight: 600;
+}
+.project-board-tabs {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.project-archive-btn {
+  flex: 0 0 auto;
+  padding: var(--spacing-s6) var(--spacing-s8);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+  background: transparent;
+}
+.project-archive-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.project-action-error {
+  flex: 0 0 auto;
+  padding: var(--spacing-s6) var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
 }
 .lifecycle {
   display: flex;
@@ -1151,18 +1183,20 @@ button.small,
   padding: var(--spacing-s6, 6px) var(--spacing-s20, 20px);
 }
 
-/* #332 status line — model · turns · tokens · elapsed, a quiet strip under the
-   mode bar. */
+/* Session health stays in the primary toolbar. Secondary metrics disappear in
+   priority order as the transcript pane narrows, keeping navigation and live
+   filters usable without adding another header row. */
 .transcript-status {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--spacing-s8);
-  padding: var(--spacing-s4) var(--spacing-s16);
-  border-bottom: 1px solid var(--border);
+  gap: var(--spacing-s6);
+  overflow: hidden;
+  padding-inline: var(--spacing-s4);
+  white-space: nowrap;
   font-size: var(--font-size-label);
   color: var(--text-muted);
-  background: var(--surface-sunken, var(--bg));
 }
 .transcript-status .ts-state {
   display: inline-flex;
@@ -1171,14 +1205,40 @@ button.small,
   text-transform: capitalize;
 }
 .transcript-status .ts-model {
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-secondary);
   font-weight: 600;
+}
+.transcript-status .ts-metric {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-s6);
 }
 .transcript-status .ts-sep {
   opacity: 0.5;
 }
 .transcript-status .ts-tok {
   font-family: var(--font-mono, monospace);
+}
+@container (max-width: 820px) {
+  .transcript-status .ts-tokens,
+  .transcript-status .ts-context,
+  .transcript-status .ts-cost-metric {
+    display: none;
+  }
+}
+@container (max-width: 660px) {
+  .transcript-status .ts-model,
+  .transcript-status .ts-turns {
+    display: none;
+  }
+}
+@container (max-width: 560px) {
+  .transcript-status {
+    display: none;
+  }
 }
 
 /* #332 scroll-to-latest pill — floats over the feed while the user is scrolled

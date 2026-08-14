@@ -71,7 +71,7 @@ export function ProjectsSurface(): JSX.Element {
   // A project with no `kind` predates the goal/standing split — treat it as a
   // goal project (the original meaning) so nothing vanishes from the list.
   const kindOf = (p: Entity): Sub => (str(p, 'kind') === 'standing' ? 'standing' : 'goal');
-  const shown = all.filter((p) => kindOf(p) === sub);
+  const shown = all.filter((p) => kindOf(p) === sub && str(p, 'status') !== 'archived');
   const projectSelected = (id: string): boolean => selection?.type === 'project' && selection.id === id;
   const { byProject, childAttention } = foldInsights(insightsQ.data, all);
 

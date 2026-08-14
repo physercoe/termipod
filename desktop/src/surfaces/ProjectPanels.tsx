@@ -6,6 +6,8 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
 import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
+import { DocumentContent } from '../ui/StructuredDocumentView';
 import { ArtifactViewer } from './ArtifactViewer';
 
 // ---- Acceptance Criteria (parity — AcceptanceCriteriaScreen) ----------------
@@ -27,13 +29,13 @@ function critText(c: Entity): string {
 function critStateClass(state: string): string {
   switch (state) {
     case 'met':
-      return 'sev-medium';
+      return 'crit-state-met';
     case 'failed':
-      return 'sev-high';
+      return 'crit-state-failed';
     case 'waived':
-      return 'muted';
+      return 'crit-state-waived';
     default:
-      return '';
+      return 'crit-state-pending';
   }
 }
 
@@ -183,7 +185,10 @@ export function CriteriaTab({ projectId }: { projectId: string }): JSX.Element {
           </button>
         ))}
         <span className="spacer" />
-        <button onClick={() => setCreating(true)}>+ {t('crit.new')}</button>
+        <button className="primary project-primary-action" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={14} />
+          {t('crit.new')}
+        </button>
       </div>
       {creating && <NewCriterionForm projectId={projectId} phases={knownPhases} onDone={() => setCreating(false)} />}
       {all.length === 0 && <div className="muted">{t('crit.none')}</div>}
@@ -435,6 +440,7 @@ function ComponentView({
 
   const doc = docQ.data;
   const inline = doc !== undefined ? str(doc, 'content_inline') : undefined;
+  const schemaId = doc !== undefined ? str(doc, 'schema_id') : undefined;
   // The artifact to resolve: an artifact component's ref directly, or a
   // document's backing artifact when it has no inline body.
   const backingArtId = isDoc ? (doc !== undefined ? str(doc, 'artifact_id') : undefined) : refId;
@@ -461,7 +467,7 @@ function ComponentView({
   const title = (doc !== undefined ? str(doc, 'title') : undefined) ?? kind ?? t('deliv.component');
 
   return (
-    <Modal onClose={onClose} className="task-detail" ariaLabel={title}>
+    <Modal onClose={onClose} className="task-detail document-view-modal" ariaLabel={title}>
         <div className="admin-tabs">
           <strong>{title}</strong>
           <span className="spacer" />
@@ -471,7 +477,7 @@ function ComponentView({
           {loading && <div className="muted">{t('common.loading')}</div>}
           {isDoc && docQ.isError && <div className="error">{(docQ.error as Error).message}</div>}
           {!loading && inline !== undefined && inline !== '' ? (
-            <Markdown text={inline} />
+            <DocumentContent text={inline} schemaId={schemaId} />
           ) : !loading ? (
             <div className="muted">
               {t('deliv.componentUnviewable')} <span className="mono small">{kind} · {refId}</span>

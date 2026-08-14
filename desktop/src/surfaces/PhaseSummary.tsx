@@ -36,7 +36,7 @@ export function PhaseSummary({
     <Modal onClose={onClose} className="task-detail" ariaLabel={phase}>
         <div className="admin-tabs">
           <strong>{phase}</strong>
-          <span className={isCurrent ? 'sev sev-medium' : 'muted small'}>
+          <span className={isCurrent ? 'proj-state active' : 'muted small'}>
             {isCurrent ? t('phase.current') : t('phase.summary')}
           </span>
           <span className="spacer" />
@@ -56,7 +56,7 @@ export function PhaseSummary({
                   {str(d, 'kind') ?? did}
                 </button>
                 <span className="spacer" />
-                <span className={`sev${ratified ? ' sev-medium' : ''}`}>{state}</span>
+                <span className={`proj-state${ratified ? ' ratified' : ''}`}>{state}</span>
               </div>
             );
           })}

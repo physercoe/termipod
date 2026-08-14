@@ -39,6 +39,109 @@ button.search-result-link:hover {
 .doc-body {
   max-width: 76ch;
 }
+.typed-doc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s16);
+}
+.typed-doc-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding-bottom: var(--spacing-s12);
+  border-bottom: 1px solid var(--border);
+}
+.typed-doc-schema {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+.typed-doc-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s16);
+}
+.typed-doc-section {
+  padding: var(--spacing-s16);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.typed-doc-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  margin-bottom: var(--spacing-s12);
+  padding-bottom: var(--spacing-s8);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.typed-doc-section-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-body);
+  letter-spacing: var(--track-snug);
+}
+.typed-doc-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.typed-doc-state-dot {
+  width: var(--spacing-s6);
+  height: var(--spacing-s6);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+}
+.typed-doc-state.draft {
+  border-color: color-mix(in srgb, var(--warn) 36%, var(--border));
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.typed-doc-state.draft .typed-doc-state-dot {
+  background: color-mix(in srgb, var(--warn) 50%, transparent);
+}
+.typed-doc-state.ratified {
+  border-color: color-mix(in srgb, var(--ok) 36%, var(--border));
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+.typed-doc-state.ratified .typed-doc-state-dot {
+  background: var(--ok);
+}
+.typed-doc-section-empty,
+.typed-doc-empty {
+  padding: var(--spacing-s12) 0;
+  font-size: var(--font-size-body-small);
+}
+.typed-doc-invalid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s12);
+}
+.typed-doc-invalid pre {
+  overflow: auto;
+  margin: 0;
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .me-decision-kind {
   font-family: var(--font-mono, monospace);
   color: var(--text-secondary);
@@ -82,6 +185,49 @@ button.search-result-link:hover {
   width: 180px;
   max-width: 40vw;
 }
+.task-kanban-bar {
+  flex-wrap: wrap;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s12) var(--spacing-s16);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.task-kanban-bar .kanban-views {
+  gap: var(--spacing-s6);
+}
+.task-kanban-bar .chip {
+  min-height: var(--control-md);
+  padding-inline: var(--spacing-s12);
+  border-color: var(--border);
+  background: transparent;
+  box-shadow: none;
+}
+.task-kanban-bar .chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.task-kanban-bar .chip.active {
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.task-kanban-bar .kanban-search {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 160px;
+  max-width: 360px;
+}
+.project-primary-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding-inline: var(--spacing-s16);
+}
+.project-list-toolbar {
+  padding: var(--spacing-s12) var(--spacing-s16);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
 .task-detail {
   width: 560px;
   max-width: 94vw;
@@ -89,6 +235,23 @@ button.search-result-link:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
+}
+.document-view-modal {
+  width: 760px;
+  height: 76vh;
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+}
+.document-view-modal > .admin-tabs {
+  flex: 0 0 auto;
+}
+.document-view-modal > .doc-body {
+  flex: 1 1 0;
+  min-height: 0;
+  max-width: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ---- artifact / blob viewer ---- */
@@ -552,18 +715,6 @@ button.search-result-link:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-.sessions-detail-bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: var(--spacing-s8) var(--spacing-s12);
-  border-bottom: 1px solid var(--border);
-}
-.sessions-detail-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
 }
 .chan-detail {
   display: flex;

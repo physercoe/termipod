@@ -6,6 +6,8 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
+import { useConfirm } from '../ui/ConfirmModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { AgentSpawn } from './AgentSpawn';
 import { AgentTranscript } from './AgentTranscript';
@@ -273,54 +275,65 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
     const s = str(tk, 'status');
     return s === 'done' || s === 'cancelled';
   }).length;
+  const taskProgress = allTasks.length > 0 ? Math.round((closedTasks / allTasks.length) * 100) : 0;
+  const tasksComplete = allTasks.length > 0 && closedTasks === allTasks.length;
 
   return (
-    <div className="region-pad proj-overview">
-      <section className="setting-group">
-        <div className="setting-row">
-          <span className={started ? 'sev sev-medium' : 'muted'}>
-            {started ? t('project.started') : bound ? t('project.start') : t('project.noSteward')}
-          </span>
+    <div className={`region-pad proj-overview${heroKind !== '' ? ' has-widget' : ''}`}>
+      <section className="setting-group proj-overview-card proj-steward-card">
+        <div className="proj-steward-row">
+          <span className={`proj-steward-dot${started ? ' running' : bound ? ' ready' : ''}`} aria-hidden="true" />
+          <div className="proj-steward-copy">
+            <strong>{started ? t('project.started') : bound ? t('project.stewardReady') : t('project.noSteward')}</strong>
+            {!started && !bound && <p className="muted small">{t('project.noStewardHint')}</p>}
+          </div>
           {!started &&
             (bound ? (
               <button
-                className="primary"
+                className="primary proj-steward-action"
                 disabled={busy}
                 onClick={() => void run(() => client!.startProject(projectId), { invalidate: [['project-overview', projectId], ['agents']] })}
               >
                 {busy ? t('project.starting') : t('project.start')}
               </button>
             ) : (
-              <button className="primary" onClick={() => setBinding(true)}>
+              <button className="primary proj-steward-action" onClick={() => setBinding(true)}>
                 {t('project.bindSteward')}
               </button>
             ))}
         </div>
-        {!started && !bound && <p className="muted small proj-nosteward-hint">{t('project.noStewardHint')}</p>}
         {error !== null && <div className="error">{error}</div>}
       </section>
 
       {(goal !== undefined || allTasks.length > 0 || budgetCents !== undefined) && (
-        <section className="setting-group proj-hero">
+        <section className="setting-group proj-overview-card proj-hero">
           {goal !== undefined && goal !== '' && <p className="proj-goal">{goal}</p>}
           <div className="proj-hero-stats">
             {allTasks.length > 0 && (
               <span className="proj-hero-stat">
-                <span className="proj-hero-num">
+                <strong className="proj-hero-num">
                   {closedTasks}/{allTasks.length}
-                </span>{' '}
-                {t('proj.tasksDone')}
+                </strong>
+                <span className="muted small">{t('proj.tasksDone')}</span>
               </span>
             )}
             {budgetCents !== undefined && budgetCents > 0 && (
               <span className="proj-hero-stat">
-                <span className="proj-hero-num">${(budgetCents / 100).toFixed(2)}</span> {t('proj.budget')}
+                <strong className="proj-hero-num">${(budgetCents / 100).toFixed(2)}</strong>
+                <span className="muted small">{t('proj.budget')}</span>
               </span>
             )}
           </div>
           {allTasks.length > 0 && (
-            <div className="proj-progress">
-              <div className="proj-progress-fill" style={{ width: `${Math.round((closedTasks / allTasks.length) * 100)}%` }} />
+            <div
+              className="proj-progress"
+              role="progressbar"
+              aria-label={t('proj.tasksDone')}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={taskProgress}
+            >
+              <div className={`proj-progress-fill${tasksComplete ? ' complete' : ''}`} style={{ width: `${taskProgress}%` }} />
             </div>
           )}
         </section>
@@ -328,13 +341,14 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
 
       {heroKind !== '' && <ProjectHero projectId={projectId} kind={heroKind} />}
 
-      <section className="setting-group">
+      <section className="setting-group proj-overview-card proj-phase-section">
         <h3>{t('proj.phase')}</h3>
         <div className="phase-track">
           {phases.map((p, i) => (
             <button
               key={p}
               className={`phase-pip${i === phaseIndex ? ' active' : ''}${i < phaseIndex ? ' done' : ''}`}
+              aria-current={i === phaseIndex ? 'step' : undefined}
               title={t('phase.openHint')}
               onClick={() => setPhaseSummary(p)}
             >
@@ -342,37 +356,43 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
             </button>
           ))}
           {phases.length === 0 && phase !== '' && (
-            <button className="phase-pip active" title={t('phase.openHint')} onClick={() => setPhaseSummary(phase)}>
+            <button
+              className="phase-pip active"
+              aria-current="step"
+              title={t('phase.openHint')}
+              onClick={() => setPhaseSummary(phase)}
+            >
               {phase}
             </button>
           )}
         </div>
       </section>
 
-      <section className="setting-group">
-        <h3>
-          {t('proj.deliverables')}{' '}
+      <section className="setting-group proj-overview-card proj-deliverables-section">
+        <div className="proj-section-heading">
+          <h3>{t('proj.deliverables')}</h3>
           <span className="pill">
             {num(counts, 'deliverables_ratified') ?? 0}/{num(counts, 'deliverables_total') ?? deliverables.length}{' '}
             {t('proj.ratified')}
           </span>
-        </h3>
+        </div>
         {deliverables.length === 0 ? (
-          <div className="muted">{t('proj.noDeliverables')}</div>
+          <div className="muted small proj-empty">{t('proj.noDeliverables')}</div>
         ) : (
           deliverables.map((d) => {
             const did = str(d, 'id') ?? '';
             const state = str(d, 'ratification_state') ?? '—';
             const ratified = state === 'ratified';
             return (
-              <div key={did} className="admin-row">
+              <div key={did} className="proj-deliverable-row">
                 <button className="deliv-open" onClick={() => setOpenDeliv(did)} title={t('deliv.openHint')}>
                   {str(d, 'kind') ?? did}
                 </button>
                 <span className="spacer" />
-                <span className={`sev${ratified ? ' sev-medium' : ''}`}>{state}</span>
+                <span className={`proj-state${ratified ? ' ratified' : ''}`}>{state}</span>
                 {ratified ? (
                   <button
+                    className="ghost small"
                     disabled={busy}
                     title={t('deliv.unratifyHint')}
                     onClick={() =>
@@ -385,7 +405,7 @@ function OverviewTab({ projectId }: { projectId: string }): JSX.Element {
                   </button>
                 ) : (
                   <button
-                    className="primary"
+                    className="primary small"
                     disabled={busy}
                     onClick={() =>
                       void run(() => client!.ratifyDeliverable(projectId, did), {
@@ -445,11 +465,12 @@ function RunsTab({ projectId }: { projectId: string }): JSX.Element {
   const runs = q.data ?? [];
   return (
     <>
-      <div className="kanban-bar">
+      <div className="kanban-bar project-list-toolbar">
         {error !== null && <span className="error small">{error}</span>}
         <span className="spacer" />
-        <button disabled={busy} onClick={launch}>
-          + {t('proj.launchRun')}
+        <button className="primary project-primary-action" disabled={busy} onClick={launch}>
+          <Icon name="plus" size={14} />
+          {t('proj.launchRun')}
         </button>
       </div>
       {runs.length === 0 ? (
@@ -502,11 +523,12 @@ function PlansTab({ projectId }: { projectId: string }): JSX.Element {
   const plans = q.data ?? [];
   return (
     <>
-      <div className="kanban-bar">
+      <div className="kanban-bar project-list-toolbar">
         {error !== null && <span className="error small">{error}</span>}
         <span className="spacer" />
-        <button disabled={busy} onClick={create}>
-          + {t('proj.newPlan')}
+        <button className="primary project-primary-action" disabled={busy} onClick={create}>
+          <Icon name="plus" size={14} />
+          {t('proj.newPlan')}
         </button>
       </div>
       {plans.length === 0 ? (
@@ -742,7 +764,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   }
 
   const board = (
-    <div className="kanban">
+    <div className="kanban task-kanban">
       {columns.map((status) => {
         const items = inColumn(status);
         const droppable = dragTask !== null && (str(dragTask, 'status') ?? 'todo') !== status;
@@ -791,7 +813,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 
   return (
     <>
-      <div className="kanban-bar">
+      <div className="kanban-bar task-kanban-bar">
         <div className="kanban-views">
           {(['active', 'all', 'cancelled'] as TaskView[]).map((v) => (
             <button key={v} className={view === v ? 'chip active' : 'chip'} onClick={() => setView(v)}>
@@ -816,7 +838,10 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
         </select>
         <span className="spacer" />
         {dndErr !== null && <span className="error small">{dndErr}</span>}
-        <button onClick={() => setCreating(true)}>+ {t('task.new')}</button>
+        <button className="primary project-primary-action" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={14} />
+          {t('task.new')}
+        </button>
       </div>
       {showPanel ? (
         <div className="kanban-split">
@@ -863,7 +888,47 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 /// ADR-029 statuses; task cards open a detail modal that patches status.
 export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
+  const client = useSession((s) => s.client);
+  const clearFocus = useFocus((s) => s.clear);
+  const qc = useQueryClient();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>('overview');
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const projectQ = useQuery({
+    queryKey: ['project', projectId],
+    enabled: client !== null,
+    queryFn: () => client!.getProject(projectId),
+  });
+  const project = projectQ.data ?? {};
+  const isWorkspace = str(project, 'kind') === 'standing';
+  const name = str(project, 'name') ?? str(project, 'title') ?? projectId;
+
+  async function archive(): Promise<void> {
+    if (client === null || archiving) return;
+    const accepted = await confirm.ask({
+      message: t(isWorkspace ? 'project.archiveWorkspaceConfirm' : 'project.archiveConfirm').replace('{name}', name),
+      confirmLabel: t('tx.archive'),
+      danger: true,
+    });
+    if (!accepted) return;
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      await client.archiveProject(projectId);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['projects'] }),
+        qc.invalidateQueries({ queryKey: ['project', projectId] }),
+        qc.invalidateQueries({ queryKey: ['insights', 'team'] }),
+      ]);
+      clearFocus('projects');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setArchiveError(t('project.archiveFailed').replace('{error}', message));
+    } finally {
+      setArchiving(false);
+    }
+  }
   const tabs: { v: Tab; label: string }[] = [
     { v: 'overview', label: t('proj.overview') },
     { v: 'agents', label: t('proj.agents') },
@@ -879,14 +944,26 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
   return (
     <div className="transcript">
       <div className="transcript-bar">
-        <div className="tabs">
+        <div className="tabs project-board-tabs">
           {tabs.map((x) => (
             <button key={x.v} className={tab === x.v ? 'tab active' : 'tab'} onClick={() => setTab(x.v)}>
               {x.label}
             </button>
           ))}
         </div>
+        {str(project, 'status') !== 'archived' && (
+          <button
+            className="project-archive-btn"
+            disabled={client === null || projectQ.isLoading || archiving}
+            onClick={() => void archive()}
+          >
+            {archiving
+              ? t('project.archiving')
+              : t(isWorkspace ? 'project.archiveWorkspace' : 'project.archive')}
+          </button>
+        )}
       </div>
+      {archiveError !== null && <div className="project-action-error error small">{archiveError}</div>}
       <div className="scroll">
         {tab === 'overview' && <OverviewTab projectId={projectId} />}
         {tab === 'agents' && <AgentsTab projectId={projectId} />}
@@ -899,6 +976,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
         {tab === 'files' && <FilesTab projectId={projectId} />}
         {tab === 'activity' && <ActivityTab projectId={projectId} />}
       </div>
+      {confirm.node}
     </div>
   );
 }

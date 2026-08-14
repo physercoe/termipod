@@ -291,36 +291,171 @@
 
 /* ---- project overview + task detail (WS6 deepened) ---- */
 
+.proj-overview {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-content: start;
+  gap: var(--spacing-s16);
+  padding: var(--spacing-s16);
+}
+.proj-overview .setting-group {
+  margin-bottom: 0;
+}
+.proj-overview-card {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: var(--spacing-s16);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.proj-overview .pill {
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--surface-hover);
+}
+.proj-steward-card {
+  padding: var(--spacing-s12) var(--spacing-s16);
+}
+.proj-steward-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+}
+.proj-steward-dot {
+  flex: 0 0 auto;
+  width: var(--spacing-s8);
+  height: var(--spacing-s8);
+  border-radius: var(--radius-pill);
+  background: var(--text-muted);
+}
+.proj-steward-dot.ready {
+  background: var(--text-secondary);
+}
+.proj-steward-dot.running {
+  background: var(--ok);
+}
+.proj-steward-copy {
+  flex: 1;
+  min-width: 0;
+}
+.proj-steward-copy strong {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-small);
+  font-weight: 600;
+}
+.proj-steward-copy p {
+  margin: var(--spacing-s4) 0 0;
+}
+.proj-steward-action {
+  flex: 0 0 auto;
+}
+.proj-overview.has-widget .hero-widget,
+.proj-overview.has-widget .proj-phase-section {
+  grid-column: span 6;
+}
+.proj-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s8);
+}
+.proj-section-heading h3 {
+  margin: 0;
+}
 .phase-track {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-s4);
+  gap: var(--spacing-s8);
 }
 .phase-pip {
   display: inline-flex;
   align-items: center;
   line-height: 1;
-  padding: 5px var(--spacing-s12);
-  border: 1px solid transparent;
-  border-radius: var(--radius-stadium);
+  min-height: var(--control-sm);
+  padding: var(--spacing-s4) var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-label);
-  background: color-mix(in srgb, var(--color-slate) 22%, transparent);
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: filter 0.12s var(--ease), box-shadow 0.12s var(--ease);
+  box-shadow: none;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), color 0.12s var(--ease);
 }
 .phase-pip:hover {
-  filter: brightness(1.18);
-  box-shadow: 0 0 0 1px var(--accent-line);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  box-shadow: none;
+  transform: none;
 }
 .phase-pip.done {
-  background: color-mix(in srgb, var(--color-success) 20%, transparent);
-  color: var(--color-success);
+  border-color: var(--border);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 .phase-pip.active {
   background: var(--accent);
-  color: #00232a;
+  border-color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
+}
+.phase-pip.active:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.proj-deliverable-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  min-height: var(--control-lg);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.proj-deliverable-row:last-child {
+  border-bottom: 0;
+}
+.proj-state {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-s2) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.proj-state.ratified,
+.proj-state.completed {
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--border));
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+.proj-state.active {
+  border-color: var(--accent-line);
+  color: var(--text);
+  background: var(--accent-tint);
+}
+.proj-empty {
+  padding: var(--spacing-s8) 0;
+}
+@media (max-width: 900px) {
+  .proj-overview.has-widget .hero-widget,
+  .proj-overview.has-widget .proj-phase-section {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 620px) {
+  .proj-steward-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .proj-steward-action {
+    width: 100%;
+  }
 }
 .task-title {
   font-size: var(--font-size-body);
@@ -340,7 +475,12 @@
   cursor: pointer;
 }
 .kanban-card[role='button']:hover {
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+}
+.kanban-card.selected[role='button']:hover {
   border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* ---- policy editor + upkeep + secret reveal (WS7 deepened) ---- */
@@ -562,15 +702,18 @@
 .shell-macos .term-screen > .xterm {
   padding-right: var(--spacing-s8);
 }
-/* DomRenderer sets every `.xterm-rows > div` to the exact logical canvas
-   width AND `overflow:hidden`. Browser letter-spacing/advance rounding can put
-   the ink of the final glyph just beyond that logical width even though the
-   host has room, so the row itself clips `%`, CJK strokes, and similar glyphs.
-   Extend only the row's clipping box into the gutter reserved above; padding is
-   outside its inline content width and therefore does not alter cell positions. */
+/* DomRenderer sets every `.xterm-rows > div` to the exact logical canvas width
+   AND an inline `overflow:hidden`. Browser letter-spacing/advance rounding can
+   accumulate across a wide row until the final glyph extends beyond that width
+   even though the host's reserved gutter still has room. Keep vertical clipping
+   (the reason xterm hides row overflow) but let horizontal ink paint into that
+   gutter; `.term-screen` remains the authoritative outer clip. The `!important`
+   longhands intentionally override DomRenderer's inline overflow shorthand. */
 .shell-macos .term-screen .xterm-rows > div {
   box-sizing: content-box;
   padding-right: var(--spacing-s8);
+  overflow-x: visible !important;
+  overflow-y: clip !important;
 }
 /* Deterministic terminal scrollbar. xterm's FitAddon reserves a FIXED 15px for the
    scrollbar when sizing columns (its Viewport measures 0 before any overflow and
@@ -988,39 +1131,62 @@ th {
 }
 /* project overview hero */
 .proj-hero .proj-goal {
-  margin: 0 0 8px;
+  max-width: 80ch;
+  margin: 0 0 var(--spacing-s16);
+  color: var(--text);
   font-size: var(--font-size-body);
+  line-height: 1.55;
 }
 .proj-hero-stats {
   display: flex;
-  gap: 18px;
+  gap: var(--spacing-s24);
   flex-wrap: wrap;
+}
+.proj-hero-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--spacing-s6);
 }
 .proj-hero-num {
   font-weight: 600;
   font-family: var(--font-mono, monospace);
 }
 .proj-progress {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--border);
+  height: var(--spacing-s4);
+  border-radius: var(--radius-pill);
+  background: var(--raised);
   overflow: hidden;
-  margin-top: 8px;
+  margin-top: var(--spacing-s12);
 }
 .proj-progress-fill {
   height: 100%;
-  background: var(--color-primary);
+  border-radius: inherit;
+  background: var(--text-secondary);
+  transition: width 0.2s var(--ease);
+}
+.proj-progress-fill.complete {
+  background: var(--ok);
 }
 .deliv-open {
-  background: none;
+  min-width: 0;
+  overflow: hidden;
+  background: transparent;
   border: none;
-  color: var(--color-primary);
+  color: var(--text);
   cursor: pointer;
-  padding: 0;
+  padding: var(--spacing-s4) 0;
+  box-shadow: none;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .deliv-open:hover {
+  color: var(--accent-text);
+  background: transparent;
+  border: none;
+  box-shadow: none;
   text-decoration: underline;
+  transform: none;
 }
 /* criteria rows */
 .crit-row {
@@ -1043,18 +1209,25 @@ th {
   display: inline-flex;
   align-items: center;
   line-height: 1;
-  background: none;
+  min-height: var(--control-md);
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  padding: var(--spacing-s4) var(--spacing-s12);
   cursor: pointer;
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
+  box-shadow: none;
+}
+.chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
 }
 .chip.active {
-  background: var(--color-primary);
-  color: var(--color-on-primary, #fff);
-  border-color: var(--color-primary);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  border-color: var(--accent-line);
+  font-weight: 600;
 }
 /* files + activity */
 .file-row {
@@ -1097,6 +1270,18 @@ th {
   gap: 10px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
+}
+.transcript-feed-filter {
+  flex: 0 0 auto;
+  gap: var(--spacing-s4);
+  padding: 0;
+  border-bottom: 0;
+}
+.transcript-feed-filter select {
+  width: auto;
+  min-width: 86px;
+  padding-block: var(--spacing-s4);
+  font-size: var(--font-size-caption);
 }
 .feed-stepper {
   display: flex;

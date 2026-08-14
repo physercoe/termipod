@@ -67,7 +67,7 @@ function RecentArtifacts({ projectId }: { projectId: string }): JSX.Element {
   return (
     <>
       {items.map((a, i) => (
-        <div key={str(a, 'id') ?? String(i)} className="admin-row">
+        <div key={str(a, 'id') ?? String(i)} className="admin-row hero-row">
           <span className="pill">{str(a, 'kind') ?? '—'}</span>
           <span>{str(a, 'name') ?? str(a, 'id')}</span>
           <span className="spacer" />
@@ -91,13 +91,15 @@ function ChildrenStatus({ projectId }: { projectId: string }): JSX.Element {
         return (
           <button
             key={id}
-            className="admin-row clickable-row"
+            className="admin-row hero-row clickable-row"
             onClick={() => id && selectProject('projects', id, str(c, 'name') ?? undefined)}
           >
             <span>{str(c, 'name') ?? id}</span>
             <span className="spacer" />
             <span className="muted small">{str(c, 'kind') ?? ''}</span>
-            <span className={`sev${str(c, 'status') === 'active' ? ' sev-medium' : ''}`}>{str(c, 'status') ?? ''}</span>
+            <span className={`proj-state${str(c, 'status') === 'active' ? ' active' : ''}`}>
+              {str(c, 'status') ?? ''}
+            </span>
           </button>
         );
       })}
@@ -118,8 +120,10 @@ function RecentFirings({ projectId }: { projectId: string }): JSX.Element {
   return (
     <>
       {items.map((p, i) => (
-        <div key={str(p, 'id') ?? String(i)} className="admin-row">
-          <span className={`sev${str(p, 'status') === 'completed' ? ' sev-medium' : ''}`}>{str(p, 'status') ?? ''}</span>
+        <div key={str(p, 'id') ?? String(i)} className="admin-row hero-row">
+          <span className={`proj-state${str(p, 'status') === 'completed' ? ' completed' : ''}`}>
+            {str(p, 'status') ?? ''}
+          </span>
           <span className="mono small">{str(p, 'id')}</span>
           <span className="spacer" />
           <span className="muted small">{str(p, 'created_at') ?? ''}</span>
@@ -162,10 +166,10 @@ function PhaseHero({ projectId, extraKind }: { projectId: string; extraKind?: 'e
         <div className="muted">{t('proj.noDeliverables')}</div>
       ) : (
         deliverables.map((d, i) => (
-          <div key={str(d, 'id') ?? String(i)} className="admin-row">
+          <div key={str(d, 'id') ?? String(i)} className="admin-row hero-row">
             <span>{str(d, 'kind') ?? '—'}</span>
             <span className="spacer" />
-            <span className={`sev${str(d, 'ratification_state') === 'ratified' ? ' sev-medium' : ''}`}>
+            <span className={`proj-state${str(d, 'ratification_state') === 'ratified' ? ' ratified' : ''}`}>
               {str(d, 'ratification_state') ?? '—'}
             </span>
           </div>
@@ -175,7 +179,7 @@ function PhaseHero({ projectId, extraKind }: { projectId: string; extraKind?: 'e
         <div className="hero-sub">
           <h4>{t('proj.runs')}</h4>
           {runs.map((r, i) => (
-            <div key={str(r, 'id') ?? String(i)} className="admin-row">
+            <div key={str(r, 'id') ?? String(i)} className="admin-row hero-row">
               <span className="mono small">{str(r, 'id')}</span>
               <span className="spacer" />
               <span className="muted small">{str(r, 'status') ?? ''}</span>
@@ -187,7 +191,7 @@ function PhaseHero({ projectId, extraKind }: { projectId: string; extraKind?: 'e
         <div className="hero-sub">
           <h4>{artKind}</h4>
           {artifacts.slice(0, 4).map((a, i) => (
-            <div key={str(a, 'id') ?? String(i)} className="admin-row">
+            <div key={str(a, 'id') ?? String(i)} className="admin-row hero-row">
               <span>{str(a, 'name') ?? str(a, 'id')}</span>
               <span className="spacer" />
               <span className="muted small">{num(a, 'size') !== undefined ? `${num(a, 'size')} B` : ''}</span>
@@ -242,7 +246,7 @@ export function ProjectHero({ projectId, kind }: { projectId: string; kind: stri
       return null;
   }
   return (
-    <section className="setting-group hero-widget">
+    <section className="setting-group proj-overview-card hero-widget">
       <h3>{t(HERO_TITLES[kind] ?? 'proj.overview')}</h3>
       {body}
     </section>

@@ -168,11 +168,20 @@
   background: var(--bg);
 }
 .read-list-bar {
-  flex: 0 0 auto;
+  flex: 0 0 var(--control-lg);
   display: flex;
+  align-items: center;
   gap: var(--spacing-s8);
-  padding: var(--spacing-s8);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
+  padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
+}
+.read-list-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s6);
 }
 .read-search,
 .discover-input {
@@ -226,10 +235,12 @@
   min-height: 0;
 }
 .ref-tabs {
-  flex: 0 0 auto;
+  flex: 0 0 var(--control-lg);
   display: flex;
   align-items: center;
   gap: var(--spacing-s2);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
   padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: var(--hairline) solid var(--glass-rim);
   background: var(--glass-pane);
@@ -622,10 +633,20 @@
   background: var(--bg);
 }
 .discover-bar {
-  flex: 0 0 auto;
+  flex: 0 0 var(--control-lg);
   display: flex;
+  align-items: center;
   gap: var(--spacing-s8);
-  padding: var(--spacing-s8);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-bottom: 1px solid var(--border);
+}
+.discover-bar > input,
+.discover-bar > button {
+  height: var(--control-md);
+  min-height: var(--control-md);
+  padding-block: 0;
 }
 .discover-source {
   padding: 0 var(--spacing-s8) var(--spacing-s8);

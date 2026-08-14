@@ -807,6 +807,141 @@ test('inspect: the Open menu launches the source picker modal', async () => {
   await expect(page.locator('.inspect-modal')).toHaveCount(0);
 });
 
+test('workbench: primary surface headers share one grid and action height', async () => {
+  await dismissConnectModal();
+  const rail = page.locator('.activity-bar');
+  const railTabs = rail.locator('.activity-tab');
+  await expect.poll(() => rail.evaluate((node) => node.getBoundingClientRect().width)).toBe(48);
+  await expect(rail.locator('.activity-label')).toHaveCount(0);
+  await expect(railTabs).toHaveCount(10);
+  for (const tab of await railTabs.all()) {
+    await expect(tab).toHaveAttribute('aria-label', /\S/);
+    await expect.poll(() => tab.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    })).toEqual({ width: 40, height: 40 });
+  }
+  const surfaces = [
+    { job: 'fleet', header: '.fleet-toolbar' },
+    { job: 'projects', header: '.fleet-toolbar' },
+    { job: 'read', header: '.surface-read .surface-head' },
+    { job: 'author', header: '.surface-author .surface-head' },
+    { job: 'debug', header: '.surface-debug .surface-head' },
+  ];
+  const heights: number[] = [];
+  for (const surface of surfaces) {
+    await page.locator(`[data-job="${surface.job}"]`).click();
+    const header = page.locator(surface.header).first();
+    await expect(header).toBeVisible();
+    heights.push(await header.evaluate((node) => node.getBoundingClientRect().height));
+    await expect(header).not.toContainText(/\bJ\d+\b/);
+  }
+  expect(heights).toEqual([48, 48, 48, 48, 48]);
+
+  for (const job of ['author', 'debug', 'replay']) {
+    await expect(page.locator(`[data-job="${job}"]`)).not.toHaveAttribute('title', /\bJ\d+\b/);
+  }
+
+  for (const job of ['fleet', 'projects', 'author', 'debug']) {
+    await page.locator(`[data-job="${job}"]`).click();
+    const primary = page.locator(job === 'fleet' || job === 'projects' ? '.fleet-toolbar button.primary' : `.surface-${job} .surface-head button.primary`).first();
+    await expect(primary).toBeVisible();
+    await expect.poll(() => primary.evaluate((node) => node.getBoundingClientRect().height)).toBe(28);
+  }
+});
+
+test('read: list controls and inspector tabs share the same horizontal grid line', async () => {
+  await page.locator('[data-job="read"]').click();
+  await page.locator('.surface-read .surface-head .seg-btn').first().click();
+  const listBar = page.locator('.read-list-bar');
+  const inspectorTabs = page.locator('.read-inspector-pane .ref-tabs');
+  await expect(listBar).toBeVisible();
+  await expect(inspectorTabs).toBeVisible();
+  const metrics = await Promise.all(
+    [listBar, inspectorTabs].map((locator) =>
+      locator.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, height: rect.height };
+      }),
+    ),
+  );
+  expect(metrics[0]).toEqual(metrics[1]);
+  expect(metrics[0]?.height).toBe(40);
+  await expect(listBar.locator('button.primary')).toContainText('Add');
+
+  await page.locator('.surface-read .surface-head .seg-btn').nth(1).click();
+  const discoverBar = page.locator('.discover-bar');
+  const discoverInput = discoverBar.locator('input');
+  const discoverButton = discoverBar.locator('button.primary');
+  const sourceChip = page.locator('.discover-src').first();
+  await expect(discoverBar).toBeVisible();
+  await expect(sourceChip).toBeVisible();
+  const discoverMetrics = await Promise.all(
+    [discoverBar, discoverInput, discoverButton, sourceChip].map((locator) =>
+      locator.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, height: rect.height };
+      }),
+    ),
+  );
+  expect(discoverMetrics[1]).toEqual(discoverMetrics[2]);
+  expect(discoverMetrics[3]?.height).toBe(28);
+  expect((discoverMetrics[3]?.top ?? 0) - (discoverMetrics[0]?.bottom ?? 0)).toBeGreaterThanOrEqual(8);
+});
+
+test('inspect: tree filter and content search use two rows at most', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termipod-inspect-search-'));
+  fs.writeFileSync(path.join(dir, 'sample.txt'), 'needle in a file\n');
+  try {
+    await page.evaluate((rootPath) => {
+      localStorage.setItem(
+        'termipod.inspect.roots',
+        JSON.stringify([{ id: 'e2e-search-root', source: 'local', label: 'search-layout', path: rootPath }]),
+      );
+    }, dir);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+
+    const root = page.locator('.inspect-tree-root', { hasText: 'search-layout' });
+    await page.locator('.surface-debug .surface-head button.primary').click();
+    const treeHead = page.locator('.inspect-tree-head');
+    const tabs = page.locator('.inspect-tabs');
+    await expect(treeHead).toBeVisible();
+    await expect(tabs).toBeVisible();
+    const paneMetrics = await Promise.all(
+      [treeHead, tabs].map((locator) =>
+        locator.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, height: rect.height };
+        }),
+      ),
+    );
+    expect(paneMetrics[0]).toEqual(paneMetrics[1]);
+    expect(paneMetrics[0]?.height).toBe(40);
+
+    const filterBar = root.locator('.inspect-tree-filterbar');
+    await expect(filterBar).toBeVisible();
+    await expect(filterBar.getByPlaceholder('Filter this tree…')).toBeVisible();
+    const contentToggle = filterBar.getByRole('button', { name: 'Search contents' });
+    await expect(contentToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(root.locator('.inspect-tree-searchbar')).toHaveCount(0);
+    // The old redundant label occupied its own permanent row; the trigger now
+    // lives in the filename-filter bar and reveals only one additional row.
+    await expect(root.locator('.inspect-tree-search > .inspect-tree-searchtoggle')).toHaveCount(0);
+
+    await contentToggle.click();
+    await expect(contentToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(root.locator('.inspect-tree-searchbar')).toBeVisible();
+    await expect(root.getByPlaceholder('Search file contents…')).toBeFocused();
+    await page.locator('.inspect-tab .inspect-tab-close').last().click();
+  } finally {
+    await page.evaluate(() => localStorage.removeItem('termipod.inspect.roots'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('inspect: the tree-sitter symbol outline lists symbols and jumps the editor', async () => {
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   await page.getByRole('button', { name: 'New scratch' }).click();

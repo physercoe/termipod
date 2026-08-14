@@ -4,11 +4,11 @@
 
 .activity-bar {
   flex: 0 0 auto;
-  width: 72px;
+  width: calc(var(--control-lg) + var(--spacing-s8));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-s2);
-  padding: var(--spacing-s8) var(--spacing-s6);
+  padding: var(--spacing-s8) var(--spacing-s4);
   background: var(--glass-pane);
   border-right: var(--hairline) solid var(--glass-rim);
   box-shadow: inset -1px 0 0 var(--glass-highlight);
@@ -22,11 +22,12 @@
 .activity-tab {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  min-height: 52px;
-  padding: 7px var(--spacing-s2);
+  justify-content: center;
+  width: var(--control-lg);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
+  padding: 0;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -45,8 +46,8 @@
 .activity-tab.active::before {
   content: '';
   position: absolute;
-  left: -6px;
-  top: 14px;
+  left: calc(-1 * var(--spacing-s4));
+  top: var(--spacing-s8);
   width: 2px;
   height: 24px;
   border-radius: var(--radius-stadium);
@@ -188,12 +189,6 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   justify-content: center;
 }
-.activity-label {
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-  letter-spacing: -0.005em;
-}
-
 /* --- shared job-surface chrome --- */
 .surface {
   flex: 1;
@@ -207,8 +202,10 @@ button > .ui-icon:not(:only-child):first-child,
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: var(--spacing-s12);
-  padding: var(--spacing-s8) var(--spacing-s16);
+  gap: var(--spacing-s8);
+  height: calc(var(--control-md) + var(--spacing-s16));
+  min-height: calc(var(--control-md) + var(--spacing-s16));
+  padding: var(--spacing-s6) var(--spacing-s16);
   background: var(--glass-pane);
   border-bottom: var(--hairline) solid var(--glass-rim);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
@@ -220,28 +217,55 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
   color: var(--accent-text);
 }
+.surface-icon .job-icon {
+  width: 18px;
+  height: 18px;
+}
 .surface-titles {
   min-width: 0;
+  display: flex;
+  align-items: center;
 }
 .surface-title {
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
+  font-size: var(--font-size-body-small);
   font-weight: 550;
   letter-spacing: -0.01em;
 }
-.surface-tag {
-  font-size: var(--font-size-label);
-  font-weight: 650;
-  color: var(--accent-text);
-  background: var(--accent-tint);
-  border-radius: var(--radius-xs);
-  padding: 1px 6px;
-  letter-spacing: 0.04em;
-}
 .surface-hint {
-  font-size: var(--font-size-caption);
-  color: var(--text-muted);
+  display: none;
+}
+.surface-actions {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+}
+.surface-head button {
+  min-height: var(--control-sm);
+  height: var(--control-sm);
+  padding: 4px 9px;
+  font-size: var(--font-size-body-small);
+}
+.surface-head .import-btn:not(.primary) {
+  margin-right: 0;
+  gap: var(--spacing-s6);
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+.surface-head .import-btn:not(.primary):hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: transparent;
+}
+.surface-head .import-btn.active:not(.primary) {
+  color: var(--text);
+  background: var(--raised);
+  border-color: var(--border);
 }
 .surface-body {
   flex: 1;
@@ -254,44 +278,6 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .surface-meta {
   white-space: nowrap;
-}
-
-/* Read carries the widest action set in the workbench. Keep it on the same
-   visual rhythm as Author's compact document controls: one 44px row, quiet
-   utility actions, and no second subtitle line consuming permanent space. */
-.surface-read .surface-head {
-  min-height: 44px;
-  gap: var(--spacing-s8);
-  padding: 6px var(--spacing-s12);
-}
-.surface-read .surface-icon .job-icon {
-  width: 18px;
-  height: 18px;
-}
-.surface-read .surface-titles {
-  display: flex;
-  align-items: center;
-}
-.surface-read .surface-title {
-  font-size: var(--font-size-body-small);
-}
-.surface-read .surface-hint {
-  display: none;
-}
-.surface-read .surface-head button {
-  min-height: var(--control-sm);
-  padding: 4px var(--spacing-s8);
-  font-size: var(--font-size-caption);
-}
-.surface-read .surface-head .import-btn {
-  color: var(--text-secondary);
-  background: transparent;
-  border-color: transparent;
-}
-.surface-read .surface-head .import-btn:hover {
-  color: var(--text);
-  background: var(--hover);
-  border-color: transparent;
 }
 
 /* honest placeholder for jobs whose primary EMBED hasn't shipped (J4) */
@@ -1131,10 +1117,13 @@ button > .ui-icon:not(:only-child):first-child,
   overflow: hidden;
 }
 .inspect-tree-head {
+  flex: 0 0 var(--control-lg);
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  padding: var(--spacing-s6) var(--spacing-s8);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
+  padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
 }
 .inspect-tree-title {
@@ -1296,27 +1285,50 @@ button > .ui-icon:not(:only-child):first-child,
 .inspect-tree-search {
   padding: 0 var(--spacing-s8) var(--spacing-s4);
 }
-.inspect-tree-searchtoggle {
+.inspect-tree-filterbar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-s4);
-  width: 100%;
-  border: none;
+  gap: var(--spacing-s2);
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+.inspect-tree-filterbar:focus-within {
+  border-color: var(--accent);
+}
+.inspect-tree-filterbar .inspect-tree-filter {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin: 0;
   background: transparent;
-  color: var(--text-secondary);
-  padding: 2px 0;
-  cursor: pointer;
+  border: none;
+  border-radius: 0;
+  outline: none;
+}
+.inspect-tree-searchtoggle {
+  flex: 0 0 auto;
+  margin-right: 1px;
+}
+.inspect-tree-searchtoggle.active {
+  color: var(--accent-text);
+  background: var(--hover);
 }
 .inspect-tree-searchbar {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  margin-bottom: var(--spacing-s4);
+  margin-top: var(--spacing-s4);
 }
 .inspect-tree-searchbar .inspect-tree-filter {
-  width: auto;
   flex: 1;
+  width: auto;
+  min-width: 0;
   margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
 }
 .inspect-tree-searchrx {
   display: flex;
@@ -1393,8 +1405,12 @@ button > .ui-icon:not(:only-child):first-child,
   margin-top: var(--spacing-s4);
 }
 .inspect-tabs {
+  flex: 0 0 var(--control-lg);
   display: flex;
+  align-items: stretch;
   gap: var(--spacing-s2);
+  height: var(--control-lg);
+  min-height: var(--control-lg);
   padding: var(--spacing-s4) var(--spacing-s8) 0;
   overflow-x: auto;
   border-bottom: 1px solid var(--border);

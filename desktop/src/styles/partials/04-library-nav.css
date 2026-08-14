@@ -642,6 +642,12 @@
   padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
 }
+.discover-bar > input,
+.discover-bar > button {
+  height: var(--control-md);
+  min-height: var(--control-md);
+  padding-block: 0;
+}
 .discover-source {
   padding: 0 var(--spacing-s8) var(--spacing-s8);
   border-bottom: 1px solid var(--border);

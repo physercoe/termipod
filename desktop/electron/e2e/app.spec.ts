@@ -822,8 +822,13 @@ test('workbench: primary surface headers share one grid and action height', asyn
     const header = page.locator(surface.header).first();
     await expect(header).toBeVisible();
     heights.push(await header.evaluate((node) => node.getBoundingClientRect().height));
+    await expect(header).not.toContainText(/\bJ\d+\b/);
   }
   expect(heights).toEqual([48, 48, 48, 48, 48]);
+
+  for (const job of ['author', 'debug', 'replay']) {
+    await expect(page.locator(`[data-job="${job}"]`)).not.toHaveAttribute('title', /\bJ\d+\b/);
+  }
 
   for (const job of ['fleet', 'projects', 'author', 'debug']) {
     await page.locator(`[data-job="${job}"]`).click();
@@ -851,6 +856,25 @@ test('read: list controls and inspector tabs share the same horizontal grid line
   expect(metrics[0]).toEqual(metrics[1]);
   expect(metrics[0]?.height).toBe(40);
   await expect(listBar.locator('button.primary')).toContainText('Add');
+
+  await page.locator('.surface-read .surface-head .seg-btn').nth(1).click();
+  const discoverBar = page.locator('.discover-bar');
+  const discoverInput = discoverBar.locator('input');
+  const discoverButton = discoverBar.locator('button.primary');
+  const sourceChip = page.locator('.discover-src').first();
+  await expect(discoverBar).toBeVisible();
+  await expect(sourceChip).toBeVisible();
+  const discoverMetrics = await Promise.all(
+    [discoverBar, discoverInput, discoverButton, sourceChip].map((locator) =>
+      locator.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, height: rect.height };
+      }),
+    ),
+  );
+  expect(discoverMetrics[1]).toEqual(discoverMetrics[2]);
+  expect(discoverMetrics[3]?.height).toBe(28);
+  expect((discoverMetrics[3]?.top ?? 0) - (discoverMetrics[0]?.bottom ?? 0)).toBeGreaterThanOrEqual(8);
 });
 
 test('inspect: tree filter and content search use two rows at most', async () => {

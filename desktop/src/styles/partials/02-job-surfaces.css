@@ -239,15 +239,6 @@ button > .ui-icon:not(:only-child):first-child,
   font-weight: 550;
   letter-spacing: -0.01em;
 }
-.surface-tag {
-  font-size: var(--font-size-label);
-  font-weight: 650;
-  color: var(--accent-text);
-  background: var(--accent-tint);
-  border-radius: var(--radius-xs);
-  padding: 1px 6px;
-  letter-spacing: 0.04em;
-}
 .surface-hint {
   display: none;
 }

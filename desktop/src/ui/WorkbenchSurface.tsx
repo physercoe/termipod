@@ -24,7 +24,6 @@ export function WorkbenchSurface({
         <span className="surface-icon">{def && <JobIcon id={def.id} size={20} />}</span>
         <div className="surface-titles">
           <div className="surface-title">
-            {def?.tag && <span className="surface-tag">{def.tag}</span>}
             {def ? t(def.labelKey) : job}
           </div>
           <div className="surface-hint">{def ? t(def.hintKey) : ''}</div>

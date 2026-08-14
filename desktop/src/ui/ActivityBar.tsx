@@ -57,7 +57,7 @@ export function ActivityBar(): JSX.Element {
               data-beside={beside ? '1' : undefined}
               className={`activity-tab${job === j.id ? ' active' : ''}${beside ? ' beside' : ''}`}
               aria-current={job === j.id ? 'page' : undefined}
-              title={`${j.tag ? `${j.tag} · ` : ''}${t(j.hintKey)}${canOpenBeside ? ` · ${t('job.openBesideHint')}` : ''}`}
+              title={`${t(j.hintKey)}${canOpenBeside ? ` · ${t('job.openBesideHint')}` : ''}`}
               onClick={(e) => {
                 // Alt-click pins beside instead of switching. Guarded so a
                 // modifier press never asks for a state the store refuses.

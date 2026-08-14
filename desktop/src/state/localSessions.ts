@@ -21,6 +21,11 @@ export interface LocalSession {
   status: 'running' | 'stopped';
   created_at: string;
   engine_session_id?: string;
+  /// Read back off disk at startup and not yet reattached (L3b). Its transcript
+  /// is readable and typing into it resumes the conversation; it is `stopped`
+  /// only in the sense that no engine child is attached right now, which is a
+  /// different thing from a session the director stopped.
+  restored?: boolean;
 }
 
 /// Which families this build can drive locally, and therefore whether the

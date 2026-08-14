@@ -68,6 +68,12 @@ export interface ClaudeChildOptions {
   env: NodeJS.ProcessEnv;
   spawnFn?: SpawnFn;
   now?: () => Date;
+  /// Pin the engine's session id rather than learning it from the init frame.
+  /// See `LaunchOptions.sessionId` — this is what gives a session a resume
+  /// handle before its first frame arrives.
+  sessionId?: string;
+  /// Resume tokens from the N1 recipe table. Present only on a rebind.
+  resumeTokens?: readonly string[];
   onEvent: (ev: DriverEvent) => void;
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
 }
@@ -106,7 +112,14 @@ export class ClaudeChild {
     if (this.#started) return;
     this.#started = true;
 
-    const args = buildLaunchArgs(this.#opts.family, { posture: this.posture, model: this.#opts.model });
+    const resumeTokens = this.#opts.resumeTokens ?? [];
+    const resumed = resumeTokens.length > 0;
+    const args = buildLaunchArgs(this.#opts.family, {
+      posture: this.posture,
+      model: this.#opts.model,
+      sessionId: this.#opts.sessionId,
+      resumeTokens,
+    });
     const spawnFn = this.#opts.spawnFn ?? defaultSpawn;
     const child = spawnFn(this.#opts.family.bin, args, {
       cwd: this.#opts.cwd,
@@ -120,6 +133,13 @@ export class ClaudeChild {
       source: 'local',
       tool_posture: this.posture,
       cwd: this.#opts.cwd,
+      // A rebind is a new process continuing an old conversation, and the
+      // transcript has to say so: without this the reader sees a second
+      // `started` in the middle of one conversation with no explanation, and
+      // cannot tell a resumed session from a session that restarted cold —
+      // which is exactly the difference that decides whether the agent still
+      // knows what was said above.
+      resumed,
     });
 
     child.stdout.setEncoding?.('utf-8');

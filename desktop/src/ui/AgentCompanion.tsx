@@ -369,10 +369,17 @@ export function AgentCompanion({
             <optgroup label={t('companion.groupLocal')}>
               {localSessions.map((s) => {
                 const row = localSessionRow(s);
+                // A restored session is `stopped` too, but the two mean
+                // different things to the director: one they ended, the other
+                // is waiting to reattach with its history intact. Labelling
+                // both "stopped" would suggest the conversation is over.
+                const note = s.restored === true
+                  ? t('companion.localRestored')
+                  : s.status === 'stopped' ? t('companion.localStopped') : '';
                 return (
                   <option key={s.id} value={s.id}>
                     {agentLabel(row)}
-                    {s.status === 'stopped' ? ` · ${t('companion.localStopped')}` : ''}
+                    {note === '' ? '' : ` · ${note}`}
                   </option>
                 );
               })}

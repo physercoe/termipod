@@ -16,6 +16,7 @@ import path from 'node:path';
 import type { Handler } from '../ipc/dispatch';
 import { emit } from '../events';
 import { parseFamilies, type Family } from './families.ts';
+import { parseResumeTable, type ResumeTable } from './resumerecipes.ts';
 import {
   optionalString,
   readInputPayload,
@@ -27,13 +28,22 @@ import {
 } from './hostargs.ts';
 import { LocalAgentService } from './service.ts';
 
-/// Where the generated family registry sits. Packaged: an electron-builder
+/// Where a generated registry sits. Packaged: an electron-builder
 /// extraResource beside dist/; dev: the checked-in file under
 /// `desktop/electron/resources/`. Same two-brancher as `stdioBridgePath()`.
-export function familiesArtifactPath(): string {
+function resourcePath(name: string): string {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'agent_families.generated.json')
-    : path.join(__dirname, '..', 'resources', 'agent_families.generated.json');
+    ? path.join(process.resourcesPath, name)
+    : path.join(__dirname, '..', 'resources', name);
+}
+
+export function familiesArtifactPath(): string {
+  return resourcePath('agent_families.generated.json');
+}
+
+/// The N1 resume-recipe table, read to rebind a session after a restart.
+export function resumeRecipesArtifactPath(): string {
+  return resourcePath('resume_recipes.generated.json');
 }
 
 let service: LocalAgentService | null = null;
@@ -46,8 +56,13 @@ function getService(): LocalAgentService {
   if (service !== null) return service;
 
   let families: Family[];
+  let resumeTable: ResumeTable;
   try {
     families = parseFamilies(readFileSync(familiesArtifactPath(), 'utf-8'));
+    // Loaded up front rather than at the moment of a rebind. A table that
+    // failed to ship would otherwise surface as "your session would not
+    // reattach", weeks later, on the one path nobody exercises by accident.
+    resumeTable = parseResumeTable(readFileSync(resumeRecipesArtifactPath(), 'utf-8'));
   } catch (err) {
     // Deliberately fatal for this feature rather than degraded: without the
     // registry there is no launch contract and no frame profile, so a session
@@ -59,8 +74,10 @@ function getService(): LocalAgentService {
 
   service = new LocalAgentService({
     families,
+    resumeTable,
     env: process.env,
     homeDir: os.homedir(),
+    dataDir: app.getPath('userData'),
   });
   service.subscribe((sessionId, event) => {
     for (const wc of [...watchers]) {
@@ -71,6 +88,10 @@ function getService(): LocalAgentService {
       emit(wc, LOCAL_AGENT_EVENT, { session_id: sessionId, event });
     }
   });
+  // Read persisted sessions back before the first list() can be answered, so a
+  // dock opened after a restart sees the transcripts rather than an empty
+  // picker that fills in later.
+  service.reload();
   return service;
 }
 
@@ -124,6 +145,14 @@ export const localAgentHandlers: Record<string, Handler> = {
     getService().stop(requireString(args, 'session_id'));
     return {};
   },
+
+  /// Reattach a restored session's engine child without sending anything.
+  ///
+  /// `localagent_input` rebinds on its own, so this is not on the critical
+  /// path — it exists for the case where the director wants the agent warm
+  /// before typing, and so a surface can report a failed reattach at a moment
+  /// it chose rather than in the middle of a message.
+  localagent_rebind: (args) => getService().rebind(requireString(args, 'session_id')),
 
   localagent_forget: (args) => ({ forgotten: getService().forget(requireString(args, 'session_id')) }),
 

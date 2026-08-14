@@ -1296,27 +1296,50 @@ button > .ui-icon:not(:only-child):first-child,
 .inspect-tree-search {
   padding: 0 var(--spacing-s8) var(--spacing-s4);
 }
-.inspect-tree-searchtoggle {
+.inspect-tree-filterbar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-s4);
-  width: 100%;
-  border: none;
+  gap: var(--spacing-s2);
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+.inspect-tree-filterbar:focus-within {
+  border-color: var(--accent);
+}
+.inspect-tree-filterbar .inspect-tree-filter {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin: 0;
   background: transparent;
-  color: var(--text-secondary);
-  padding: 2px 0;
-  cursor: pointer;
+  border: none;
+  border-radius: 0;
+  outline: none;
+}
+.inspect-tree-searchtoggle {
+  flex: 0 0 auto;
+  margin-right: 1px;
+}
+.inspect-tree-searchtoggle.active {
+  color: var(--accent-text);
+  background: var(--hover);
 }
 .inspect-tree-searchbar {
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
-  margin-bottom: var(--spacing-s4);
+  margin-top: var(--spacing-s4);
 }
 .inspect-tree-searchbar .inspect-tree-filter {
-  width: auto;
   flex: 1;
+  width: auto;
+  min-width: 0;
   margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
 }
 .inspect-tree-searchrx {
   display: flex;

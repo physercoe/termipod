@@ -588,13 +588,12 @@ export function InspectTree({
                   <span className="inspect-tree-name">{gitMsgs[root.id]}</span>
                 </div>
               )}
-              <input
-                className="inspect-tree-filter"
-                placeholder={t('inspect.filterInTree')}
-                value={filters[root.id] ?? ''}
-                onChange={(e) => onFilterChange(root, e.target.value)}
+              <RootSearchControls
+                root={root}
+                nameQuery={filters[root.id] ?? ''}
+                onNameQueryChange={(value) => onFilterChange(root, value)}
+                onOpenAt={(rel, line) => openAtLine(root, rel, line)}
               />
-              {root.source === 'local' && <RootContentSearch root={root} onOpenAt={(rel, line) => openAtLine(root, rel, line)} />}
               {q !== '' ? (
                 <FilterResults
                   root={root}
@@ -720,10 +719,22 @@ function FilterResults({
 }
 
 // ── content search (local roots, T4a) ────────────────────────────────────────
-// A collapsible per-root content search over `tree_search` (literal / regex,
-// capped). A hit opens the file at its line (via `onOpenAt` → PickResult
-// revealLine). Remote/hub/forge roots keep the name filter only (cap discipline).
-function RootContentSearch({ root, onOpenAt }: { root: InspectRoot; onOpenAt: (rel: string, line: number) => void }): JSX.Element {
+// One compact per-root search surface: name filtering is always visible, while
+// local roots expose content search from the trailing icon. Opening it adds one
+// query row instead of stacking a permanent label row plus a query row. A hit
+// opens the file at its line (via `onOpenAt` → PickResult revealLine).
+// Remote/hub/forge roots keep the name filter only (cap discipline).
+function RootSearchControls({
+  root,
+  nameQuery,
+  onNameQueryChange,
+  onOpenAt,
+}: {
+  root: InspectRoot;
+  nameQuery: string;
+  onNameQueryChange: (value: string) => void;
+  onOpenAt: (rel: string, line: number) => void;
+}): JSX.Element {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -748,17 +759,33 @@ function RootContentSearch({ root, onOpenAt }: { root: InspectRoot; onOpenAt: (r
 
   return (
     <div className="inspect-tree-search">
-      <button className="inspect-tree-searchtoggle small muted" onClick={() => setOpen((o) => !o)}>
-        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={11} />
-        <Icon name="search" size={12} /> {t('inspect.searchContents')}
-      </button>
-      {open && (
+      <div className="inspect-tree-filterbar">
+        <input
+          className="inspect-tree-filter"
+          placeholder={t('inspect.filterInTree')}
+          value={nameQuery}
+          onChange={(e) => onNameQueryChange(e.target.value)}
+        />
+        {root.source === 'local' && (
+          <button
+            className={`icon-btn sm inspect-tree-searchtoggle${open ? ' active' : ''}`}
+            title={t('inspect.searchContents')}
+            aria-label={t('inspect.searchContents')}
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <Icon name="search" size={13} />
+          </button>
+        )}
+      </div>
+      {root.source === 'local' && open && (
         <>
           <div className="inspect-tree-searchbar">
             <input
               className="inspect-tree-filter"
               placeholder={t('inspect.searchContentsPlaceholder')}
               value={q}
+              autoFocus
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void run()}
             />

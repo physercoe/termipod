@@ -807,6 +807,42 @@ test('inspect: the Open menu launches the source picker modal', async () => {
   await expect(page.locator('.inspect-modal')).toHaveCount(0);
 });
 
+test('inspect: tree filter and content search use two rows at most', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termipod-inspect-search-'));
+  fs.writeFileSync(path.join(dir, 'sample.txt'), 'needle in a file\n');
+  try {
+    await page.evaluate((rootPath) => {
+      localStorage.setItem(
+        'termipod.inspect.roots',
+        JSON.stringify([{ id: 'e2e-search-root', source: 'local', label: 'search-layout', path: rootPath }]),
+      );
+    }, dir);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+
+    const root = page.locator('.inspect-tree-root', { hasText: 'search-layout' });
+    const filterBar = root.locator('.inspect-tree-filterbar');
+    await expect(filterBar).toBeVisible();
+    await expect(filterBar.getByPlaceholder('Filter this tree…')).toBeVisible();
+    const contentToggle = filterBar.getByRole('button', { name: 'Search contents' });
+    await expect(contentToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(root.locator('.inspect-tree-searchbar')).toHaveCount(0);
+    // The old redundant label occupied its own permanent row; the trigger now
+    // lives in the filename-filter bar and reveals only one additional row.
+    await expect(root.locator('.inspect-tree-search > .inspect-tree-searchtoggle')).toHaveCount(0);
+
+    await contentToggle.click();
+    await expect(contentToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(root.locator('.inspect-tree-searchbar')).toBeVisible();
+    await expect(root.getByPlaceholder('Search file contents…')).toBeFocused();
+  } finally {
+    await page.evaluate(() => localStorage.removeItem('termipod.inspect.roots'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('inspect: the tree-sitter symbol outline lists symbols and jumps the editor', async () => {
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   await page.getByRole('button', { name: 'New scratch' }).click();

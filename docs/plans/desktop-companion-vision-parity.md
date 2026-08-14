@@ -4,9 +4,10 @@
 > **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
 > **W2 complete** (L2, E2, R2, R3, F3). Principal review done. **W3 in
 > flight**: L3 split into **L3a** (shipped 2026-08-10 — the local agent
-> service, claude M2 child, renderer source) and **L3b** (durable log,
-> restart rebind, session catalog, loopback WS). Remaining: L3b, E3,
-> E4, R4
+> service, claude M2 child, renderer source), **L3b** (shipped
+> 2026-08-14 — on-disk log + restart rebind) and **L3c** (session
+> catalog + loopback WS, split out of L3b). Remaining: E3, E4, R4;
+> L3c is deferrable
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -342,6 +343,78 @@ transport rung (lane T), never the renderer's ceiling.
     the launcher panel, the persisted key), which is a wedge, not a
     footnote. L3a merges local sessions into the existing picker and
     leaves the toggle alone.
+  - *L3b shipped 2026-08-14 — the durable half, and L3b split again.*
+    L3b as scoped was four things; two of them turned out to be one
+    indivisible story and two did not belong with it, so it ships as
+    **L3b** (on-disk log + restart rebind) and **L3c** (the multi-root
+    session catalog + the loopback WebSocket). What forced the split is
+    a measurement, not a preference — see the resume row below: native
+    resume restores the engine's memory and emits *no transcript*, so
+    the durable log and the rebind either both work or the feature is
+    worse than useless. The catalog is a different user story (discovery
+    of sessions we did not start) and needs its own design against a
+    real constraint: on this machine one project's claude session files
+    total **2.4 GB, a single file 1.8 GB**, so a catalog cannot parse
+    them. The socket has no consumer today.
+
+    Four more things measured against claude-code 2.1.220:
+
+    | Question | What the binary does |
+    |---|---|
+    | does `--resume <id>` work under the M2 pipe? | **Yes**, and it keeps the same session id rather than forking. A codeword set before the restart came back. |
+    | does a resumed child replay the transcript? | **No. Zero replay frames.** The engine remembers; it does not re-narrate. This is the finding the whole wedge hangs on — resume alone yields a blank transcript backed by an agent that secretly knows things, which is worse than a cold start because you cannot see what it is about to act on. |
+    | can we *assign* the handle instead of learning it? | **Yes** — `--session-id <uuid>` is honoured, reported back on both the init and result frames. So a session has a resume handle from the moment it exists, closing L3a's window where a child that died before its first frame left an unreattachable transcript. |
+    | does a stale handle fail loudly or cold-start silently? | **Loudly**: exit 1, `No conversation found with session ID` on stderr, and a `result` frame with `is_error: true`. This is precisely the silent failure `recipes.yaml` warns about, measured *not* to happen — so a rebind can tell "resumed" from "lost". |
+
+  - *The epoch, re-decided against the plan's own prediction.* L3a
+    recorded that the `{seq, epoch}` cursor's epoch half "arrives with
+    L3b's on-disk log". Building it, that turns out to be conditional
+    rather than automatic: an epoch is only needed if numbering can
+    restart under an id a client already holds a cursor for. L3b makes
+    that unreachable by construction — `seq` is adopted from the file,
+    never re-assigned, and a session whose event file is missing is
+    **refused** rather than reopened empty at seq 1 (which is also the
+    better product behaviour: a session whose transcript is gone cannot
+    show you what the agent knows). So the cursor stays `{seq}`, and the
+    condition that would change the answer is written down instead: a
+    client holding a cursor across a *service* restart, i.e. L3c's
+    loopback socket. Shipping the field now would still have been a
+    comparison whose two sides cannot differ.
+  - *A shipped L3a defect the durability surfaced.* Making the log
+    re-readable exposed that **the director's own messages were never in
+    it.** Every other row is translated from an engine frame, and the
+    engine does not echo the prompt back — so a local transcript was the
+    agent's half of a conversation. It was already wrong in L3a for
+    anyone who closed the dock and reopened it; nothing re-read the log,
+    so nobody saw it. Fixed by recording `input.<kind>` with producer
+    `user` — the hub's own shape, which `feedLens` and `EventCard`
+    already render as a user card. Found by the restart e2e, not by
+    review: the assertion "the codeword I typed is in the reloaded
+    transcript" had no other way to pass.
+  - *N1's table is read, not re-derived.* `resume_recipes.generated.json`
+    is marshalled from `recipes.yaml` by a Go drift test, shipped as an
+    extraResource beside the family registry, and the TypeScript reader
+    is pinned case-for-case against the hub's existing conformance
+    corpus (68 argv cases, 13 validation cases, 6 family plans). That
+    corpus immediately earned itself: it carries a `café` case annotated
+    *"5 bytes but 4 JS string units"*, which caught this port bounding
+    session ids by `String.length` where Go bounds by UTF-8 bytes. The
+    Go structs gained `json:` tags in the same commit — without them the
+    table crossed as `RefKinds`/`WindowsBin`, a wire contract nobody
+    chose. `ShellQuote` is deliberately **not** ported: the hub needs it
+    because it splices into `backend.cmd`, a shell string; we spawn
+    argv, so there is nothing to quote and a quoter with no caller is
+    one nobody notices is wrong.
+- **L3c — the session catalog and the loopback socket (split out of
+  L3b, 2026-08-14).** Enumerate claude sessions across *all* the
+  director's config roots, including ones the Companion did not start,
+  and offer them for adoption; plus the optional loopback WebSocket with
+  a bearer token so a client other than the renderer can attach. The
+  catalog's hard constraint is size — session files reach gigabytes, so
+  it is a metadata walk (filename, mtime, a bounded head/tail read),
+  never a parse. The socket is what would finally make an epoch
+  meaningful, since a cursor could then outlive the service that issued
+  it.
 - **L4 — codex via the vendor's service (D-8: use theirs when it
   exists).** Prefer **WebSocket attach** to a `codex app-server`
   daemon — spawn it detached if absent, authenticate with its bearer
@@ -647,7 +720,7 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
 ```
 W1 (unblock + correctness):  F1, F2, L1, E1, R1
 W2 (local + telemetry):      L2, E2, R2, R3, F3
-W3 (local claude + live):    L3a, L3b, E3, E4, R4
+W3 (local claude + live):    L3a, L3b, E3, E4, R4   (L3c deferrable)
 W4 (local codex + controls): L4, R6, R5, F4
 parallel, any time:          D1 → D2 → D3;  T1 after F3
 ```

@@ -98,6 +98,41 @@ test('a model is appended, an absent one adds nothing', () => {
   assert.equal(buildLaunchArgs(FAMILY, { posture: 'unrestricted', model: '' }).includes('--model'), false);
 });
 
+test('an assigned session id is passed through as --session-id', () => {
+  // Probed on claude 2.1.220: the flag is honoured, and both the init and
+  // result frames report the id we passed. Assigning it is what gives a session
+  // a resume handle before its first frame — see service.ts.
+  const args = buildLaunchArgs(FAMILY, { posture: 'converse', sessionId: 'a-uuid' });
+  assert.deepEqual(args.slice(-2), ['--session-id', 'a-uuid']);
+});
+
+test('resume tokens are appended verbatim from the recipe table', () => {
+  const args = buildLaunchArgs(FAMILY, { posture: 'converse', resumeTokens: ['--resume', 'eng-1'] });
+  assert.deepEqual(args.slice(-2), ['--resume', 'eng-1']);
+  assert.equal(args.includes('--session-id'), false);
+});
+
+test('resuming and assigning at once is refused', () => {
+  // `--resume` names an existing conversation and `--session-id` names a new
+  // one. Passing both asks the engine to be two sessions, and whichever it
+  // picks is a coin flip we would not see the result of until the transcript
+  // turned out to be the wrong one.
+  assert.throws(
+    () => buildLaunchArgs(FAMILY, { posture: 'converse', sessionId: 'a-uuid', resumeTokens: ['--resume', 'eng-1'] }),
+    /cannot both resume/,
+  );
+});
+
+test('an empty resume token list is a fresh launch, not a broken one', () => {
+  const args = buildLaunchArgs(FAMILY, { posture: 'converse', resumeTokens: [] });
+  assert.equal(args.includes('--resume'), false);
+  // ...and it does not block assigning an id.
+  assert.deepEqual(
+    buildLaunchArgs(FAMILY, { posture: 'converse', resumeTokens: [], sessionId: 'a-uuid' }).slice(-2),
+    ['--session-id', 'a-uuid'],
+  );
+});
+
 test('a family with no M2 launch contract refuses to launch', () => {
   // Silently launching without the mode args gives an interactive child on a
   // pipe: it never speaks stream-json and the session just hangs.

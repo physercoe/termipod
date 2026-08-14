@@ -108,6 +108,23 @@ export function toolArgs(posture: ToolPosture): string[] {
 export interface LaunchOptions {
   posture: ToolPosture;
   model?: string;
+  /// Pin the engine's session id instead of letting it mint one (L3b).
+  ///
+  /// Probed against claude-code 2.1.220: `--session-id <uuid>` is honoured —
+  /// the `system/init` frame and the final `result` frame both report the id we
+  /// passed. Assigning it removes the window in which a session exists but has
+  /// no resume handle: without this, the handle only arrives with the init
+  /// frame, so a child that dies before emitting one leaves a transcript on
+  /// disk that can never be reattached to. Must be a valid UUID; claude rejects
+  /// anything else.
+  sessionId?: string;
+  /// Tokens that reattach this launch to a prior conversation, from the N1
+  /// recipe table (`resumeSplice`). Empty for a fresh session.
+  ///
+  /// Mutually exclusive with `sessionId`: `--resume` names an existing
+  /// conversation and `--session-id` names a new one, so passing both asks the
+  /// engine to be two sessions at once.
+  resumeTokens?: readonly string[];
 }
 
 /// Build the child's argv from the family registry plus the session's posture.
@@ -123,10 +140,20 @@ export function buildLaunchArgs(family: Family, opts: LaunchOptions): string[] {
         'the child would start interactive and never speak stream-json',
     );
   }
+  const resume = opts.resumeTokens ?? [];
+  if (resume.length > 0 && opts.sessionId !== undefined) {
+    throw new Error(
+      'local claude: cannot both resume a conversation and assign a new session id',
+    );
+  }
   const args = [...modeArgs, ...toolArgs(opts.posture)];
   if (opts.model !== undefined && opts.model !== '') {
     args.push('--model', opts.model);
   }
+  if (opts.sessionId !== undefined && opts.sessionId !== '') {
+    args.push('--session-id', opts.sessionId);
+  }
+  args.push(...resume);
   return args;
 }
 

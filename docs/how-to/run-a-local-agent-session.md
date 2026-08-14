@@ -1,9 +1,9 @@
 # Run a local agent session (no hub)
 
 > **Type:** how-to
-> **Status:** Current (2026-08-10)
+> **Status:** Current (2026-08-14)
 > **Audience:** directors · contributors
-> **Last verified vs code:** desktop `main` (vision-parity L3a) against
+> **Last verified vs code:** desktop `main` (vision-parity L3a + L3b) against
 > claude-code 2.1.220
 
 **TL;DR.** The desktop can run a claude session itself — the engine child
@@ -90,9 +90,49 @@ Degraded to absence, never to a stub that quietly no-ops (D-4):
   block carries token counts and no window, so the denominator is learned from
   the engine's own `by_model` number at the end of a turn. Turn one has no
   ring; every turn after it does. (Absent beats wrong.)
-- **No survival across an app restart.** The log lives in main's heap. Quitting
-  the app stops every session — deliberately, so an engine child cannot outlive
-  the window that owns it. The durable log and reattach land with L3b.
+- **No fleet-wide visibility.** A local session exists on this machine only. It
+  is not on the hub, so it does not appear on your phone, on another desktop, or
+  in anyone else's Fleet view.
+
+## Closing the app and coming back
+
+Quit the app and your local sessions are still there. Reopen the Companion and
+they are in the picker under *On this machine*, marked **from a previous run**.
+Select one and the whole conversation is there to read. Type, and it answers
+knowing everything you said before.
+
+That takes two independent things, and it is worth knowing they are separate
+because they fail separately:
+
+| | What restores it | What it costs you if it breaks |
+|---|---|---|
+| The **transcript** — what was said | our own append-only log, one JSONL file per session under the app's data directory | you see a blank window |
+| The **memory** — what the agent knows | claude's native `--resume <id>` | the agent silently forgets and answers as a stranger |
+
+Native resume alone is not enough, and this is the measured part: resuming under
+`--print --output-format stream-json` restores the model's context faithfully —
+a codeword set before a restart comes back — but the child emits **no replay
+frames at all**. It remembers; it does not re-narrate. A rebind on resume alone
+would hand you an empty transcript backed by an agent that secretly knows
+things, which is worse than starting fresh, because you cannot see what it is
+about to act on.
+
+Some details you may notice:
+
+- **Reattaching is lazy.** Opening the app does not start engine children for
+  every old session — that would spend tokens because you launched an app.
+  The session reattaches when you send the first message.
+- **A resumed session says so.** The transcript carries a second "started" row
+  marked `resumed`, so a reader can tell a reattached conversation from one
+  that restarted cold.
+- **A failed reattach is loud.** If the engine cannot find the conversation it
+  exits with `No conversation found with session ID`, which lands in the
+  transcript as an error row. It does not quietly start a fresh conversation.
+- **Old transcripts are trimmed, not kept forever.** A session's file is
+  compacted to its recent window once it passes ~32 MB. Scrolling far enough
+  back gets you a fresh snapshot rather than a hole.
+- **Removing a session deletes its transcript** from disk, so it does not come
+  back at the next launch.
 
 ## Which config root it uses
 
@@ -103,8 +143,13 @@ the root we believe it is using is the root it uses. Getting this wrong is
 silent, which is why it is resolved rather than inherited.
 
 The plan treats this root as **per-account, not per-machine**: a director with
-work and personal logins has more than one. L3a resolves the one root a
-session is spawned against; enumerating them is the session catalog, in L3b.
+work and personal logins has more than one. The root a session was created
+against is recorded with the session and reused when it reattaches — resuming
+against the wrong root finds no conversation at all, so it is not left to
+whatever the environment happens to say at the time.
+
+Enumerating *all* your roots, to list the claude sessions on this machine that
+the Companion did not start, is the session catalog — a separate wedge (L3c).
 
 ## Verifying it end to end
 
@@ -121,8 +166,14 @@ rows** (a `raw` row means the engine emitted a frame shape the vendored
 profile does not model, which is the drift this would otherwise discover in
 production).
 
-It is opt-in because it runs a real model turn and spends tokens; CI skips it,
-and so does a plain `npm test`.
+A second test proves the restart, which is the part no fixture can vouch for:
+it sets a codeword, throws the service away, builds a fresh one over the same
+data directory, and checks both halves separately — that the transcript reloads
+with its numbering intact, and that the rebound engine can still say the
+codeword back.
+
+Both are opt-in because they run real model turns and spend tokens; CI skips
+them, and so does a plain `npm test`.
 
 ## When something is wrong
 
@@ -136,12 +187,19 @@ and so does a plain `npm test`.
   distinct `error` row rather than mixed into the agent's own output.
 - **The agent says a tool is unavailable** — that is the posture doing its
   job. Start a session with a wider one if you meant to.
+- **An old session is missing from the picker** — its transcript file could not
+  be read, and the service refuses to reopen a session whose history is gone
+  rather than showing you an empty one that claims to be it.
+- **It reattached but does not remember** — look for an `error` row containing
+  `No conversation found with session ID`. The engine's own copy of the
+  conversation is gone (its config root changed, or claude pruned it); ours is
+  still readable, but the agent is starting fresh from here.
 
 ## See also
 
 - [`plans/desktop-companion-vision-parity.md`](../plans/desktop-companion-vision-parity.md)
-  — lane L, and the L3a/L3b split
+  — lane L, and the L3a / L3b / L3c split
 - [`discussions/companion-vision-and-kimi-web-bar.md`](../discussions/companion-vision-and-kimi-web-bar.md)
   §9/§11 — why the desktop builds a service for claude at all
 - [`reference/engine-resume-recipes.md`](../reference/engine-resume-recipes.md)
-  — the resume table L3b rebinds through
+  — the resume table a rebind reads its `--resume` flags from

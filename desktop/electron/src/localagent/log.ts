@@ -85,6 +85,29 @@ export class SessionLog {
     this.#capacity = capacity;
   }
 
+  /// Rebuild a log from rows that already carry their `seq` — the durable log
+  /// reading a session back off disk after an app restart (L3b).
+  ///
+  /// Numbering is ADOPTED, never re-assigned. That is the whole point: a
+  /// reloaded transcript keeps the `seq` values its events were written with,
+  /// so a `seq` means the same event before and after the restart. Re-running
+  /// them through `append()` would renumber from 1 and quietly turn every
+  /// recorded cursor into a pointer at the wrong row.
+  ///
+  /// `rows` must be ascending and dense in `seq`; the caller (`durablelog.ts`)
+  /// is what reads them off disk and is where a gap is detected, because it is
+  /// the only layer that can tell "the file was truncated" from "these rows
+  /// were passed in wrong".
+  static restore(rows: readonly LocalAgentEvent[], capacity: number = DEFAULT_CAPACITY): SessionLog {
+    const log = new SessionLog(capacity);
+    if (rows.length === 0) return log;
+    const kept = rows.length > capacity ? rows.slice(rows.length - capacity) : [...rows];
+    log.#events = kept.map((r) => ({ ...r }));
+    log.#oldestSeq = kept[0].seq;
+    log.#nextSeq = kept[kept.length - 1].seq + 1;
+    return log;
+  }
+
   /// The highest `seq` assigned so far; 0 before the first append.
   get highWater(): number {
     return this.#nextSeq - 1;

@@ -70,26 +70,33 @@ const (
 
 // Engine is one engine CLI's resume recipe. `Engine` is the recipe key — it is
 // neither our agent-family name nor `agents.kind`.
+//
+// The json tags exist because this table is marshalled for a second reader: the
+// desktop's local agent service loads it to rebind a session (vision-parity
+// L3b, artifact_test.go). Without them Go would emit its own field names and
+// the TypeScript side would key on `RefKinds` — a wire contract nobody chose,
+// derived from Go's capitalisation rules. They mirror the yaml names so one row
+// reads the same in both files.
 type Engine struct {
-	Engine     string   `yaml:"engine"`
-	Bin        string   `yaml:"bin"`
-	WindowsBin string   `yaml:"windows_bin"`
-	Style      string   `yaml:"style"`
-	Token      string   `yaml:"token"`
-	RefKinds   []string `yaml:"ref_kinds"`
-	Source     string   `yaml:"source"`
-	Verified   string   `yaml:"verified"`
-	Note       string   `yaml:"note"`
+	Engine     string   `yaml:"engine" json:"engine"`
+	Bin        string   `yaml:"bin" json:"bin"`
+	WindowsBin string   `yaml:"windows_bin" json:"windows_bin"`
+	Style      string   `yaml:"style" json:"style"`
+	Token      string   `yaml:"token" json:"token"`
+	RefKinds   []string `yaml:"ref_kinds" json:"ref_kinds"`
+	Source     string   `yaml:"source" json:"source"`
+	Verified   string   `yaml:"verified" json:"verified"`
+	Note       string   `yaml:"note" json:"note"`
 }
 
 // Family maps one of our registered agent families onto a resume mechanism.
 // An empty Engine with MechanismArgv is a validation error; an empty Engine
 // with any other mechanism means "this family does not resume by argv".
 type Family struct {
-	Family    string `yaml:"family"`
-	Engine    string `yaml:"engine"`
-	Mechanism string `yaml:"mechanism"`
-	Note      string `yaml:"note"`
+	Family    string `yaml:"family" json:"family"`
+	Engine    string `yaml:"engine" json:"engine"`
+	Mechanism string `yaml:"mechanism" json:"mechanism"`
+	Note      string `yaml:"note" json:"note"`
 }
 
 // Table is the parsed, validated recipe table.

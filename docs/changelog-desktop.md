@@ -65,6 +65,28 @@ This complements:
   caller has to name it) — and the posture is recorded on the transcript's
   lifecycle row rather than left for a reader to infer.
 
+- **A local session now survives quitting the app.** Close the desktop, open it
+  again, and your local sessions are in the picker marked *from a previous run*
+  — the whole conversation there to read, and the agent still knowing it when
+  you type. That needs two independent things, and they fail separately: the
+  **transcript** comes back from our own append-only JSONL file, and the
+  **memory** from claude's native `--resume`. Native resume alone is not
+  enough, which is the measured part — under `--print --output-format
+  stream-json` a resumed child restores the model's context faithfully but
+  emits **no replay frames at all**. It remembers; it does not re-narrate. So
+  resume by itself would hand you an empty window backed by an agent that
+  secretly knows things, which is worse than starting fresh.
+
+  Reattaching is lazy — opening the app does not spawn engine children for
+  every old session — and a resumed session says so on its lifecycle row, so a
+  reader can tell a reattached conversation from one that restarted cold. A
+  failed reattach is loud rather than silent: claude exits with `No
+  conversation found with session ID`, which lands in the transcript as an
+  error row instead of quietly beginning a new conversation. The `--resume`
+  flags come from the hub's own recipe table (`recipes.yaml`), shipped as a
+  generated artifact and pinned to the hub's conformance corpus, so the two
+  languages cannot drift on how an engine reattaches. (vision-parity L3b)
+
 - **`author_guide` — the agent looks up a format before it writes one.**
   `author_apply` refuses a malformed body rather than repairing it, which is
   only a fair trade if the rules are readable somewhere cheaper than a failed
@@ -84,6 +106,14 @@ This complements:
   toggle grants. Both dicts.
 
 ### Fixed
+- **A local session's transcript was missing your own messages.** Every row in
+  it is translated from an engine frame, and the engine never echoes the prompt
+  back — so the Companion showed the agent's replies and none of the questions.
+  Invisible while the log was only ever written; making it re-readable is what
+  surfaced it, and it was already wrong for anyone who closed the dock and
+  reopened it. Your input is now recorded as `input.<kind>` with producer
+  `user`, the same shape the hub writes, which the feed and the event cards
+  already render as a user card.
 - The `2026.805.1022` entry below listed `author_guide` among the verbs that
   shipped in it. It did not exist until now; the other three did.
 

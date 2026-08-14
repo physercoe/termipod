@@ -80,6 +80,15 @@ extraResources:
   - from: resources/agent_families.generated.json
     to: agent_families.generated.json
 
+  # The native-resume recipe table (vision-parity L3b), so a local session can
+  # reattach to its conversation after the app restarts. Generated from
+  # hub/internal/resumerecipes/recipes.yaml and drift-checked by
+  # `go test ./internal/resumerecipes/ -run Artifact`. Missing from a build,
+  # the service refuses to start rather than rebinding by guesswork — a wrong
+  # resume command does not error, it silently starts a fresh conversation.
+  - from: resources/resume_recipes.generated.json
+    to: resume_recipes.generated.json
+
 # electron-updater feed (M3.2/M3.4). NOT the GitHub provider: that resolves the
 # update via GitHub's `releases/latest`, which in this shared repo belongs to
 # the mobile lane (its in-app checker reads it; mobile `v*` releases own it).

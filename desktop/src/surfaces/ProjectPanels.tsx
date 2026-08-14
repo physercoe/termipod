@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { Markdown } from '../ui/Markdown';
 import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
 import { ArtifactViewer } from './ArtifactViewer';
 
 // ---- Acceptance Criteria (parity — AcceptanceCriteriaScreen) ----------------
@@ -27,13 +28,13 @@ function critText(c: Entity): string {
 function critStateClass(state: string): string {
   switch (state) {
     case 'met':
-      return 'sev-medium';
+      return 'crit-state-met';
     case 'failed':
-      return 'sev-high';
+      return 'crit-state-failed';
     case 'waived':
-      return 'muted';
+      return 'crit-state-waived';
     default:
-      return '';
+      return 'crit-state-pending';
   }
 }
 
@@ -183,7 +184,10 @@ export function CriteriaTab({ projectId }: { projectId: string }): JSX.Element {
           </button>
         ))}
         <span className="spacer" />
-        <button onClick={() => setCreating(true)}>+ {t('crit.new')}</button>
+        <button className="primary crit-new" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={14} />
+          {t('crit.new')}
+        </button>
       </div>
       {creating && <NewCriterionForm projectId={projectId} phases={knownPhases} onDone={() => setCreating(false)} />}
       {all.length === 0 && <div className="muted">{t('crit.none')}</div>}

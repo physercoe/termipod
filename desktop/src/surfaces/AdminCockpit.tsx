@@ -513,6 +513,7 @@ function TemplatesTab(): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
   const [edit, setEdit] = useState<{ category: string; name: string | null } | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<ReadonlySet<string>>(() => new Set());
   const q = useQuery({
     queryKey: ['templates'],
     enabled: client !== null,
@@ -529,45 +530,67 @@ function TemplatesTab(): JSX.Element {
     else byCategory.set(cat, [tpl]);
   }
   const categories = [...byCategory.keys()].sort();
+
+  function toggleCategory(category: string): void {
+    setExpandedCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }
+
   return (
     <div className="admin-templates scroll">
       <p className="admin-templates-note muted">{t('admin.templatesNote')}</p>
       <div className="admin-template-grid">
-        {categories.map((cat) => {
+        {categories.map((cat, categoryIndex) => {
           const categoryTemplates = [...(byCategory.get(cat) ?? [])].sort((a, b) =>
             (str(a, 'name') ?? '').localeCompare(str(b, 'name') ?? ''),
           );
+          const expanded = expandedCategories.has(cat);
+          const listId = `admin-template-list-${String(categoryIndex)}`;
           return (
-            <section key={cat} className="admin-template-group">
+            <section key={cat} className={`admin-template-group${expanded ? ' expanded' : ''}`}>
               <header className="admin-template-head">
-                <div className="admin-template-heading">
-                  <h3>{cat}</h3>
-                  <span className="admin-template-count small">{categoryTemplates.length}</span>
-                </div>
+                <button
+                  className="admin-template-toggle"
+                  aria-expanded={expanded}
+                  aria-controls={listId}
+                  onClick={() => toggleCategory(cat)}
+                >
+                  <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={14} />
+                  <span className="admin-template-heading">
+                    <h3>{cat}</h3>
+                    <span className="admin-template-count small">{categoryTemplates.length}</span>
+                  </span>
+                </button>
                 <button className="admin-template-new" onClick={() => setEdit({ category: cat, name: null })}>
                   <Icon name="plus" size={14} />
                   {t('admin.new')}
                 </button>
               </header>
-              <div className="admin-template-list">
-                {categoryTemplates.map((tpl, i) => {
-                  const templateName = str(tpl, 'name') ?? '—';
-                  const source = str(tpl, 'source') ?? '';
-                  return (
-                    <button
-                      key={templateName === '—' ? String(i) : templateName}
-                      className="admin-template-row"
-                      title={templateName}
-                      onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
-                    >
-                      <span className="admin-template-icon"><Icon name="file-text" size={16} /></span>
-                      <span className="admin-template-name mono">{templateName}</span>
-                      {source !== '' && <span className="admin-template-source small">{source}</span>}
-                      <Icon name="chevron-right" size={14} />
-                    </button>
-                  );
-                })}
-              </div>
+              {expanded && (
+                <div id={listId} className="admin-template-list">
+                  {categoryTemplates.map((tpl, i) => {
+                    const templateName = str(tpl, 'name') ?? '—';
+                    const source = str(tpl, 'source') ?? '';
+                    return (
+                      <button
+                        key={templateName === '—' ? String(i) : templateName}
+                        className="admin-template-row"
+                        title={templateName}
+                        onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
+                      >
+                        <span className="admin-template-icon"><Icon name="file-text" size={16} /></span>
+                        <span className="admin-template-name mono">{templateName}</span>
+                        {source !== '' && <span className="admin-template-source small">{source}</span>}
+                        <Icon name="chevron-right" size={14} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </section>
           );
         })}

@@ -1780,13 +1780,39 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-s12);
-  padding: var(--spacing-s8) var(--spacing-s12);
-  border-bottom: 1px solid var(--border);
+  gap: var(--spacing-s4);
+  padding: var(--spacing-s4);
   background: var(--raised);
+}
+.admin-template-group.expanded .admin-template-head {
+  border-bottom: 1px solid var(--border);
+}
+.admin-template-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+.admin-template-toggle:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  box-shadow: none;
+  transform: none;
+}
+.admin-template-toggle > svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
 }
 .admin-template-heading {
   display: flex;
+  flex: 1;
   align-items: center;
   min-width: 0;
   gap: var(--spacing-s8);

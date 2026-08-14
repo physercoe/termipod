@@ -177,6 +177,9 @@ export class DurableSessionLog {
   readonly dir: string;
   readonly #file: string;
   readonly #maxFileBytes: number;
+  /// The size that triggers the next compaction. Normally `#maxFileBytes`, but
+  /// raised past it when a compaction cannot get below the cap — see `compact`.
+  #compactAt: number;
   #log: SessionLog;
   #bytes = 0;
   #closed = false;
@@ -189,6 +192,7 @@ export class DurableSessionLog {
     this.dir = dir;
     this.#file = path.join(dir, EVENTS_FILENAME);
     this.#maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+    this.#compactAt = this.#bytes > this.#maxFileBytes ? this.#bytes * 2 : this.#maxFileBytes;
     this.#log = log;
     this.#bytes = bytes;
   }
@@ -248,7 +252,7 @@ export class DurableSessionLog {
       this.#pending.push(line);
       this.#bytes += Buffer.byteLength(line, 'utf-8');
       this.#scheduleFlush();
-      if (this.#bytes > this.#maxFileBytes) this.compact();
+      if (this.#bytes > this.#compactAt) this.compact();
     }
     return row;
   }
@@ -311,6 +315,14 @@ export class DurableSessionLog {
       writeFileSync(tmp, body, 'utf-8');
       renameSync(tmp, this.#file);
       this.#bytes = Buffer.byteLength(body, 'utf-8');
+      // When the retained window itself serializes past the cap (a 5000-event
+      // window holding a few enormous tool results), no compaction can get the
+      // file below `#maxFileBytes` — and re-triggering on the cap would mean a
+      // full synchronous rewrite of a 32 MB+ file on EVERY append, in the
+      // process that also draws the UI. Requiring the file to double instead
+      // amortises the rewrite to O(1) per byte appended. When the window fits
+      // under the cap the trigger stays the cap, exactly as before.
+      this.#compactAt = this.#bytes > this.#maxFileBytes ? this.#bytes * 2 : this.#maxFileBytes;
     } catch {
       this.#closed = true;
     }

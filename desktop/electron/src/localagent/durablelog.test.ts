@@ -308,11 +308,14 @@ test('the file compacts itself once it passes its byte cap', () => {
   const dir = tmp();
   try {
     const sdir = path.join(dir, 's1');
-    const log = DurableSessionLog.create(sdir, { capacity: 5, maxFileBytes: 400 });
+    // The cap comfortably holds the 5-row window (~650 bytes): the normal
+    // regime, where the cap alone is the trigger. The oversized-window regime
+    // has its own test below.
+    const log = DurableSessionLog.create(sdir, { capacity: 5, maxFileBytes: 1000 });
     for (let i = 0; i < 40; i += 1) {
       log.append({ id: `e${i}`, ts: '2026-08-14T00:00:00.000Z', kind: 'text', producer: 'agent', payload: { text: 'padding padding' } });
     }
-    assert.ok(log.fileBytes <= 400 * 2,
+    assert.ok(log.fileBytes <= 1000 + 200,
       `file should have been compacted, is ${log.fileBytes} bytes`);
     log.close();
 
@@ -320,6 +323,56 @@ test('the file compacts itself once it passes its byte cap', () => {
     assert.equal(reopened.highWater, 40, 'compaction must not lose the numbering');
     assert.ok(reopened.size <= 5);
     reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a window too big for the byte cap does not rewrite the file on every append', () => {
+  // The pathological regime: the retained window itself serializes past
+  // `maxFileBytes` (think a 5000-event window holding a few 1 MB tool
+  // results), so no compaction can get under the cap. Re-triggering on the cap
+  // would then mean a full synchronous rewrite per append. The trigger must
+  // instead wait for the file to grow past double its compacted size — which
+  // is observable from outside: rows the window has already evicted stay in
+  // the file until the NEXT compaction, whereas a rewrite-per-append would
+  // leave the file holding exactly the window and nothing older.
+  const dir = tmp();
+  try {
+    const sdir = path.join(dir, 's1');
+    // A cap no row can fit under — the regime where triggering on the cap
+    // alone would rewrite the whole file on every single append.
+    const log = DurableSessionLog.create(sdir, { capacity: 3, maxFileBytes: 1 });
+    let next = 1;
+    const add = (): void => {
+      log.append({ id: `e${next}`, ts: 't', kind: 'text', producer: 'agent', payload: { text: 'sixteen bytes xx' } });
+      next += 1;
+    };
+    const fileSeqs = (): number[] => {
+      log.flush();
+      return parseLogChunk(readFileSync(path.join(sdir, EVENTS_FILENAME), 'utf-8'), false).events.map((e) => e.seq);
+    };
+
+    // Append until a compaction has happened and then one row has left the
+    // window: the file still holding that evicted row is what proves the next
+    // appends did NOT each rewrite the file down to the window.
+    for (let i = 0; i < 4; i += 1) add();
+    const seqs = fileSeqs();
+    const evicted = seqs.filter((s) => s < log.highWater - 2);
+    assert.ok(evicted.length > 0,
+      `the file was rewritten on an append past the cap: holds only ${JSON.stringify(seqs)}`);
+
+    // The rewrite is amortised, not abandoned: within a bounded number of
+    // further appends the file doubles, compacts, and the evicted rows go.
+    let trimmed: number[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      add();
+      trimmed = fileSeqs();
+      if (!trimmed.some((s) => s < log.highWater - 2)) break;
+    }
+    assert.ok(!trimmed.some((s) => s < log.highWater - 2),
+      `no compaction within 20 appends past the cap: file holds ${JSON.stringify(trimmed)}`);
+    log.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

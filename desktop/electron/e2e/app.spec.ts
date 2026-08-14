@@ -265,6 +265,36 @@ test('terminal UI: opening a local shell mounts an xterm screen', async () => {
     expect(edge.screenRight).toBeLessThan(edge.hostRight);
     expect(edge.rowClipPadding).toBeGreaterThanOrEqual(8);
     expect(edge.rowClipRight).toBeGreaterThan(edge.screenRight);
+
+    // Paint a tmux-style status line through the real PTY with its final digit
+    // in the final terminal column. Maple's fractional DOM advances put that
+    // digit beyond xterm's logical row box; it must remain visible in the outer
+    // gutter while vertical row overflow stays clipped.
+    await page.waitForTimeout(500); // let the debounced PTY resize settle
+    await page.keyboard.type(
+      "printf '\\033[2J\\033[H\\033[48;2;166;227;161m%*s\\033[0m' \"$(tput cols)\" '14-Aug-26'; sleep 3",
+    );
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    const painted = await page.locator('.term-screen').first().evaluate((host) => {
+      const row = [...host.querySelectorAll<HTMLElement>('.xterm-rows > div')]
+        .find((candidate) => candidate.textContent?.endsWith('14-Aug-26'))!;
+      const ink = [...row.querySelectorAll<HTMLElement>('span')]
+        .filter((span) => span.textContent?.trim() !== '')
+        .at(-1)!;
+      const style = getComputedStyle(row);
+      return {
+        hostRight: host.getBoundingClientRect().right,
+        rowRight: row.getBoundingClientRect().right,
+        inkRight: ink.getBoundingClientRect().right,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+      };
+    });
+    expect(painted.inkRight).toBeGreaterThan(painted.rowRight);
+    expect(painted.inkRight).toBeLessThan(painted.hostRight);
+    expect(painted.overflowX).toBe('visible');
+    expect(painted.overflowY).toBe('clip');
   }
 });
 

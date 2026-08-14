@@ -562,15 +562,18 @@
 .shell-macos .term-screen > .xterm {
   padding-right: var(--spacing-s8);
 }
-/* DomRenderer sets every `.xterm-rows > div` to the exact logical canvas
-   width AND `overflow:hidden`. Browser letter-spacing/advance rounding can put
-   the ink of the final glyph just beyond that logical width even though the
-   host has room, so the row itself clips `%`, CJK strokes, and similar glyphs.
-   Extend only the row's clipping box into the gutter reserved above; padding is
-   outside its inline content width and therefore does not alter cell positions. */
+/* DomRenderer sets every `.xterm-rows > div` to the exact logical canvas width
+   AND an inline `overflow:hidden`. Browser letter-spacing/advance rounding can
+   accumulate across a wide row until the final glyph extends beyond that width
+   even though the host's reserved gutter still has room. Keep vertical clipping
+   (the reason xterm hides row overflow) but let horizontal ink paint into that
+   gutter; `.term-screen` remains the authoritative outer clip. The `!important`
+   longhands intentionally override DomRenderer's inline overflow shorthand. */
 .shell-macos .term-screen .xterm-rows > div {
   box-sizing: content-box;
   padding-right: var(--spacing-s8);
+  overflow-x: visible !important;
+  overflow-y: clip !important;
 }
 /* Deterministic terminal scrollbar. xterm's FitAddon reserves a FIXED 15px for the
    scrollbar when sizing columns (its Viewport measures 0 before any overflow and

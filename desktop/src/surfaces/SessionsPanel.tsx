@@ -4,7 +4,6 @@ import { arr, num, str, type Entity } from '../hub/types';
 import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { useEnvProfiles, useHosts, useProjects } from '../hub/queries';
-import { RunReport } from '../ui/RunReport';
 import { HostKeyTrustDialog } from '../ui/HostKeyTrustDialog';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
@@ -110,7 +109,6 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
   const qc = useQueryClient();
   const projects = useProjects().data ?? [];
   const [selected, setSelected] = useState<string | null>(null);
-  const [view, setView] = useState<'digest' | 'transcript'>('digest');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SessionFilter>('all');
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -450,46 +448,16 @@ export function SessionsPanel({ onClose }: { onClose: () => void }): JSX.Element
           <div className="sessions-detail">
             {selected === null ? (
               <div className="muted region-pad">{t('sessions.pick')}</div>
+            ) : agentId !== undefined ? (
+              <AgentTranscript key={`${selected}:${agentId}`} agentId={agentId} sessionId={selected} />
             ) : (
-              <>
-                <div className="sessions-detail-bar">
-                  <div className="seg">
-                    <button
-                      className={view === 'digest' ? 'seg-btn active' : 'seg-btn'}
-                      onClick={() => setView('digest')}
-                    >
-                      {t('sessions.digest')}
-                    </button>
-                    <button
-                      className={view === 'transcript' ? 'seg-btn active' : 'seg-btn'}
-                      onClick={() => setView('transcript')}
-                    >
-                      {t('sessions.transcript')}
-                    </button>
-                  </div>
-                </div>
-                {view === 'transcript' ? (
-                  agentId !== undefined ? (
-                    <AgentTranscript key={`${selected}:${agentId}`} agentId={agentId} sessionId={selected} />
-                  ) : (
-                    <div className="muted region-pad">
-                      {digestQ.isLoading ? t('tx.loadingDigest') : t('sessions.noAgent')}
-                    </div>
-                  )
-                ) : (
-                  <div className="sessions-detail-scroll">
-                    {digestQ.isLoading ? (
-                      <div className="muted region-pad">{t('tx.loadingDigest')}</div>
-                    ) : digestQ.isError ? (
-                      <div className="error region-pad">{(digestQ.error as Error).message}</div>
-                    ) : digestQ.data !== undefined ? (
-                      <div className="region-pad">
-                        <RunReport digest={digestQ.data} stale={digestQ.isStale} />
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </>
+              <div className={digestQ.isError ? 'error region-pad' : 'muted region-pad'}>
+                {digestQ.isLoading
+                  ? t('tx.loadingDigest')
+                  : digestQ.isError
+                    ? (digestQ.error as Error).message
+                    : t('sessions.noAgent')}
+              </div>
             )}
           </div>
         </div>

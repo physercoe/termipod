@@ -145,12 +145,13 @@ type Mode = 'live' | 'insight' | 'digest' | 'info';
 /// Focus region for a selected agent (WS4 + parity transcript work): a live
 /// transcript over the agent SSE stream (fetch-based, auth-header) with `tail`
 /// backfill + `seq` cursor, a text composer (`POST /input`), lifecycle actions
-/// (WS3), and three modes mirroring mobile:
+/// (WS3), and four modes mirroring mobile:
 /// - **Live** — the streaming feed + a `FeedLens` filter (all/text/turns/tools/
 ///   errors) with a match stepper (mobile live_feed.dart funnel/stepper).
 /// - **Insight** — a Turns/Errors navigator that jumps the full feed to a
 ///   turn's `start_seq` or an error's `seq` (mobile InsightTranscript, ADR-041).
 /// - **Digest** — the `RunReport` dashboard (`GET /digest`, ADR-038).
+/// - **Info** — agent/session metadata and runtime context.
 export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessionId?: string }): JSX.Element {
   const t = useT();
   const client = useSession((s) => s.client);
@@ -1013,15 +1014,109 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
 
   return (
     <div className="transcript">
-      <div className="transcript-bar">
-        <div className="tabs">
+      <div className="transcript-bar transcript-toolbar">
+        <div className="tabs transcript-mode-tabs">
           {modes.map((m) => (
             <button key={m.v} className={mode === m.v ? 'tab active' : 'tab'} onClick={() => setMode(m.v)}>
               {m.label}
             </button>
           ))}
         </div>
+        {mode !== 'digest' && mode !== 'info' && (agentStatus !== undefined || stats.model !== undefined) && (
+          <div className="transcript-status">
+            {agentStatus !== undefined && (
+              <span className="ts-state">
+                <span
+                  className={`dot ${running ? 'running' : agentStatus === 'failed' || agentStatus === 'crashed' ? 'stopped' : 'muted'}`}
+                />
+                {agentStatus}
+              </span>
+            )}
+            {stats.model !== undefined && <span className="ts-model">{stats.model}</span>}
+            {stats.turns > 0 && (
+              <span className="ts-metric ts-turns">
+                <span className="ts-sep">·</span>
+                <span>
+                  {stats.turns} {t('tx.turnsLabel')}
+                </span>
+              </span>
+            )}
+            {(stats.inTok > 0 || stats.outTok > 0) && (
+              <span className="ts-metric ts-tokens">
+                <span className="ts-sep">·</span>
+                <span className="ts-tok">
+                  {t('tx.tokIn')} {fmtTok(stats.inTok)} · {t('tx.tokOut')} {fmtTok(stats.outTok)}
+                </span>
+              </span>
+            )}
+            {fill !== undefined && (
+              <span className="ts-metric ts-context">
+                <span className="ts-sep">·</span>
+                <span
+                  className={`ts-ctx ctx-${fill.band}`}
+                  title={t('ctx.title')
+                    .replace('{used}', String(fill.used))
+                    .replace('{total}', String(fill.window))
+                    .replace('{pct}', `${Math.round(fill.pct * 100)}%`)}
+                >
+                  {t('ctx.label')} {fmtTok(fill.used)}/{fmtTok(fill.window)} · {Math.round(fill.pct * 100)}%
+                </span>
+              </span>
+            )}
+            {stats.costUsd !== undefined && stats.costUsd > 0 && (
+              <span className="ts-metric ts-cost-metric">
+                <span className="ts-sep">·</span>
+                {/* Engine-reported, summed from turn.result — never the digest's
+                    imputed figure, which is labeled where it is shown. */}
+                <span className="ts-cost" title={t('ctx.costTitle')}>
+                  ${stats.costUsd.toFixed(stats.costUsd >= 1 ? 2 : 4)}
+                </span>
+              </span>
+            )}
+            {stats.elapsed !== undefined && (
+              <span className="ts-metric ts-elapsed">
+                <span className="ts-sep">·</span>
+                <span>{fmtElapsed(stats.elapsed)}</span>
+              </span>
+            )}
+          </div>
+        )}
         <span className="spacer" />
+        {mode === 'live' && (
+          <div className="feed-filter transcript-feed-filter">
+            <select value={lens} onChange={(e) => setLensReset(e.target.value as FeedLens)}>
+              {FEED_LENSES.map((l) => (
+                <option key={l} value={l}>
+                  {t(`lens.${l}`)}
+                </option>
+              ))}
+            </select>
+            <button
+              className={verbose ? 'feed-verbose active' : 'feed-verbose'}
+              title={t('tx.verboseHint')}
+              onClick={() => setVerbose((v) => !v)}
+            >
+              {verbose ? t('tx.hideNoise') : t('tx.showNoise')}
+              {!verbose && verboseHidden > 0 && <span className="pill">{verboseHidden}</span>}
+            </button>
+            {lens !== 'all' && (
+              <span className="feed-stepper">
+                <span className="muted small">
+                  {matchCoords.length === 0 ? '0' : `${matchIndex + 1}/${matchCoords.length}`} {t('tx.matched')}
+                </span>
+                <button disabled={matchCoords.length === 0} title={t('tx.prev')} onClick={() => step(-1)}>
+                  <Icon name="chevron-up" size={14} />
+                </button>
+                <button disabled={matchCoords.length === 0} title={t('tx.next')} onClick={() => step(1)}>
+                  <Icon name="chevron-down" size={14} />
+                </button>
+                <button title={t('tx.clear')} onClick={() => setLensReset('all')}>
+                  <Icon name="close" size={14} />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
         <div className="lifecycle">
           {running && (
             <button className="primary" disabled={busy} onClick={() => void lifecycle((id) => client!.stopAgent(id))}>
@@ -1096,103 +1191,10 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
         </div>
       </div>
 
-      {mode !== 'digest' && mode !== 'info' && (agentStatus !== undefined || stats.model !== undefined) && (
-        <div className="transcript-status">
-          {agentStatus !== undefined && (
-            <span className="ts-state">
-              <span
-                className={`dot ${running ? 'running' : agentStatus === 'failed' || agentStatus === 'crashed' ? 'stopped' : 'muted'}`}
-              />
-              {agentStatus}
-            </span>
-          )}
-          {stats.model !== undefined && <span className="ts-model">{stats.model}</span>}
-          {stats.turns > 0 && (
-            <>
-              <span className="ts-sep">·</span>
-              <span>
-                {stats.turns} {t('tx.turnsLabel')}
-              </span>
-            </>
-          )}
-          {(stats.inTok > 0 || stats.outTok > 0) && (
-            <>
-              <span className="ts-sep">·</span>
-              <span className="ts-tok">
-                {t('tx.tokIn')} {fmtTok(stats.inTok)} · {t('tx.tokOut')} {fmtTok(stats.outTok)}
-              </span>
-            </>
-          )}
-          {fill !== undefined && (
-            <>
-              <span className="ts-sep">·</span>
-              <span
-                className={`ts-ctx ctx-${fill.band}`}
-                title={t('ctx.title')
-                  .replace('{used}', String(fill.used))
-                  .replace('{total}', String(fill.window))
-                  .replace('{pct}', `${Math.round(fill.pct * 100)}%`)}
-              >
-                {t('ctx.label')} {fmtTok(fill.used)}/{fmtTok(fill.window)} · {Math.round(fill.pct * 100)}%
-              </span>
-            </>
-          )}
-          {stats.costUsd !== undefined && stats.costUsd > 0 && (
-            <>
-              <span className="ts-sep">·</span>
-              {/* Engine-reported, summed from turn.result — never the digest's
-                  imputed figure, which is labeled where it is shown. */}
-              <span className="ts-cost" title={t('ctx.costTitle')}>
-                ${stats.costUsd.toFixed(stats.costUsd >= 1 ? 2 : 4)}
-              </span>
-            </>
-          )}
-          {stats.elapsed !== undefined && (
-            <>
-              <span className="ts-sep">·</span>
-              <span>{fmtElapsed(stats.elapsed)}</span>
-            </>
-          )}
-        </div>
-      )}
-
       {error !== null && <div className="region-pad error">{error}</div>}
 
       {mode === 'live' && (
         <>
-          <div className="feed-filter">
-            <select value={lens} onChange={(e) => setLensReset(e.target.value as FeedLens)}>
-              {FEED_LENSES.map((l) => (
-                <option key={l} value={l}>
-                  {t(`lens.${l}`)}
-                </option>
-              ))}
-            </select>
-            <button
-              className={verbose ? 'feed-verbose active' : 'feed-verbose'}
-              title={t('tx.verboseHint')}
-              onClick={() => setVerbose((v) => !v)}
-            >
-              {verbose ? t('tx.hideNoise') : t('tx.showNoise')}
-              {!verbose && verboseHidden > 0 && <span className="pill">{verboseHidden}</span>}
-            </button>
-            {lens !== 'all' && (
-              <span className="feed-stepper">
-                <span className="muted small">
-                  {matchCoords.length === 0 ? '0' : `${matchIndex + 1}/${matchCoords.length}`} {t('tx.matched')}
-                </span>
-                <button disabled={matchCoords.length === 0} title={t('tx.prev')} onClick={() => step(-1)}>
-                  <Icon name="chevron-up" size={14} />
-                </button>
-                <button disabled={matchCoords.length === 0} title={t('tx.next')} onClick={() => step(1)}>
-                  <Icon name="chevron-down" size={14} />
-                </button>
-                <button title={t('tx.clear')} onClick={() => setLensReset('all')}>
-                  <Icon name="close" size={14} />
-                </button>
-              </span>
-            )}
-          </div>
           {loaded ? (
             <div className="feed-wrap">
               <Virtuoso

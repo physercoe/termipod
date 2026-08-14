@@ -553,18 +553,6 @@ button.search-result-link:hover {
   flex-direction: column;
   overflow: hidden;
 }
-.sessions-detail-bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: var(--spacing-s8) var(--spacing-s12);
-  border-bottom: 1px solid var(--border);
-}
-.sessions-detail-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
 .chan-detail {
   display: flex;
   flex-direction: column;

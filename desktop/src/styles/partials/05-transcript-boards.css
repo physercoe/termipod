@@ -1489,6 +1489,10 @@
   padding: var(--spacing-s12);
   align-items: flex-start;
 }
+.task-kanban {
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s16);
+}
 /* Stretchy columns — fill the region, no fixed 220px dead space on widescreen. */
 .kanban-col {
   flex: 1 1 200px;
@@ -1510,14 +1514,23 @@
   gap: var(--spacing-s8);
   font-size: var(--font-size-caption);
   color: var(--text-secondary);
-  padding-bottom: var(--spacing-s4);
+  padding: 0 var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
+}
+.kanban-head .pill {
+  min-width: var(--control-sm);
+  justify-content: center;
+  padding-inline: var(--spacing-s6);
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 .kanban-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-s8);
+  border-radius: var(--radius-card);
+  padding: var(--spacing-s12);
   box-shadow: var(--sh-1);
   cursor: pointer;
   transition: box-shadow 0.13s var(--ease), border-color 0.13s var(--ease), transform 0.13s var(--ease);
@@ -1534,7 +1547,8 @@
 }
 .kanban-card.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 .kanban-card.blocked {
   border-left: 2px solid var(--danger);
@@ -1550,6 +1564,7 @@
 }
 .kanban-card-title {
   font-size: var(--font-size-body-small);
+  line-height: 1.35;
   min-width: 0;
 }
 .kanban-card-body {

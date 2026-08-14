@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
 import { useConfirm } from '../ui/ConfirmModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { AgentSpawn } from './AgentSpawn';
@@ -761,7 +762,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
   }
 
   const board = (
-    <div className="kanban">
+    <div className="kanban task-kanban">
       {columns.map((status) => {
         const items = inColumn(status);
         const droppable = dragTask !== null && (str(dragTask, 'status') ?? 'todo') !== status;
@@ -810,7 +811,7 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 
   return (
     <>
-      <div className="kanban-bar">
+      <div className="kanban-bar task-kanban-bar">
         <div className="kanban-views">
           {(['active', 'all', 'cancelled'] as TaskView[]).map((v) => (
             <button key={v} className={view === v ? 'chip active' : 'chip'} onClick={() => setView(v)}>
@@ -835,7 +836,10 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
         </select>
         <span className="spacer" />
         {dndErr !== null && <span className="error small">{dndErr}</span>}
-        <button onClick={() => setCreating(true)}>+ {t('task.new')}</button>
+        <button className="primary task-kanban-new" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={14} />
+          {t('task.new')}
+        </button>
       </div>
       {showPanel ? (
         <div className="kanban-split">

@@ -82,6 +82,45 @@ button.search-result-link:hover {
   width: 180px;
   max-width: 40vw;
 }
+.task-kanban-bar {
+  flex-wrap: wrap;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s12) var(--spacing-s16);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.task-kanban-bar .kanban-views {
+  gap: var(--spacing-s6);
+}
+.task-kanban-bar .chip {
+  min-height: var(--control-md);
+  padding-inline: var(--spacing-s12);
+  border-color: var(--border);
+  background: transparent;
+  box-shadow: none;
+}
+.task-kanban-bar .chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.task-kanban-bar .chip.active {
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.task-kanban-bar .kanban-search {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 160px;
+  max-width: 360px;
+}
+.task-kanban-new {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding-inline: var(--spacing-s16);
+}
 .task-detail {
   width: 560px;
   max-width: 94vw;

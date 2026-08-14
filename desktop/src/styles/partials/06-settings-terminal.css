@@ -475,7 +475,12 @@
   cursor: pointer;
 }
 .kanban-card[role='button']:hover {
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+}
+.kanban-card.selected[role='button']:hover {
   border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* ---- policy editor + upkeep + secret reveal (WS7 deepened) ---- */

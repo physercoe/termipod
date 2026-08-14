@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { useFocus } from '../state/focus';
 import { useSession } from '../state/session';
 import { Modal } from '../ui/Modal';
+import { useConfirm } from '../ui/ConfirmModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { AgentSpawn } from './AgentSpawn';
 import { AgentTranscript } from './AgentTranscript';
@@ -863,7 +864,47 @@ function TasksTab({ projectId }: { projectId: string }): JSX.Element {
 /// ADR-029 statuses; task cards open a detail modal that patches status.
 export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element {
   const t = useT();
+  const client = useSession((s) => s.client);
+  const clearFocus = useFocus((s) => s.clear);
+  const qc = useQueryClient();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>('overview');
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const projectQ = useQuery({
+    queryKey: ['project', projectId],
+    enabled: client !== null,
+    queryFn: () => client!.getProject(projectId),
+  });
+  const project = projectQ.data ?? {};
+  const isWorkspace = str(project, 'kind') === 'standing';
+  const name = str(project, 'name') ?? str(project, 'title') ?? projectId;
+
+  async function archive(): Promise<void> {
+    if (client === null || archiving) return;
+    const accepted = await confirm.ask({
+      message: t(isWorkspace ? 'project.archiveWorkspaceConfirm' : 'project.archiveConfirm').replace('{name}', name),
+      confirmLabel: t('tx.archive'),
+      danger: true,
+    });
+    if (!accepted) return;
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      await client.archiveProject(projectId);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['projects'] }),
+        qc.invalidateQueries({ queryKey: ['project', projectId] }),
+        qc.invalidateQueries({ queryKey: ['insights', 'team'] }),
+      ]);
+      clearFocus('projects');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setArchiveError(t('project.archiveFailed').replace('{error}', message));
+    } finally {
+      setArchiving(false);
+    }
+  }
   const tabs: { v: Tab; label: string }[] = [
     { v: 'overview', label: t('proj.overview') },
     { v: 'agents', label: t('proj.agents') },
@@ -879,14 +920,26 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
   return (
     <div className="transcript">
       <div className="transcript-bar">
-        <div className="tabs">
+        <div className="tabs project-board-tabs">
           {tabs.map((x) => (
             <button key={x.v} className={tab === x.v ? 'tab active' : 'tab'} onClick={() => setTab(x.v)}>
               {x.label}
             </button>
           ))}
         </div>
+        {str(project, 'status') !== 'archived' && (
+          <button
+            className="project-archive-btn"
+            disabled={client === null || projectQ.isLoading || archiving}
+            onClick={() => void archive()}
+          >
+            {archiving
+              ? t('project.archiving')
+              : t(isWorkspace ? 'project.archiveWorkspace' : 'project.archive')}
+          </button>
+        )}
       </div>
+      {archiveError !== null && <div className="project-action-error error small">{archiveError}</div>}
       <div className="scroll">
         {tab === 'overview' && <OverviewTab projectId={projectId} />}
         {tab === 'agents' && <AgentsTab projectId={projectId} />}
@@ -899,6 +952,7 @@ export function ProjectBoard({ projectId }: { projectId: string }): JSX.Element 
         {tab === 'files' && <FilesTab projectId={projectId} />}
         {tab === 'activity' && <ActivityTab projectId={projectId} />}
       </div>
+      {confirm.node}
     </div>
   );
 }

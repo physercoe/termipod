@@ -5,6 +5,7 @@ import { useT } from '../i18n';
 import { useSession } from '../state/session';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { useConfirm } from '../ui/ConfirmModal';
+import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { EnvProfilesManager } from './EnvProfilesManager';
 
@@ -518,6 +519,7 @@ function TemplatesTab(): JSX.Element {
     queryFn: () => client!.listTemplates(),
   });
   if (q.isError) return <div className="error">{msg(q.error)}</div>;
+  if (q.isLoading) return <div className="region-pad muted">{t('common.loading')}</div>;
   const templates = q.data ?? [];
   const byCategory = new Map<string, Entity[]>();
   for (const tpl of templates) {
@@ -528,28 +530,48 @@ function TemplatesTab(): JSX.Element {
   }
   const categories = [...byCategory.keys()].sort();
   return (
-    <div className="scroll">
-      <p className="muted">{t('admin.templatesNote')}</p>
-      {categories.map((cat) => (
-        <section key={cat} className="setting-group">
-          <div className="setting-row">
-            <h3>{cat}</h3>
-            <span className="spacer" />
-            <button onClick={() => setEdit({ category: cat, name: null })}>+ {t('admin.new')}</button>
-          </div>
-          {(byCategory.get(cat) ?? []).map((tpl, i) => (
-            <button
-              key={str(tpl, 'name') ?? String(i)}
-              className="admin-row clickable-row"
-              onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
-            >
-              <span className="mono">{str(tpl, 'name') ?? '—'}</span>
-              <span className="spacer" />
-              <span className="muted small">{str(tpl, 'source') ?? ''}</span>
-            </button>
-          ))}
-        </section>
-      ))}
+    <div className="admin-templates scroll">
+      <p className="admin-templates-note muted">{t('admin.templatesNote')}</p>
+      <div className="admin-template-grid">
+        {categories.map((cat) => {
+          const categoryTemplates = [...(byCategory.get(cat) ?? [])].sort((a, b) =>
+            (str(a, 'name') ?? '').localeCompare(str(b, 'name') ?? ''),
+          );
+          return (
+            <section key={cat} className="admin-template-group">
+              <header className="admin-template-head">
+                <div className="admin-template-heading">
+                  <h3>{cat}</h3>
+                  <span className="admin-template-count small">{categoryTemplates.length}</span>
+                </div>
+                <button className="admin-template-new" onClick={() => setEdit({ category: cat, name: null })}>
+                  <Icon name="plus" size={14} />
+                  {t('admin.new')}
+                </button>
+              </header>
+              <div className="admin-template-list">
+                {categoryTemplates.map((tpl, i) => {
+                  const templateName = str(tpl, 'name') ?? '—';
+                  const source = str(tpl, 'source') ?? '';
+                  return (
+                    <button
+                      key={templateName === '—' ? String(i) : templateName}
+                      className="admin-template-row"
+                      title={templateName}
+                      onClick={() => setEdit({ category: cat, name: str(tpl, 'name') ?? '' })}
+                    >
+                      <span className="admin-template-icon"><Icon name="file-text" size={16} /></span>
+                      <span className="admin-template-name mono">{templateName}</span>
+                      {source !== '' && <span className="admin-template-source small">{source}</span>}
+                      <Icon name="chevron-right" size={14} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
       {templates.length === 0 && <div className="muted">{t('admin.noTemplates')}</div>}
       {edit !== null && (
         <YamlEditor target={{ kind: 'template', category: edit.category, name: edit.name }} onClose={() => setEdit(null)} />

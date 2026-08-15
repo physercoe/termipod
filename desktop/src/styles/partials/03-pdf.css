@@ -769,7 +769,8 @@
 .pdfjs-anno-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: var(--spacing-s4);
 }
 /* Annotation tags — chip list + inline add input (in the popup editor). */
 .pdfjs-anno-tags {
@@ -827,34 +828,42 @@
 /* Area-annotation image actions (copy / save the screenshot). */
 .pdfjs-anno-imgacts {
   display: flex;
+  justify-content: flex-end;
   gap: var(--spacing-s4);
 }
-.pdfjs-anno-imgbtn {
+.pdfjs-anno-imgbtn,
+.pdfjs-anno-actionbtn {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-s4);
-  flex: 1;
   justify-content: center;
-  padding: var(--spacing-s4) var(--spacing-s8);
-  font-size: var(--font-size-label);
-}
-.pdfjs-anno-del {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-s2);
-  padding: var(--spacing-s2) var(--spacing-s4);
-  color: var(--danger);
+  flex: 0 0 var(--control-md);
+  width: var(--control-md);
+  height: var(--control-md);
+  min-height: var(--control-md);
+  padding: 0;
   background: transparent;
   border: none;
-  cursor: pointer;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  color: var(--text-secondary);
+}
+.pdfjs-anno-imgbtn:hover,
+.pdfjs-anno-actionbtn:hover {
+  background: var(--accent-tint);
+  border: none;
+  box-shadow: none;
+  color: var(--text);
+}
+.pdfjs-anno-del {
+  color: var(--danger);
+}
+.pdfjs-anno-del:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 .pdfjs-anno-done {
-  padding: var(--spacing-s2) var(--spacing-s12);
   color: var(--accent-text);
   background: var(--accent-tint);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
 }
 /* Annotations panel tab — the Zotero-style list of every annotation. */
 .pdfjs-anno-list {

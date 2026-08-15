@@ -641,6 +641,8 @@ test('read: PDF frequent actions stay visible and the outline folds by level', a
     await toc.getByRole('button', { name: 'Expand subheadings', exact: true }).first().click();
     await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toBeVisible();
     await expect(toc.getByRole('button', { name: 'Detail 1.1.1', exact: true })).toHaveCount(0);
+    await toc.getByRole('button', { name: 'Collapse subheadings', exact: true }).first().click();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toHaveCount(0);
     await toc.getByRole('button', { name: 'Show all heading levels', exact: true }).click();
     await expect(toc.getByRole('button', { name: 'Detail 1.1.1', exact: true })).toBeVisible();
     await toc.getByRole('button', { name: 'Show top-level headings only', exact: true }).click();
@@ -695,6 +697,25 @@ test('read: PDF frequent actions stay visible and the outline folds by level', a
     await selectionActions.getByRole('button', { name: 'Highlight', exact: true }).click();
     await expect(selectionActions).toHaveCount(0);
     await expect(page.locator('.pdfjs-anno.highlight')).toBeVisible();
+
+    await toolbar.getByRole('button', { name: 'Area (A)', exact: true }).click();
+    const areaSurface = page.locator('.pdfjs-draw-surface.image');
+    await expect(areaSurface).toBeVisible();
+    await areaSurface.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const start = { clientX: rect.left + 40, clientY: rect.top + 40 };
+      const end = { clientX: rect.left + 140, clientY: rect.top + 100 };
+      node.dispatchEvent(new PointerEvent('pointerdown', { ...start, bubbles: true, button: 0, buttons: 1 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { ...end, bubbles: true, button: 0, buttons: 1 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { ...end, bubbles: true, button: 0 }));
+    });
+    const annoEditor = page.getByRole('dialog', { name: 'Annotation editor' });
+    await expect(annoEditor).toBeVisible();
+    for (const name of ['Copy image', 'Save image as…', 'Add to note', 'Delete', 'Done']) {
+      const action = annoEditor.getByRole('button', { name, exact: true });
+      await expect(action).toBeVisible();
+      await expect(action).toHaveText('');
+    }
   } finally {
     await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale, originalAnnotations }) => {
       const libraryKey = 'termipod.library.v1';

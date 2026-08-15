@@ -521,31 +521,57 @@ function AnnoEditor({
           }}
         />
       </div>
-      {a.type === 'image' && (onCopyImage !== undefined || onSaveImage !== undefined) && (
+      {a.type === 'image' &&
+        (onCopyImage !== undefined || onSaveImage !== undefined || onAddToNote !== undefined) && (
         <div className="pdfjs-anno-imgacts">
           {onCopyImage !== undefined && (
-            <button className="pdfjs-anno-imgbtn" onClick={onCopyImage}>
-              <Icon name="copy" size={13} /> {t('read.annCopyImage')}
+            <button
+              className="pdfjs-anno-imgbtn"
+              title={t('read.annCopyImage')}
+              aria-label={t('read.annCopyImage')}
+              onClick={onCopyImage}
+            >
+              <Icon name="copy" size={14} />
             </button>
           )}
           {onSaveImage !== undefined && (
-            <button className="pdfjs-anno-imgbtn" onClick={onSaveImage}>
-              <Icon name="download" size={13} /> {t('read.annSaveImage')}
+            <button
+              className="pdfjs-anno-imgbtn"
+              title={t('read.annSaveImage')}
+              aria-label={t('read.annSaveImage')}
+              onClick={onSaveImage}
+            >
+              <Icon name="download" size={14} />
             </button>
           )}
           {onAddToNote !== undefined && (
-            <button className="pdfjs-anno-imgbtn" onClick={onAddToNote}>
-              <Icon name="note" size={13} /> {t('read.annImageToNote')}
+            <button
+              className="pdfjs-anno-imgbtn"
+              title={t('read.annImageToNote')}
+              aria-label={t('read.annImageToNote')}
+              onClick={onAddToNote}
+            >
+              <Icon name="note" size={14} />
             </button>
           )}
         </div>
       )}
       <div className="pdfjs-anno-actions">
-        <button className="pdfjs-anno-del" title={t('read.annDelete')} onClick={() => onRemove(a.id)}>
-          <Icon name="trash" size={13} /> {t('read.annDelete')}
+        <button
+          className="pdfjs-anno-actionbtn pdfjs-anno-del"
+          title={t('read.annDelete')}
+          aria-label={t('read.annDelete')}
+          onClick={() => onRemove(a.id)}
+        >
+          <Icon name="trash" size={14} />
         </button>
-        <button className="pdfjs-anno-done" onClick={onClose}>
-          {t('read.annDone')}
+        <button
+          className="pdfjs-anno-actionbtn pdfjs-anno-done"
+          title={t('read.annDone')}
+          aria-label={t('read.annDone')}
+          onClick={onClose}
+        >
+          <Icon name="check" size={14} />
         </button>
       </div>
     </div>

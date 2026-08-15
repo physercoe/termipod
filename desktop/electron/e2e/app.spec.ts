@@ -698,7 +698,14 @@ test('read: PDF frequent actions stay visible and the outline folds by level', a
     await expect(selectionActions).toHaveCount(0);
     await expect(page.locator('.pdfjs-anno.highlight')).toBeVisible();
 
-    await toolbar.getByRole('button', { name: 'Area (A)', exact: true }).click();
+    const areaButton = toolbar.getByRole('button', { name: 'Area (A)', exact: true });
+    if (await areaButton.count()) {
+      await areaButton.click();
+    } else {
+      // Narrow toolbars move annotation tools into the responsive overflow menu.
+      await toolbar.getByRole('button', { name: 'More PDF controls', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Area', exact: true }).click();
+    }
     const areaSurface = page.locator('.pdfjs-draw-surface.image');
     await expect(areaSurface).toBeVisible();
     await areaSurface.evaluate((node) => {

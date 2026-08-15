@@ -825,14 +825,8 @@
   color: var(--text-muted);
   font-size: var(--font-size-label);
 }
-/* Area-annotation image actions (copy / save the screenshot). */
-.pdfjs-anno-imgacts {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-s4);
-}
-.pdfjs-anno-imgbtn,
 .pdfjs-anno-actionbtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -847,12 +841,54 @@
   box-shadow: none;
   color: var(--text-secondary);
 }
-.pdfjs-anno-imgbtn:hover,
 .pdfjs-anno-actionbtn:hover {
   background: var(--accent-tint);
   border: none;
   box-shadow: none;
   color: var(--text);
+}
+.pdfjs-anno-actionbtn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: calc(100% + var(--spacing-s4));
+  translate: -50% 2px;
+  max-width: 190px;
+  padding: 3px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  box-shadow: var(--sh-2, none);
+  color: var(--text);
+  font-size: var(--font-size-label);
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease, translate 100ms ease;
+}
+.pdfjs-anno-actionbtn:hover::after,
+.pdfjs-anno-actionbtn:focus-visible::after {
+  translate: -50% 0;
+  opacity: 1;
+}
+.pdfjs-anno-actionbtn:first-of-type::after {
+  left: 0;
+  translate: 0 2px;
+}
+.pdfjs-anno-actionbtn:first-of-type:hover::after,
+.pdfjs-anno-actionbtn:first-of-type:focus-visible::after,
+.pdfjs-anno-actionbtn:last-child::after {
+  translate: 0 0;
+}
+.pdfjs-anno-actionbtn:last-child::after {
+  right: 0;
+  left: auto;
+}
+.pdfjs-anno-action-spacer {
+  flex: 1 1 auto;
 }
 .pdfjs-anno-del {
   color: var(--danger);

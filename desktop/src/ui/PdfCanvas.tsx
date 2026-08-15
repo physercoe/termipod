@@ -13,6 +13,7 @@ import { useAnnotations, ANNOTATION_COLORS } from '../state/annotations';
 import type { Annotation } from '../state/annotations';
 import { TabStrip } from './TabStrip';
 import { PopoverMenu } from './PopoverMenu';
+import { useConfirm } from './ConfirmModal';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
@@ -429,6 +430,7 @@ function AnnoEditor({
   // useT() is memoised/stable (#311), so children call it locally instead of
   // receiving `t` drilled as a prop (#322).
   const t = useT();
+  const confirmDelete = useConfirm();
   // Anchor under the annotation's first rect (or its ink bbox).
   const anchor = useMemo(() => {
     const r = a.position.rects?.[0];
@@ -441,20 +443,28 @@ function AnnoEditor({
     return { left: 0, top: 0, width: 0, height: 0 };
   }, [a, uw, uh, scale, rot]);
 
-  // Keep the popover on-screen: near a page/viewport edge it would render partly
-  // off-screen, so measure and nudge it back with a transform.
+  // Keep the popover inside the actual reading pane, not merely the window. The
+  // PDF outline and its resize divider are siblings of the page scroller; an
+  // editor allowed to drift beneath them still looks present by DOM geometry but
+  // cannot receive hover/click events.
   const editRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const el = editRef.current;
     if (el === null) return;
     el.style.transform = '';
     const r = el.getBoundingClientRect();
+    const scroll = el.closest<HTMLElement>('.pdfjs-scroll');
+    const pane = scroll?.getBoundingClientRect();
+    const minX = Math.max(8, (pane?.left ?? 0) + 8);
+    const maxX = Math.min(window.innerWidth - 8, (pane?.right ?? window.innerWidth) - 8);
+    const minY = Math.max(8, (pane?.top ?? 0) + 8);
+    const maxY = Math.min(window.innerHeight - 8, (pane?.bottom ?? window.innerHeight) - 8);
     let dx = 0;
     let dy = 0;
-    if (r.right > window.innerWidth - 8) dx = window.innerWidth - 8 - r.right;
-    if (r.bottom > window.innerHeight - 8) dy = window.innerHeight - 8 - r.bottom;
-    if (r.left + dx < 8) dx = 8 - r.left;
-    if (r.top + dy < 8) dy = 8 - r.top;
+    if (r.right > maxX) dx = maxX - r.right;
+    if (r.bottom > maxY) dy = maxY - r.bottom;
+    if (r.left + dx < minX) dx = minX - r.left;
+    if (r.top + dy < minY) dy = minY - r.top;
     if (dx !== 0 || dy !== 0) el.style.transform = `translate(${dx}px, ${dy}px)`;
   }, [anchor]);
 
@@ -521,59 +531,70 @@ function AnnoEditor({
           }}
         />
       </div>
-      {a.type === 'image' &&
-        (onCopyImage !== undefined || onSaveImage !== undefined || onAddToNote !== undefined) && (
-        <div className="pdfjs-anno-imgacts">
-          {onCopyImage !== undefined && (
-            <button
-              className="pdfjs-anno-imgbtn"
-              title={t('read.annCopyImage')}
-              aria-label={t('read.annCopyImage')}
-              onClick={onCopyImage}
-            >
-              <Icon name="copy" size={14} />
-            </button>
-          )}
-          {onSaveImage !== undefined && (
-            <button
-              className="pdfjs-anno-imgbtn"
-              title={t('read.annSaveImage')}
-              aria-label={t('read.annSaveImage')}
-              onClick={onSaveImage}
-            >
-              <Icon name="download" size={14} />
-            </button>
-          )}
-          {onAddToNote !== undefined && (
-            <button
-              className="pdfjs-anno-imgbtn"
-              title={t('read.annImageToNote')}
-              aria-label={t('read.annImageToNote')}
-              onClick={onAddToNote}
-            >
-              <Icon name="note" size={14} />
-            </button>
-          )}
-        </div>
-      )}
-      <div className="pdfjs-anno-actions">
+      <div className="pdfjs-anno-actions" role="toolbar" aria-label={t('read.annActions')}>
+        {a.type === 'image' && (
+          <>
+            {onCopyImage !== undefined && (
+              <button
+                className="pdfjs-anno-actionbtn"
+                data-tooltip={t('read.annCopyImage')}
+                aria-label={t('read.annCopyImage')}
+                onClick={onCopyImage}
+              >
+                <Icon name="copy" size={14} />
+              </button>
+            )}
+            {onSaveImage !== undefined && (
+              <button
+                className="pdfjs-anno-actionbtn"
+                data-tooltip={t('read.annSaveImage')}
+                aria-label={t('read.annSaveImage')}
+                onClick={onSaveImage}
+              >
+                <Icon name="download" size={14} />
+              </button>
+            )}
+            {onAddToNote !== undefined && (
+              <button
+                className="pdfjs-anno-actionbtn"
+                data-tooltip={t('read.annImageToNote')}
+                aria-label={t('read.annImageToNote')}
+                onClick={onAddToNote}
+              >
+                <Icon name="note" size={14} />
+              </button>
+            )}
+          </>
+        )}
+        <span className="pdfjs-anno-action-spacer" aria-hidden="true" />
         <button
           className="pdfjs-anno-actionbtn pdfjs-anno-del"
-          title={t('read.annDelete')}
+          data-tooltip={t('read.annDelete')}
           aria-label={t('read.annDelete')}
-          onClick={() => onRemove(a.id)}
+          onClick={() => {
+            void confirmDelete
+              .ask({
+                message: t('read.annDeleteConfirm'),
+                confirmLabel: t('read.annDelete'),
+                danger: true,
+              })
+              .then((confirmed) => {
+                if (confirmed) onRemove(a.id);
+              });
+          }}
         >
           <Icon name="trash" size={14} />
         </button>
         <button
           className="pdfjs-anno-actionbtn pdfjs-anno-done"
-          title={t('read.annDone')}
+          data-tooltip={t('read.annDone')}
           aria-label={t('read.annDone')}
           onClick={onClose}
         >
           <Icon name="check" size={14} />
         </button>
       </div>
+      {confirmDelete.node}
     </div>
   );
 }

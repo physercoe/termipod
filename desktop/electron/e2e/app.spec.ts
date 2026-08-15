@@ -711,11 +711,34 @@ test('read: PDF frequent actions stay visible and the outline folds by level', a
     });
     const annoEditor = page.getByRole('dialog', { name: 'Annotation editor' });
     await expect(annoEditor).toBeVisible();
+    const annoActions = annoEditor.getByRole('toolbar', { name: 'Annotation actions' });
+    await expect(annoActions).toBeVisible();
     for (const name of ['Copy image', 'Save image as…', 'Add to note', 'Delete', 'Done']) {
-      const action = annoEditor.getByRole('button', { name, exact: true });
+      const action = annoActions.getByRole('button', { name, exact: true });
       await expect(action).toBeVisible();
       await expect(action).toHaveText('');
+      await expect(action).toHaveAttribute('data-tooltip', name);
     }
+    const actionCenters = await annoActions.getByRole('button').evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return Math.round(rect.top + rect.height / 2);
+      }),
+    );
+    expect(new Set(actionCenters).size).toBe(1);
+
+    const saveImage = annoActions.getByRole('button', { name: 'Save image as…', exact: true });
+    await saveImage.hover();
+    await expect.poll(() =>
+      saveImage.evaluate((button) => getComputedStyle(button, '::after').opacity),
+    ).toBe('1');
+
+    await annoActions.getByRole('button', { name: 'Delete', exact: true }).click();
+    const deleteConfirm = page.getByRole('dialog', { name: 'Delete this annotation? This cannot be undone.' });
+    await expect(deleteConfirm).toBeVisible();
+    await expect(page.locator('.pdfjs-anno.image')).toBeVisible();
+    await deleteConfirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(deleteConfirm).toHaveCount(0);
   } finally {
     await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale, originalAnnotations }) => {
       const libraryKey = 'termipod.library.v1';

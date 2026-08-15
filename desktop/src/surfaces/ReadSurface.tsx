@@ -3179,7 +3179,6 @@ export function ReadSurface(): JSX.Element {
             />
           ) : (
             <div className="ref-inspector-empty-wrap">
-              <div className="ref-tabs" aria-hidden="true" />
               <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
             </div>
           )}

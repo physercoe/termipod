@@ -1127,23 +1127,23 @@ test('workbench: left-pane header cells align actions after the body divider', a
   }
 });
 
-test('read: list controls and inspector tabs share the same horizontal grid line', async () => {
+test('read: the empty inspector starts without a redundant tabs row', async () => {
   await page.locator('[data-job="read"]').click();
   await page.locator('.surface-read .surface-head .seg-btn').first().click();
   const listBar = page.locator('.read-list-bar');
-  const inspectorTabs = page.locator('.read-inspector-pane .ref-tabs');
+  const emptyInspector = page.locator('.read-inspector-pane .ref-inspector-empty-wrap');
   await expect(listBar).toBeVisible();
-  await expect(inspectorTabs).toBeVisible();
+  await expect(emptyInspector).toBeVisible();
+  await expect(emptyInspector.locator('.ref-tabs')).toHaveCount(0);
   const metrics = await Promise.all(
-    [listBar, inspectorTabs].map((locator) =>
+    [listBar, emptyInspector].map((locator) =>
       locator.evaluate((node) => {
         const rect = node.getBoundingClientRect();
-        return { top: rect.top, bottom: rect.bottom, height: rect.height };
+        return { top: rect.top };
       }),
     ),
   );
-  expect(metrics[0]).toEqual(metrics[1]);
-  expect(metrics[0]?.height).toBe(40);
+  expect(metrics[0]?.top).toBe(metrics[1]?.top);
   await expect(listBar.locator('button.primary')).toContainText('Add');
 
   await page.locator('.surface-read .surface-head .seg-btn').nth(1).click();

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { foldGutter, codeFolding } from '@codemirror/language';
 import { MergeView } from '@codemirror/merge';
 import { codeTheme, highlightExtension, resolveLang } from './codeTheme';
 import { Icon } from './Icon';
+import { ResizeHandle } from './ResizeHandle';
 import { useT } from '../i18n';
 
 /// The Inspect (J3) **two-blob compare** viewer (W2, tier 2) — editor-grade
@@ -33,6 +34,35 @@ export function TwoBlobCompare({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [wrap, setWrap] = useState(false);
   const viewRef = useRef<MergeView | null>(null);
+  const [splitRatio, setSplitRatio] = useState(() => {
+    const stored = Number(localStorage.getItem('termipod.inspect.compareRatio'));
+    return Number.isFinite(stored) && stored >= 0.2 && stored <= 0.8 ? stored : 0.5;
+  });
+  const persistRatio = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function resizePanes(dx: number): void {
+    const width = hostRef.current?.clientWidth ?? 0;
+    if (width <= 0) return;
+    setSplitRatio((current) => {
+      const next = Math.max(0.2, Math.min(0.8, current + dx / width));
+      if (persistRatio.current !== undefined) clearTimeout(persistRatio.current);
+      persistRatio.current = setTimeout(() => {
+        try {
+          localStorage.setItem('termipod.inspect.compareRatio', String(next));
+        } catch {
+          /* ignore */
+        }
+      }, 250);
+      return next;
+    });
+  }
+
+  useEffect(
+    () => () => {
+      if (persistRatio.current !== undefined) clearTimeout(persistRatio.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -92,7 +122,15 @@ export function TwoBlobCompare({
           <Icon name="wrap" size={15} />
         </button>
       </div>
-      <div className="compare-host" ref={hostRef} />
+      <div
+        className="compare-stage"
+        style={{ '--compare-split': `${splitRatio * 100}%` } as CSSProperties}
+      >
+        <div className="compare-host" ref={hostRef} />
+        <div className="compare-split-handle">
+          <ResizeHandle onResize={resizePanes} />
+        </div>
+      </div>
     </div>
   );
 }

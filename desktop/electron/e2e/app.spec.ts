@@ -1386,7 +1386,7 @@ test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async ()
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
 
-test('inspect: comparing two open tabs mounts the merge view (W2)', async () => {
+test('inspect: comparing two open tabs scrolls and resizes both merge panes (W2)', async () => {
   await dismissConnectModal();
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   // Tab A.
@@ -1395,14 +1395,18 @@ test('inspect: comparing two open tabs mounts the merge view (W2)', async () => 
   await expect(editor).toBeVisible();
   await editor.click({ force: true });
   await editor.focus();
-  await page.keyboard.type('alpha\nbeta\ngamma');
+  await page.keyboard.insertText(
+    Array.from({ length: 140 }, (_, index) => `left-${index}: ${'alpha '.repeat(24)}`).join('\n'),
+  );
   // Tab B (becomes active).
   await page.getByRole('button', { name: 'New scratch' }).click();
   editor = page.locator('.inspect-code .cm-content');
   await expect(editor).toBeVisible();
   await editor.click({ force: true });
   await editor.focus();
-  await page.keyboard.type('alpha\nBETA\ngamma');
+  await page.keyboard.insertText(
+    Array.from({ length: 140 }, (_, index) => `right-${index}: ${'BETA '.repeat(24)}`).join('\n'),
+  );
   // Compare ▾ → the first "open tab" entry is the other scratch. Scope to the
   // surface (`main`): "Compare" also names the J5 activity-bar tab in the nav,
   // so an unscoped role query is a strict-mode collision.
@@ -1410,7 +1414,36 @@ test('inspect: comparing two open tabs mounts the merge view (W2)', async () => 
   await expect(page.locator('.inspect-menu')).toBeVisible();
   await page.locator('.inspect-menu-item').first().click();
   // The @codemirror/merge view mounts (its own lazy chunk).
-  await expect(page.locator('.compare-host .cm-mergeView')).toBeVisible({ timeout: 15000 });
+  const merge = page.locator('.compare-host .cm-mergeView');
+  await expect(merge).toBeVisible({ timeout: 15000 });
+
+  // The merge root owns vertical scrolling; each CodeMirror scroller keeps its
+  // own horizontal axis for long source lines.
+  await expect.poll(() => merge.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(20);
+  await merge.evaluate((node) => {
+    node.scrollTop = Math.min(240, node.scrollHeight - node.clientHeight);
+  });
+  await expect.poll(() => merge.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  const leftScroller = merge.locator('.cm-scroller').first();
+  await expect.poll(() => leftScroller.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeGreaterThan(20);
+  await leftScroller.evaluate((node) => {
+    node.scrollLeft = Math.min(180, node.scrollWidth - node.clientWidth);
+  });
+  await expect.poll(() => leftScroller.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+
+  // The shared divider resizes the two compare panes and persists their ratio.
+  const leftPane = merge.locator('.cm-mergeViewEditor').first();
+  const beforeWidth = await leftPane.evaluate((node) => node.getBoundingClientRect().width);
+  const divider = page.locator('.compare-split-handle .resize-handle');
+  await expect(divider).toBeVisible();
+  await divider.evaluate((node) => {
+    const x = node.getBoundingClientRect().left;
+    node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x }));
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x + 80 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x + 80 }));
+  });
+  await expect.poll(() => leftPane.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(beforeWidth + 40);
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('termipod.inspect.compareRatio')))).toBeGreaterThan(0.5);
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
 

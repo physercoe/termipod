@@ -72,7 +72,7 @@ const WysiwygEditor = lazy(() => import('../ui/WysiwygEditor').then((m) => ({ de
 import { ResizeHandle, VResizeHandle } from '../ui/ResizeHandle';
 import { useContextMenu } from '../ui/ContextMenu';
 import { WebdavModal } from '../ui/WebdavModal';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 import { PopoverMenu } from '../ui/PopoverMenu';
 
 
@@ -1001,13 +1001,11 @@ function Inspector({
   refId,
   onOpenReader,
   onOpenNote,
-  onCollapse,
   embedded,
 }: {
   refId: string;
   onOpenReader?: (id: string, attId?: string) => void;
   onOpenNote?: (refId: string) => void;
-  onCollapse?: () => void;
   embedded?: boolean;
 }): JSX.Element {
   const t = useT();
@@ -1152,11 +1150,6 @@ function Inspector({
   return (
     <div className="ref-inspector">
       <div className="ref-tabs">
-        {onCollapse !== undefined && (
-          <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={onCollapse}>
-            <Icon name="sidebar" size={16} className="mirror-x" />
-          </button>
-        )}
         <div className="ref-tab-strip">
           <div className="ref-tab-nav" role="tablist">
             {tabs.map((tb) => (
@@ -2665,6 +2658,17 @@ export function ReadSurface(): JSX.Element {
   return (
     <WorkbenchSurface
       job="read"
+      leadingActions={
+        activeTab === null ? (
+          <HeaderPaneToggle
+            side="left"
+            open={!railCollapsed}
+            showLabel={t('read.showSidebar')}
+            hideLabel={t('nav.collapse')}
+            onToggle={() => foldRail(!railCollapsed)}
+          />
+        ) : undefined
+      }
       actions={
         <>
           <input
@@ -2761,6 +2765,15 @@ export function ReadSurface(): JSX.Element {
               )}
             </PopoverMenu>
           </div>
+          {activeTab === null && (
+            <HeaderPaneToggle
+              side="right"
+              open={!inspCollapsed}
+              showLabel={t('read.showDetails')}
+              hideLabel={t('read.hideDetails')}
+              onToggle={() => foldInsp(!inspCollapsed)}
+            />
+          )}
         </>
       }
     >
@@ -2878,11 +2891,7 @@ export function ReadSurface(): JSX.Element {
             </div>
           )}
           <div className="read-layout">
-        {railCollapsed ? (
-          <button className="read-pane-expand" title={t('read.showSidebar')} onClick={() => foldRail(false)}>
-            <Icon name="chevron-right" />
-          </button>
-        ) : (
+        {!railCollapsed ? (
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
@@ -2911,9 +2920,6 @@ export function ReadSurface(): JSX.Element {
                   {t('read.allItems')}
                   <span className="spacer" />
                   <span className="muted small">{references.length}</span>
-                </button>
-                <button className="pane-toggle read-fold read-rail-fold" title={t('read.collapse')} onClick={() => foldRail(true)}>
-                  <Icon name="sidebar" size={16} />
                 </button>
               </div>
               {collections.map((c) => (
@@ -3016,7 +3022,7 @@ export function ReadSurface(): JSX.Element {
           }
         />
           </>
-        )}
+        ) : null}
 
         <div className="read-center">
           {mode === 'discover' ? (
@@ -3151,11 +3157,7 @@ export function ReadSurface(): JSX.Element {
           )}
         </div>
 
-        {inspCollapsed ? (
-          <button className="read-pane-expand" title={t('read.showDetails')} onClick={() => foldInsp(false)}>
-            <Icon name="chevron-left" />
-          </button>
-        ) : (
+        {!inspCollapsed ? (
           <>
         <ResizeHandle
           onResize={(dx) =>
@@ -3173,22 +3175,16 @@ export function ReadSurface(): JSX.Element {
               refId={selected}
               onOpenReader={openPdfTab}
               onOpenNote={openNoteTab}
-              onCollapse={() => foldInsp(true)}
             />
           ) : (
             <div className="ref-inspector-empty-wrap">
-              <div className="ref-tabs">
-                <span className="spacer" />
-                <button className="pane-toggle read-fold" title={t('read.collapse')} onClick={() => foldInsp(true)}>
-                  <Icon name="sidebar" size={16} className="mirror-x" />
-                </button>
-              </div>
+              <div className="ref-tabs" aria-hidden="true" />
               <div className="muted region-pad ref-inspector-empty">{t('read.pickItem')}</div>
             </div>
           )}
         </aside>
           </>
-        )}
+        ) : null}
           </div>
         </>
       )}

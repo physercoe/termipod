@@ -1001,6 +1001,67 @@ test('workbench: primary surface headers share one grid and action height', asyn
   }
 });
 
+test('workbench: pane toggles stay pinned to the surface header edges', async () => {
+  await dismissConnectModal();
+
+  for (const job of ['fleet', 'projects']) {
+    await page.locator(`[data-job="${job}"]`).click();
+    const header = page.locator('.fleet-toolbar').first();
+    const left = header.locator('.header-pane-toggle.left');
+    const right = header.locator('.header-pane-toggle.right');
+    await expect(left).toBeVisible();
+    await expect(right).toBeVisible();
+    await expect.poll(() => header.evaluate((node) => {
+      const leftToggle = node.querySelector('.header-pane-toggle.left');
+      const label = node.querySelector('.fleet-toolbar-label');
+      const rightToggle = node.querySelector('.header-pane-toggle.right');
+      return leftToggle !== null && label !== null && rightToggle !== null
+        ? {
+            leftBeforeLabel: (leftToggle.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+            rightIsLast: rightToggle === node.lastElementChild,
+          }
+        : null;
+    })).toEqual({ leftBeforeLabel: true, rightIsLast: true });
+
+    const nav = page.locator('.mission-nav');
+    const dock = page.locator('.region.dock');
+    const navWasOpen = (await left.getAttribute('aria-pressed')) === 'true';
+    const dockWasOpen = (await right.getAttribute('aria-pressed')) === 'true';
+    await left.click();
+    await expect(nav).toHaveCount(navWasOpen ? 0 : 1);
+    await expect(left).toHaveAttribute('aria-pressed', navWasOpen ? 'false' : 'true');
+    await right.click();
+    await expect(dock).toHaveCount(dockWasOpen ? 0 : 1);
+    await expect(right).toHaveAttribute('aria-pressed', dockWasOpen ? 'false' : 'true');
+    await left.click();
+    await right.click();
+  }
+
+  await page.locator('[data-job="author"]').click();
+  const authorToggle = page.locator('.surface-author .surface-leading-actions .header-pane-toggle.left');
+  await expect(authorToggle).toBeVisible();
+  const authorWasOpen = (await authorToggle.getAttribute('aria-pressed')) === 'true';
+  await authorToggle.click();
+  await expect(page.locator('.surface-author .author-nav-col')).toHaveCount(authorWasOpen ? 0 : 1);
+  await expect(authorToggle).toHaveAttribute('aria-pressed', authorWasOpen ? 'false' : 'true');
+  await authorToggle.click();
+
+  await page.locator('[data-job="read"]').click();
+  await page.locator('.surface-read .surface-head .seg-btn').first().click();
+  const readLeft = page.locator('.surface-read .surface-leading-actions .header-pane-toggle.left');
+  const readRight = page.locator('.surface-read .surface-actions .header-pane-toggle.right');
+  await expect(readLeft).toBeVisible();
+  await expect(readRight).toBeVisible();
+  const railWasOpen = (await readLeft.getAttribute('aria-pressed')) === 'true';
+  const inspectorWasOpen = (await readRight.getAttribute('aria-pressed')) === 'true';
+  await readLeft.click();
+  await expect(page.locator('.surface-read .read-rail')).toHaveCount(railWasOpen ? 0 : 1);
+  await readRight.click();
+  await expect(page.locator('.surface-read .read-inspector-pane')).toHaveCount(inspectorWasOpen ? 0 : 1);
+  await readLeft.click();
+  await readRight.click();
+});
+
 test('read: list controls and inspector tabs share the same horizontal grid line', async () => {
   await page.locator('[data-job="read"]').click();
   await page.locator('.surface-read .surface-head .seg-btn').first().click();
@@ -1053,6 +1114,14 @@ test('inspect: tree filter and content search use two rows at most', async () =>
     await page.reload({ waitUntil: 'domcontentloaded' });
     await dismissConnectModal();
     await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+
+    const treeToggle = page.locator('.surface-debug .surface-leading-actions .header-pane-toggle.left');
+    await expect(treeToggle).toBeVisible();
+    await expect(treeToggle).toHaveAttribute('aria-pressed', 'true');
+    await treeToggle.click();
+    await expect(page.locator('.surface-debug .inspect-tree')).toHaveCount(0);
+    await expect(treeToggle).toHaveAttribute('aria-pressed', 'false');
+    await treeToggle.click();
 
     const root = page.locator('.inspect-tree-root', { hasText: 'search-layout' });
     await page.locator('.surface-debug .surface-head button.primary').click();

@@ -176,7 +176,6 @@ button > .ui-icon:not(:only-child):first-child,
 .term-nav-btn,
 .author-nav-icon,
 .read-fold,
-.read-pane-expand,
 .term-tab-x,
 .read-tabitem-x,
 .read-col-x,
@@ -237,6 +236,12 @@ button > .ui-icon:not(:only-child):first-child,
 .surface-hint {
   display: none;
 }
+.surface-leading-actions {
+  flex: 0 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
 .surface-actions {
   min-width: 0;
   height: 100%;
@@ -249,6 +254,10 @@ button > .ui-icon:not(:only-child):first-child,
   height: var(--control-sm);
   padding: 4px 9px;
   font-size: var(--font-size-body-small);
+}
+.surface-head .header-pane-toggle {
+  width: var(--control-sm);
+  padding: 0;
 }
 .surface-head .import-btn:not(.primary) {
   margin-right: 0;
@@ -536,11 +545,6 @@ button > .ui-icon:not(:only-child):first-child,
 }
 .author-newbtn > .import-btn:hover {
   transform: none;
-}
-/* Collapsed-workspace edge button sits at the surface's left edge — no extra
-   border there. */
-.author-nav-show {
-  border-left: none;
 }
 /* AgentCompanion — hub-attached assistant panel (the unified assistant dock's
    Companion tab; the per-surface Read/Author mounts are retired). */

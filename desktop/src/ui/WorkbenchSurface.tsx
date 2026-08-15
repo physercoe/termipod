@@ -1,18 +1,52 @@
 import type { ReactNode } from 'react';
 import { useT } from '../i18n';
 import { JOBS, type JobId } from '../state/workbench';
+import { Icon } from './Icon';
 import { JobIcon } from './JobIcon';
 
-/// Shared chrome for a workbench job surface (J1–J6): a titled header with the
-/// job's J-tag and one-line hint, an optional actions slot, and a scrolling body.
-/// Keeps every job surface visually consistent with the fleet regions while
-/// giving each its own centre-stage layout.
+/// One persistent, icon-only control for a surface side pane. Keeping the same
+/// button in the header while the pane opens and closes avoids the old pattern
+/// where the affordance jumped between an in-pane collapse button and a narrow
+/// body-edge reveal rail.
+export function HeaderPaneToggle({
+  side,
+  open,
+  showLabel,
+  hideLabel,
+  onToggle,
+}: {
+  side: 'left' | 'right';
+  open: boolean;
+  showLabel: string;
+  hideLabel: string;
+  onToggle: () => void;
+}): JSX.Element {
+  const label = open ? hideLabel : showLabel;
+  return (
+    <button
+      className={`pane-toggle header-pane-toggle ${side}`}
+      title={label}
+      aria-label={label}
+      aria-pressed={open}
+      onClick={onToggle}
+    >
+      <Icon name="sidebar" size={16} className={side === 'right' ? 'mirror-x' : undefined} />
+    </button>
+  );
+}
+
+/// Shared chrome for a workbench job surface: a titled header with a stable
+/// leading slot for left-pane controls, a trailing actions slot, and a scrolling
+/// body. Keeps every job surface visually consistent with the fleet regions
+/// while giving each its own centre-stage layout.
 export function WorkbenchSurface({
   job,
+  leadingActions,
   actions,
   children,
 }: {
   job: JobId;
+  leadingActions?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
 }): JSX.Element {
@@ -21,6 +55,7 @@ export function WorkbenchSurface({
   return (
     <section className={`surface surface-${job}`} aria-label={def ? t(def.labelKey) : job}>
       <header className="surface-head">
+        {leadingActions !== undefined && <div className="surface-leading-actions">{leadingActions}</div>}
         <span className="surface-icon">{def && <JobIcon id={def.id} size={20} />}</span>
         <div className="surface-titles">
           <div className="surface-title">

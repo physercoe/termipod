@@ -170,13 +170,11 @@ export function InspectTree({
   width,
   onPick,
   onAddFolder,
-  onClose,
   onOpenPatch,
 }: {
   width: number;
   onPick: (r: PickResult) => void;
   onAddFolder: () => void;
-  onClose: () => void;
   onOpenPatch: (title: string, patch: string) => void;
 }): JSX.Element {
   const t = useT();
@@ -522,9 +520,6 @@ export function InspectTree({
             <Icon name="plus" size={14} />
           </button>
         )}
-        <button className="pane-toggle" title={t('nav.collapse')} onClick={onClose}>
-          <Icon name="sidebar" size={14} />
-        </button>
       </div>
       <div className="inspect-tree-body" onContextMenu={(e) => menu.open(e, panelMenu())}>
         {roots.map((root) => {

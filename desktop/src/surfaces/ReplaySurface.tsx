@@ -16,7 +16,7 @@ import {
   resolveHandoff,
   type DatasetSummary,
 } from '../state/replayDigest';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 import { EpisodePlayer } from './EpisodePlayer';
 
 /// J8 — Replay. The destination surface for episode data: a dataset library on
@@ -142,6 +142,7 @@ function Stat({ label, value }: { label: string; value: string }): JSX.Element {
 
 export function ReplaySurface(): JSX.Element {
   const t = useT();
+  const [railOpen, setRailOpen] = useState(() => localStorage.getItem('termipod.replay.railOpen') !== '0');
   const client = useSession((s) => s.client);
   const projectsQ = useProjects();
   const projects = projectsQ.data ?? [];
@@ -305,9 +306,31 @@ export function ReplaySurface(): JSX.Element {
     });
   }
 
+  function toggleRail(): void {
+    setRailOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem('termipod.replay.railOpen', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
   return (
     <WorkbenchSurface
       job="replay"
+      leadingPaneWidth={railOpen ? 260 : 0}
+      leadingActions={
+        <HeaderPaneToggle
+          side="left"
+          open={railOpen}
+          showLabel={t('nav.expand')}
+          hideLabel={t('nav.collapse')}
+          onToggle={toggleRail}
+        />
+      }
       actions={
         <>
           <select
@@ -325,6 +348,17 @@ export function ReplaySurface(): JSX.Element {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="import-btn"
+            onClick={() => {
+              setAdding((v) => !v);
+              setPrefilled(false);
+              if (!railOpen) toggleRail();
+            }}
+          >
+            {adding ? t('replay.register.cancel') : t('replay.register')}
+          </button>
           {datasetId !== '' && (
             <button type="button" className="import-btn" onClick={() => void refresh()} disabled={busy}>
               {busy ? t('replay.refreshing') : t('replay.refresh')}
@@ -334,22 +368,12 @@ export function ReplaySurface(): JSX.Element {
       }
     >
       {error !== null && <div className="replay-error small">{error}</div>}
-      <div className="replay-layout">
-        <aside className="replay-rail scroll" aria-label={t('replay.library')}>
-          <div className="replay-rail-head muted small">
-            {t('replay.library')}
-            <span className="spacer" />
-            <button
-              type="button"
-              className="link-btn small"
-              onClick={() => {
-                setAdding((v) => !v);
-                setPrefilled(false);
-              }}
-            >
-              {adding ? t('replay.register.cancel') : t('replay.register')}
-            </button>
-          </div>
+      <div className={`replay-layout${railOpen ? '' : ' rail-folded'}`}>
+        {railOpen && (
+          <aside className="replay-rail scroll" aria-label={t('replay.library')}>
+            <div className="replay-rail-head muted small">
+              {t('replay.library')}
+            </div>
           {adding && (
             <div className="replay-register">
               {prefilled && <div className="replay-handoff small">{t('replay.register.fromInspect')}</div>}
@@ -409,7 +433,8 @@ export function ReplaySurface(): JSX.Element {
               })}
             </ul>
           )}
-        </aside>
+          </aside>
+        )}
 
         <div className="replay-main scroll">
           {selected === undefined ? (

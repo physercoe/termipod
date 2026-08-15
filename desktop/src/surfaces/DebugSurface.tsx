@@ -4,7 +4,7 @@ import { isShell } from '../platform';
 import { invoke } from '../bridge';
 import { Icon, type IconName } from '../ui/Icon';
 import { InspectFileIcon } from '../ui/InspectFileIcon';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 import type { CodeViewHandle } from '../ui/CodeView';
 import { kindForInspectFile, useInspect, type InspectKind, type InspectRef, type InspectTab } from '../state/inspect';
 import { classifyArch, parseHfConfig, parsePolicyConfig } from '../state/checkpoint';
@@ -1277,18 +1277,20 @@ export function DebugSurface(): JSX.Element {
   return (
     <WorkbenchSurface
       job="debug"
+      leadingPaneWidth={roots.length > 0 ? (treeOpen ? treeW : 0) : undefined}
+      leadingActions={
+        roots.length > 0 ? (
+          <HeaderPaneToggle
+            side="left"
+            open={treeOpen}
+            showLabel={t('inspect.showTree')}
+            hideLabel={t('inspect.hideTree')}
+            onToggle={() => setTree(!treeOpen)}
+          />
+        ) : undefined
+      }
       actions={
         <>
-          {roots.length > 0 && (
-            <button
-              className={`import-btn${treeOpen ? ' active' : ''}`}
-              title={treeOpen ? t('inspect.hideTree') : t('inspect.showTree')}
-              aria-pressed={treeOpen}
-              onClick={() => setTree(!treeOpen)}
-            >
-              <Icon name="sidebar" size={14} /> {t('inspect.tree')}
-            </button>
-          )}
           <button className="import-btn primary" onClick={newScratch}>
             <Icon name="plus" size={14} /> {t('inspect.newScratch')}
           </button>
@@ -1406,7 +1408,6 @@ export function DebugSurface(): JSX.Element {
               width={treeW}
               onPick={pick}
               onAddFolder={() => void openFolder()}
-              onClose={() => setTree(false)}
               onOpenPatch={(title, patch) => openTab({ kind: 'diff', source: 'paste', title, ephemeral: true }, patch)}
             />
             <ResizeHandle onResize={onResizeTree} />

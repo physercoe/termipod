@@ -98,36 +98,15 @@
   min-width: 0;
 }
 
-/* Collapsible rail / inspector. A thin always-visible strip (`read-pane-expand`)
-   re-opens a collapsed panel. Fold controls remain in normal header flow so they
-   cannot collide with content or actions. Widths + fold state persist. */
+/* Collapsible outline controls within individual readers. The library-level
+   collection and detail pane controls live in the fixed Read surface header. */
 .read-fold {
   flex: 0 0 auto;
-}
-.read-pane-expand {
-  flex: 0 0 auto;
-  width: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  background: var(--surface);
-  border: none;
-  border-right: 1px solid var(--border);
-  border-left: 1px solid var(--border);
-  cursor: pointer;
-}
-.read-pane-expand:hover {
-  color: var(--accent-text);
-  background: var(--raised);
 }
 .ref-inspector-empty-wrap {
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-.ref-inspector-empty-wrap .ref-tabs {
-  display: flex;
 }
 
 /* Reader — a full-surface reading view: the PDF is the main pane, the Inspector
@@ -574,6 +553,9 @@
   gap: var(--spacing-s8);
   flex: 0 0 auto;
 }
+.pdfjs-fit-width {
+  flex: 0 0 auto;
+}
 .pdfjs-overflow-trigger {
   flex: 0 0 auto;
 }
@@ -933,16 +915,43 @@
   border-top: 1px solid var(--border);
 }
 
-/* Right-click context menu (annotate the selection · split view). */
+/* Floating selection actions and the fuller right-click menu share one raised
+   surface; the frequent selection actions stay horizontal and close to text. */
+.pdfjs-selection-toolbar,
 .pdfjs-ctxmenu {
   position: fixed;
-  z-index: 50;
-  min-width: 184px;
-  padding: var(--spacing-s4);
+  z-index: var(--z-menu);
   background: var(--raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+.pdfjs-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s2);
+}
+.pdfjs-selection-action {
+  min-height: var(--control-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: 0 var(--spacing-s8);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pdfjs-selection-action:hover {
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
+.pdfjs-ctxmenu {
+  min-width: 184px;
+  padding: var(--spacing-s4);
   display: flex;
   flex-direction: column;
   gap: 1px;

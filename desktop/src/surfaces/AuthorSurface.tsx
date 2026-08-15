@@ -44,7 +44,7 @@ import type { MarkdownEditorHandle } from '../ui/MarkdownEditor';
 const MarkdownEditor = lazy(() => import('../ui/MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })));
 const WysiwygEditor = lazy(() => import('../ui/WysiwygEditor').then((m) => ({ default: m.WysiwygEditor })));
 import { ResizeHandle } from '../ui/ResizeHandle';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 import { PopoverMenu } from '../ui/PopoverMenu';
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
@@ -533,8 +533,8 @@ export function AuthorSurface(): JSX.Element {
   // cleanup would turn every re-register into remove+append churn.
   useEffect(() => () => unregisterCtx('author'), [unregisterCtx]);
 
-  // Fold state for the workspace pane (persisted); the header chevron folds it,
-  // a slim edge button re-opens it.
+  // Fold state for the workspace pane (persisted); one fixed surface-header
+  // control both hides and restores it.
   function setNav(next: boolean): void {
     setShowNav(next);
     try {
@@ -735,6 +735,16 @@ export function AuthorSurface(): JSX.Element {
   return (
     <WorkbenchSurface
       job="author"
+      leadingPaneWidth={showNav ? navW : 0}
+      leadingActions={
+        <HeaderPaneToggle
+          side="left"
+          open={showNav}
+          showLabel={t('author.filesShow')}
+          hideLabel={t('author.navFold')}
+          onToggle={() => setNav(!showNav)}
+        />
+      }
       actions={
         <>
           <div ref={newMenuAnchorRef} className="author-figbtn author-newbtn">
@@ -801,7 +811,7 @@ export function AuthorSurface(): JSX.Element {
       {showNav ? (
         <>
           <div className="author-nav-col" style={{ width: navW }}>
-            <AuthorNav onFold={() => setNav(false)} />
+            <AuthorNav />
           </div>
           <ResizeHandle
             onResize={(dx) =>
@@ -817,11 +827,7 @@ export function AuthorSurface(): JSX.Element {
             }
           />
         </>
-      ) : (
-        <button className="read-pane-expand author-nav-show" title={t('author.filesShow')} onClick={() => setNav(true)}>
-          <Icon name="chevron-right" />
-        </button>
-      )}
+      ) : null}
       <div className="author-main">
       {docs.length > 0 && (
         <div className="author-tabs-shell">

@@ -339,8 +339,6 @@ export function AppShell(): JSX.Element {
   // toolbar node serves both panes.
   const fleetToolbar = (
     <>
-      <span className="fleet-toolbar-label">{t('nav.fleet')}</span>
-      <span className="fleet-toolbar-sep" />
       <button className="primary" disabled={client === null} onClick={() => setSpawnOpen(true)}>
         <Icon name="plus" size={15} />
         {t('spawn.title')}

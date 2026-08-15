@@ -1345,10 +1345,12 @@ export function PdfCanvas({
   // 'vertical' = side by side, 'horizontal' = stacked. The mirror pane is a
   // read-only reading view; annotation happens in the primary pane.
   const [split, setSplit] = useState<'none' | 'vertical' | 'horizontal'>('none');
+  const [selectionBar, setSelectionBar] = useState<{ x: number; top: number; bottom: number; text: string } | null>(null);
   // Right-click menu anchor + whether the click landed on a live selection in the
   // primary pane (so annotation actions apply).
   const [menu, setMenu] = useState<{ x: number; y: number; onSel: boolean; text: string } | null>(null);
   const viewRef = useRef<HTMLDivElement | null>(null);
+  const selectionBarRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   // Only PDF-geometry annotations belong here — exclude EPUB (CFI) and image
   // (normalized-space) annotations that may share the same reference.
@@ -1797,6 +1799,62 @@ export function PdfCanvas({
     window.setTimeout(() => setSaved(false), 1500);
   }
 
+  function showSelectionBar(): void {
+    if (tool !== null) {
+      setSelectionBar(null);
+      return;
+    }
+    const sel = window.getSelection();
+    const container = scrollRef.current;
+    const inPrimary =
+      sel !== null &&
+      !sel.isCollapsed &&
+      sel.rangeCount > 0 &&
+      sel.anchorNode !== null &&
+      sel.focusNode !== null &&
+      container !== null &&
+      container.contains(sel.anchorNode) &&
+      container.contains(sel.focusNode);
+    const text = sel?.toString().trim() ?? '';
+    if (!inPrimary || text === '') {
+      setSelectionBar(null);
+      return;
+    }
+    const range = sel!.getRangeAt(sel!.rangeCount - 1);
+    const rects = range.getClientRects();
+    const rect = rects.length > 0 ? rects[rects.length - 1] : range.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) {
+      setSelectionBar(null);
+      return;
+    }
+    pendingSelRef.current = text;
+    setMenu(null);
+    setSelectionBar({ x: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom, text });
+  }
+
+  function finishSelectionAction(): void {
+    window.getSelection()?.removeAllRanges();
+    setSelectionBar(null);
+  }
+
+  function selectionCopy(): void {
+    const text = selectionBar?.text ?? '';
+    if (text !== '') void navigator.clipboard?.writeText(text).catch(() => undefined);
+    pendingSelRef.current = '';
+    finishSelectionAction();
+  }
+
+  function selectionHighlight(): void {
+    commitTextSelection('highlight');
+    setSelectionBar(null);
+  }
+
+  function selectionToNotes(): void {
+    if (selectionBar !== null) pendingSelRef.current = selectionBar.text;
+    saveSelection();
+    finishSelectionAction();
+  }
+
   // Bind the reference id and hand to the store; returns the new annotation id.
   // A useCallback (not a plain function) so the memoised PageView gets a stable
   // `onCreate` prop across viewer re-renders (#311).
@@ -1951,6 +2009,7 @@ export function PdfCanvas({
     // the split toggle), and snapshot the selection so a menu click can't lose it.
     e.preventDefault();
     if (onSel) pendingSelRef.current = text;
+    setSelectionBar(null);
     setSelectedAnno(null);
     setMenu({ x: e.clientX, y: e.clientY, onSel, text });
   }
@@ -2004,6 +2063,49 @@ export function PdfCanvas({
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
   }, [menu]);
+
+  useEffect(() => {
+    if (selectionBar === null) return;
+    const close = (): void => setSelectionBar(null);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close();
+    };
+    const onDown = (e: PointerEvent): void => {
+      if (selectionBarRef.current?.contains(e.target as Node) ?? false) return;
+      close();
+    };
+    const onSelectionChange = (): void => {
+      if (window.getSelection()?.isCollapsed ?? true) close();
+    };
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown, { capture: true });
+    document.addEventListener('selectionchange', onSelectionChange);
+    const sc = scrollRef.current;
+    sc?.addEventListener('scroll', close);
+    return () => {
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      sc?.removeEventListener('scroll', close);
+    };
+  }, [selectionBar]);
+
+  useLayoutEffect(() => {
+    if (selectionBar === null) return;
+    const el = selectionBarRef.current;
+    if (el === null) return;
+    const gap = 8;
+    const pad = 8;
+    const rect = el.getBoundingClientRect();
+    const left = Math.min(Math.max(pad, selectionBar.x - rect.width / 2), Math.max(pad, window.innerWidth - rect.width - pad));
+    const above = selectionBar.top - rect.height - gap;
+    const top = above >= pad ? above : Math.min(window.innerHeight - rect.height - pad, selectionBar.bottom + gap);
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.visibility = 'visible';
+  }, [selectionBar]);
 
   // Stabilised PageView props (#311): inline arrows here would change identity on
   // every viewer render (each scroll-driven page-indicator tick, each annotation
@@ -2200,17 +2302,16 @@ export function PdfCanvas({
             </button>
           </div>
         )}
-        {onToggleDetails !== undefined && (
-          <button
-            className={`pdfjs-zoom pdfjs-details-toggle${detailsOpen ? ' active' : ''}`}
-            title={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
-            aria-label={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
-            aria-pressed={detailsOpen}
-            onClick={onToggleDetails}
-          >
-            <Icon name="sidebar" size={16} />
-          </button>
-        )}
+        <button
+          className="pdfjs-zoom pdfjs-fit-width"
+          data-pdf-action="fit-width"
+          title={t('read.zoomFit')}
+          aria-label={t('read.zoomFit')}
+          disabled={pdf === null}
+          onClick={fitWidth}
+        >
+          <Icon name="expand" />
+        </button>
         <button
           ref={overflowAnchorRef}
           className={`pdfjs-zoom pdfjs-overflow-trigger${overflowOpen ? ' active' : ''}`}
@@ -2222,6 +2323,17 @@ export function PdfCanvas({
         >
           <Icon name="more-horizontal" />
         </button>
+        {onToggleDetails !== undefined && (
+          <button
+            className={`pdfjs-zoom pdfjs-details-toggle${detailsOpen ? ' active' : ''}`}
+            title={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            aria-label={detailsOpen ? t('read.hideDetails') : t('read.showDetails')}
+            aria-pressed={detailsOpen}
+            onClick={onToggleDetails}
+          >
+            <Icon name="sidebar" size={16} />
+          </button>
+        )}
         <PopoverMenu
           anchorRef={overflowAnchorRef}
           open={overflowOpen}
@@ -2304,9 +2416,6 @@ export function PdfCanvas({
               <div className="pdfjs-overflow-separator" />
             </>
           )}
-          <button className="inspect-menu-item" role="menuitem" onClick={() => (fitWidth(), setOverflowOpen(false))}>
-            <Icon name="expand" size={16} /> {t('read.zoomFit')}
-          </button>
           <button className="inspect-menu-item" role="menuitem" onClick={() => (fitPage(), setOverflowOpen(false))}>
             <Icon name="fit-page" size={16} /> {t('read.zoomFitPage')}
           </button>
@@ -2458,10 +2567,19 @@ export function PdfCanvas({
                 }
               }
             }}
-            onMouseUp={() => {
+            onMouseUp={(e) => {
+              // A right-button mouseup follows `contextmenu`; never treat it as
+              // a fresh selection completion or it replaces the menu just opened.
+              if (e.button !== 0) return;
               // Selection-driven tools commit on mouse-up, once the drag-select ends.
-              if (tool === 'highlight' || tool === 'underline') commitTextSelection(tool);
+              if (tool === 'highlight' || tool === 'underline') {
+                commitTextSelection(tool);
+                setSelectionBar(null);
+              } else {
+                showSelectionBar();
+              }
             }}
+            onKeyUp={showSelectionBar}
             onClick={() => {
               // A click anywhere on the page (text/canvas) deselects the current
               // annotation, so its editor popover dismisses — matching "click
@@ -2488,6 +2606,34 @@ export function PdfCanvas({
           )}
         </div>
       </div>
+      {selectionBar !== null && (
+        <div
+          ref={selectionBarRef}
+          className="pdfjs-selection-toolbar"
+          data-pdf-selection-toolbar
+          role="toolbar"
+          aria-label={t('read.selectionActions')}
+          style={{ left: selectionBar.x, top: selectionBar.top, visibility: 'hidden' }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button type="button" className="pdfjs-selection-action" title={t('read.ctxCopy')} onClick={selectionCopy}>
+            <Icon name="copy" size={14} />
+            <span>{t('read.ctxCopy')}</span>
+          </button>
+          {canAnnotate && (
+            <button type="button" className="pdfjs-selection-action" title={t('read.annHighlight')} onClick={selectionHighlight}>
+              <Icon name="highlight" size={14} />
+              <span>{t('read.annHighlight')}</span>
+            </button>
+          )}
+          {onSaveSelection !== undefined && (
+            <button type="button" className="pdfjs-selection-action" title={t('read.ctxToNotes')} onClick={selectionToNotes}>
+              <Icon name="note" size={14} />
+              <span>{t('read.ctxToNotes')}</span>
+            </button>
+          )}
+        </div>
+      )}
       {menu !== null && (
         <div
           ref={menuRef}

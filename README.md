@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo/logo.svg" alt="TermiPod logo — chevron prompt with a 4-point agent sparkle on the cursor line" width="140" height="140">
+  <img src="docs/logo/logo.svg" alt="TermiPod logo — luminous terminal prompt and agent sparkle on a midnight tile" width="140" height="140">
 </p>
 
 <h1 align="center">TermiPod</h1>

@@ -131,7 +131,7 @@ interface FileMenu {
   y: number;
 }
 
-export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
+export function AuthorNav(): JSX.Element {
   const t = useT();
   const { ask, node: promptNode } = useTextPrompt();
   const docs = useDocuments((s) => s.docs);
@@ -467,11 +467,6 @@ export function AuthorNav({ onFold }: { onFold?: () => void }): JSX.Element {
           >
             <Icon name="more-horizontal" size={16} />
           </button>
-          {onFold !== undefined && (
-            <button className="pane-toggle author-nav-fold" title={t('author.navFold')} onClick={onFold}>
-              <Icon name="sidebar" size={16} />
-            </button>
-          )}
           {actionsOpen && actionsPos !== null && createPortal(
             <>
               <div className="author-nav-actions-backdrop" onMouseDown={() => setActionsOpen(false)} />

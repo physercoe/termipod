@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo/logo.svg" alt="TermiPod 标志——光标线上的 4 点星标与 chevron 提示符" width="140" height="140">
+  <img src="docs/logo/logo.svg" alt="TermiPod 标志——午夜色图标上的发光终端提示符与 Agent 星标" width="140" height="140">
 </p>
 
 <h1 align="center">TermiPod</h1>

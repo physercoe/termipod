@@ -79,6 +79,28 @@ async function dismissConnectModal(): Promise<void> {
   }).toPass({ timeout: 15_000 });
 }
 
+function onePagePdfBytes(): number[] {
+  const content = 'BT /F1 18 Tf 72 720 Td (Selectable PDF text) Tj ET';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let source = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(source, 'ascii'));
+    source += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(source, 'ascii');
+  source += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) source += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  source += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Array.from(Buffer.from(source, 'ascii'));
+}
+
 test('window opens with the app title', async () => {
   expect(await page.title()).toContain('TermiPod');
 });
@@ -218,6 +240,51 @@ test('terminal: a local PTY round-trips through the bridge', async () => {
     return text;
   });
   expect(output).toContain('E2E_PTY_OK_MARKER');
+});
+
+test('terminal UI: saved hosts expose quick connect without crowding session chrome', async () => {
+  const original = await page.evaluate(() => localStorage.getItem('connections'));
+  try {
+    await page.evaluate(() => {
+      localStorage.setItem('connections', JSON.stringify([{
+        id: 'e2e-quick-connect',
+        name: 'E2E host',
+        host: '127.0.0.1',
+        port: 22,
+        username: 'tester',
+        authMethod: 'password',
+        keyId: null,
+        tmuxPath: null,
+        group: 'default',
+        createdAt: '2026-08-15T00:00:00.000Z',
+        lastConnectedAt: null,
+        deepLinkId: null,
+      }]));
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="terminal"]').click();
+
+    const row = page.locator('.term-nav-conn', { hasText: 'E2E host' });
+    await expect(row).toBeVisible();
+    await expect(row.locator('.term-nav-quick')).toBeVisible();
+    await expect(row.locator('.term-nav-quick')).toHaveAccessibleName('Connect: E2E host');
+    await expect(page.locator('.term-surface-actions .term-nav-new')).toHaveCount(0);
+    await expect(page.locator('.term-surface-actions .term-nav-import')).toHaveCount(0);
+
+    // Management actions remain discoverable from the connection-list menu;
+    // only their competing header placement was removed.
+    await page.locator('.term-nav-list').dispatchEvent('contextmenu', { button: 2, clientX: 100, clientY: 200 });
+    await expect(page.locator('.term-nav-ctxmenu')).toBeVisible();
+    await expect(page.locator('.term-nav-ctxmenu')).toContainText('New connection');
+  } finally {
+    await page.evaluate((value) => {
+      if (value === null) localStorage.removeItem('connections');
+      else localStorage.setItem('connections', value);
+    }, original);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+  }
 });
 
 test('terminal UI: opening a local shell mounts an xterm screen', async () => {
@@ -500,6 +567,135 @@ test('read: synced Zotero files open from the default attachment location', asyn
   }
 });
 
+test('read: PDF frequent actions stay visible in the toolbar and beside selected text', async () => {
+  await dismissConnectModal();
+  const fixture = await page.evaluate(async ({ bytes }) => {
+    const b = window.__ELECTRON_BRIDGE__!;
+    const root = await b.invoke<string>('attachment_default_dir');
+    const added = await b.invoke<{ key: string; file: string; path: string }>('attachment_write_bytes', {
+      root,
+      filename: 'e2e-fit-width.pdf',
+      bytes: new Uint8Array(bytes),
+    });
+    const libraryKey = 'termipod.library.v1';
+    const linkKey = 'termipod.zotero.storagePath';
+    const scaleKey = 'termipod.pdf.scale';
+    const annotationsKey = 'termipod.annotations.v1';
+    const originalLibrary = localStorage.getItem(libraryKey);
+    const originalLink = localStorage.getItem(linkKey);
+    const originalScale = localStorage.getItem(scaleKey);
+    const originalAnnotations = localStorage.getItem(annotationsKey);
+    localStorage.removeItem(linkKey);
+    localStorage.setItem(scaleKey, '0.4');
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-e2e-fit-width',
+        type: 'article',
+        title: 'E2E PDF fit width',
+        authors: ['TermiPod'],
+        tags: [],
+        collectionIds: [],
+        notes: '',
+        source: 'zotero',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [{
+          id: 'att-e2e-fit-width',
+          file: added.file,
+          contentType: 'application/pdf',
+          source: 'zotero',
+          key: added.key,
+          addedAt: Date.now(),
+        }],
+      }],
+      collections: [],
+    }));
+    return { path: added.path, originalLibrary, originalLink, originalScale, originalAnnotations };
+  }, { bytes: onePagePdfBytes() });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    const row = page.locator('.read-table tbody tr').filter({ hasText: 'E2E PDF fit width' });
+    await expect(row).toBeVisible();
+    await row.dblclick();
+
+    const toolbar = page.locator('.pdfjs-toolbar');
+    const fitWidth = toolbar.getByRole('button', { name: 'Fit width', exact: true });
+    await expect(fitWidth).toBeVisible();
+    await fitWidth.click();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('termipod.pdf.scale'))).not.toBe('0.4');
+
+    await toolbar.getByRole('button', { name: 'More PDF controls' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Fit width', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Fit page', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    const more = toolbar.locator('.pdfjs-overflow-trigger');
+    const details = toolbar.locator('.pdfjs-details-toggle');
+    await expect(details).toBeVisible();
+    expect(await more.evaluate((node, detailNode) => (
+      node.compareDocumentPosition(detailNode as Node) & Node.DOCUMENT_POSITION_FOLLOWING
+    ) !== 0, await details.elementHandle())).toBe(true);
+
+    const textSpan = page.locator('.textLayer span').filter({ hasText: 'Selectable PDF text' }).first();
+    await expect(textSpan).toBeVisible();
+    await textSpan.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: window }));
+    });
+    const selectionActions = page.getByRole('toolbar', { name: 'Selection actions' });
+    await expect(selectionActions).toBeVisible();
+    await expect(selectionActions.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+    await expect(selectionActions.getByRole('button', { name: 'Highlight', exact: true })).toBeVisible();
+    await expect(selectionActions.getByRole('button', { name: 'Add to notes', exact: true })).toBeVisible();
+
+    await textSpan.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const init = { bubbles: true, button: 2, clientX: rect.left + 4, clientY: rect.top + 4 };
+      node.dispatchEvent(new PointerEvent('pointerdown', init));
+      node.dispatchEvent(new MouseEvent('contextmenu', { ...init, view: window }));
+      node.dispatchEvent(new MouseEvent('mouseup', { ...init, view: window }));
+    });
+    const contextMenu = page.locator('.pdfjs-ctxmenu');
+    await expect(contextMenu).toBeVisible();
+    await expect(contextMenu.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+    await expect(contextMenu.getByRole('button', { name: 'Highlight', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(contextMenu).toHaveCount(0);
+
+    await textSpan.evaluate((node) => {
+      node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, view: window }));
+    });
+    await expect(selectionActions).toBeVisible();
+    await selectionActions.getByRole('button', { name: 'Highlight', exact: true }).click();
+    await expect(selectionActions).toHaveCount(0);
+    await expect(page.locator('.pdfjs-anno.highlight')).toBeVisible();
+  } finally {
+    await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale, originalAnnotations }) => {
+      const libraryKey = 'termipod.library.v1';
+      const linkKey = 'termipod.zotero.storagePath';
+      const scaleKey = 'termipod.pdf.scale';
+      const annotationsKey = 'termipod.annotations.v1';
+      if (originalLibrary === null) localStorage.removeItem(libraryKey);
+      else localStorage.setItem(libraryKey, originalLibrary);
+      if (originalLink === null) localStorage.removeItem(linkKey);
+      else localStorage.setItem(linkKey, originalLink);
+      if (originalScale === null) localStorage.removeItem(scaleKey);
+      else localStorage.setItem(scaleKey, originalScale);
+      if (originalAnnotations === null) localStorage.removeItem(annotationsKey);
+      else localStorage.setItem(annotationsKey, originalAnnotations);
+      await window.__ELECTRON_BRIDGE__!.invoke('attachment_delete', { path });
+    }, fixture);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 // ── Excalidraw sketch editor (figure-plan Phase C) ───────────────────────────
 // The interactive sketch surface is a heavy lazy chunk that mounts its own React
 // tree and loads fonts. Pin that it lazy-loads and mounts under the packaged
@@ -542,23 +738,29 @@ test('excalidraw: the sketch editor lazy-mounts and is configured for offline fo
 
 // ── Author shell: New ▾ menu + workspace-pane fold (W1 shell cleanup) ─────────
 // The six standalone "New X" buttons collapsed into one categorized New ▾ menu,
-// and the left pane is workspace-only with a fold chevron + slim re-open button.
-// Pin the create-from-menu path and the fold/unfold of the pane.
+// and the left pane is workspace-only with one persistent header toggle. Pin
+// the create-from-menu path and both states of that stable fold control.
 test('author: the New ▾ menu creates a document and the workspace pane folds', async () => {
   await page.getByRole('button', { name: 'Author', exact: true }).click();
-  // The workspace pane shows by default.
+  const workspaceToggle = page.locator('.surface-author .surface-leading-actions .header-pane-toggle.left');
+  await expect(workspaceToggle).toBeVisible();
+  // This state persists across retries and neighboring tests, so explicitly
+  // establish the open precondition before exercising the create flow.
+  if ((await workspaceToggle.getAttribute('aria-pressed')) !== 'true') await workspaceToggle.click();
   await expect(page.locator('.author-nav')).toBeVisible();
   // Open the New ▾ menu and create a Document from it (menuitem, not the primary
   // button — this exercises the menu path).
   await page.locator('.author-newcaret').click();
   await page.getByRole('menuitem', { name: 'New', exact: true }).click();
   await expect(page.locator('.read-tabstrip .read-tabitem').last()).toBeVisible();
-  // Fold the pane via its header chevron → the tree is gone and a slim edge
-  // button takes its place; clicking that restores the pane.
-  await page.getByRole('button', { name: 'Hide the workspace pane' }).click();
+  // The same header control folds and restores the pane; the affordance no
+  // longer jumps to a body-edge reveal rail while closed.
+  await workspaceToggle.click();
   await expect(page.locator('.author-nav')).toHaveCount(0);
-  await page.locator('.author-nav-show').click();
+  await expect(workspaceToggle).toHaveAttribute('aria-pressed', 'false');
+  await workspaceToggle.click();
   await expect(page.locator('.author-nav')).toBeVisible();
+  await expect(workspaceToggle).toHaveAttribute('aria-pressed', 'true');
 });
 
 // ── Author outline: right-hand heading nav + jump-to-line (W2) ───────────────
@@ -827,6 +1029,10 @@ test('workbench: primary surface headers share one grid and action height', asyn
     { job: 'read', header: '.surface-read .surface-head' },
     { job: 'author', header: '.surface-author .surface-head' },
     { job: 'debug', header: '.surface-debug .surface-head' },
+    { job: 'compare', header: '.surface-compare .surface-head' },
+    { job: 'replay', header: '.surface-replay .surface-head' },
+    { job: 'record', header: '.surface-record .surface-head' },
+    { job: 'terminal', header: '.term-panel.surface .term-surface-head' },
   ];
   const heights: number[] = [];
   for (const surface of surfaces) {
@@ -836,7 +1042,7 @@ test('workbench: primary surface headers share one grid and action height', asyn
     heights.push(await header.evaluate((node) => node.getBoundingClientRect().height));
     await expect(header).not.toContainText(/\bJ\d+\b/);
   }
-  expect(heights).toEqual([48, 48, 48, 48, 48]);
+  expect(heights).toEqual([48, 48, 48, 48, 48, 48, 48, 48, 48]);
 
   for (const job of ['author', 'debug', 'replay']) {
     await expect(page.locator(`[data-job="${job}"]`)).not.toHaveAttribute('title', /\bJ\d+\b/);
@@ -850,23 +1056,145 @@ test('workbench: primary surface headers share one grid and action height', asyn
   }
 });
 
-test('read: list controls and inspector tabs share the same horizontal grid line', async () => {
+test('workbench: pane toggles stay pinned to the surface header edges', async () => {
+  await dismissConnectModal();
+
+  for (const job of ['fleet', 'projects']) {
+    await page.locator(`[data-job="${job}"]`).click();
+    const header = page.locator('.fleet-toolbar').first();
+    const left = header.locator('.header-pane-toggle.left');
+    const right = header.locator('.header-pane-toggle.right');
+    await expect(left).toBeVisible();
+    await expect(right).toBeVisible();
+    await expect.poll(() => header.evaluate((node) => {
+      const leftToggle = node.querySelector('.header-pane-toggle.left');
+      const label = node.querySelector('.fleet-toolbar-label');
+      const rightToggle = node.querySelector('.header-pane-toggle.right');
+      return leftToggle !== null && label !== null && rightToggle !== null
+        ? {
+            leftBeforeLabel: (leftToggle.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+            rightIsLast: rightToggle === rightToggle.parentElement?.lastElementChild,
+          }
+        : null;
+    })).toEqual({ leftBeforeLabel: true, rightIsLast: true });
+
+    const nav = page.locator('.mission-nav');
+    const dock = page.locator('.region.dock');
+    const navWasOpen = (await left.getAttribute('aria-pressed')) === 'true';
+    const dockWasOpen = (await right.getAttribute('aria-pressed')) === 'true';
+    await left.click();
+    await expect(nav).toHaveCount(navWasOpen ? 0 : 1);
+    await expect(left).toHaveAttribute('aria-pressed', navWasOpen ? 'false' : 'true');
+    await right.click();
+    await expect(dock).toHaveCount(dockWasOpen ? 0 : 1);
+    await expect(right).toHaveAttribute('aria-pressed', dockWasOpen ? 'false' : 'true');
+    await left.click();
+    await right.click();
+  }
+
+  await page.locator('[data-job="author"]').click();
+  const authorToggle = page.locator('.surface-author .surface-leading-actions .header-pane-toggle.left');
+  await expect(authorToggle).toBeVisible();
+  const authorWasOpen = (await authorToggle.getAttribute('aria-pressed')) === 'true';
+  await authorToggle.click();
+  await expect(page.locator('.surface-author .author-nav-col')).toHaveCount(authorWasOpen ? 0 : 1);
+  await expect(authorToggle).toHaveAttribute('aria-pressed', authorWasOpen ? 'false' : 'true');
+  await authorToggle.click();
+
+  await page.locator('[data-job="read"]').click();
+  await page.locator('.surface-read .surface-head .seg-btn').first().click();
+  const readLeft = page.locator('.surface-read .surface-leading-actions .header-pane-toggle.left');
+  const readRight = page.locator('.surface-read .surface-actions .header-pane-toggle.right');
+  await expect(readLeft).toBeVisible();
+  await expect(readRight).toBeVisible();
+  const railWasOpen = (await readLeft.getAttribute('aria-pressed')) === 'true';
+  const inspectorWasOpen = (await readRight.getAttribute('aria-pressed')) === 'true';
+  await readLeft.click();
+  await expect(page.locator('.surface-read .read-rail')).toHaveCount(railWasOpen ? 0 : 1);
+  await readRight.click();
+  await expect(page.locator('.surface-read .read-inspector-pane')).toHaveCount(inspectorWasOpen ? 0 : 1);
+  await readLeft.click();
+  await readRight.click();
+
+  const remaining = [
+    { job: 'compare', pane: '.compare-runs', toggle: '.surface-compare .header-pane-toggle.left' },
+    { job: 'replay', pane: '.replay-rail', toggle: '.surface-replay .header-pane-toggle.left' },
+    { job: 'record', pane: '.record-form', toggle: '.surface-record .header-pane-toggle.left' },
+    { job: 'terminal', pane: '.term-nav', toggle: '.term-panel.surface .header-pane-toggle.left' },
+  ];
+  for (const surface of remaining) {
+    await page.locator(`[data-job="${surface.job}"]`).click();
+    const toggle = page.locator(surface.toggle);
+    const pane = page.locator(surface.pane);
+    await expect(toggle).toBeVisible();
+    const wasOpen = (await toggle.getAttribute('aria-pressed')) === 'true';
+    await toggle.click();
+    if (wasOpen) await expect(pane).toBeHidden();
+    else await expect(pane).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-pressed', wasOpen ? 'false' : 'true');
+    await toggle.click();
+  }
+});
+
+test('workbench: left-pane header cells align actions after the body divider', async () => {
+  await dismissConnectModal();
+  const surfaces = [
+    { job: 'fleet', identity: '.fleet-toolbar-identity', pane: '.mission-nav', action: '.fleet-toolbar-actions button.primary' },
+    { job: 'projects', identity: '.fleet-toolbar-identity', pane: '.mission-nav', action: '.fleet-toolbar-actions button.primary' },
+    { job: 'read', identity: '.surface-identity', pane: '.read-rail', action: '.surface-actions .seg-btn' },
+    { job: 'author', identity: '.surface-identity', pane: '.author-nav-col', action: '.surface-actions button.primary' },
+    { job: 'compare', identity: '.surface-identity', pane: '.compare-runs', action: '.surface-actions select' },
+    { job: 'replay', identity: '.surface-identity', pane: '.replay-rail', action: '.surface-actions select' },
+    { job: 'terminal', identity: '.term-surface-identity', pane: '.term-nav', action: '.term-surface-actions .term-tabs' },
+  ];
+
+  for (const surface of surfaces) {
+    await page.locator(`[data-job="${surface.job}"]`).click();
+    if (surface.job === 'read') await page.locator('.surface-read .surface-head .seg-btn').first().click();
+    const toggle = page.locator(
+      surface.job === 'fleet' || surface.job === 'projects'
+        ? '.fleet-toolbar .header-pane-toggle.left'
+        : surface.job === 'terminal'
+          ? '.term-surface-head .header-pane-toggle.left'
+          : `.surface-${surface.job} .header-pane-toggle.left`,
+    ).first();
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+    const identity = page.locator(surface.identity).first();
+    const pane = page.locator(surface.pane).first();
+    const action = page.locator(surface.action).first();
+    await expect(identity).toBeVisible();
+    await expect(pane).toBeVisible();
+    await expect(action).toBeVisible();
+    const metrics = await Promise.all(
+      [identity, pane, action].map((locator) =>
+        locator.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return { left: Math.round(rect.left), right: Math.round(rect.right) };
+        }),
+      ),
+    );
+    expect(metrics[0]?.right).toBe(metrics[1]?.right);
+    expect(metrics[2]?.left ?? 0).toBeGreaterThan(metrics[0]?.right ?? 0);
+  }
+});
+
+test('read: the empty inspector starts without a redundant tabs row', async () => {
   await page.locator('[data-job="read"]').click();
   await page.locator('.surface-read .surface-head .seg-btn').first().click();
   const listBar = page.locator('.read-list-bar');
-  const inspectorTabs = page.locator('.read-inspector-pane .ref-tabs');
+  const emptyInspector = page.locator('.read-inspector-pane .ref-inspector-empty-wrap');
   await expect(listBar).toBeVisible();
-  await expect(inspectorTabs).toBeVisible();
+  await expect(emptyInspector).toBeVisible();
+  await expect(emptyInspector.locator('.ref-tabs')).toHaveCount(0);
   const metrics = await Promise.all(
-    [listBar, inspectorTabs].map((locator) =>
+    [listBar, emptyInspector].map((locator) =>
       locator.evaluate((node) => {
         const rect = node.getBoundingClientRect();
-        return { top: rect.top, bottom: rect.bottom, height: rect.height };
+        return { top: rect.top };
       }),
     ),
   );
-  expect(metrics[0]).toEqual(metrics[1]);
-  expect(metrics[0]?.height).toBe(40);
+  expect(metrics[0]?.top).toBe(metrics[1]?.top);
   await expect(listBar.locator('button.primary')).toContainText('Add');
 
   await page.locator('.surface-read .surface-head .seg-btn').nth(1).click();
@@ -902,6 +1230,14 @@ test('inspect: tree filter and content search use two rows at most', async () =>
     await page.reload({ waitUntil: 'domcontentloaded' });
     await dismissConnectModal();
     await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+
+    const treeToggle = page.locator('.surface-debug .surface-leading-actions .header-pane-toggle.left');
+    await expect(treeToggle).toBeVisible();
+    await expect(treeToggle).toHaveAttribute('aria-pressed', 'true');
+    await treeToggle.click();
+    await expect(page.locator('.surface-debug .inspect-tree')).toHaveCount(0);
+    await expect(treeToggle).toHaveAttribute('aria-pressed', 'false');
+    await treeToggle.click();
 
     const root = page.locator('.inspect-tree-root', { hasText: 'search-layout' });
     await page.locator('.surface-debug .surface-head button.primary').click();

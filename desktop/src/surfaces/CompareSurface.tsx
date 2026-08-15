@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useProjects } from '../hub/queries';
 import { num, str } from '../hub/types';
@@ -25,7 +25,7 @@ import { useSession } from '../state/session';
 import { parsePoints } from '../ui/Sparkline';
 import { ChartView, CHART_PALETTE, type ChartBand, type ChartSeries } from '../ui/ChartView';
 import { Icon } from '../ui/Icon';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 
 /// J5 — Compare many runs. The headline BUILD from `research-tooling-landscape.md`
 /// §3.3: no open tool exports a reusable run-comparison component, but the data
@@ -73,6 +73,7 @@ interface MetricCell {
 
 export function CompareSurface(): JSX.Element {
   const t = useT();
+  const [runsOpen, setRunsOpen] = useState(() => localStorage.getItem('termipod.compare.runsOpen') !== '0');
   const client = useSession((s) => s.client);
   const projectsQ = useProjects();
   const projects = projectsQ.data ?? [];
@@ -234,9 +235,31 @@ export function CompareSurface(): JSX.Element {
   const metricNames = [...byMetric.keys()].sort();
   const anyLoading = metricQs.some((q) => q.isLoading);
 
+  function toggleRuns(): void {
+    setRunsOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem('termipod.compare.runsOpen', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
   return (
     <WorkbenchSurface
       job="compare"
+      leadingPaneWidth={runsOpen ? 240 : 0}
+      leadingActions={
+        <HeaderPaneToggle
+          side="left"
+          open={runsOpen}
+          showLabel={t('nav.expand')}
+          hideLabel={t('nav.collapse')}
+          onToggle={toggleRuns}
+        />
+      }
       actions={
         <>
           <select className="surface-select" value={projectId} onChange={(e) => setProject(e.target.value)}>
@@ -256,8 +279,9 @@ export function CompareSurface(): JSX.Element {
         </>
       }
     >
-      <div className="compare-layout">
-        <aside className="compare-runs">
+      <div className={`compare-layout${runsOpen ? '' : ' runs-folded'}`}>
+        {runsOpen && (
+          <aside className="compare-runs">
           <div className="notes-head muted small">{t('compare.runs')}</div>
           {/* Reuses the Inspect tree's filter-input styling (generic token-based
               input) rather than duplicating a near-identical rule. */}
@@ -302,7 +326,8 @@ export function CompareSurface(): JSX.Element {
               </label>
             );
           })}
-        </aside>
+          </aside>
+        )}
 
         <div className="compare-wall scroll">
           {selected.length === 0 ? (

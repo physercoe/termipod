@@ -2,31 +2,35 @@
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#e8edf5"/>
+      <stop offset="58%" stop-color="#f5f9fe"/>
+      <stop offset="100%" stop-color="#dfe9f5"/>
     </linearGradient>
     <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00ad9a"/>
-      <stop offset="48%" stop-color="#0099db"/>
-      <stop offset="100%" stop-color="#176fe5"/>
+      <stop offset="0%" stop-color="#008f7e"/>
+      <stop offset="46%" stop-color="#007fc9"/>
+      <stop offset="100%" stop-color="#1558d6"/>
     </linearGradient>
     <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#00b9d9"/>
-      <stop offset="100%" stop-color="#1878e8"/>
+      <stop offset="0%" stop-color="#00a9c7"/>
+      <stop offset="100%" stop-color="#1256cf"/>
     </linearGradient>
     <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#24aee8" stop-opacity="0.25"/>
-      <stop offset="65%" stop-color="#24aee8" stop-opacity="0.08"/>
+      <stop offset="0%" stop-color="#168fd7" stop-opacity="0.30"/>
+      <stop offset="62%" stop-color="#168fd7" stop-opacity="0.08"/>
       <stop offset="100%" stop-color="#24aee8" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
-  <!-- One full-size light squircle; no inset tile or boxed frame. -->
-  <rect x="1" y="1" width="510" height="510" rx="112" fill="url(#bg)" stroke="#d7e0eb" stroke-width="2"/>
+  <!-- A crisp platform-sized tile. The stronger edge keeps the white icon
+       distinct on translucent macOS docks without looking boxed at full size. -->
+  <rect x="2.5" y="2.5" width="507" height="507" rx="111" fill="url(#bg)" stroke="#b9c9dc" stroke-width="5"/>
+  <path d="M112 57 C198 19 314 19 400 57" fill="none" stroke="#ffffff" stroke-opacity="0.78" stroke-width="4" stroke-linecap="round"/>
 
-  <!-- Canonical terminal prompt and agent-at-cursor sparkle. -->
-  <path d="M140 162 L235 256 L140 350" fill="none" stroke="url(#accent)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-  <g transform="translate(345 256)">
-    <circle r="52" fill="url(#halo)"/>
-    <path d="M 0,-34 Q 5.1,-5.1 34,0 Q 5.1,5.1 0,34 Q -5.1,5.1 -34,0 Q -5.1,-5.1 0,-34 Z" fill="url(#spark)"/>
+  <!-- Prompt + agent-at-cursor sparkle. Both shapes are deliberately bolder
+       and larger than the document logo so their silhouettes hold at 16–64px. -->
+  <path d="M122 137 L248 256 L122 375" fill="none" stroke="url(#accent)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(366 256)">
+    <circle r="66" fill="url(#halo)"/>
+    <path d="M 0,-46 Q 7,-7 46,0 Q 7,7 0,46 Q -7,7 -46,0 Q -7,-7 0,-46 Z" fill="url(#spark)"/>
   </g>
 </svg>

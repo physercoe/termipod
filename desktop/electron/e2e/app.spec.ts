@@ -242,6 +242,51 @@ test('terminal: a local PTY round-trips through the bridge', async () => {
   expect(output).toContain('E2E_PTY_OK_MARKER');
 });
 
+test('terminal UI: saved hosts expose quick connect without crowding session chrome', async () => {
+  const original = await page.evaluate(() => localStorage.getItem('connections'));
+  try {
+    await page.evaluate(() => {
+      localStorage.setItem('connections', JSON.stringify([{
+        id: 'e2e-quick-connect',
+        name: 'E2E host',
+        host: '127.0.0.1',
+        port: 22,
+        username: 'tester',
+        authMethod: 'password',
+        keyId: null,
+        tmuxPath: null,
+        group: 'default',
+        createdAt: '2026-08-15T00:00:00.000Z',
+        lastConnectedAt: null,
+        deepLinkId: null,
+      }]));
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="terminal"]').click();
+
+    const row = page.locator('.term-nav-conn', { hasText: 'E2E host' });
+    await expect(row).toBeVisible();
+    await expect(row.locator('.term-nav-quick')).toBeVisible();
+    await expect(row.locator('.term-nav-quick')).toHaveAccessibleName('Connect: E2E host');
+    await expect(page.locator('.term-surface-actions .term-nav-new')).toHaveCount(0);
+    await expect(page.locator('.term-surface-actions .term-nav-import')).toHaveCount(0);
+
+    // Management actions remain discoverable from the connection-list menu;
+    // only their competing header placement was removed.
+    await page.locator('.term-nav-list').dispatchEvent('contextmenu', { button: 2, clientX: 100, clientY: 200 });
+    await expect(page.locator('.term-nav-ctxmenu')).toBeVisible();
+    await expect(page.locator('.term-nav-ctxmenu')).toContainText('New connection');
+  } finally {
+    await page.evaluate((value) => {
+      if (value === null) localStorage.removeItem('connections');
+      else localStorage.setItem('connections', value);
+    }, original);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+  }
+});
+
 test('terminal UI: opening a local shell mounts an xterm screen', async () => {
   // On boot with no hub configured the "Add a hub" connect modal is open; its
   // backdrop intercepts clicks, so dismiss it before touching anything else
@@ -1094,7 +1139,7 @@ test('workbench: left-pane header cells align actions after the body divider', a
     { job: 'author', identity: '.surface-identity', pane: '.author-nav-col', action: '.surface-actions button.primary' },
     { job: 'compare', identity: '.surface-identity', pane: '.compare-runs', action: '.surface-actions select' },
     { job: 'replay', identity: '.surface-identity', pane: '.replay-rail', action: '.surface-actions select' },
-    { job: 'terminal', identity: '.term-surface-identity', pane: '.term-nav', action: '.term-surface-actions .term-nav-new' },
+    { job: 'terminal', identity: '.term-surface-identity', pane: '.term-nav', action: '.term-surface-actions .term-tabs' },
   ];
 
   for (const surface of surfaces) {

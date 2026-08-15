@@ -636,25 +636,6 @@ button.hero-row:hover {
 .term-nav.folded {
   display: none;
 }
-.term-nav-new {
-  flex: 0 0 auto;
-  min-width: 0;
-  height: var(--control-sm);
-  min-height: var(--control-sm);
-  padding: var(--spacing-s4) var(--spacing-s8);
-  justify-content: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.term-nav-import {
-  flex: 0 0 auto;
-  width: var(--control-sm);
-  height: var(--control-sm);
-  min-height: var(--control-sm);
-  justify-content: center;
-  padding: 0;
-}
 .term-nav-notice {
   padding: 2px 4px;
 }
@@ -745,8 +726,7 @@ button.hero-row:hover {
 .term-nav-item.active {
   background: var(--accent-tint);
 }
-.term-nav-pick,
-.term-nav-conn {
+.term-nav-pick {
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
@@ -766,12 +746,42 @@ button.hero-row:hover {
 .term-nav-conn {
   width: 100%;
   border-radius: var(--radius-sm);
-  /* A row is a direct child of the (now flex:1) column list; without this it
-     inherits flex-grow from the shared .term-nav-pick rule and stretches
-     vertically to divide the rail. Pin to natural height — width:100% already
-     fills the cross axis, so the extra space stays as blank list area (whose
-     right-click opens the New-connection menu). */
+  /* Rows stay at their natural height so the remaining rail remains useful as
+     blank context-menu space. */
   flex: 0 0 auto;
+}
+.term-nav-conn-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-nav-quick {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  margin-right: 2px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  opacity: 0.72;
+}
+.term-nav-quick:hover:not(:disabled),
+.term-nav-quick:focus-visible {
+  color: var(--accent-text);
+  background: var(--raised);
+  border-color: var(--border);
+  opacity: 1;
+}
+.term-nav-quick:disabled {
+  opacity: 0.38;
+  cursor: wait;
 }
 .term-nav-item:hover {
   background: var(--hover);

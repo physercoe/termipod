@@ -647,6 +647,10 @@ export function TerminalPanel(): JSX.Element {
 
   return (
     <div className={panelClass} style={style}>
+      {/* Connection-file management lives in the nav context menu. Keep its
+          picker mounted here instead of consuming session-header space. */}
+      <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
+
       {mode === 'dock' && (
         <div
           className="term-dock-resize"
@@ -673,29 +677,6 @@ export function TerminalPanel(): JSX.Element {
           </div>
           <span className="term-surface-divider" aria-hidden="true" />
           <div className="term-surface-actions">
-            <button className="term-nav-new" disabled={!tauri} onClick={() => openConnect()}>
-              <Icon name="plus" size={13} />
-              {t('term.newConnection')}
-            </button>
-            <button
-              className="term-nav-import"
-              disabled={!tauri}
-              aria-label={t('term.importConfig')}
-              title={t('term.importConfigHint')}
-              onClick={() => cfgRef.current?.click()}
-            >
-              <Icon name="external" size={13} />
-            </button>
-            <button
-              className="term-nav-import"
-              disabled={!tauri}
-              aria-label={t('term.exportConfig')}
-              title={t('term.exportConfigHint')}
-              onClick={() => void onExportConfig()}
-            >
-              <Icon name="download" size={13} />
-            </button>
-            <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
             {sessionTabsEl}
             {addMenuEl}
             <span className="spacer" />
@@ -732,7 +713,10 @@ export function TerminalPanel(): JSX.Element {
                   key={c.id}
                   c={c}
                   active={(connecting && initialConnId === c.id) || quickConnectingId === c.id}
+                  connecting={quickConnectingId === c.id}
+                  connectDisabled={quickConnectingId !== null}
                   onOpen={() => openConnect(c.id)}
+                  onConnect={() => void connectSavedConnection(c.id)}
                   onMenu={(e) => {
                     e.preventDefault();
                     setNavMenu({ x: e.clientX, y: e.clientY, target: { kind: 'conn', id: c.id } });
@@ -765,7 +749,10 @@ export function TerminalPanel(): JSX.Element {
                           grouped
                           c={c}
                           active={(connecting && initialConnId === c.id) || quickConnectingId === c.id}
+                          connecting={quickConnectingId === c.id}
+                          connectDisabled={quickConnectingId !== null}
                           onOpen={() => openConnect(c.id)}
+                          onConnect={() => void connectSavedConnection(c.id)}
                           onMenu={(e) => {
                             e.preventDefault();
                             setNavMenu({ x: e.clientX, y: e.clientY, target: { kind: 'conn', id: c.id } });
@@ -913,26 +900,48 @@ export function TerminalPanel(): JSX.Element {
 function ConnRow({
   c,
   active,
+  connecting,
+  connectDisabled,
   grouped,
   onOpen,
+  onConnect,
   onMenu,
 }: {
   c: Connection;
   active: boolean;
+  connecting: boolean;
+  connectDisabled: boolean;
   grouped?: boolean;
   onOpen: () => void;
+  onConnect: () => void;
   onMenu: (e: ReactMouseEvent) => void;
 }): JSX.Element {
+  const t = useT();
+  const connectLabel = connecting ? t('term.connecting') : t('term.connect');
   return (
-    <button
+    <div
       className={`term-nav-item term-nav-conn${active ? ' active' : ''}${grouped ? ' grouped' : ''}`}
       title={`${c.username}@${c.host}:${c.port}`}
-      onClick={onOpen}
       onContextMenu={onMenu}
     >
-      <span className="term-tab-kind ssh" />
-      {c.name}
-    </button>
+      <button className="term-nav-pick" onClick={onOpen}>
+        <span className="term-tab-kind ssh" />
+        <span className="term-nav-conn-name">{c.name}</span>
+      </button>
+      <button
+        className="term-nav-quick"
+        title={`${connectLabel}: ${c.name}`}
+        aria-label={`${connectLabel}: ${c.name}`}
+        aria-busy={connecting}
+        disabled={connectDisabled}
+        onClick={(e) => {
+          e.stopPropagation();
+          onConnect();
+        }}
+      >
+        <Icon name="terminal" size={14} />
+      </button>
+    </div>
   );
 }
 

@@ -671,13 +671,19 @@ button > .ui-icon:not(:only-child):first-child,
 }
 /* Author editor top bar: view-mode switch + formatting toolbar + doc status. */
 .author-doc-bar {
+  box-sizing: border-box;
+  flex: 0 0 calc(var(--control-md) + var(--spacing-s8));
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
-  padding: 5px var(--spacing-s12);
+  min-width: 0;
+  min-height: calc(var(--control-md) + var(--spacing-s8));
+  padding: var(--spacing-s4) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-  flex-wrap: wrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
 .author-doc-meta {
   display: inline-flex;

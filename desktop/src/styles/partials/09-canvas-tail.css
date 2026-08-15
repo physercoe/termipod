@@ -1376,7 +1376,10 @@
   width: 100%;
   text-align: left;
   padding: 3px 6px;
+  border: 0;
   border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
   font-size: var(--font-size-caption);
   color: var(--text);
   white-space: nowrap;
@@ -1390,6 +1393,8 @@
 }
 .author-nav-item:hover {
   background: var(--accent-tint);
+  box-shadow: none;
+  transform: none;
 }
 /* A workspace file that is open in a tab: emphasized text; the active tab's file
    also gets a tinted highlight (echoing the tab strip, not a hard selection). */

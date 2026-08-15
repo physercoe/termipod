@@ -609,6 +609,25 @@ test('read: PDF frequent actions stay visible in the toolbar and beside selected
     await expect(selectionActions.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
     await expect(selectionActions.getByRole('button', { name: 'Highlight', exact: true })).toBeVisible();
     await expect(selectionActions.getByRole('button', { name: 'Add to notes', exact: true })).toBeVisible();
+
+    await textSpan.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const init = { bubbles: true, button: 2, clientX: rect.left + 4, clientY: rect.top + 4 };
+      node.dispatchEvent(new PointerEvent('pointerdown', init));
+      node.dispatchEvent(new MouseEvent('contextmenu', { ...init, view: window }));
+      node.dispatchEvent(new MouseEvent('mouseup', { ...init, view: window }));
+    });
+    const contextMenu = page.locator('.pdfjs-ctxmenu');
+    await expect(contextMenu).toBeVisible();
+    await expect(contextMenu.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+    await expect(contextMenu.getByRole('button', { name: 'Highlight', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(contextMenu).toHaveCount(0);
+
+    await textSpan.evaluate((node) => {
+      node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, view: window }));
+    });
+    await expect(selectionActions).toBeVisible();
     await selectionActions.getByRole('button', { name: 'Highlight', exact: true }).click();
     await expect(selectionActions).toHaveCount(0);
     await expect(page.locator('.pdfjs-anno.highlight')).toBeVisible();

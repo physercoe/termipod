@@ -2567,7 +2567,10 @@ export function PdfCanvas({
                 }
               }
             }}
-            onMouseUp={() => {
+            onMouseUp={(e) => {
+              // A right-button mouseup follows `contextmenu`; never treat it as
+              // a fresh selection completion or it replaces the menu just opened.
+              if (e.button !== 0) return;
               // Selection-driven tools commit on mouse-up, once the drag-select ends.
               if (tool === 'highlight' || tool === 'underline') {
                 commitTextSelection(tool);

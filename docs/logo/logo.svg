@@ -1,91 +1,47 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod">
   <defs>
-    <linearGradient id="shell" x1="10%" y1="0%" x2="88%" y2="100%">
-      <stop offset="0%" stop-color="#243d60"/>
-      <stop offset="44%" stop-color="#10233c"/>
-      <stop offset="100%" stop-color="#050b16"/>
+    <linearGradient id="tile" x1="18%" y1="0%" x2="82%" y2="100%">
+      <stop offset="0%" stop-color="#17455a"/>
+      <stop offset="45%" stop-color="#132b43"/>
+      <stop offset="100%" stop-color="#211b3c"/>
     </linearGradient>
-    <linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7295bd"/>
-      <stop offset="38%" stop-color="#29486d"/>
-      <stop offset="76%" stop-color="#12253e"/>
-      <stop offset="100%" stop-color="#02050c"/>
-    </linearGradient>
-    <linearGradient id="screen" x1="8%" y1="0%" x2="92%" y2="100%">
-      <stop offset="0%" stop-color="#132d49"/>
-      <stop offset="50%" stop-color="#0a1a2e"/>
-      <stop offset="100%" stop-color="#050b17"/>
-    </linearGradient>
-    <radialGradient id="screenLight" cx="27%" cy="16%" r="86%">
-      <stop offset="0%" stop-color="#47d9d0" stop-opacity="0.13"/>
-      <stop offset="52%" stop-color="#218fe7" stop-opacity="0.035"/>
-      <stop offset="100%" stop-color="#06101e" stop-opacity="0"/>
+    <radialGradient id="tileLight" cx="30%" cy="12%" r="82%">
+      <stop offset="0%" stop-color="#35d7da" stop-opacity="0.18"/>
+      <stop offset="55%" stop-color="#2b8ed5" stop-opacity="0.035"/>
+      <stop offset="100%" stop-color="#172239" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#45efc9"/>
-      <stop offset="48%" stop-color="#28bff0"/>
-      <stop offset="100%" stop-color="#3c82f5"/>
+    <linearGradient id="prompt" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7cf2db"/>
+      <stop offset="48%" stop-color="#38c4e8"/>
+      <stop offset="100%" stop-color="#6c7cf2"/>
     </linearGradient>
-    <linearGradient id="promptGloss" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#e8fff9" stop-opacity="0.72"/>
-      <stop offset="55%" stop-color="#b7edff" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    <linearGradient id="spark" x1="14%" y1="0%" x2="86%" y2="100%">
+      <stop offset="0%" stop-color="#f1ffff"/>
+      <stop offset="48%" stop-color="#9de8f8"/>
+      <stop offset="100%" stop-color="#8d8af3"/>
     </linearGradient>
-    <linearGradient id="spark" x1="20%" y1="0%" x2="80%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="44%" stop-color="#b7f7ff"/>
-      <stop offset="100%" stop-color="#65c9f4"/>
-    </linearGradient>
-    <radialGradient id="halo" cx="50%" cy="45%" r="50%">
-      <stop offset="0%" stop-color="#4bdfff" stop-opacity="0.44"/>
-      <stop offset="60%" stop-color="#36bff5" stop-opacity="0.11"/>
-      <stop offset="100%" stop-color="#2ca8ee" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="shellShadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#02040a" flood-opacity="0.72"/>
+    <filter id="tileShadow" x="-18%" y="-18%" width="136%" height="148%">
+      <feDropShadow dx="0" dy="11" stdDeviation="12" flood-color="#05070e" flood-opacity="0.58"/>
     </filter>
-    <filter id="inset" x="-15%" y="-15%" width="130%" height="135%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur"/>
-      <feOffset dy="8" result="offset"/>
-      <feComposite in="offset" in2="SourceAlpha" operator="out" result="shadow"/>
-      <feFlood flood-color="#000713" flood-opacity="0.78" result="color"/>
-      <feComposite in="color" in2="shadow" operator="in" result="inner"/>
-      <feComposite in="SourceGraphic" in2="inner" operator="over"/>
+    <filter id="formShadow" x="-28%" y="-28%" width="165%" height="175%">
+      <feDropShadow dx="3" dy="9" stdDeviation="8" flood-color="#070d20" flood-opacity="0.56"/>
     </filter>
-    <filter id="glyphShadow" x="-30%" y="-30%" width="170%" height="180%">
-      <feDropShadow dx="7" dy="11" stdDeviation="7" flood-color="#020816" flood-opacity="0.82"/>
-    </filter>
-    <clipPath id="screenClip">
-      <rect x="34" y="34" width="444" height="432" rx="88"/>
+    <clipPath id="tileClip">
+      <rect x="12" y="8" width="488" height="488" rx="110"/>
     </clipPath>
   </defs>
 
-  <!-- A raised outer shell and recessed terminal screen give the mark depth
-       without relying on hairline detail that disappears in the macOS Dock. -->
-  <rect x="11" y="14" width="490" height="488" rx="108" fill="#020610" opacity="0.82"/>
-  <rect x="7" y="5" width="498" height="494" rx="110" fill="url(#shell)" stroke="url(#rim)" stroke-width="8" filter="url(#shellShadow)"/>
-  <path d="M89 28 C184 -4 329 -4 425 29" fill="none" stroke="#d8eeff" stroke-opacity="0.25" stroke-width="5" stroke-linecap="round"/>
-  <path d="M81 477 C178 507 337 507 435 474" fill="none" stroke="#00040b" stroke-opacity="0.78" stroke-width="8" stroke-linecap="round"/>
-
-  <rect x="34" y="34" width="444" height="432" rx="88" fill="url(#screen)" stroke="#315274" stroke-width="3" filter="url(#inset)"/>
-  <g clip-path="url(#screenClip)">
-    <rect x="34" y="34" width="444" height="432" fill="url(#screenLight)"/>
-    <ellipse cx="223" cy="25" rx="280" ry="127" fill="#ffffff" opacity="0.045"/>
+  <!-- One quiet slab, like a macOS system-app icon. The glyphs provide the
+       depth; the container stays deliberately free of frames and decoration. -->
+  <rect x="12" y="8" width="488" height="488" rx="110" fill="url(#tile)" stroke="#b8d8ec" stroke-opacity="0.24" stroke-width="2" filter="url(#tileShadow)"/>
+  <g clip-path="url(#tileClip)">
+    <rect x="12" y="8" width="488" height="488" fill="url(#tileLight)"/>
   </g>
-  <path d="M98 55 C188 31 327 31 416 56" fill="none" stroke="#c5e6ff" stroke-opacity="0.16" stroke-width="3" stroke-linecap="round"/>
 
-  <!-- The prompt and agent sparkle sit above the recessed screen. Their offset
-       bases remain visible at 32–64 px and provide the structural 3D cue. -->
-  <path d="M122 137 L248 256 L122 375" transform="translate(7 10)" fill="none" stroke="#061a35" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
-  <path d="M122 137 L248 256 L122 375" fill="none" stroke="url(#accent)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" filter="url(#glyphShadow)"/>
-  <path d="M122 137 L248 256 L122 375" transform="translate(-4 -5)" fill="none" stroke="url(#promptGloss)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Terminal prompt and agent spark: two simple raised forms. -->
+  <path d="M126 137 L250 256 L126 375" transform="translate(4 8)" fill="none" stroke="#080f25" stroke-opacity="0.52" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M126 137 L250 256 L126 375" fill="none" stroke="url(#prompt)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" filter="url(#formShadow)"/>
 
-  <g transform="translate(371 264)" opacity="0.8">
-    <path d="M0 -46 Q7 -7 46 0 Q7 7 0 46 Q-7 7 -46 0 Q-7 -7 0 -46Z" fill="#07172e"/>
-  </g>
-  <g transform="translate(366 256)" filter="url(#glyphShadow)">
-    <circle r="69" fill="url(#halo)"/>
-    <path d="M0 -46 Q7 -7 46 0 Q7 7 0 46 Q-7 7 -46 0 Q-7 -7 0 -46Z" fill="url(#spark)"/>
-    <path d="M0 -39 Q6 -6 39 0" fill="none" stroke="#ffffff" stroke-opacity="0.58" stroke-width="4" stroke-linecap="round"/>
-  </g>
+  <path d="M371 216 C376 243 390 252 417 256 C390 261 376 271 371 298 C366 271 352 261 325 256 C352 252 366 243 371 216Z" transform="translate(3 7)" fill="#080f25" opacity="0.48"/>
+  <path d="M371 216 C376 243 390 252 417 256 C390 261 376 271 371 298 C366 271 352 261 325 256 C352 252 366 243 371 216Z" fill="url(#spark)" filter="url(#formShadow)"/>
 </svg>

@@ -574,6 +574,9 @@
   gap: var(--spacing-s8);
   flex: 0 0 auto;
 }
+.pdfjs-fit-width {
+  flex: 0 0 auto;
+}
 .pdfjs-overflow-trigger {
   flex: 0 0 auto;
 }

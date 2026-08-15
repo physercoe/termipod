@@ -79,6 +79,26 @@ async function dismissConnectModal(): Promise<void> {
   }).toPass({ timeout: 15_000 });
 }
 
+function onePagePdfBytes(): number[] {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>',
+    '<< /Length 0 >>\nstream\n\nendstream',
+  ];
+  let source = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(source, 'ascii'));
+    source += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(source, 'ascii');
+  source += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) source += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  source += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Array.from(Buffer.from(source, 'ascii'));
+}
+
 test('window opens with the app title', async () => {
   expect(await page.title()).toContain('TermiPod');
 });
@@ -494,6 +514,84 @@ test('read: synced Zotero files open from the default attachment location', asyn
       else localStorage.setItem(libraryKey, originalLibrary);
       if (originalLink === null) localStorage.removeItem(linkKey);
       else localStorage.setItem(linkKey, originalLink);
+      await window.__ELECTRON_BRIDGE__!.invoke('attachment_delete', { path });
+    }, fixture);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
+test('read: PDF fit-width is a fixed toolbar action, not an overflow item', async () => {
+  await dismissConnectModal();
+  const fixture = await page.evaluate(async ({ bytes }) => {
+    const b = window.__ELECTRON_BRIDGE__!;
+    const root = await b.invoke<string>('attachment_default_dir');
+    const added = await b.invoke<{ key: string; file: string; path: string }>('attachment_write_bytes', {
+      root,
+      filename: 'e2e-fit-width.pdf',
+      bytes: new Uint8Array(bytes),
+    });
+    const libraryKey = 'termipod.library.v1';
+    const linkKey = 'termipod.zotero.storagePath';
+    const scaleKey = 'termipod.pdf.scale';
+    const originalLibrary = localStorage.getItem(libraryKey);
+    const originalLink = localStorage.getItem(linkKey);
+    const originalScale = localStorage.getItem(scaleKey);
+    localStorage.removeItem(linkKey);
+    localStorage.setItem(scaleKey, '0.4');
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-e2e-fit-width',
+        type: 'article',
+        title: 'E2E PDF fit width',
+        authors: ['TermiPod'],
+        tags: [],
+        collectionIds: [],
+        notes: '',
+        source: 'zotero',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [{
+          id: 'att-e2e-fit-width',
+          file: added.file,
+          contentType: 'application/pdf',
+          source: 'zotero',
+          key: added.key,
+          addedAt: Date.now(),
+        }],
+      }],
+      collections: [],
+    }));
+    return { path: added.path, originalLibrary, originalLink, originalScale };
+  }, { bytes: onePagePdfBytes() });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    const row = page.locator('.read-table tbody tr').filter({ hasText: 'E2E PDF fit width' });
+    await expect(row).toBeVisible();
+    await row.dblclick();
+
+    const toolbar = page.locator('.pdfjs-toolbar');
+    const fitWidth = toolbar.getByRole('button', { name: 'Fit width', exact: true });
+    await expect(fitWidth).toBeVisible();
+    await fitWidth.click();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('termipod.pdf.scale'))).not.toBe('0.4');
+
+    await toolbar.getByRole('button', { name: 'More PDF controls' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Fit width', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Fit page', exact: true })).toBeVisible();
+  } finally {
+    await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale }) => {
+      const libraryKey = 'termipod.library.v1';
+      const linkKey = 'termipod.zotero.storagePath';
+      const scaleKey = 'termipod.pdf.scale';
+      if (originalLibrary === null) localStorage.removeItem(libraryKey);
+      else localStorage.setItem(libraryKey, originalLibrary);
+      if (originalLink === null) localStorage.removeItem(linkKey);
+      else localStorage.setItem(linkKey, originalLink);
+      if (originalScale === null) localStorage.removeItem(scaleKey);
+      else localStorage.setItem(scaleKey, originalScale);
       await window.__ELECTRON_BRIDGE__!.invoke('attachment_delete', { path });
     }, fixture);
     await page.reload({ waitUntil: 'domcontentloaded' });

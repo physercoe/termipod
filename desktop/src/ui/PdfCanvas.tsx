@@ -2200,6 +2200,16 @@ export function PdfCanvas({
             </button>
           </div>
         )}
+        <button
+          className="pdfjs-zoom pdfjs-fit-width"
+          data-pdf-action="fit-width"
+          title={t('read.zoomFit')}
+          aria-label={t('read.zoomFit')}
+          disabled={pdf === null}
+          onClick={fitWidth}
+        >
+          <Icon name="expand" />
+        </button>
         {onToggleDetails !== undefined && (
           <button
             className={`pdfjs-zoom pdfjs-details-toggle${detailsOpen ? ' active' : ''}`}
@@ -2304,9 +2314,6 @@ export function PdfCanvas({
               <div className="pdfjs-overflow-separator" />
             </>
           )}
-          <button className="inspect-menu-item" role="menuitem" onClick={() => (fitWidth(), setOverflowOpen(false))}>
-            <Icon name="expand" size={16} /> {t('read.zoomFit')}
-          </button>
           <button className="inspect-menu-item" role="menuitem" onClick={() => (fitPage(), setOverflowOpen(false))}>
             <Icon name="fit-page" size={16} /> {t('read.zoomFitPage')}
           </button>

@@ -1,32 +1,45 @@
 <!--
-  Foreground-only variant of logo.svg for the Android adaptive-icon
-  foreground layer. No background tile, no animations — the launcher
-  draws a system background behind this asset and may mask it with a
-  circle, squircle, etc. The glyph sits within the inner safe zone
-  (~72dp of the 108dp viewport, i.e., the inner 66%).
+  Foreground-only variant of logo.svg for Android adaptive icons. The system
+  supplies the tile/mask, while the offset bases and highlights preserve the
+  dimensional prompt at launcher size.
 -->
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod">
   <defs>
     <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#14e2c6"/>
-      <stop offset="48%" stop-color="#0cbdf4"/>
-      <stop offset="100%" stop-color="#1f8fff"/>
+      <stop offset="0%" stop-color="#45efc9"/>
+      <stop offset="48%" stop-color="#28bff0"/>
+      <stop offset="100%" stop-color="#3c82f5"/>
     </linearGradient>
-    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#8ef2ff"/>
-      <stop offset="100%" stop-color="#45c2f7"/>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#effffa" stop-opacity="0.78"/>
+      <stop offset="58%" stop-color="#c4efff" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <radialGradient id="starHalo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#40cdfa" stop-opacity="0.55"/>
-      <stop offset="60%" stop-color="#40cdfa" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#40cdfa" stop-opacity="0"/>
+    <linearGradient id="spark" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="44%" stop-color="#b7f7ff"/>
+      <stop offset="100%" stop-color="#65c9f4"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#4bdfff" stop-opacity="0.48"/>
+      <stop offset="62%" stop-color="#36bff5" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#2ca8ee" stop-opacity="0"/>
     </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="180%" height="190%">
+      <feDropShadow dx="7" dy="10" stdDeviation="7" flood-color="#06152d" flood-opacity="0.62"/>
+    </filter>
   </defs>
 
-  <path d="M162 182 L232 252 L162 322" fill="none" stroke="url(#accent)" stroke-width="31" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M162 182 L232 252 L162 322" transform="translate(6 9)" fill="none" stroke="#0b3f67" stroke-opacity="0.72" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M162 182 L232 252 L162 322" fill="none" stroke="url(#accent)" stroke-width="31" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)"/>
+  <path d="M162 182 L232 252 L162 322" transform="translate(-3 -4)" fill="none" stroke="url(#gloss)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <g transform="translate(326.5 252)">
-    <circle r="44" fill="url(#starHalo)"/>
-    <path d="M 0,-29 Q 4.35,-4.35 29,0 Q 4.35,4.35 0,29 Q -4.35,4.35 -29,0 Q -4.35,-4.35 0,-29 Z" fill="url(#spark)"/>
+  <g transform="translate(331 259)" opacity="0.64">
+    <path d="M0 -29 Q4.35 -4.35 29 0 Q4.35 4.35 0 29 Q-4.35 4.35 -29 0 Q-4.35 -4.35 0 -29Z" fill="#0b3f67"/>
+  </g>
+  <g transform="translate(326.5 252)" filter="url(#shadow)">
+    <circle r="44" fill="url(#halo)"/>
+    <path d="M0 -29 Q4.35 -4.35 29 0 Q4.35 4.35 0 29 Q-4.35 4.35 -29 0 Q-4.35 -4.35 0 -29Z" fill="url(#spark)"/>
+    <path d="M0 -24 Q3.6 -3.6 24 0" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2.5" stroke-linecap="round"/>
   </g>
 </svg>

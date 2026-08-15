@@ -1,36 +1,86 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod light icon">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="shell" x1="8%" y1="0%" x2="90%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="58%" stop-color="#f5f9fe"/>
-      <stop offset="100%" stop-color="#dfe9f5"/>
+      <stop offset="52%" stop-color="#edf4fb"/>
+      <stop offset="100%" stop-color="#cbd9e9"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#008f7e"/>
-      <stop offset="46%" stop-color="#007fc9"/>
-      <stop offset="100%" stop-color="#1558d6"/>
+    <linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="48%" stop-color="#b9cadc"/>
+      <stop offset="100%" stop-color="#71869f"/>
     </linearGradient>
-    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#00a9c7"/>
-      <stop offset="100%" stop-color="#1256cf"/>
+    <linearGradient id="screen" x1="8%" y1="0%" x2="92%" y2="100%">
+      <stop offset="0%" stop-color="#f9fcff"/>
+      <stop offset="55%" stop-color="#e9f1f9"/>
+      <stop offset="100%" stop-color="#d4e0ed"/>
     </linearGradient>
-    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#168fd7" stop-opacity="0.30"/>
-      <stop offset="62%" stop-color="#168fd7" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#24aee8" stop-opacity="0"/>
+    <radialGradient id="screenLight" cx="24%" cy="12%" r="85%">
+      <stop offset="0%" stop-color="#28d8c2" stop-opacity="0.13"/>
+      <stop offset="58%" stop-color="#218fdc" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00a78e"/>
+      <stop offset="47%" stop-color="#008cca"/>
+      <stop offset="100%" stop-color="#175cd5"/>
+    </linearGradient>
+    <linearGradient id="promptGloss" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d7fff7" stop-opacity="0.82"/>
+      <stop offset="60%" stop-color="#bceaff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#25c8cf"/>
+      <stop offset="54%" stop-color="#168ccf"/>
+      <stop offset="100%" stop-color="#174fbd"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#1a9fd8" stop-opacity="0.30"/>
+      <stop offset="62%" stop-color="#178fd2" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#178fd2" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shellShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#53677f" flood-opacity="0.46"/>
+    </filter>
+    <filter id="inset" x="-15%" y="-15%" width="130%" height="135%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="7" result="blur"/>
+      <feOffset dy="7" result="offset"/>
+      <feComposite in="offset" in2="SourceAlpha" operator="out" result="shadow"/>
+      <feFlood flood-color="#6e8298" flood-opacity="0.42" result="color"/>
+      <feComposite in="color" in2="shadow" operator="in" result="inner"/>
+      <feComposite in="SourceGraphic" in2="inner" operator="over"/>
+    </filter>
+    <filter id="glyphShadow" x="-30%" y="-30%" width="170%" height="180%">
+      <feDropShadow dx="7" dy="10" stdDeviation="6" flood-color="#56718e" flood-opacity="0.46"/>
+    </filter>
+    <clipPath id="screenClip">
+      <rect x="34" y="34" width="444" height="432" rx="88"/>
+    </clipPath>
   </defs>
 
-  <!-- A crisp platform-sized tile. The stronger edge keeps the white icon
-       distinct on translucent macOS docks without looking boxed at full size. -->
-  <rect x="2.5" y="2.5" width="507" height="507" rx="111" fill="url(#bg)" stroke="#b9c9dc" stroke-width="5"/>
-  <path d="M112 57 C198 19 314 19 400 57" fill="none" stroke="#ffffff" stroke-opacity="0.78" stroke-width="4" stroke-linecap="round"/>
+  <rect x="11" y="14" width="490" height="488" rx="108" fill="#8295aa" opacity="0.48"/>
+  <rect x="7" y="5" width="498" height="494" rx="110" fill="url(#shell)" stroke="url(#rim)" stroke-width="8" filter="url(#shellShadow)"/>
+  <path d="M89 28 C184 -4 329 -4 425 29" fill="none" stroke="#ffffff" stroke-opacity="0.92" stroke-width="5" stroke-linecap="round"/>
+  <path d="M81 477 C178 507 337 507 435 474" fill="none" stroke="#7c91a8" stroke-opacity="0.46" stroke-width="8" stroke-linecap="round"/>
 
-  <!-- Prompt + agent-at-cursor sparkle. Both shapes are deliberately bolder
-       and larger than the document logo so their silhouettes hold at 16–64px. -->
-  <path d="M122 137 L248 256 L122 375" fill="none" stroke="url(#accent)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
-  <g transform="translate(366 256)">
-    <circle r="66" fill="url(#halo)"/>
-    <path d="M 0,-46 Q 7,-7 46,0 Q 7,7 0,46 Q -7,7 -46,0 Q -7,-7 0,-46 Z" fill="url(#spark)"/>
+  <rect x="34" y="34" width="444" height="432" rx="88" fill="url(#screen)" stroke="#b7c8d9" stroke-width="3" filter="url(#inset)"/>
+  <g clip-path="url(#screenClip)">
+    <rect x="34" y="34" width="444" height="432" fill="url(#screenLight)"/>
+    <ellipse cx="220" cy="22" rx="285" ry="132" fill="#ffffff" opacity="0.48"/>
+  </g>
+  <path d="M98 55 C188 31 327 31 416 56" fill="none" stroke="#ffffff" stroke-opacity="0.70" stroke-width="3" stroke-linecap="round"/>
+
+  <path d="M122 137 L248 256 L122 375" transform="translate(7 10)" fill="none" stroke="#728ba7" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" opacity="0.62"/>
+  <path d="M122 137 L248 256 L122 375" fill="none" stroke="url(#accent)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" filter="url(#glyphShadow)"/>
+  <path d="M122 137 L248 256 L122 375" transform="translate(-4 -5)" fill="none" stroke="url(#promptGloss)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g transform="translate(371 264)" opacity="0.38">
+    <path d="M0 -46 Q7 -7 46 0 Q7 7 0 46 Q-7 7 -46 0 Q-7 -7 0 -46Z" fill="#54728f"/>
+  </g>
+  <g transform="translate(366 256)" filter="url(#glyphShadow)">
+    <circle r="68" fill="url(#halo)"/>
+    <path d="M0 -46 Q7 -7 46 0 Q7 7 0 46 Q-7 7 -46 0 Q-7 -7 0 -46Z" fill="url(#spark)"/>
+    <path d="M0 -39 Q6 -6 39 0" fill="none" stroke="#e8ffff" stroke-opacity="0.68" stroke-width="4" stroke-linecap="round"/>
   </g>
 </svg>

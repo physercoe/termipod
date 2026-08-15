@@ -936,16 +936,43 @@
   border-top: 1px solid var(--border);
 }
 
-/* Right-click context menu (annotate the selection · split view). */
+/* Floating selection actions and the fuller right-click menu share one raised
+   surface; the frequent selection actions stay horizontal and close to text. */
+.pdfjs-selection-toolbar,
 .pdfjs-ctxmenu {
   position: fixed;
-  z-index: 50;
-  min-width: 184px;
-  padding: var(--spacing-s4);
+  z-index: var(--z-menu);
   background: var(--raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+.pdfjs-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s2);
+  padding: var(--spacing-s2);
+}
+.pdfjs-selection-action {
+  min-height: var(--control-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  padding: 0 var(--spacing-s8);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pdfjs-selection-action:hover {
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
+.pdfjs-ctxmenu {
+  min-width: 184px;
+  padding: var(--spacing-s4);
   display: flex;
   flex-direction: column;
   gap: 1px;

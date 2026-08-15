@@ -80,11 +80,13 @@ async function dismissConnectModal(): Promise<void> {
 }
 
 function onePagePdfBytes(): number[] {
+  const content = 'BT /F1 18 Tf 72 720 Td (Selectable PDF text) Tj ET';
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>',
-    '<< /Length 0 >>\nstream\n\nendstream',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
   ];
   let source = '%PDF-1.4\n';
   const offsets = [0];
@@ -520,7 +522,7 @@ test('read: synced Zotero files open from the default attachment location', asyn
   }
 });
 
-test('read: PDF fit-width is a fixed toolbar action, not an overflow item', async () => {
+test('read: PDF frequent actions stay visible in the toolbar and beside selected text', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {
     const b = window.__ELECTRON_BRIDGE__!;
@@ -533,9 +535,11 @@ test('read: PDF fit-width is a fixed toolbar action, not an overflow item', asyn
     const libraryKey = 'termipod.library.v1';
     const linkKey = 'termipod.zotero.storagePath';
     const scaleKey = 'termipod.pdf.scale';
+    const annotationsKey = 'termipod.annotations.v1';
     const originalLibrary = localStorage.getItem(libraryKey);
     const originalLink = localStorage.getItem(linkKey);
     const originalScale = localStorage.getItem(scaleKey);
+    const originalAnnotations = localStorage.getItem(annotationsKey);
     localStorage.removeItem(linkKey);
     localStorage.setItem(scaleKey, '0.4');
     localStorage.setItem(libraryKey, JSON.stringify({
@@ -561,7 +565,7 @@ test('read: PDF fit-width is a fixed toolbar action, not an overflow item', asyn
       }],
       collections: [],
     }));
-    return { path: added.path, originalLibrary, originalLink, originalScale };
+    return { path: added.path, originalLibrary, originalLink, originalScale, originalAnnotations };
   }, { bytes: onePagePdfBytes() });
 
   try {
@@ -581,17 +585,47 @@ test('read: PDF fit-width is a fixed toolbar action, not an overflow item', asyn
     await toolbar.getByRole('button', { name: 'More PDF controls' }).click();
     await expect(page.getByRole('menuitem', { name: 'Fit width', exact: true })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: 'Fit page', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    const more = toolbar.locator('.pdfjs-overflow-trigger');
+    const details = toolbar.locator('.pdfjs-details-toggle');
+    await expect(details).toBeVisible();
+    expect(await more.evaluate((node, detailNode) => (
+      node.compareDocumentPosition(detailNode as Node) & Node.DOCUMENT_POSITION_FOLLOWING
+    ) !== 0, await details.elementHandle())).toBe(true);
+
+    const textSpan = page.locator('.textLayer span').filter({ hasText: 'Selectable PDF text' }).first();
+    await expect(textSpan).toBeVisible();
+    await textSpan.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: window }));
+    });
+    const selectionActions = page.getByRole('toolbar', { name: 'Selection actions' });
+    await expect(selectionActions).toBeVisible();
+    await expect(selectionActions.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+    await expect(selectionActions.getByRole('button', { name: 'Highlight', exact: true })).toBeVisible();
+    await expect(selectionActions.getByRole('button', { name: 'Add to notes', exact: true })).toBeVisible();
+    await selectionActions.getByRole('button', { name: 'Highlight', exact: true }).click();
+    await expect(selectionActions).toHaveCount(0);
+    await expect(page.locator('.pdfjs-anno.highlight')).toBeVisible();
   } finally {
-    await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale }) => {
+    await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale, originalAnnotations }) => {
       const libraryKey = 'termipod.library.v1';
       const linkKey = 'termipod.zotero.storagePath';
       const scaleKey = 'termipod.pdf.scale';
+      const annotationsKey = 'termipod.annotations.v1';
       if (originalLibrary === null) localStorage.removeItem(libraryKey);
       else localStorage.setItem(libraryKey, originalLibrary);
       if (originalLink === null) localStorage.removeItem(linkKey);
       else localStorage.setItem(linkKey, originalLink);
       if (originalScale === null) localStorage.removeItem(scaleKey);
       else localStorage.setItem(scaleKey, originalScale);
+      if (originalAnnotations === null) localStorage.removeItem(annotationsKey);
+      else localStorage.setItem(annotationsKey, originalAnnotations);
       await window.__ELECTRON_BRIDGE__!.invoke('attachment_delete', { path });
     }, fixture);
     await page.reload({ waitUntil: 'domcontentloaded' });

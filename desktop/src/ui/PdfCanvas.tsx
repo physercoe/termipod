@@ -1049,29 +1049,100 @@ interface OutlineNode {
 function OutlineList({
   nodes,
   onGo,
-  depth,
 }: {
   nodes: OutlineNode[];
   onGo: (dest: string | unknown[]) => void;
-  depth: number;
 }): JSX.Element {
+  const t = useT();
+  const branchKeys = useMemo(() => {
+    const keys: string[] = [];
+    const visit = (items: OutlineNode[], parent = ''): void => {
+      items.forEach((item, index) => {
+        const key = parent === '' ? String(index) : parent + '.' + index;
+        if (item.items.length > 0) {
+          keys.push(key);
+          visit(item.items, key);
+        }
+      });
+    };
+    visit(nodes);
+    return keys;
+  }, [nodes]);
+  // A newly opened document starts as a tier-1 index. Expanding one branch
+  // reveals its direct children; deeper branches retain their own folded state.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(branchKeys));
+  useEffect(() => setCollapsed(new Set(branchKeys)), [branchKeys]);
+  const allBranchesCollapsed = branchKeys.length > 0 && branchKeys.every((key) => collapsed.has(key));
+
+  function toggleBranch(key: string): void {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllBranches(): void {
+    setCollapsed(allBranchesCollapsed ? new Set() : new Set(branchKeys));
+  }
+
+  function renderNodes(items: OutlineNode[], depth: number, parent = ''): JSX.Element {
+    return (
+      <ul className="pdfjs-toc-list">
+        {items.map((node, index) => {
+          const key = parent === '' ? String(index) : parent + '.' + index;
+          const hasChildren = node.items.length > 0;
+          const isCollapsed = collapsed.has(key);
+          return (
+            <li key={key}>
+              <div className="pdfjs-toc-row" style={{ paddingLeft: 4 + depth * 12 }}>
+                {hasChildren ? (
+                  <button
+                    className="pdfjs-toc-branch"
+                    title={t(isCollapsed ? 'read.expandHeading' : 'read.collapseHeading')}
+                    aria-label={t(isCollapsed ? 'read.expandHeading' : 'read.collapseHeading')}
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleBranch(key)}
+                  >
+                    <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
+                  </button>
+                ) : (
+                  <span className="pdfjs-toc-branch-placeholder" aria-hidden="true" />
+                )}
+                <button
+                  className="pdfjs-toc-item"
+                  disabled={node.dest === null}
+                  title={node.title}
+                  onClick={() => node.dest !== null && onGo(node.dest)}
+                >
+                  {node.title}
+                </button>
+              </div>
+              {hasChildren && !isCollapsed && renderNodes(node.items, depth + 1, key)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
-    <ul className="pdfjs-toc-list">
-      {nodes.map((n, i) => (
-        <li key={i}>
+    <>
+      {branchKeys.length > 0 && (
+        <div className="pdfjs-outline-tools">
           <button
-            className="pdfjs-toc-item"
-            style={{ paddingLeft: 8 + depth * 12 }}
-            disabled={n.dest === null}
-            title={n.title}
-            onClick={() => n.dest !== null && onGo(n.dest)}
+            className="pdfjs-outline-all-toggle"
+            title={t(allBranchesCollapsed ? 'read.expandAllHeadings' : 'read.collapseAllHeadings')}
+            aria-label={t(allBranchesCollapsed ? 'read.expandAllHeadings' : 'read.collapseAllHeadings')}
+            onClick={toggleAllBranches}
           >
-            {n.title}
+            <Icon name={allBranchesCollapsed ? 'chevron-right' : 'chevron-down'} size={13} />
           </button>
-          {n.items.length > 0 && <OutlineList nodes={n.items} onGo={onGo} depth={depth + 1} />}
-        </li>
-      ))}
-    </ul>
+        </div>
+      )}
+      {renderNodes(nodes, 0)}
+    </>
   );
 }
 
@@ -2462,7 +2533,7 @@ export function PdfCanvas({
                 {panelTab === 'annos' && canAnnotate ? (
                   <AnnotationList annos={refAnnos} selectedId={selectedAnno} onGo={goToAnnotation} />
                 ) : panelTab === 'outline' && outline.length > 0 ? (
-                  <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
+                  <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} />
                 ) : (
                   <ThumbList pdf={pdf} current={currentPage} rotation={rotation} onGo={(n) => scrollToPage(n)} />
                 )}

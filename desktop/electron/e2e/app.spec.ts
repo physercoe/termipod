@@ -82,11 +82,16 @@ async function dismissConnectModal(): Promise<void> {
 function onePagePdfBytes(): number[] {
   const content = 'BT /F1 18 Tf 72 720 Td (Selectable PDF text) Tj ET';
   const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /PageMode /UseOutlines >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
     `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Outlines /First 7 0 R /Last 10 0 R /Count 4 >>',
+    '<< /Title (Chapter 1) /Parent 6 0 R /First 8 0 R /Last 8 0 R /Count 2 /Next 10 0 R /Dest [3 0 R /Fit] >>',
+    '<< /Title (Section 1.1) /Parent 7 0 R /First 9 0 R /Last 9 0 R /Count 1 /Dest [3 0 R /Fit] >>',
+    '<< /Title (Detail 1.1.1) /Parent 8 0 R /Dest [3 0 R /Fit] >>',
+    '<< /Title (Chapter 2) /Parent 6 0 R /Prev 7 0 R /Dest [3 0 R /Fit] >>',
   ];
   let source = '%PDF-1.4\n';
   const offsets = [0];
@@ -567,7 +572,7 @@ test('read: synced Zotero files open from the default attachment location', asyn
   }
 });
 
-test('read: PDF frequent actions stay visible in the toolbar and beside selected text', async () => {
+test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {
     const b = window.__ELECTRON_BRIDGE__!;
@@ -626,6 +631,20 @@ test('read: PDF frequent actions stay visible in the toolbar and beside selected
     await expect(fitWidth).toBeVisible();
     await fitWidth.click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('termipod.pdf.scale'))).not.toBe('0.4');
+
+    await toolbar.getByRole('button', { name: 'Contents', exact: true }).click();
+    const toc = page.locator('.pdfjs-toc');
+    await expect(toc.getByRole('tab', { name: 'Outline', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Chapter 1', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Chapter 2', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toHaveCount(0);
+    await toc.getByRole('button', { name: 'Expand subheadings', exact: true }).first().click();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Detail 1.1.1', exact: true })).toHaveCount(0);
+    await toc.getByRole('button', { name: 'Show all heading levels', exact: true }).click();
+    await expect(toc.getByRole('button', { name: 'Detail 1.1.1', exact: true })).toBeVisible();
+    await toc.getByRole('button', { name: 'Show top-level headings only', exact: true }).click();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toHaveCount(0);
 
     await toolbar.getByRole('button', { name: 'More PDF controls' }).click();
     await expect(page.getByRole('menuitem', { name: 'Fit width', exact: true })).toHaveCount(0);

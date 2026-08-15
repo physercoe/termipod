@@ -327,15 +327,54 @@
   margin: 0;
   padding: 0;
 }
+.pdfjs-outline-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--spacing-s8) var(--spacing-s4);
+}
+.pdfjs-outline-all-toggle,
+.pdfjs-toc-branch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+.pdfjs-outline-all-toggle:hover,
+.pdfjs-toc-branch:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.pdfjs-toc-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+.pdfjs-toc-row:hover {
+  background: var(--accent-tint);
+}
+.pdfjs-toc-branch-placeholder {
+  flex: 0 0 22px;
+}
 .pdfjs-toc-item {
   display: block;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   border: none;
   background: transparent;
+  box-shadow: none;
   color: var(--text);
   cursor: pointer;
-  padding: var(--spacing-s4) var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8) var(--spacing-s4) var(--spacing-s2);
   font-size: var(--font-size-body-small);
   line-height: 1.35;
   overflow: hidden;
@@ -343,8 +382,10 @@
   white-space: nowrap;
 }
 .pdfjs-toc-item:hover:not(:disabled) {
-  background: var(--accent-tint);
+  background: transparent;
   color: var(--accent-text);
+  box-shadow: none;
+  transform: none;
 }
 .pdfjs-toc-item:disabled {
   color: var(--text-muted);

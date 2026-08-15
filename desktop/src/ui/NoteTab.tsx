@@ -64,8 +64,13 @@ export function NoteTab({ refId }: { refId: string }): JSX.Element {
           </div>
           <span className="spacer" />
           {isShell() && (
-            <button className="link-btn" title={t('read.notesExport')} onClick={() => void exportNotes()}>
-              <Icon name="download" size={14} /> {t('read.notesExport')}
+            <button
+              className="icon-btn ref-note-action"
+              title={t('read.notesExport')}
+              aria-label={t('read.notesExport')}
+              onClick={() => void exportNotes()}
+            >
+              <Icon name="download" size={14} />
             </button>
           )}
         </div>

@@ -781,6 +781,12 @@ button > .ui-icon:not(:only-child):first-child,
   padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
 }
+.ref-note-action {
+  flex: 0 0 var(--control-md);
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
+}
 /* The notes editor (CodeMirror source or Milkdown WYSIWYG) fills the tab body. */
 .ref-notes > .md-editor,
 .ref-notes > .milkdown-host {

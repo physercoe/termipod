@@ -327,15 +327,54 @@
   margin: 0;
   padding: 0;
 }
+.pdfjs-outline-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--spacing-s8) var(--spacing-s4);
+}
+.pdfjs-outline-all-toggle,
+.pdfjs-toc-branch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+.pdfjs-outline-all-toggle:hover,
+.pdfjs-toc-branch:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.pdfjs-toc-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+.pdfjs-toc-row:hover {
+  background: var(--accent-tint);
+}
+.pdfjs-toc-branch-placeholder {
+  flex: 0 0 22px;
+}
 .pdfjs-toc-item {
   display: block;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   border: none;
   background: transparent;
+  box-shadow: none;
   color: var(--text);
   cursor: pointer;
-  padding: var(--spacing-s4) var(--spacing-s8);
+  padding: var(--spacing-s4) var(--spacing-s8) var(--spacing-s4) var(--spacing-s2);
   font-size: var(--font-size-body-small);
   line-height: 1.35;
   overflow: hidden;
@@ -343,8 +382,10 @@
   white-space: nowrap;
 }
 .pdfjs-toc-item:hover:not(:disabled) {
-  background: var(--accent-tint);
+  background: transparent;
   color: var(--accent-text);
+  box-shadow: none;
+  transform: none;
 }
 .pdfjs-toc-item:disabled {
   color: var(--text-muted);
@@ -728,7 +769,8 @@
 .pdfjs-anno-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: var(--spacing-s4);
 }
 /* Annotation tags — chip list + inline add input (in the popup editor). */
 .pdfjs-anno-tags {
@@ -783,37 +825,81 @@
   color: var(--text-muted);
   font-size: var(--font-size-label);
 }
-/* Area-annotation image actions (copy / save the screenshot). */
-.pdfjs-anno-imgacts {
-  display: flex;
-  gap: var(--spacing-s4);
-}
-.pdfjs-anno-imgbtn {
+.pdfjs-anno-actionbtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-s4);
-  flex: 1;
   justify-content: center;
-  padding: var(--spacing-s4) var(--spacing-s8);
-  font-size: var(--font-size-label);
-}
-.pdfjs-anno-del {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-s2);
-  padding: var(--spacing-s2) var(--spacing-s4);
-  color: var(--danger);
+  flex: 0 0 var(--control-md);
+  width: var(--control-md);
+  height: var(--control-md);
+  min-height: var(--control-md);
+  padding: 0;
   background: transparent;
   border: none;
-  cursor: pointer;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  color: var(--text-secondary);
+}
+.pdfjs-anno-actionbtn:hover {
+  background: var(--accent-tint);
+  border: none;
+  box-shadow: none;
+  color: var(--text);
+}
+.pdfjs-anno-actionbtn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: calc(100% + var(--spacing-s4));
+  translate: -50% 2px;
+  max-width: 190px;
+  padding: 3px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  box-shadow: var(--sh-2, none);
+  color: var(--text);
+  font-size: var(--font-size-label);
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease, translate 100ms ease;
+}
+.pdfjs-anno-actionbtn:hover::after,
+.pdfjs-anno-actionbtn:focus-visible::after {
+  translate: -50% 0;
+  opacity: 1;
+}
+.pdfjs-anno-actionbtn:first-of-type::after {
+  left: 0;
+  translate: 0 2px;
+}
+.pdfjs-anno-actionbtn:first-of-type:hover::after,
+.pdfjs-anno-actionbtn:first-of-type:focus-visible::after,
+.pdfjs-anno-actionbtn:last-child::after {
+  translate: 0 0;
+}
+.pdfjs-anno-actionbtn:last-child::after {
+  right: 0;
+  left: auto;
+}
+.pdfjs-anno-action-spacer {
+  flex: 1 1 auto;
+}
+.pdfjs-anno-del {
+  color: var(--danger);
+}
+.pdfjs-anno-del:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 .pdfjs-anno-done {
-  padding: var(--spacing-s2) var(--spacing-s12);
   color: var(--accent-text);
   background: var(--accent-tint);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
 }
 /* Annotations panel tab — the Zotero-style list of every annotation. */
 .pdfjs-anno-list {

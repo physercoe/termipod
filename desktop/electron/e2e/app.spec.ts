@@ -82,11 +82,16 @@ async function dismissConnectModal(): Promise<void> {
 function onePagePdfBytes(): number[] {
   const content = 'BT /F1 18 Tf 72 720 Td (Selectable PDF text) Tj ET';
   const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /PageMode /UseOutlines >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
     `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Outlines /First 7 0 R /Last 10 0 R /Count 4 >>',
+    '<< /Title (Chapter 1) /Parent 6 0 R /First 8 0 R /Last 8 0 R /Count 2 /Next 10 0 R /Dest [3 0 R /Fit] >>',
+    '<< /Title (Section 1.1) /Parent 7 0 R /First 9 0 R /Last 9 0 R /Count 1 /Dest [3 0 R /Fit] >>',
+    '<< /Title (Detail 1.1.1) /Parent 8 0 R /Dest [3 0 R /Fit] >>',
+    '<< /Title (Chapter 2) /Parent 6 0 R /Prev 7 0 R /Dest [3 0 R /Fit] >>',
   ];
   let source = '%PDF-1.4\n';
   const offsets = [0];
@@ -567,7 +572,7 @@ test('read: synced Zotero files open from the default attachment location', asyn
   }
 });
 
-test('read: PDF frequent actions stay visible in the toolbar and beside selected text', async () => {
+test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {
     const b = window.__ELECTRON_BRIDGE__!;
@@ -627,6 +632,22 @@ test('read: PDF frequent actions stay visible in the toolbar and beside selected
     await fitWidth.click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('termipod.pdf.scale'))).not.toBe('0.4');
 
+    await toolbar.getByRole('button', { name: 'Contents', exact: true }).click();
+    const toc = page.locator('.pdfjs-toc');
+    await expect(toc.getByRole('tab', { name: 'Outline', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Chapter 1', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Chapter 2', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toHaveCount(0);
+    await toc.getByRole('button', { name: 'Expand subheadings', exact: true }).first().click();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toBeVisible();
+    await expect(toc.getByRole('button', { name: 'Detail 1.1.1', exact: true })).toHaveCount(0);
+    await toc.getByRole('button', { name: 'Collapse subheadings', exact: true }).first().click();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toHaveCount(0);
+    await toc.getByRole('button', { name: 'Show all heading levels', exact: true }).click();
+    await expect(toc.getByRole('button', { name: 'Detail 1.1.1', exact: true })).toBeVisible();
+    await toc.getByRole('button', { name: 'Show top-level headings only', exact: true }).click();
+    await expect(toc.getByRole('button', { name: 'Section 1.1', exact: true })).toHaveCount(0);
+
     await toolbar.getByRole('button', { name: 'More PDF controls' }).click();
     await expect(page.getByRole('menuitem', { name: 'Fit width', exact: true })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: 'Fit page', exact: true })).toBeVisible();
@@ -676,6 +697,55 @@ test('read: PDF frequent actions stay visible in the toolbar and beside selected
     await selectionActions.getByRole('button', { name: 'Highlight', exact: true }).click();
     await expect(selectionActions).toHaveCount(0);
     await expect(page.locator('.pdfjs-anno.highlight')).toBeVisible();
+
+    const areaButton = toolbar.getByRole('button', { name: 'Area (A)', exact: true });
+    if (await areaButton.count()) {
+      await areaButton.click();
+    } else {
+      // Narrow toolbars move annotation tools into the responsive overflow menu.
+      await toolbar.getByRole('button', { name: 'More PDF controls', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Area', exact: true }).click();
+    }
+    const areaSurface = page.locator('.pdfjs-draw-surface.image');
+    await expect(areaSurface).toBeVisible();
+    await areaSurface.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const start = { clientX: rect.left + 40, clientY: rect.top + 40 };
+      const end = { clientX: rect.left + 140, clientY: rect.top + 100 };
+      node.dispatchEvent(new PointerEvent('pointerdown', { ...start, bubbles: true, button: 0, buttons: 1 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { ...end, bubbles: true, button: 0, buttons: 1 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { ...end, bubbles: true, button: 0 }));
+    });
+    const annoEditor = page.getByRole('dialog', { name: 'Annotation editor' });
+    await expect(annoEditor).toBeVisible();
+    const annoActions = annoEditor.getByRole('toolbar', { name: 'Annotation actions' });
+    await expect(annoActions).toBeVisible();
+    for (const name of ['Copy image', 'Save image as…', 'Add to note', 'Delete', 'Done']) {
+      const action = annoActions.getByRole('button', { name, exact: true });
+      await expect(action).toBeVisible();
+      await expect(action).toHaveText('');
+      await expect(action).toHaveAttribute('data-tooltip', name);
+    }
+    const actionCenters = await annoActions.getByRole('button').evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return Math.round(rect.top + rect.height / 2);
+      }),
+    );
+    expect(new Set(actionCenters).size).toBe(1);
+
+    const saveImage = annoActions.getByRole('button', { name: 'Save image as…', exact: true });
+    await saveImage.hover();
+    await expect.poll(() =>
+      saveImage.evaluate((button) => getComputedStyle(button, '::after').opacity),
+    ).toBe('1');
+
+    await annoActions.getByRole('button', { name: 'Delete', exact: true }).click();
+    const deleteConfirm = page.getByRole('dialog', { name: 'Delete this annotation? This cannot be undone.' });
+    await expect(deleteConfirm).toBeVisible();
+    await expect(page.locator('.pdfjs-anno.image')).toBeVisible();
+    await deleteConfirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(deleteConfirm).toHaveCount(0);
   } finally {
     await page.evaluate(async ({ path, originalLibrary, originalLink, originalScale, originalAnnotations }) => {
       const libraryKey = 'termipod.library.v1';
@@ -1346,7 +1416,7 @@ test('inspect: a pasted patch renders the multi-file diff viewer (W2)', async ()
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
 
-test('inspect: comparing two open tabs mounts the merge view (W2)', async () => {
+test('inspect: comparing two open tabs scrolls and resizes both merge panes (W2)', async () => {
   await dismissConnectModal();
   await page.getByRole('button', { name: 'Inspect', exact: true }).click();
   // Tab A.
@@ -1355,14 +1425,18 @@ test('inspect: comparing two open tabs mounts the merge view (W2)', async () => 
   await expect(editor).toBeVisible();
   await editor.click({ force: true });
   await editor.focus();
-  await page.keyboard.type('alpha\nbeta\ngamma');
+  await page.keyboard.insertText(
+    Array.from({ length: 140 }, (_, index) => `left-${index}: ${'alpha '.repeat(24)}`).join('\n'),
+  );
   // Tab B (becomes active).
   await page.getByRole('button', { name: 'New scratch' }).click();
   editor = page.locator('.inspect-code .cm-content');
   await expect(editor).toBeVisible();
   await editor.click({ force: true });
   await editor.focus();
-  await page.keyboard.type('alpha\nBETA\ngamma');
+  await page.keyboard.insertText(
+    Array.from({ length: 140 }, (_, index) => `right-${index}: ${'BETA '.repeat(24)}`).join('\n'),
+  );
   // Compare ▾ → the first "open tab" entry is the other scratch. Scope to the
   // surface (`main`): "Compare" also names the J5 activity-bar tab in the nav,
   // so an unscoped role query is a strict-mode collision.
@@ -1370,7 +1444,36 @@ test('inspect: comparing two open tabs mounts the merge view (W2)', async () => 
   await expect(page.locator('.inspect-menu')).toBeVisible();
   await page.locator('.inspect-menu-item').first().click();
   // The @codemirror/merge view mounts (its own lazy chunk).
-  await expect(page.locator('.compare-host .cm-mergeView')).toBeVisible({ timeout: 15000 });
+  const merge = page.locator('.compare-host .cm-mergeView');
+  await expect(merge).toBeVisible({ timeout: 15000 });
+
+  // The merge root owns vertical scrolling; each CodeMirror scroller keeps its
+  // own horizontal axis for long source lines.
+  await expect.poll(() => merge.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(20);
+  await merge.evaluate((node) => {
+    node.scrollTop = Math.min(240, node.scrollHeight - node.clientHeight);
+  });
+  await expect.poll(() => merge.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  const leftScroller = merge.locator('.cm-scroller').first();
+  await expect.poll(() => leftScroller.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeGreaterThan(20);
+  await leftScroller.evaluate((node) => {
+    node.scrollLeft = Math.min(180, node.scrollWidth - node.clientWidth);
+  });
+  await expect.poll(() => leftScroller.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+
+  // The shared divider resizes the two compare panes and persists their ratio.
+  const leftPane = merge.locator('.cm-mergeViewEditor').first();
+  const beforeWidth = await leftPane.evaluate((node) => node.getBoundingClientRect().width);
+  const divider = page.locator('.compare-split-handle .resize-handle');
+  await expect(divider).toBeVisible();
+  await divider.evaluate((node) => {
+    const x = node.getBoundingClientRect().left;
+    node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x }));
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x + 80 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x + 80 }));
+  });
+  await expect.poll(() => leftPane.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(beforeWidth + 40);
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('termipod.inspect.compareRatio')))).toBeGreaterThan(0.5);
   await page.locator('.inspect-tab .inspect-tab-close').last().click();
 });
 

@@ -1,32 +1,23 @@
-<!--
-  Foreground-only variant of logo.svg for the Android adaptive-icon
-  foreground layer. No background tile, no animations — the launcher
-  draws a system background behind this asset and may mask it with a
-  circle, squircle, etc. The glyph sits within the inner safe zone
-  (~72dp of the 108dp viewport, i.e., the inner 66%).
--->
+<!-- Foreground-only TermiPod mark for Android adaptive icons. -->
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod">
   <defs>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#14e2c6"/>
-      <stop offset="48%" stop-color="#0cbdf4"/>
-      <stop offset="100%" stop-color="#1f8fff"/>
+    <linearGradient id="prompt" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7cf2db"/>
+      <stop offset="48%" stop-color="#38c4e8"/>
+      <stop offset="100%" stop-color="#6c7cf2"/>
     </linearGradient>
-    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#8ef2ff"/>
-      <stop offset="100%" stop-color="#45c2f7"/>
+    <linearGradient id="spark" x1="14%" y1="0%" x2="86%" y2="100%">
+      <stop offset="0%" stop-color="#f1ffff"/>
+      <stop offset="48%" stop-color="#9de8f8"/>
+      <stop offset="100%" stop-color="#8d8af3"/>
     </linearGradient>
-    <radialGradient id="starHalo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#40cdfa" stop-opacity="0.55"/>
-      <stop offset="60%" stop-color="#40cdfa" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#40cdfa" stop-opacity="0"/>
-    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="170%" height="180%">
+      <feDropShadow dx="3" dy="8" stdDeviation="7" flood-color="#071127" flood-opacity="0.52"/>
+    </filter>
   </defs>
 
-  <path d="M162 182 L232 252 L162 322" fill="none" stroke="url(#accent)" stroke-width="31" stroke-linecap="round" stroke-linejoin="round"/>
-
-  <g transform="translate(326.5 252)">
-    <circle r="44" fill="url(#starHalo)"/>
-    <path d="M 0,-29 Q 4.35,-4.35 29,0 Q 4.35,4.35 0,29 Q -4.35,4.35 -29,0 Q -4.35,-4.35 0,-29 Z" fill="url(#spark)"/>
-  </g>
+  <path d="M164 181 L234 252 L164 323" transform="translate(4 7)" fill="none" stroke="#092444" stroke-opacity="0.58" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M164 181 L234 252 L164 323" fill="none" stroke="url(#prompt)" stroke-width="31" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)"/>
+  <path d="M329 225 C332 243 342 250 360 252 C342 255 332 262 329 280 C326 262 316 255 298 252 C316 250 326 243 329 225Z" transform="translate(3 6)" fill="#092444" opacity="0.52"/>
+  <path d="M329 225 C332 243 342 250 360 252 C342 255 332 262 329 280 C326 262 316 255 298 252 C316 250 326 243 329 225Z" fill="url(#spark)" filter="url(#shadow)"/>
 </svg>

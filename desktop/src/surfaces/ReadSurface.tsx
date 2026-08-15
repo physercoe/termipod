@@ -786,22 +786,25 @@ function AttachmentInfo({
             <span className="att-k">{t('read.attLocation')}</span>
             <span className={present ? 'att-v mono' : 'att-v mono muted'}>{location}</span>
             {absPath !== null && (
-              <button className="link-btn att-reveal" title={t('read.attReveal')} onClick={() => revealPath(absPath)}>
+              <button
+                className="icon-btn att-reveal"
+                title={t('read.attReveal')}
+                aria-label={t('read.attReveal')}
+                onClick={() => revealPath(absPath)}
+              >
                 <Icon name="folder" size={14} />
               </button>
             )}
           </div>
           <div className="att-actions">
-            {absPath !== null && (
-              <button className="small att-locate" onClick={() => revealPath(absPath)}>
-                <Icon name="folder" size={14} />
-                {t('read.attReveal')}
-              </button>
-            )}
             {present && onOpen !== undefined && (
-              <button className="primary small att-open" onClick={onOpen}>
-                <Icon name="window" />
-                {t('read.attOpen')}
+              <button
+                className="icon-btn att-action-icon att-open"
+                title={t('read.attOpen')}
+                aria-label={t('read.attOpen')}
+                onClick={onOpen}
+              >
+                <Icon name="window" size={15} />
               </button>
             )}
             {onRemove !== undefined &&
@@ -822,9 +825,13 @@ function AttachmentInfo({
                   </button>
                 </span>
               ) : (
-                <button className="small att-remove" title={t('read.attRemove')} onClick={() => setConfirming(true)}>
+                <button
+                  className="icon-btn danger att-action-icon att-remove"
+                  title={t('read.attRemove')}
+                  aria-label={t('read.attRemove')}
+                  onClick={() => setConfirming(true)}
+                >
                   <Icon name="trash" size={14} />
-                  {t('read.attRemove')}
                 </button>
               ))}
           </div>
@@ -1465,13 +1472,23 @@ function Inspector({
               </div>
               <span className="spacer" />
               {onOpenNote !== undefined && (
-                <button className="link-btn" title={t('read.openNoteTab')} onClick={() => onOpenNote(ref.id)}>
-                  <Icon name="external" size={14} /> {t('read.openNoteTab')}
+                <button
+                  className="icon-btn ref-note-action"
+                  title={t('read.openNoteTab')}
+                  aria-label={t('read.openNoteTab')}
+                  onClick={() => onOpenNote(ref.id)}
+                >
+                  <Icon name="external" size={14} />
                 </button>
               )}
               {isShell() && (
-                <button className="link-btn" title={t('read.notesExport')} onClick={() => void exportNotes()}>
-                  <Icon name="download" size={14} /> {t('read.notesExport')}
+                <button
+                  className="icon-btn ref-note-action"
+                  title={t('read.notesExport')}
+                  aria-label={t('read.notesExport')}
+                  onClick={() => void exportNotes()}
+                >
+                  <Icon name="download" size={14} />
                 </button>
               )}
             </div>

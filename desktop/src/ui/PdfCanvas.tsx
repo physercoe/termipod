@@ -13,6 +13,7 @@ import { useAnnotations, ANNOTATION_COLORS } from '../state/annotations';
 import type { Annotation } from '../state/annotations';
 import { TabStrip } from './TabStrip';
 import { PopoverMenu } from './PopoverMenu';
+import { useConfirm } from './ConfirmModal';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
@@ -429,6 +430,7 @@ function AnnoEditor({
   // useT() is memoised/stable (#311), so children call it locally instead of
   // receiving `t` drilled as a prop (#322).
   const t = useT();
+  const confirmDelete = useConfirm();
   // Anchor under the annotation's first rect (or its ink bbox).
   const anchor = useMemo(() => {
     const r = a.position.rects?.[0];
@@ -441,20 +443,28 @@ function AnnoEditor({
     return { left: 0, top: 0, width: 0, height: 0 };
   }, [a, uw, uh, scale, rot]);
 
-  // Keep the popover on-screen: near a page/viewport edge it would render partly
-  // off-screen, so measure and nudge it back with a transform.
+  // Keep the popover inside the actual reading pane, not merely the window. The
+  // PDF outline and its resize divider are siblings of the page scroller; an
+  // editor allowed to drift beneath them still looks present by DOM geometry but
+  // cannot receive hover/click events.
   const editRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const el = editRef.current;
     if (el === null) return;
     el.style.transform = '';
     const r = el.getBoundingClientRect();
+    const scroll = el.closest<HTMLElement>('.pdfjs-scroll');
+    const pane = scroll?.getBoundingClientRect();
+    const minX = Math.max(8, (pane?.left ?? 0) + 8);
+    const maxX = Math.min(window.innerWidth - 8, (pane?.right ?? window.innerWidth) - 8);
+    const minY = Math.max(8, (pane?.top ?? 0) + 8);
+    const maxY = Math.min(window.innerHeight - 8, (pane?.bottom ?? window.innerHeight) - 8);
     let dx = 0;
     let dy = 0;
-    if (r.right > window.innerWidth - 8) dx = window.innerWidth - 8 - r.right;
-    if (r.bottom > window.innerHeight - 8) dy = window.innerHeight - 8 - r.bottom;
-    if (r.left + dx < 8) dx = 8 - r.left;
-    if (r.top + dy < 8) dy = 8 - r.top;
+    if (r.right > maxX) dx = maxX - r.right;
+    if (r.bottom > maxY) dy = maxY - r.bottom;
+    if (r.left + dx < minX) dx = minX - r.left;
+    if (r.top + dy < minY) dy = minY - r.top;
     if (dx !== 0 || dy !== 0) el.style.transform = `translate(${dx}px, ${dy}px)`;
   }, [anchor]);
 
@@ -521,33 +531,70 @@ function AnnoEditor({
           }}
         />
       </div>
-      {a.type === 'image' && (onCopyImage !== undefined || onSaveImage !== undefined) && (
-        <div className="pdfjs-anno-imgacts">
-          {onCopyImage !== undefined && (
-            <button className="pdfjs-anno-imgbtn" onClick={onCopyImage}>
-              <Icon name="copy" size={13} /> {t('read.annCopyImage')}
-            </button>
-          )}
-          {onSaveImage !== undefined && (
-            <button className="pdfjs-anno-imgbtn" onClick={onSaveImage}>
-              <Icon name="download" size={13} /> {t('read.annSaveImage')}
-            </button>
-          )}
-          {onAddToNote !== undefined && (
-            <button className="pdfjs-anno-imgbtn" onClick={onAddToNote}>
-              <Icon name="note" size={13} /> {t('read.annImageToNote')}
-            </button>
-          )}
-        </div>
-      )}
-      <div className="pdfjs-anno-actions">
-        <button className="pdfjs-anno-del" title={t('read.annDelete')} onClick={() => onRemove(a.id)}>
-          <Icon name="trash" size={13} /> {t('read.annDelete')}
+      <div className="pdfjs-anno-actions" role="toolbar" aria-label={t('read.annActions')}>
+        {a.type === 'image' && (
+          <>
+            {onCopyImage !== undefined && (
+              <button
+                className="pdfjs-anno-actionbtn"
+                data-tooltip={t('read.annCopyImage')}
+                aria-label={t('read.annCopyImage')}
+                onClick={onCopyImage}
+              >
+                <Icon name="copy" size={14} />
+              </button>
+            )}
+            {onSaveImage !== undefined && (
+              <button
+                className="pdfjs-anno-actionbtn"
+                data-tooltip={t('read.annSaveImage')}
+                aria-label={t('read.annSaveImage')}
+                onClick={onSaveImage}
+              >
+                <Icon name="download" size={14} />
+              </button>
+            )}
+            {onAddToNote !== undefined && (
+              <button
+                className="pdfjs-anno-actionbtn"
+                data-tooltip={t('read.annImageToNote')}
+                aria-label={t('read.annImageToNote')}
+                onClick={onAddToNote}
+              >
+                <Icon name="note" size={14} />
+              </button>
+            )}
+          </>
+        )}
+        <span className="pdfjs-anno-action-spacer" aria-hidden="true" />
+        <button
+          className="pdfjs-anno-actionbtn pdfjs-anno-del"
+          data-tooltip={t('read.annDelete')}
+          aria-label={t('read.annDelete')}
+          onClick={() => {
+            void confirmDelete
+              .ask({
+                message: t('read.annDeleteConfirm'),
+                confirmLabel: t('read.annDelete'),
+                danger: true,
+              })
+              .then((confirmed) => {
+                if (confirmed) onRemove(a.id);
+              });
+          }}
+        >
+          <Icon name="trash" size={14} />
         </button>
-        <button className="pdfjs-anno-done" onClick={onClose}>
-          {t('read.annDone')}
+        <button
+          className="pdfjs-anno-actionbtn pdfjs-anno-done"
+          data-tooltip={t('read.annDone')}
+          aria-label={t('read.annDone')}
+          onClick={onClose}
+        >
+          <Icon name="check" size={14} />
         </button>
       </div>
+      {confirmDelete.node}
     </div>
   );
 }
@@ -1049,29 +1096,100 @@ interface OutlineNode {
 function OutlineList({
   nodes,
   onGo,
-  depth,
 }: {
   nodes: OutlineNode[];
   onGo: (dest: string | unknown[]) => void;
-  depth: number;
 }): JSX.Element {
+  const t = useT();
+  const branchKeys = useMemo(() => {
+    const keys: string[] = [];
+    const visit = (items: OutlineNode[], parent = ''): void => {
+      items.forEach((item, index) => {
+        const key = parent === '' ? String(index) : parent + '.' + index;
+        if (item.items.length > 0) {
+          keys.push(key);
+          visit(item.items, key);
+        }
+      });
+    };
+    visit(nodes);
+    return keys;
+  }, [nodes]);
+  // A newly opened document starts as a tier-1 index. Expanding one branch
+  // reveals its direct children; deeper branches retain their own folded state.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(branchKeys));
+  useEffect(() => setCollapsed(new Set(branchKeys)), [branchKeys]);
+  const allBranchesCollapsed = branchKeys.length > 0 && branchKeys.every((key) => collapsed.has(key));
+
+  function toggleBranch(key: string): void {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllBranches(): void {
+    setCollapsed(allBranchesCollapsed ? new Set() : new Set(branchKeys));
+  }
+
+  function renderNodes(items: OutlineNode[], depth: number, parent = ''): JSX.Element {
+    return (
+      <ul className="pdfjs-toc-list">
+        {items.map((node, index) => {
+          const key = parent === '' ? String(index) : parent + '.' + index;
+          const hasChildren = node.items.length > 0;
+          const isCollapsed = collapsed.has(key);
+          return (
+            <li key={key}>
+              <div className="pdfjs-toc-row" style={{ paddingLeft: 4 + depth * 12 }}>
+                {hasChildren ? (
+                  <button
+                    className="pdfjs-toc-branch"
+                    title={t(isCollapsed ? 'read.expandHeading' : 'read.collapseHeading')}
+                    aria-label={t(isCollapsed ? 'read.expandHeading' : 'read.collapseHeading')}
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleBranch(key)}
+                  >
+                    <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
+                  </button>
+                ) : (
+                  <span className="pdfjs-toc-branch-placeholder" aria-hidden="true" />
+                )}
+                <button
+                  className="pdfjs-toc-item"
+                  disabled={node.dest === null}
+                  title={node.title}
+                  onClick={() => node.dest !== null && onGo(node.dest)}
+                >
+                  {node.title}
+                </button>
+              </div>
+              {hasChildren && !isCollapsed && renderNodes(node.items, depth + 1, key)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
-    <ul className="pdfjs-toc-list">
-      {nodes.map((n, i) => (
-        <li key={i}>
+    <>
+      {branchKeys.length > 0 && (
+        <div className="pdfjs-outline-tools">
           <button
-            className="pdfjs-toc-item"
-            style={{ paddingLeft: 8 + depth * 12 }}
-            disabled={n.dest === null}
-            title={n.title}
-            onClick={() => n.dest !== null && onGo(n.dest)}
+            className="pdfjs-outline-all-toggle"
+            title={t(allBranchesCollapsed ? 'read.expandAllHeadings' : 'read.collapseAllHeadings')}
+            aria-label={t(allBranchesCollapsed ? 'read.expandAllHeadings' : 'read.collapseAllHeadings')}
+            onClick={toggleAllBranches}
           >
-            {n.title}
+            <Icon name={allBranchesCollapsed ? 'chevron-right' : 'chevron-down'} size={13} />
           </button>
-          {n.items.length > 0 && <OutlineList nodes={n.items} onGo={onGo} depth={depth + 1} />}
-        </li>
-      ))}
-    </ul>
+        </div>
+      )}
+      {renderNodes(nodes, 0)}
+    </>
   );
 }
 
@@ -2462,7 +2580,7 @@ export function PdfCanvas({
                 {panelTab === 'annos' && canAnnotate ? (
                   <AnnotationList annos={refAnnos} selectedId={selectedAnno} onGo={goToAnnotation} />
                 ) : panelTab === 'outline' && outline.length > 0 ? (
-                  <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} depth={0} />
+                  <OutlineList nodes={outline} onGo={(d) => void goToDest(d)} />
                 ) : (
                   <ThumbList pdf={pdf} current={currentPage} rotation={rotation} onGo={(n) => scrollToPage(n)} />
                 )}

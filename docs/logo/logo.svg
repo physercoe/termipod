@@ -1,46 +1,47 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#14213a"/>
-      <stop offset="52%" stop-color="#0b1428"/>
-      <stop offset="100%" stop-color="#080d18"/>
+    <linearGradient id="tile" x1="18%" y1="0%" x2="82%" y2="100%">
+      <stop offset="0%" stop-color="#17455a"/>
+      <stop offset="45%" stop-color="#132b43"/>
+      <stop offset="100%" stop-color="#211b3c"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#2ce0be"/>
-      <stop offset="48%" stop-color="#24b8ec"/>
-      <stop offset="100%" stop-color="#3b83f7"/>
-    </linearGradient>
-    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#eafbff"/>
-      <stop offset="100%" stop-color="#79e8ff"/>
-    </linearGradient>
-    <radialGradient id="tileGlow" cx="35%" cy="27%" r="74%">
-      <stop offset="0%" stop-color="#2ce0be" stop-opacity="0.13"/>
-      <stop offset="58%" stop-color="#218ee8" stop-opacity="0.04"/>
-      <stop offset="100%" stop-color="#218ee8" stop-opacity="0"/>
+    <radialGradient id="tileLight" cx="30%" cy="12%" r="82%">
+      <stop offset="0%" stop-color="#35d7da" stop-opacity="0.18"/>
+      <stop offset="55%" stop-color="#2b8ed5" stop-opacity="0.035"/>
+      <stop offset="100%" stop-color="#172239" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#46dfff" stop-opacity="0.38"/>
-      <stop offset="60%" stop-color="#2fc9ff" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#2fc9ff" stop-opacity="0"/>
-    </radialGradient>
-    <clipPath id="tile">
-      <rect x="2.5" y="2.5" width="507" height="507" rx="111"/>
+    <linearGradient id="prompt" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7cf2db"/>
+      <stop offset="48%" stop-color="#38c4e8"/>
+      <stop offset="100%" stop-color="#6c7cf2"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="14%" y1="0%" x2="86%" y2="100%">
+      <stop offset="0%" stop-color="#f1ffff"/>
+      <stop offset="48%" stop-color="#9de8f8"/>
+      <stop offset="100%" stop-color="#8d8af3"/>
+    </linearGradient>
+    <filter id="tileShadow" x="-18%" y="-18%" width="136%" height="148%">
+      <feDropShadow dx="0" dy="11" stdDeviation="12" flood-color="#05070e" flood-opacity="0.58"/>
+    </filter>
+    <filter id="formShadow" x="-28%" y="-28%" width="165%" height="175%">
+      <feDropShadow dx="3" dy="9" stdDeviation="8" flood-color="#070d20" flood-opacity="0.56"/>
+    </filter>
+    <clipPath id="tileClip">
+      <rect x="12" y="8" width="488" height="488" rx="110"/>
     </clipPath>
   </defs>
 
-  <!-- Midnight terminal tile: dark enough to separate from neighboring apps,
-       but blue rather than black so the silhouette survives a dark Dock. -->
-  <rect x="2.5" y="2.5" width="507" height="507" rx="111" fill="url(#bg)" stroke="#293a57" stroke-width="5"/>
-  <g clip-path="url(#tile)">
-    <rect width="512" height="512" fill="url(#tileGlow)"/>
+  <!-- One quiet slab, like a macOS system-app icon. The glyphs provide the
+       depth; the container stays deliberately free of frames and decoration. -->
+  <rect x="12" y="8" width="488" height="488" rx="110" fill="url(#tile)" stroke="#b8d8ec" stroke-opacity="0.24" stroke-width="2" filter="url(#tileShadow)"/>
+  <g clip-path="url(#tileClip)">
+    <rect x="12" y="8" width="488" height="488" fill="url(#tileLight)"/>
   </g>
 
-  <!-- The prompt is primary; the brighter spark reads as the agent at the
-       cursor. Large, simple silhouettes remain legible down to Dock size. -->
-  <path d="M122 137 L248 256 L122 375" fill="none" stroke="url(#accent)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
-  <g transform="translate(366 256)">
-    <circle r="68" fill="url(#halo)"/>
-    <path d="M 0,-46 Q 7,-7 46,0 Q 7,7 0,46 Q -7,7 -46,0 Q -7,-7 0,-46 Z" fill="url(#spark)"/>
-  </g>
+  <!-- Terminal prompt and agent spark: two simple raised forms. -->
+  <path d="M126 137 L250 256 L126 375" transform="translate(4 8)" fill="none" stroke="#080f25" stroke-opacity="0.52" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M126 137 L250 256 L126 375" fill="none" stroke="url(#prompt)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" filter="url(#formShadow)"/>
+
+  <path d="M371 216 C376 243 390 252 417 256 C390 261 376 271 371 298 C366 271 352 261 325 256 C352 252 366 243 371 216Z" transform="translate(3 7)" fill="#080f25" opacity="0.48"/>
+  <path d="M371 216 C376 243 390 252 417 256 C390 261 376 271 371 298 C366 271 352 261 325 256 C352 252 366 243 371 216Z" fill="url(#spark)" filter="url(#formShadow)"/>
 </svg>

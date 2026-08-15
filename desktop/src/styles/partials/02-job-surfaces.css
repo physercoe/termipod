@@ -671,13 +671,19 @@ button > .ui-icon:not(:only-child):first-child,
 }
 /* Author editor top bar: view-mode switch + formatting toolbar + doc status. */
 .author-doc-bar {
+  box-sizing: border-box;
+  flex: 0 0 calc(var(--control-md) + var(--spacing-s8));
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
-  padding: 5px var(--spacing-s12);
+  min-width: 0;
+  min-height: calc(var(--control-md) + var(--spacing-s8));
+  padding: var(--spacing-s4) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-  flex-wrap: wrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
 .author-doc-meta {
   display: inline-flex;
@@ -774,6 +780,12 @@ button > .ui-icon:not(:only-child):first-child,
   gap: var(--spacing-s8);
   padding: var(--spacing-s4) var(--spacing-s8);
   border-bottom: 1px solid var(--border);
+}
+.ref-note-action {
+  flex: 0 0 var(--control-md);
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
 }
 /* The notes editor (CodeMirror source or Milkdown WYSIWYG) fills the tab body. */
 .ref-notes > .md-editor,
@@ -2284,17 +2296,49 @@ button > .ui-icon:not(:only-child):first-child,
   white-space: nowrap;
   max-width: 40%;
 }
-.compare-host {
+.compare-stage {
+  --compare-split: 50%;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  position: relative;
   overflow: hidden;
 }
-.compare-host .cm-mergeView,
-.compare-host .cm-mergeViewEditors {
+.compare-host {
+  width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.compare-host .cm-mergeView {
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+}
+.compare-host .cm-mergeViewEditors {
+  display: grid !important;
+  grid-template-columns: minmax(0, var(--compare-split)) minmax(0, 1fr);
+  min-width: 100%;
+  min-height: 100%;
+}
+.compare-host .cm-mergeViewEditor {
+  min-width: 0;
 }
 .compare-host .cm-mergeView .cm-editor {
-  height: 100%;
+  min-height: 100%;
+}
+.compare-split-handle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  left: var(--compare-split);
+  width: 1px;
+  display: flex;
+  transform: translateX(-50%);
+}
+.compare-split-handle > .resize-handle {
+  align-self: stretch;
 }
 .inspect-toast.cmp {
   display: flex;

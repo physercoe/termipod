@@ -1,36 +1,44 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod light icon">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="tile" x1="16%" y1="0%" x2="84%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="58%" stop-color="#f5f9fe"/>
-      <stop offset="100%" stop-color="#dfe9f5"/>
+      <stop offset="52%" stop-color="#edf5fb"/>
+      <stop offset="100%" stop-color="#d9e3f2"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#008f7e"/>
-      <stop offset="46%" stop-color="#007fc9"/>
-      <stop offset="100%" stop-color="#1558d6"/>
-    </linearGradient>
-    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#00a9c7"/>
-      <stop offset="100%" stop-color="#1256cf"/>
-    </linearGradient>
-    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#168fd7" stop-opacity="0.30"/>
-      <stop offset="62%" stop-color="#168fd7" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#24aee8" stop-opacity="0"/>
+    <radialGradient id="tileLight" cx="28%" cy="12%" r="82%">
+      <stop offset="0%" stop-color="#3cdbc8" stop-opacity="0.13"/>
+      <stop offset="58%" stop-color="#4198e0" stop-opacity="0.025"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
+    <linearGradient id="prompt" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00a990"/>
+      <stop offset="48%" stop-color="#078fc8"/>
+      <stop offset="100%" stop-color="#4d63d4"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="14%" y1="0%" x2="86%" y2="100%">
+      <stop offset="0%" stop-color="#54ded0"/>
+      <stop offset="50%" stop-color="#258fd2"/>
+      <stop offset="100%" stop-color="#675ecb"/>
+    </linearGradient>
+    <filter id="tileShadow" x="-18%" y="-18%" width="136%" height="148%">
+      <feDropShadow dx="0" dy="11" stdDeviation="12" flood-color="#54677d" flood-opacity="0.36"/>
+    </filter>
+    <filter id="formShadow" x="-28%" y="-28%" width="165%" height="175%">
+      <feDropShadow dx="3" dy="9" stdDeviation="8" flood-color="#57738e" flood-opacity="0.40"/>
+    </filter>
+    <clipPath id="tileClip">
+      <rect x="12" y="8" width="488" height="488" rx="110"/>
+    </clipPath>
   </defs>
 
-  <!-- A crisp platform-sized tile. The stronger edge keeps the white icon
-       distinct on translucent macOS docks without looking boxed at full size. -->
-  <rect x="2.5" y="2.5" width="507" height="507" rx="111" fill="url(#bg)" stroke="#b9c9dc" stroke-width="5"/>
-  <path d="M112 57 C198 19 314 19 400 57" fill="none" stroke="#ffffff" stroke-opacity="0.78" stroke-width="4" stroke-linecap="round"/>
-
-  <!-- Prompt + agent-at-cursor sparkle. Both shapes are deliberately bolder
-       and larger than the document logo so their silhouettes hold at 16–64px. -->
-  <path d="M122 137 L248 256 L122 375" fill="none" stroke="url(#accent)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
-  <g transform="translate(366 256)">
-    <circle r="66" fill="url(#halo)"/>
-    <path d="M 0,-46 Q 7,-7 46,0 Q 7,7 0,46 Q -7,7 -46,0 Q -7,-7 0,-46 Z" fill="url(#spark)"/>
+  <rect x="12" y="8" width="488" height="488" rx="110" fill="url(#tile)" stroke="#74889f" stroke-opacity="0.42" stroke-width="2" filter="url(#tileShadow)"/>
+  <g clip-path="url(#tileClip)">
+    <rect x="12" y="8" width="488" height="488" fill="url(#tileLight)"/>
   </g>
+
+  <path d="M126 137 L250 256 L126 375" transform="translate(4 8)" fill="none" stroke="#7188a2" stroke-opacity="0.42" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M126 137 L250 256 L126 375" fill="none" stroke="url(#prompt)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" filter="url(#formShadow)"/>
+
+  <path d="M371 216 C376 243 390 252 417 256 C390 261 376 271 371 298 C366 271 352 261 325 256 C352 252 366 243 371 216Z" transform="translate(3 7)" fill="#7088a3" opacity="0.36"/>
+  <path d="M371 216 C376 243 390 252 417 256 C390 261 376 271 371 298 C366 271 352 261 325 256 C352 252 366 243 371 216Z" fill="url(#spark)" filter="url(#formShadow)"/>
 </svg>

@@ -763,11 +763,7 @@
   margin-left: var(--spacing-s8);
 }
 .att-remove {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
 }
 .att-remove:hover {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
@@ -849,11 +845,18 @@
 .att-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-s8);
+  gap: var(--spacing-s4);
   margin-top: var(--spacing-s4);
+}
+.att-action-icon {
+  flex: 0 0 var(--control-md);
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
 }
 .att-open {
   align-self: flex-start;
+  color: var(--accent-text);
 }
 .epub-view {
   display: flex;
@@ -1376,7 +1379,10 @@
   width: 100%;
   text-align: left;
   padding: 3px 6px;
+  border: 0;
   border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
   font-size: var(--font-size-caption);
   color: var(--text);
   white-space: nowrap;
@@ -1390,6 +1396,8 @@
 }
 .author-nav-item:hover {
   background: var(--accent-tint);
+  box-shadow: none;
+  transform: none;
 }
 /* A workspace file that is open in a tab: emphasized text; the active tab's file
    also gets a tinted highlight (echoing the tab strip, not a hard selection). */

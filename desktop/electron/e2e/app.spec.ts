@@ -738,23 +738,29 @@ test('excalidraw: the sketch editor lazy-mounts and is configured for offline fo
 
 // ── Author shell: New ▾ menu + workspace-pane fold (W1 shell cleanup) ─────────
 // The six standalone "New X" buttons collapsed into one categorized New ▾ menu,
-// and the left pane is workspace-only with a fold chevron + slim re-open button.
-// Pin the create-from-menu path and the fold/unfold of the pane.
+// and the left pane is workspace-only with one persistent header toggle. Pin
+// the create-from-menu path and both states of that stable fold control.
 test('author: the New ▾ menu creates a document and the workspace pane folds', async () => {
   await page.getByRole('button', { name: 'Author', exact: true }).click();
-  // The workspace pane shows by default.
+  const workspaceToggle = page.locator('.surface-author .surface-leading-actions .header-pane-toggle.left');
+  await expect(workspaceToggle).toBeVisible();
+  // This state persists across retries and neighboring tests, so explicitly
+  // establish the open precondition before exercising the create flow.
+  if ((await workspaceToggle.getAttribute('aria-pressed')) !== 'true') await workspaceToggle.click();
   await expect(page.locator('.author-nav')).toBeVisible();
   // Open the New ▾ menu and create a Document from it (menuitem, not the primary
   // button — this exercises the menu path).
   await page.locator('.author-newcaret').click();
   await page.getByRole('menuitem', { name: 'New', exact: true }).click();
   await expect(page.locator('.read-tabstrip .read-tabitem').last()).toBeVisible();
-  // Fold the pane via its header chevron → the tree is gone and a slim edge
-  // button takes its place; clicking that restores the pane.
-  await page.getByRole('button', { name: 'Hide the workspace pane' }).click();
+  // The same header control folds and restores the pane; the affordance no
+  // longer jumps to a body-edge reveal rail while closed.
+  await workspaceToggle.click();
   await expect(page.locator('.author-nav')).toHaveCount(0);
-  await page.locator('.author-nav-show').click();
+  await expect(workspaceToggle).toHaveAttribute('aria-pressed', 'false');
+  await workspaceToggle.click();
   await expect(page.locator('.author-nav')).toBeVisible();
+  await expect(workspaceToggle).toHaveAttribute('aria-pressed', 'true');
 });
 
 // ── Author outline: right-hand heading nav + jump-to-line (W2) ───────────────

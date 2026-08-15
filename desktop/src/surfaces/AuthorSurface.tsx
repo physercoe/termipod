@@ -735,6 +735,7 @@ export function AuthorSurface(): JSX.Element {
   return (
     <WorkbenchSurface
       job="author"
+      leadingPaneWidth={showNav ? navW : 0}
       leadingActions={
         <HeaderPaneToggle
           side="left"

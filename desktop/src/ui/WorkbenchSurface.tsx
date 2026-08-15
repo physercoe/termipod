@@ -42,29 +42,44 @@ export function HeaderPaneToggle({
 export function WorkbenchSurface({
   job,
   leadingActions,
+  leadingPaneWidth,
   actions,
   children,
 }: {
   job: JobId;
   leadingActions?: ReactNode;
+  /**
+   * Width of this surface's visible left pane. Supplying the prop (including
+   * zero while folded) turns the header into two aligned cells: pane identity
+   * on the left, page actions on the right.
+   */
+  leadingPaneWidth?: number;
   actions?: ReactNode;
   children: ReactNode;
 }): JSX.Element {
   const t = useT();
   const def = JOBS.find((j) => j.id === job);
+  const segmented = leadingPaneWidth !== undefined;
   return (
     <section className={`surface surface-${job}`} aria-label={def ? t(def.labelKey) : job}>
-      <header className="surface-head">
-        {leadingActions !== undefined && <div className="surface-leading-actions">{leadingActions}</div>}
-        <span className="surface-icon">{def && <JobIcon id={def.id} size={20} />}</span>
-        <div className="surface-titles">
-          <div className="surface-title">
-            {def ? t(def.labelKey) : job}
+      <header className={`surface-head${segmented ? ' segmented' : ''}`}>
+        <div
+          className="surface-identity"
+          style={segmented && leadingPaneWidth > 0 ? { width: leadingPaneWidth } : undefined}
+        >
+          {leadingActions !== undefined && <div className="surface-leading-actions">{leadingActions}</div>}
+          <span className="surface-icon">{def && <JobIcon id={def.id} size={20} />}</span>
+          <div className="surface-titles">
+            <div className="surface-title">
+              {def ? t(def.labelKey) : job}
+            </div>
+            <div className="surface-hint">{def ? t(def.hintKey) : ''}</div>
           </div>
-          <div className="surface-hint">{def ? t(def.hintKey) : ''}</div>
         </div>
-        <span className="spacer" />
+        {segmented && <span className="surface-head-divider" aria-hidden="true" />}
+        {!segmented && <span className="spacer" />}
         {actions !== undefined && <div className="surface-actions">{actions}</div>}
+        {segmented && actions === undefined && <span className="spacer" />}
       </header>
       <div className="surface-body scroll">{children}</div>
     </section>

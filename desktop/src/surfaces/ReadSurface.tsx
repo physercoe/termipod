@@ -2658,6 +2658,7 @@ export function ReadSurface(): JSX.Element {
   return (
     <WorkbenchSurface
       job="read"
+      leadingPaneWidth={activeTab === null && !railCollapsed ? railW : activeTab === null ? 0 : undefined}
       leadingActions={
         activeTab === null ? (
           <HeaderPaneToggle

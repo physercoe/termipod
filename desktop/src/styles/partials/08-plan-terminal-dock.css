@@ -515,11 +515,74 @@ button.hero-row:hover {
 .term-panel.hidden {
   display: none;
 }
-/* Surface mode — fills the workbench main area, nav on the left. */
+/* Surface mode — one full-width header, then nav / divider / terminal content.
+   The header uses the same pane-aligned two-cell grid as the workbench jobs. */
 .term-panel.surface {
   flex: 1;
   min-width: 0;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: auto 6px minmax(0, 1fr);
+  grid-template-rows: calc(var(--control-md) + var(--spacing-s16)) minmax(0, 1fr);
+}
+.term-panel.surface.nav-folded {
+  grid-template-columns: minmax(0, 1fr);
+}
+.term-surface-head {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-s6) var(--spacing-s12) var(--spacing-s6) 0;
+  background: var(--glass-pane);
+  border-bottom: var(--hairline) solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.term-surface-identity {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding: 0 var(--spacing-s12);
+}
+.term-surface-divider {
+  align-self: stretch;
+  flex: 0 0 1px;
+  width: 1px;
+  background: var(--glass-rim);
+}
+.term-surface-actions {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding-left: var(--spacing-s8);
+}
+.term-surface-actions > button,
+.term-surface-actions .term-add-btn,
+.term-surface-actions .term-split-ctl button {
+  height: var(--control-sm);
+  min-height: var(--control-sm);
+}
+.term-panel.surface .term-nav {
+  grid-column: 1;
+  grid-row: 2;
+}
+.term-panel.surface > .resize-handle {
+  grid-column: 2;
+  grid-row: 2;
+}
+.term-panel.surface .term-main {
+  grid-column: 3;
+  grid-row: 2;
+}
+.term-panel.surface.nav-folded .term-main {
+  grid-column: 1;
 }
 /* Dock mode — an absolute bottom strip overlaying the active surface; the nav is
    hidden so the strip stays compact. Anchored to .workbench-main (position:relative). */
@@ -558,8 +621,7 @@ button.hero-row:hover {
   cursor: ew-resize;
 }
 /* Left nav (surface mode): saved SSH connections/hosts. Width is set inline
-   (resizable + persisted); `.folded` collapses it entirely (a reveal chevron in
-   the head brings it back). The adjacent ResizeHandle owns the sole divider. */
+   (resizable + persisted); the persistent surface-header toggle folds it. */
 .term-nav {
   flex: 0 0 auto;
   width: 210px;
@@ -574,37 +636,11 @@ button.hero-row:hover {
 .term-nav.folded {
   display: none;
 }
-.term-nav-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-s4);
-  font-size: var(--font-size-label);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.term-nav-reveal {
-  flex: 0 0 auto;
-  margin-right: var(--spacing-s4);
-}
-/* New + Import share one row (director spec — save vertical space). New fills
-   the width; Import is a compact icon button beside it. */
-.term-nav-actions {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--spacing-s4);
-}
-.term-nav-actions button {
-  font-size: var(--font-size-caption);
-}
 .term-nav-new {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
-  height: 32px;
-  min-height: 32px;
+  height: var(--control-sm);
+  min-height: var(--control-sm);
   padding: var(--spacing-s4) var(--spacing-s8);
   justify-content: center;
   white-space: nowrap;
@@ -613,9 +649,9 @@ button.hero-row:hover {
 }
 .term-nav-import {
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  min-height: var(--control-sm);
   justify-content: center;
   padding: 0;
 }
@@ -811,6 +847,10 @@ button.hero-row:hover {
   min-height: 34px;
 }
 .term-head-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--font-size-caption);
   color: var(--text-secondary);
   font-weight: 600;

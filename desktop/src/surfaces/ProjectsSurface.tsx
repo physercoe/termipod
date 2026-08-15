@@ -140,8 +140,6 @@ export function ProjectsSurface(): JSX.Element {
 
   const toolbar = (
     <>
-      <span className="fleet-toolbar-label">{t('nav.projects')}</span>
-      <span className="fleet-toolbar-sep" />
       <button className="primary" disabled={!connected} onClick={() => setCreating(true)}>
         <Icon name="plus" size={14} />
         {sub === 'standing' ? t('project.newWorkspace') : t('project.new')}

@@ -3,7 +3,7 @@ import { useT } from '../i18n';
 import { useJsonDraft } from '../state/draft';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { Markdown } from '../ui/Markdown';
-import { WorkbenchSurface } from '../ui/WorkbenchSurface';
+import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 
 interface Record {
   id: string;
@@ -36,6 +36,7 @@ export function RecordSurface(): JSX.Element {
   const [context, setContext] = useState('');
   const [decision, setDecision] = useState('');
   const [consequences, setConsequences] = useState('');
+  const [formOpen, setFormOpen] = useState(() => localStorage.getItem('termipod.record.formOpen') !== '0');
 
   function save(): void {
     if (title.trim() === '' && decision.trim() === '') return;
@@ -58,10 +59,35 @@ export function RecordSurface(): JSX.Element {
     setRecords(records.filter((r) => r.id !== id));
   }
 
+  function toggleForm(): void {
+    setFormOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem('termipod.record.formOpen', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
   return (
-    <WorkbenchSurface job="record">
-      <div className="record-layout">
-        <div className="record-form">
+    <WorkbenchSurface
+      job="record"
+      leadingPaneWidth={formOpen ? 360 : 0}
+      leadingActions={
+        <HeaderPaneToggle
+          side="left"
+          open={formOpen}
+          showLabel={t('nav.expand')}
+          hideLabel={t('nav.collapse')}
+          onToggle={toggleForm}
+        />
+      }
+    >
+      <div className={`record-layout${formOpen ? '' : ' form-folded'}`}>
+        {formOpen && (
+          <div className="record-form">
           <label className="wide">
             {t('record.recTitle')}
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('record.titlePlaceholder')} />
@@ -83,7 +109,8 @@ export function RecordSurface(): JSX.Element {
               {t('record.save')}
             </button>
           </div>
-        </div>
+          </div>
+        )}
         <div className="record-log">
           <div className="notes-head muted small">
             {t('record.log').replace('{n}', String(records.length))}

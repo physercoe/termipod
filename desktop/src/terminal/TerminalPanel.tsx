@@ -26,6 +26,7 @@ import { invoke } from '../bridge';
 import { useConfirm } from '../ui/ConfirmModal';
 import { useTextPrompt } from '../ui/PromptModal';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+import { HeaderPaneToggle } from '../ui/WorkbenchSurface';
 import { ConnectForm } from './ConnectForm';
 import { reconcilePanes } from './panes';
 import { ptyOpen } from './pty';
@@ -578,7 +579,9 @@ export function TerminalPanel(): JSX.Element {
   }, [width]);
 
   const visible = mode === 'surface' || open;
-  const panelClass = `term-panel ${mode}${mode === 'dock' ? ` ${dockSide}` : ''}${visible ? '' : ' hidden'}`;
+  const panelClass = `term-panel ${mode}${mode === 'dock' ? ` ${dockSide}` : ''}${
+    mode === 'surface' && navFold ? ' nav-folded' : ''
+  }${visible ? '' : ' hidden'}`;
   const style = mode === 'dock' ? (dockSide === 'right' ? { width } : { height }) : undefined;
   const navStyle = mode === 'surface' && !navFold ? { width: navW } : undefined;
 
@@ -601,6 +604,47 @@ export function TerminalPanel(): JSX.Element {
     </div>
   );
 
+  const sessionTabsEl = (
+    <div className="term-tabs">
+      {tabs.length === 0 && <span className="muted small term-tabs-empty">{t('term.navNoSessions')}</span>}
+      {tabs.map((tab) => (
+        <div key={tab.id} className={!connecting && tab.id === activeId ? 'term-tab active' : 'term-tab'}>
+          <button className="term-tab-pick" title={tab.title} onClick={() => focusSession(tab.id)}>
+            <span className={`term-tab-kind ${tab.kind}`} />
+            {tab.title}
+            {tab.unread === true && tab.id !== activeId && (
+              <span className="term-tab-unread" title={t('term.unread')} aria-label={t('term.unread')} />
+            )}
+          </button>
+          <button className="term-tab-x" title={t('term.closeTab')} onClick={() => void close(tab.id)}>
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  const splitControlsEl = tauri && (
+    <span className="term-split-ctl">
+      <button
+        className={orientation === 'row' ? 'active' : ''}
+        title={t('term.splitRight')}
+        onClick={() => void split('row')}
+        disabled={activeId === null}
+      >
+        <Icon name="split-h" size={14} />
+      </button>
+      <button
+        className={orientation === 'column' ? 'active' : ''}
+        title={t('term.splitDown')}
+        onClick={() => void split('column')}
+        disabled={activeId === null}
+      >
+        <Icon name="split-v" size={14} />
+      </button>
+    </span>
+  );
+
   return (
     <div className={panelClass} style={style}>
       {mode === 'dock' && (
@@ -615,44 +659,55 @@ export function TerminalPanel(): JSX.Element {
         />
       )}
 
+      {mode === 'surface' && (
+        <div className="term-surface-head">
+          <div className="term-surface-identity" style={!navFold ? { width: navW } : undefined}>
+            <HeaderPaneToggle
+              side="left"
+              open={!navFold}
+              showLabel={t('nav.expand')}
+              hideLabel={t('term.foldNav')}
+              onToggle={toggleFold}
+            />
+            <span className="term-head-title">{t('term.navConnections')}</span>
+          </div>
+          <span className="term-surface-divider" aria-hidden="true" />
+          <div className="term-surface-actions">
+            <button className="term-nav-new" disabled={!tauri} onClick={() => openConnect()}>
+              <Icon name="plus" size={13} />
+              {t('term.newConnection')}
+            </button>
+            <button
+              className="term-nav-import"
+              disabled={!tauri}
+              aria-label={t('term.importConfig')}
+              title={t('term.importConfigHint')}
+              onClick={() => cfgRef.current?.click()}
+            >
+              <Icon name="external" size={13} />
+            </button>
+            <button
+              className="term-nav-import"
+              disabled={!tauri}
+              aria-label={t('term.exportConfig')}
+              title={t('term.exportConfigHint')}
+              onClick={() => void onExportConfig()}
+            >
+              <Icon name="download" size={13} />
+            </button>
+            <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
+            {sessionTabsEl}
+            {addMenuEl}
+            <span className="spacer" />
+            {splitControlsEl}
+          </div>
+        </div>
+      )}
+
       {/* Left nav — saved connections/hosts (surface mode; CSS-hidden in dock).
           Always rendered so the pane area keeps a stable DOM position and its
           <Screen>s are never re-parented. */}
       <aside className={`term-nav${navFold ? ' folded' : ''}`} style={navStyle}>
-        <div className="term-nav-head pane-control-row">
-          <span>{t('term.navConnections')}</span>
-          <button className="pane-toggle term-nav-fold" title={t('term.foldNav')} onClick={toggleFold}>
-            <Icon name="sidebar" size={16} />
-          </button>
-        </div>
-        <div className="term-nav-actions">
-          <button className="term-nav-new" disabled={!tauri} onClick={() => openConnect()}>
-            <Icon name="plus" size={13} />
-            {t('term.newConnection')}
-          </button>
-          <button
-            className="term-nav-import"
-            disabled={!tauri}
-            aria-label={t('term.importConfig')}
-            title={t('term.importConfigHint')}
-            onClick={() => cfgRef.current?.click()}
-          >
-            <Icon name="external" size={13} />
-          </button>
-          <button
-            className="term-nav-import"
-            disabled={!tauri}
-            aria-label={t('term.exportConfig')}
-            title={t('term.exportConfigHint')}
-            onClick={() => void onExportConfig()}
-          >
-            <Icon name="download" size={13} />
-          </button>
-          {/* No `accept` filter — the OpenSSH config file is literally named
-              `config` with no extension, which an extension filter would hide;
-              the user picks it from wherever it lives via the native dialog. */}
-          <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
-        </div>
         {notice !== null && <div className="muted small term-nav-notice">{notice}</div>}
         {error !== null && <div className="error small term-nav-notice">{error}</div>}
         <div
@@ -725,74 +780,23 @@ export function TerminalPanel(): JSX.Element {
       {mode === 'surface' && !navFold && <ResizeHandle onResize={onNavResize} />}
 
       <div className="term-main">
-        <div className="term-head">
-          {mode === 'surface' && navFold && (
+        {mode === 'dock' && (
+          <div className="term-head">
+            {sessionTabsEl}
+            {addMenuEl}
+            <span className="spacer" />
             <button
-              className="pane-toggle term-nav-reveal"
-              title={t('nav.expand')}
-              onClick={toggleFold}
+              className="term-dock-side"
+              title={dockSide === 'right' ? t('term.dockBottom') : t('term.dockRight')}
+              onClick={() => setDockSide(dockSide === 'right' ? 'bottom' : 'right')}
             >
-              <Icon name="sidebar" size={16} />
+              <Icon name={dockSide === 'right' ? 'dock-bottom' : 'dock-right'} size={14} />
             </button>
-          )}
-
-          <div className="term-tabs">
-            {tabs.length === 0 && <span className="muted small term-tabs-empty">{t('term.navNoSessions')}</span>}
-            {tabs.map((tab) => (
-              <div key={tab.id} className={!connecting && tab.id === activeId ? 'term-tab active' : 'term-tab'}>
-                <button className="term-tab-pick" title={tab.title} onClick={() => focusSession(tab.id)}>
-                  <span className={`term-tab-kind ${tab.kind}`} />
-                  {tab.title}
-                  {tab.unread === true && tab.id !== activeId && (
-                    <span className="term-tab-unread" title={t('term.unread')} aria-label={t('term.unread')} />
-                  )}
-                </button>
-                <button className="term-tab-x" title={t('term.closeTab')} onClick={() => void close(tab.id)}>
-                  <Icon name="close" size={13} />
-                </button>
-              </div>
-            ))}
+            <button className="term-dock-hide" title={t('term.hideDock')} onClick={() => setOpen(false)}>
+              <Icon name={dockSide === 'right' ? 'chevron-right' : 'chevron-down'} size={15} />
+            </button>
           </div>
-
-          {addMenuEl}
-          <span className="spacer" />
-
-          {mode === 'surface' && tauri && (
-            <span className="term-split-ctl">
-              <button
-                className={orientation === 'row' ? 'active' : ''}
-                title={t('term.splitRight')}
-                onClick={() => void split('row')}
-                disabled={activeId === null}
-              >
-                <Icon name="split-h" size={14} />
-              </button>
-              <button
-                className={orientation === 'column' ? 'active' : ''}
-                title={t('term.splitDown')}
-                onClick={() => void split('column')}
-                disabled={activeId === null}
-              >
-                <Icon name="split-v" size={14} />
-              </button>
-            </span>
-          )}
-
-          {mode === 'dock' && (
-            <>
-              <button
-                className="term-dock-side"
-                title={dockSide === 'right' ? t('term.dockBottom') : t('term.dockRight')}
-                onClick={() => setDockSide(dockSide === 'right' ? 'bottom' : 'right')}
-              >
-                <Icon name={dockSide === 'right' ? 'dock-bottom' : 'dock-right'} size={14} />
-              </button>
-              <button className="term-dock-hide" title={t('term.hideDock')} onClick={() => setOpen(false)}>
-                <Icon name={dockSide === 'right' ? 'chevron-right' : 'chevron-down'} size={15} />
-              </button>
-            </>
-          )}
-        </div>
+        )}
 
         <div className={`term-panes ${orientation}`}>
           {!tauri ? (

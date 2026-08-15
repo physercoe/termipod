@@ -978,6 +978,10 @@ test('workbench: primary surface headers share one grid and action height', asyn
     { job: 'read', header: '.surface-read .surface-head' },
     { job: 'author', header: '.surface-author .surface-head' },
     { job: 'debug', header: '.surface-debug .surface-head' },
+    { job: 'compare', header: '.surface-compare .surface-head' },
+    { job: 'replay', header: '.surface-replay .surface-head' },
+    { job: 'record', header: '.surface-record .surface-head' },
+    { job: 'terminal', header: '.term-panel.surface .term-surface-head' },
   ];
   const heights: number[] = [];
   for (const surface of surfaces) {
@@ -987,7 +991,7 @@ test('workbench: primary surface headers share one grid and action height', asyn
     heights.push(await header.evaluate((node) => node.getBoundingClientRect().height));
     await expect(header).not.toContainText(/\bJ\d+\b/);
   }
-  expect(heights).toEqual([48, 48, 48, 48, 48]);
+  expect(heights).toEqual([48, 48, 48, 48, 48, 48, 48, 48, 48]);
 
   for (const job of ['author', 'debug', 'replay']) {
     await expect(page.locator(`[data-job="${job}"]`)).not.toHaveAttribute('title', /\bJ\d+\b/);
@@ -1018,7 +1022,7 @@ test('workbench: pane toggles stay pinned to the surface header edges', async ()
       return leftToggle !== null && label !== null && rightToggle !== null
         ? {
             leftBeforeLabel: (leftToggle.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
-            rightIsLast: rightToggle === node.lastElementChild,
+            rightIsLast: rightToggle === rightToggle.parentElement?.lastElementChild,
           }
         : null;
     })).toEqual({ leftBeforeLabel: true, rightIsLast: true });
@@ -1060,6 +1064,67 @@ test('workbench: pane toggles stay pinned to the surface header edges', async ()
   await expect(page.locator('.surface-read .read-inspector-pane')).toHaveCount(inspectorWasOpen ? 0 : 1);
   await readLeft.click();
   await readRight.click();
+
+  const remaining = [
+    { job: 'compare', pane: '.compare-runs', toggle: '.surface-compare .header-pane-toggle.left' },
+    { job: 'replay', pane: '.replay-rail', toggle: '.surface-replay .header-pane-toggle.left' },
+    { job: 'record', pane: '.record-form', toggle: '.surface-record .header-pane-toggle.left' },
+    { job: 'terminal', pane: '.term-nav', toggle: '.term-panel.surface .header-pane-toggle.left' },
+  ];
+  for (const surface of remaining) {
+    await page.locator(`[data-job="${surface.job}"]`).click();
+    const toggle = page.locator(surface.toggle);
+    const pane = page.locator(surface.pane);
+    await expect(toggle).toBeVisible();
+    const wasOpen = (await toggle.getAttribute('aria-pressed')) === 'true';
+    await toggle.click();
+    if (wasOpen) await expect(pane).toBeHidden();
+    else await expect(pane).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-pressed', wasOpen ? 'false' : 'true');
+    await toggle.click();
+  }
+});
+
+test('workbench: left-pane header cells align actions after the body divider', async () => {
+  await dismissConnectModal();
+  const surfaces = [
+    { job: 'fleet', identity: '.fleet-toolbar-identity', pane: '.mission-nav', action: '.fleet-toolbar-actions button.primary' },
+    { job: 'projects', identity: '.fleet-toolbar-identity', pane: '.mission-nav', action: '.fleet-toolbar-actions button.primary' },
+    { job: 'read', identity: '.surface-identity', pane: '.read-rail', action: '.surface-actions .seg-btn' },
+    { job: 'author', identity: '.surface-identity', pane: '.author-nav-col', action: '.surface-actions button.primary' },
+    { job: 'compare', identity: '.surface-identity', pane: '.compare-runs', action: '.surface-actions select' },
+    { job: 'replay', identity: '.surface-identity', pane: '.replay-rail', action: '.surface-actions select' },
+    { job: 'terminal', identity: '.term-surface-identity', pane: '.term-nav', action: '.term-surface-actions .term-nav-new' },
+  ];
+
+  for (const surface of surfaces) {
+    await page.locator(`[data-job="${surface.job}"]`).click();
+    if (surface.job === 'read') await page.locator('.surface-read .surface-head .seg-btn').first().click();
+    const toggle = page.locator(
+      surface.job === 'fleet' || surface.job === 'projects'
+        ? '.fleet-toolbar .header-pane-toggle.left'
+        : surface.job === 'terminal'
+          ? '.term-surface-head .header-pane-toggle.left'
+          : `.surface-${surface.job} .header-pane-toggle.left`,
+    ).first();
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+    const identity = page.locator(surface.identity).first();
+    const pane = page.locator(surface.pane).first();
+    const action = page.locator(surface.action).first();
+    await expect(identity).toBeVisible();
+    await expect(pane).toBeVisible();
+    await expect(action).toBeVisible();
+    const metrics = await Promise.all(
+      [identity, pane, action].map((locator) =>
+        locator.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return { left: Math.round(rect.left), right: Math.round(rect.right) };
+        }),
+      ),
+    );
+    expect(metrics[0]?.right).toBe(metrics[1]?.right);
+    expect(metrics[2]?.left ?? 0).toBeGreaterThan(metrics[0]?.right ?? 0);
+  }
 });
 
 test('read: list controls and inspector tabs share the same horizontal grid line', async () => {

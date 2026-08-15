@@ -1277,6 +1277,7 @@ export function DebugSurface(): JSX.Element {
   return (
     <WorkbenchSurface
       job="debug"
+      leadingPaneWidth={roots.length > 0 ? (treeOpen ? treeW : 0) : undefined}
       leadingActions={
         roots.length > 0 ? (
           <HeaderPaneToggle

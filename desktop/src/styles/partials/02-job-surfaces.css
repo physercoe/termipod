@@ -211,6 +211,29 @@ button > .ui-icon:not(:only-child):first-child,
   /* A filter here makes this header a containing/stacking context and causes
      Author's fixed scrim + New menu to paint below the document tab strip. */
 }
+.surface-head.segmented {
+  gap: 0;
+  padding-left: 0;
+}
+.surface-identity {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.surface-head.segmented .surface-identity {
+  box-sizing: border-box;
+  padding-left: var(--spacing-s16);
+  padding-right: var(--spacing-s12);
+}
+.surface-head-divider {
+  align-self: stretch;
+  flex: 0 0 1px;
+  width: 1px;
+  background: var(--glass-rim);
+}
 .surface-icon {
   display: flex;
   align-items: center;
@@ -226,6 +249,10 @@ button > .ui-icon:not(:only-child):first-child,
   align-items: center;
 }
 .surface-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: var(--spacing-s8);
@@ -248,6 +275,10 @@ button > .ui-icon:not(:only-child):first-child,
   display: flex;
   align-items: center;
   gap: var(--spacing-s4);
+}
+.surface-head.segmented .surface-actions {
+  flex: 1 1 auto;
+  padding-left: var(--spacing-s8);
 }
 .surface-head button {
   min-height: var(--control-sm);
@@ -873,6 +904,9 @@ button > .ui-icon:not(:only-child):first-child,
   background: var(--bg);
   overflow: auto;
 }
+.record-layout.form-folded {
+  grid-template-columns: 1fr;
+}
 /* Narrow-window collapse (#318): the window floor is 900px, so below ~1000px
    the fixed 360px form column starves the log pane — stack the two panes and
    let each scroll its own half. */
@@ -880,6 +914,9 @@ button > .ui-icon:not(:only-child):first-child,
   .record-layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .record-layout.form-folded {
+    grid-template-rows: 1fr;
   }
 }
 .record-card {
@@ -910,6 +947,9 @@ button > .ui-icon:not(:only-child):first-child,
 .compare-runs {
   background: var(--canvas);
   overflow: auto;
+}
+.compare-layout.runs-folded {
+  grid-template-columns: 1fr;
 }
 .compare-run {
   display: flex;
@@ -1052,6 +1092,9 @@ button > .ui-icon:not(:only-child):first-child,
   .compare-layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .compare-layout.runs-folded {
+    grid-template-rows: 1fr;
   }
   .compare-wall {
     overflow: auto;
@@ -3458,6 +3501,9 @@ button > .ui-icon:not(:only-child):first-child,
   background: var(--canvas);
   overflow: auto;
 }
+.replay-layout.rail-folded {
+  grid-template-columns: 1fr;
+}
 .replay-rail-head {
   padding: var(--spacing-s8) var(--spacing-s12);
   border-bottom: 1px solid var(--border);
@@ -3868,6 +3914,9 @@ button > .ui-icon:not(:only-child):first-child,
   .replay-layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
+  }
+  .replay-layout.rail-folded {
+    grid-template-rows: 1fr;
   }
 }
 .replay-register {

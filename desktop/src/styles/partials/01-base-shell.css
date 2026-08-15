@@ -439,22 +439,18 @@ pre {
 .shell-macos:not(.is-fullscreen):not(.rail-hidden) .surface-head {
   padding-left: calc(var(--control-sm) + var(--spacing-s8));
 }
-.shell-macos:not(.is-fullscreen):not(.rail-hidden) .settings-cats,
-.shell-macos:not(.is-fullscreen):not(.rail-hidden) .term-panel.surface .term-nav:not(.folded) {
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .settings-cats {
   padding-top: 46px;
-}
-.shell-macos:not(.is-fullscreen):not(.rail-hidden) .term-panel.surface .term-nav.folded ~ .term-main .term-head {
-  padding-left: calc(var(--control-sm) + var(--spacing-s8));
 }
 .shell-macos .fleet-toolbar,
 .shell-macos .surface-head,
 .shell-macos .settings-cats,
 .shell-macos .settings-content-title,
-.shell-macos .term-nav,
+.shell-macos .term-surface-head,
 .shell-macos .term-head {
   -webkit-app-region: drag;
 }
-.shell-macos .term-nav-actions,
+.shell-macos .term-surface-actions,
 .shell-macos .term-nav-list {
   -webkit-app-region: no-drag;
 }
@@ -476,18 +472,13 @@ pre {
 }
 /* With the rail hidden, macOS traffic lights still own the leading corner.
    Ordinary page headers share that title band, so shift their first content
-   past the native controls. Settings and Terminal instead reserve a compact
-   draggable top inset in their own left panes. */
+   past the native controls. */
 .shell-macos.rail-hidden:not(.is-fullscreen) .fleet-toolbar,
 .shell-macos.rail-hidden:not(.is-fullscreen) .surface-head {
   padding-left: 84px;
 }
-.shell-macos.rail-hidden:not(.is-fullscreen) .settings-cats,
-.shell-macos.rail-hidden:not(.is-fullscreen) .term-panel.surface .term-nav:not(.folded) {
+.shell-macos.rail-hidden:not(.is-fullscreen) .settings-cats {
   padding-top: 46px;
-}
-.shell-macos.rail-hidden:not(.is-fullscreen) .term-panel.surface .term-nav.folded ~ .term-main .term-head {
-  padding-left: 84px;
 }
 .workbench-main {
   flex: 1;
@@ -560,17 +551,64 @@ pre {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: var(--spacing-s4);
   height: calc(var(--control-md) + var(--spacing-s16));
   min-height: calc(var(--control-md) + var(--spacing-s16));
-  padding: var(--spacing-s6) var(--spacing-s12);
+  padding: var(--spacing-s6) var(--spacing-s12) var(--spacing-s6) 0;
   background: var(--glass-pane);
   border-bottom: var(--hairline) solid var(--glass-rim);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
+.fleet-toolbar-identity {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  padding-left: var(--spacing-s12);
+  padding-right: var(--spacing-s12);
+}
+.fleet-toolbar-grid-divider {
+  align-self: stretch;
+  flex: 0 0 1px;
+  width: 1px;
+  background: var(--glass-rim);
+}
+.fleet-toolbar-actions {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  padding-left: var(--spacing-s8);
+}
+/* Segmented headers own their leading inset inside the identity cell so that
+   the cell's outer edge still aligns exactly with the pane divider. */
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .fleet-toolbar,
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .surface-head.segmented,
+.shell-macos.rail-hidden:not(.is-fullscreen) .fleet-toolbar,
+.shell-macos.rail-hidden:not(.is-fullscreen) .surface-head.segmented {
+  padding-left: 0;
+}
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .fleet-toolbar-identity,
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .surface-head.segmented .surface-identity,
+.shell-macos:not(.is-fullscreen):not(.rail-hidden) .term-surface-identity {
+  padding-left: calc(var(--control-sm) + var(--spacing-s8));
+}
+.shell-macos.rail-hidden:not(.is-fullscreen) .fleet-toolbar-identity,
+.shell-macos.rail-hidden:not(.is-fullscreen) .surface-head.segmented .surface-identity,
+.shell-macos.rail-hidden:not(.is-fullscreen) .term-surface-identity {
+  padding-left: 84px;
+}
 .fleet-toolbar-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--font-size-body-small);
   letter-spacing: var(--track-snug);
   color: var(--text);
@@ -584,12 +622,6 @@ pre {
   gap: var(--spacing-s6);
   padding: 4px 9px;
   font-size: var(--font-size-body-small);
-}
-.fleet-toolbar-sep {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 var(--spacing-s8);
 }
 .titlebar-palette {
   font-variant-numeric: tabular-nums;

@@ -69,21 +69,29 @@ export function MissionLayout({
   return (
     <>
       <div className="fleet-toolbar">
-        <HeaderPaneToggle
-          side="left"
-          open={open}
-          showLabel={t('nav.expand')}
-          hideLabel={t('nav.collapse')}
-          onToggle={toggle}
-        />
-        {toolbar}
-        <HeaderPaneToggle
-          side="right"
-          open={dockOpen}
-          showLabel={t('nav.expand')}
-          hideLabel={t('nav.collapse')}
-          onToggle={toggleDock}
-        />
+        <div className="fleet-toolbar-identity" style={open ? { width: w } : undefined}>
+          <HeaderPaneToggle
+            side="left"
+            open={open}
+            showLabel={t('nav.expand')}
+            hideLabel={t('nav.collapse')}
+            onToggle={toggle}
+          />
+          <span className="fleet-toolbar-label">
+            {t(storageKey === 'fleet' ? 'nav.fleet' : 'nav.projects')}
+          </span>
+        </div>
+        <span className="fleet-toolbar-grid-divider" aria-hidden="true" />
+        <div className="fleet-toolbar-actions">
+          {toolbar}
+          <HeaderPaneToggle
+            side="right"
+            open={dockOpen}
+            showLabel={t('nav.expand')}
+            hideLabel={t('nav.collapse')}
+            onToggle={toggleDock}
+          />
+        </div>
       </div>
       <div className="shell-body">
         {open && (

@@ -146,7 +146,7 @@ const kAgentFeedAlwaysHiddenKinds = <String>{
 const kAgentTurnActiveKinds = <String>{
   'text',
   'tool_call',
-  'tool_call_update', // ACP streaming variant — tool call is updating mid-flight
+  'tool_call_update', // streaming variant (ACP; codex command output) — a call is updating mid-flight
   'thought',
   'plan',
 };
@@ -516,7 +516,17 @@ String? agentEventReplayKey(Map<String, dynamic> evt) {
       final id = (payload['toolCallId'] ?? payload['id'] ?? '').toString();
       final status = (payload['status'] ?? '').toString();
       if (id.isEmpty) return null;
-      return '$kind:$id:$status';
+      // Status alone doesn't separate STREAMING updates. codex's
+      // commandExecution output arrives as a chain of partials that
+      // deliberately carry no status (vision-parity E3 — a trailing
+      // "in_progress" would pin the card at running forever), so every
+      // partial for one call would key identically and a replay would
+      // collapse them to the first, leaving the card showing the oldest
+      // slice of a finished command's output. Fold the streamed text in,
+      // the way the text/thought case does.
+      final streamed = toolCallUpdatePreview(payload) ?? '';
+      if (streamed.isEmpty) return '$kind:$id:$status';
+      return '$kind:$id:$status:${streamed.length}:$streamed';
     case 'approval_request':
       final id = (payload['request_id'] ?? '').toString();
       if (id.isEmpty) return null;

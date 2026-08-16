@@ -2403,3 +2403,379 @@ func TestEmitSessionInit_NothingToPost(t *testing.T) {
 		t.Errorf("want 0 events when nothing to surface; got %+v", poster.snapshot())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Streaming command output (vision-parity E3)
+//
+// Wire facts these tests encode were measured against the real binary, not
+// read off the plan: `codex app-server generate-json-schema` @ codex-cli
+// 0.133.0 names the notification `item/commandExecution/outputDelta` with
+// params {threadId, turnId, itemId, delta}, and a live turn running
+// `for i in 1 2 3 4 5; do echo "line $i"; sleep 1; done` confirmed that
+// `itemId` is the SAME id the item/started commandExecution frame carries —
+// i.e. the id our profile maps to tool_call.payload.id, which is what makes
+// the fold work at all.
+// ---------------------------------------------------------------------------
+
+// startOutputStreamDriver spins up a driver wired to a fake app-server, ready
+// to receive commandExecution notifications.
+func startOutputStreamDriver(t *testing.T, agentID string, flush time.Duration) (*AppServerDriver, *fakeAppServer, *fakePoster) {
+	t.Helper()
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_out"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:             agentID,
+		Poster:              poster,
+		Stdout:              pipes.driverStdout,
+		Stdin:               pipes.driverStdin,
+		FrameProfile:        codexProfileForTest(t),
+		HandshakeTimeout:    2 * time.Second,
+		CallTimeout:         2 * time.Second,
+		StreamFlushInterval: flush,
+		Closer:              pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	return drv, server, poster
+}
+
+// toolCallUpdatesFor returns the tool_call_update events folded onto id, in
+// order, reading the key BOTH clients fold on (desktop toolGroups.ts
+// toolCallUpdateParentId, mobile fold_maps.dart) — deliberately not
+// `tool_use_id`, which is tool_result's key and would silently never fold.
+func toolCallUpdatesFor(events []postedEvent, id string) []postedEvent {
+	var out []postedEvent
+	for _, e := range events {
+		if e.Kind != "tool_call_update" {
+			continue
+		}
+		if got, _ := e.Payload["toolCallId"].(string); got == id {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// updateText digs the streamed output out of the ACP content-block shape.
+func updateText(t *testing.T, e postedEvent) string {
+	t.Helper()
+	blocks, ok := e.Payload["content"].([]any)
+	if !ok || len(blocks) == 0 {
+		t.Fatalf("tool_call_update.content is not a non-empty block array: %#v", e.Payload["content"])
+	}
+	blk, ok := blocks[0].(map[string]any)
+	if !ok || blk["type"] != "content" {
+		t.Fatalf(`content[0] must be {"type":"content",...}; got %#v`, blocks[0])
+	}
+	inner, ok := blk["content"].(map[string]any)
+	if !ok || inner["type"] != "text" {
+		t.Fatalf(`content[0].content must be {"type":"text",...}; got %#v`, blk["content"])
+	}
+	s, _ := inner["text"].(string)
+	return s
+}
+
+// waitUntil polls until cond holds or the deadline passes. Distinct from
+// the package's argless waitFor (mcp_gateway_hooks_test.go), whose window is
+// a fixed second — streamed flushes need a caller-chosen budget.
+func waitUntil(cond func() bool, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return cond()
+}
+
+// A running command's output reaches the transcript before it exits — the
+// whole point of E3. Before this wedge the deltas were swallowed by the
+// delta filter and a long bash showed nothing until it finished.
+func TestAppServerDriver_StreamsCommandOutputAsToolCallUpdate(t *testing.T) {
+	const itemID = "call_stream1"
+	_, server, poster := startOutputStreamDriver(t, "agent-cmdout", 10*time.Millisecond)
+
+	server.notify("item/started", map[string]any{
+		"item": map[string]any{
+			"id": itemID, "type": "commandExecution",
+			"command": "/bin/bash -lc 'echo hi'",
+		},
+	})
+	// Two flush windows so we can prove the payload is CUMULATIVE, not
+	// per-chunk: a client joining at the second update must still see
+	// everything, which is why each partial re-sends the whole buffer.
+	server.notify(commandOutputDeltaMethod, map[string]any{"itemId": itemID, "delta": "line 1\n"})
+	time.Sleep(30 * time.Millisecond)
+	server.notify(commandOutputDeltaMethod, map[string]any{"itemId": itemID, "delta": "line 2\n"})
+
+	var ups []postedEvent
+	ok := waitUntil(func() bool {
+		ups = toolCallUpdatesFor(poster.snapshot(), itemID)
+		return len(ups) >= 2
+	}, 2*time.Second)
+	if !ok {
+		t.Fatalf("want >=2 streamed tool_call_update events for %s; got %d", itemID, len(ups))
+	}
+	if got := updateText(t, ups[0]); got != "line 1\n" {
+		t.Errorf("first partial text = %q; want %q", got, "line 1\n")
+	}
+	if got := updateText(t, ups[len(ups)-1]); got != "line 1\nline 2\n" {
+		t.Errorf("last partial text = %q; want the cumulative buffer %q", got, "line 1\nline 2\n")
+	}
+	for i, e := range ups {
+		if e.Payload["partial"] != true {
+			t.Errorf("update %d: partial = %v; want true", i, e.Payload["partial"])
+		}
+		if e.Producer != "agent" {
+			t.Errorf("update %d: producer = %q; want agent", i, e.Producer)
+		}
+	}
+}
+
+// The stuck-card guard. In BOTH clients the latest tool_call_update's status
+// wins over the status derived from a paired tool_result (desktop
+// toolGroups.ts toolStatusOf, mobile feed_reducer.dart
+// toolCallDisplayStatus). A streamed partial that said "in_progress" would
+// therefore pin the tool card at running forever — nothing clears it once
+// the command exits. So the partials must carry no status at all and let the
+// tool_result resolve the card.
+func TestAppServerDriver_StreamedOutputCarriesNoStatus(t *testing.T) {
+	const itemID = "call_nostatus"
+	_, server, poster := startOutputStreamDriver(t, "agent-nostatus", 10*time.Millisecond)
+
+	server.notify("item/started", map[string]any{
+		"item": map[string]any{"id": itemID, "type": "commandExecution"},
+	})
+	server.notify(commandOutputDeltaMethod, map[string]any{"itemId": itemID, "delta": "working\n"})
+
+	var ups []postedEvent
+	if !waitUntil(func() bool {
+		ups = toolCallUpdatesFor(poster.snapshot(), itemID)
+		return len(ups) >= 1
+	}, 2*time.Second) {
+		t.Fatal("no streamed tool_call_update to inspect")
+	}
+	for i, e := range ups {
+		if _, present := e.Payload["status"]; present {
+			t.Errorf("update %d carries status=%v — a trailing partial status pins the card at running forever; "+
+				"omit it so the tool_result resolves the card", i, e.Payload["status"])
+		}
+	}
+
+	// And the tool_result that resolves it still arrives, keyed by
+	// tool_use_id (tool_result's key — NOT the toolCallId the updates use).
+	server.notify("item/completed", map[string]any{
+		"item": map[string]any{
+			"id": itemID, "type": "commandExecution",
+			"aggregatedOutput": "working\n", "exitCode": 0, "status": "completed",
+		},
+	})
+	if !waitUntil(func() bool {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "tool_result" && e.Payload["tool_use_id"] == itemID {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second) {
+		t.Fatal("no tool_result for the completed command — nothing would resolve the card")
+	}
+}
+
+// item/completed finalizes the chain: the profile's tool_result is
+// authoritative, so no further partial may follow it.
+func TestAppServerDriver_CompletedCommandStopsStreaming(t *testing.T) {
+	const itemID = "call_final"
+	_, server, poster := startOutputStreamDriver(t, "agent-final", 40*time.Millisecond)
+
+	server.notify("item/started", map[string]any{
+		"item": map[string]any{"id": itemID, "type": "commandExecution"},
+	})
+	// Delta then completion inside the same flush window: the pending
+	// timer must be cancelled, not merely raced.
+	server.notify(commandOutputDeltaMethod, map[string]any{"itemId": itemID, "delta": "partial output\n"})
+	server.notify("item/completed", map[string]any{
+		"item": map[string]any{
+			"id": itemID, "type": "commandExecution",
+			"aggregatedOutput": "partial output\n", "exitCode": 0, "status": "completed",
+		},
+	})
+	if !waitUntil(func() bool {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "tool_result" && e.Payload["tool_use_id"] == itemID {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second) {
+		t.Fatal("no tool_result for the completed command")
+	}
+	time.Sleep(120 * time.Millisecond) // three flush windows
+	if n := len(toolCallUpdatesFor(poster.snapshot(), itemID)); n != 0 {
+		t.Errorf("got %d partial(s) despite the completion frame cancelling the chain; want 0", n)
+	}
+}
+
+// A negative arm with a separating input: the sibling method
+// `item/fileChange/outputDelta` carries codex's own schema note that "the
+// server no longer emits this notification", and reasoning deltas are
+// internal monologue. Neither may reach the transcript. Without
+// this arm the routing switch could be replaced by "any *Delta streams" and
+// every other test here would still pass.
+func TestAppServerDriver_OnlyCommandOutputDeltasStream(t *testing.T) {
+	_, server, poster := startOutputStreamDriver(t, "agent-onlycmd", 10*time.Millisecond)
+
+	server.notify("item/fileChange/outputDelta", map[string]any{"itemId": "call_fc", "delta": "patch text\n"})
+	server.notify("item/reasoning/textDelta", map[string]any{"itemId": "rs_1", "delta": "thinking\n"})
+	server.notify(commandOutputDeltaMethod, map[string]any{"itemId": "call_ok", "delta": "real output\n"})
+
+	if !waitUntil(func() bool {
+		return len(toolCallUpdatesFor(poster.snapshot(), "call_ok")) >= 1
+	}, 2*time.Second) {
+		t.Fatal("commandExecution delta never streamed — the positive arm failed, so the negative arm proves nothing")
+	}
+	// Settle before asserting the absence. Each buffer arms its own timer and
+	// they fire in scheduler order, so the sentinel's flush does NOT imply the
+	// other two have had their turn: asserting here caught this harness
+	// passing while every delta method streamed, purely because the leaked
+	// rows had not been posted yet. Both noise deltas were buffered before the
+	// sentinel, so twenty flush windows is well past their chance to appear.
+	time.Sleep(200 * time.Millisecond)
+	for _, e := range poster.snapshot() {
+		if e.Kind == "raw" {
+			t.Errorf("a delta leaked as a raw row: %+v", e.Payload)
+		}
+	}
+	if n := len(toolCallUpdatesFor(poster.snapshot(), "call_fc")); n != 0 {
+		t.Errorf("dead fileChange/outputDelta channel produced %d update(s); want 0", n)
+	}
+	if n := len(toolCallUpdatesFor(poster.snapshot(), "rs_1")); n != 0 {
+		t.Errorf("reasoning delta produced %d update(s); want 0", n)
+	}
+}
+
+// A negative StreamFlushInterval disables streaming entirely — the existing
+// escape hatch for slow links has to cover the new channel too, or an
+// operator who turned streaming off still pays for it.
+func TestAppServerDriver_StreamingDisabledSuppressesCommandOutput(t *testing.T) {
+	const itemID = "call_off"
+	_, server, poster := startOutputStreamDriver(t, "agent-off", -1)
+
+	server.notify(commandOutputDeltaMethod, map[string]any{"itemId": itemID, "delta": "should not appear\n"})
+	server.notify("item/completed", map[string]any{
+		"item": map[string]any{
+			"id": itemID, "type": "commandExecution",
+			"aggregatedOutput": "should not appear\n", "exitCode": 0, "status": "completed",
+		},
+	})
+	if !waitUntil(func() bool {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "tool_result" && e.Payload["tool_use_id"] == itemID {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second) {
+		t.Fatal("no tool_result — the frame never reached the profile, so the assertion below is vacuous")
+	}
+	if n := len(toolCallUpdatesFor(poster.snapshot(), itemID)); n != 0 {
+		t.Errorf("StreamFlushInterval < 0 still produced %d streamed update(s); want 0", n)
+	}
+}
+
+// trimToTail bounds the cumulative buffer. Every flush re-sends the whole
+// buffer (that is what makes a partial self-contained), so an uncapped
+// buffer costs O(n²) bytes over a chatty command's life.
+func TestTrimToTail(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{"under the cap is untouched", "abc\ndef\n", 64, "abc\ndef\n"},
+		{"exactly at the cap is untouched", "abcd", 4, "abcd"},
+		{
+			// The kept window would start mid-"three"; the cut moves
+			// forward to the line break so a client previewing "the
+			// first line" never renders half a line as if it were whole.
+			name: "cut advances to the next line boundary",
+			in:   "one\ntwo\nthree\nfour\n",
+			max:  12,
+			want: "three\nfour\n",
+		},
+		{
+			// No newline in the kept window: there is no boundary to
+			// advance to, so keep the raw tail rather than dropping
+			// everything.
+			name: "a window with no newline keeps the raw tail",
+			in:   "aaaaaaaaaaaaaaaaaaaa",
+			max:  5,
+			want: "aaaaa",
+		},
+		{
+			// A trailing newline as the only break must not empty the
+			// buffer — `nl+1 < len(tail)` is what stops that.
+			name: "a trailing newline does not empty the result",
+			in:   "xxxxxxxxxx\n",
+			max:  4,
+			want: "xxx\n",
+		},
+		{"a non-positive cap disables trimming", "abcdef", 0, "abcdef"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trimToTail(tc.in, tc.max); got != tc.want {
+				t.Errorf("trimToTail(%q, %d) = %q; want %q", tc.in, tc.max, got, tc.want)
+			}
+			if got := trimToTail(tc.in, tc.max); tc.max > 0 && len(got) > tc.max {
+				t.Errorf("trimToTail(%q, %d) returned %d bytes, over the cap", tc.in, tc.max, len(got))
+			}
+		})
+	}
+}
+
+// The cap is enforced on the wire, not just in the helper.
+func TestAppServerDriver_StreamedOutputIsCapped(t *testing.T) {
+	const itemID = "call_big"
+	_, server, poster := startOutputStreamDriver(t, "agent-big", 10*time.Millisecond)
+
+	server.notify("item/started", map[string]any{
+		"item": map[string]any{"id": itemID, "type": "commandExecution"},
+	})
+	line := strings.Repeat("x", 511) + "\n"
+	for i := 0; i < (maxStreamedOutputBytes/len(line))+20; i++ {
+		server.notify(commandOutputDeltaMethod, map[string]any{"itemId": itemID, "delta": line})
+	}
+
+	var last string
+	if !waitUntil(func() bool {
+		ups := toolCallUpdatesFor(poster.snapshot(), itemID)
+		if len(ups) == 0 {
+			return false
+		}
+		last = updateText(t, ups[len(ups)-1])
+		return len(last) > maxStreamedOutputBytes/2
+	}, 3*time.Second) {
+		t.Fatalf("never accumulated enough output to exercise the cap (got %d bytes)", len(last))
+	}
+	if len(last) > maxStreamedOutputBytes {
+		t.Errorf("streamed payload is %d bytes; cap is %d", len(last), maxStreamedOutputBytes)
+	}
+	if !strings.HasSuffix(last, line) {
+		t.Error("the cap dropped the newest output — it must keep the TAIL, which is what a running command's reader is watching")
+	}
+}

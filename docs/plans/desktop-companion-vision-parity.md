@@ -6,8 +6,9 @@
 > flight**: L3 split into **L3a** (shipped 2026-08-10 — the local agent
 > service, claude M2 child, renderer source), **L3b** (shipped
 > 2026-08-14 — on-disk log + restart rebind) and **L3c** (session
-> catalog + loopback WS, split out of L3b). **E4 shipped 2026-08-16**
-> (relay result passthrough). Remaining: E3, R4; L3c is deferrable
+> catalog + loopback WS, split out of L3b). **E3 + E4 shipped
+> 2026-08-16** (streaming command output; relay result passthrough).
+> Remaining: R4; L3c is deferrable
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -538,6 +539,55 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   channel for this — degrade (D-4). Client folds join on the existing
   dual id-shape helper (`callToolIdOf`/`callToolId` — the ×3-recurrence
   bug class; both key shapes, both clients).
+
+  **Shipped 2026-08-16.** Four things the plan line above got wrong,
+  each caught before code by reading the source rather than the
+  paraphrase — recorded here because the corrections are the wedge:
+  - *The payload key is `toolCallId`, not `tool_use_id`.* `tool_use_id`
+    is `tool_result`'s key. A `tool_call_update` folds on
+    `toolCallId`/`tool_call_id` in **both** clients (desktop
+    `toolGroups.ts` `toolCallUpdateParentId`, mobile `fold_maps.dart`),
+    so the shape the plan specified would have folded onto nothing and
+    the live output would never have appeared — the exact failure E3
+    exists to fix. The emitted payload is the ACP driver's
+    `tool_call_update` verbatim (`toolCallId` + ACP `content[]` blocks)
+    rather than a flat `output` field, which is why the running tool
+    card shows streamed output with **no client change at all**; R4
+    upgrades desktop from a one-line preview to a scroll-capped block.
+  - *The partials must carry no `status`.* In both clients the latest
+    update's status outranks the status derived from a paired
+    `tool_result` (`toolStatusOf` / `toolCallDisplayStatus`). A
+    trailing partial saying `in_progress` would pin the card at running
+    forever — nothing clears it once the command exits. Omitting the
+    field lets the `tool_result` resolve the card, which is today's
+    behaviour.
+  - *The method is `item/commandExecution/outputDelta`, and its
+    `fileChange` sibling is dead.* Pinned against
+    `codex app-server generate-json-schema` @ codex-cli 0.133.0, which
+    records that `item/fileChange/outputDelta` is a dead channel — "the
+    server no longer emits this notification". Wiring the `item/*/outputDelta`
+    glob the plan implies would have adopted a dead channel.
+  - *The delta stream and the final result always agree.* Measured on a
+    live turn: the reassembled deltas equal the item's
+    `aggregatedOutput` exactly — including a case where codex's
+    `unifiedExecStartup` source drops output from **both** channels
+    equally (400 rows written at once survived in neither). So the
+    streamed preview can never contradict the `tool_result` that
+    replaces it. The first probe — five lines a second apart — could
+    not have established this; it took a second probe whose bulk output
+    was a genuinely separating input.
+
+  Also bounded on the wire: every flush re-sends the whole buffer (that
+  is what makes a partial self-contained for a late reader), so an
+  uncapped buffer costs O(n²) bytes over a chatty command's life. Capped
+  at 32 KiB keeping the **tail**, cut forward to a line boundary so a
+  client previewing "the first line" never renders half a line as whole.
+  One consumer-side fix travelled with it: mobile's
+  `agentEventReplayKey` keyed `tool_call_update` on id + status only, so
+  a chain of statusless partials collapsed to one on replay — unreachable
+  today (only the ACP driver and the claude log-tail tag `replay:true`,
+  never this one) but a trap this wedge would have planted, so the key
+  now folds in the streamed text the way the `text` case does.
 - **E4 — hub relay image passthrough** (asymmetry #3).
   `mcp_browser_bridge.go` flattens desktop-bridge tool results through
   `mcpResultJSON` → a remote agent gets a PNG as base64-in-text. When

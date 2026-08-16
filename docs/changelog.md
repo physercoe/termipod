@@ -182,6 +182,21 @@ binding). Seed entries prior to that are in
   describing it; anything that is not already a tool result keeps the
   JSON wrapper it had. Local and relayed calls now return the same
   thing. (vision-parity E4)
+- **A running command's output arrives while it runs.** codex streams a
+  shell command's stdout as it appears, but the driver's delta filter
+  swallowed it, so a build or a test run showed nothing at all until it
+  exited — the longest a transcript ever sits blank. Those chunks now
+  reach the transcript as `tool_call_update` rows, buffered per command
+  and flushed on the existing ~5 Hz throttle, folded into the running
+  tool card by both clients with no client change. The payload is the
+  cumulative output, not the newest chunk, so a reader who joins late
+  still sees the whole thing; past a 32 KiB cap it keeps the tail, cut
+  at a line boundary. The partials deliberately carry **no status** —
+  in both clients the latest update's status outranks the one derived
+  from the tool result, so a trailing "in_progress" would have pinned
+  the card at running forever, long after the command exited.
+  claude M2 has no wire channel for this and degrades to what it does
+  today. (vision-parity E3)
 - **The legacy idle detector's guard now names its own reason.**
   `hasStructuredDriver(kind)` becomes `hasAnyStateAuthority(agent)` — a
   live structured driver, or manifest coverage, or a registered engine

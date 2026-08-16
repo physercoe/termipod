@@ -112,6 +112,27 @@ This complements:
   that writes `mcp_servers` in a form the splicer can't edit safely is left
   alone and reported, never guessed at. (vision-parity F4)
 
+- **A running command's output now appears while it runs, and pictures render
+  as pictures.** Two halves of the same gap — the transcript could describe
+  what a tool did but never show it. A long build or test run used to sit as a
+  silent spinner until it exited; its output now streams into the tool row,
+  scroll-capped and pinned to the newest line, and stands down when the
+  finished result arrives carrying the same bytes. And an image a tool returns
+  — claude reading a PNG, or any bridge tool behind the hub relay — now paints
+  inline instead of printing a screen of base64 at you. Both dialects our
+  engines actually emit are read (claude's `source:{type:"base64"}` and
+  MCP/ACP's `mimeType`+`data`), and a `url` source is deliberately not painted:
+  it would make the renderer fetch a host the agent chose. (vision-parity R4,
+  consuming E3 + E4)
+
+  **Large images stopped disappearing.** The hub replaces any payload field
+  over 64 KiB with a content-addressed reference on ingest, which is every real
+  screenshot — and the transcript skipped those references rather than
+  resolving them, so an image vanished at exactly the size where it mattered.
+  They are now fetched by hash. The MIME comes from the event, not the blob
+  record, because the hub stores externalized bytes as
+  `application/octet-stream` and no browser will paint that as an image.
+
 ### Changed
 - **The UI-sharing consent text now lists all eight gated tools.** It had said
   "four things" since the first Author lane and had never been updated for
@@ -129,6 +150,13 @@ This complements:
   already render as a user card.
 - The `2026.805.1022` entry below listed `author_guide` among the verbs that
   shipped in it. It did not exist until now; the other three did.
+- **In the Companion, a tool call never showed its result.** The two props were
+  handed to the wrong branches — a `tool_call` card was given the tool *name* it
+  had no use for while its result went to the `tool_result` card, which wanted
+  the name. So the Companion's call cards folded in nothing and every
+  standalone result was labelled just "Result". The full transcript surface was
+  always correct; only the dock was wired backwards. Found while threading the
+  streamed-output prop through the same call sites.
 
 ---
 

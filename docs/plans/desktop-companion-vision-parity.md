@@ -8,8 +8,10 @@
 > 2026-08-14 — on-disk log + restart rebind) and **L3c** (session
 > catalog + loopback WS, split out of L3b). **E3 + E4 shipped
 > 2026-08-16** (streaming command output; relay result passthrough).
-> Remaining in W3: R4; L3c is deferrable. **F4 shipped 2026-08-16**
-> (user-level MCP reseed for claude + codex) — first W4 wedge
+> **R4 shipped 2026-08-16** (live output + agent-produced media) —
+> **W3 complete**. **F4 shipped 2026-08-16** (user-level MCP reseed
+> for claude + codex) — first W4 wedge. Remaining: L3c only, and it
+> is deferrable
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -770,13 +772,48 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
     is desktop-only and a follow-up if the director wants it — mobile
     draws them as ordinary cards today. The producer fix benefits both
     clients immediately.
-- **R4 — live output + agent-produced media.** Render E3's cumulative
-  `tool_call_update` output inside the running tool row (expandable
-  while running, scroll-capped like kimi-web's 50-line block), folding
-  by the `streamingPartials.ts` chain mechanism. Render agent-produced
-  images: `tool_result` MCP image blocks and `termipod-att://` refs
-  paint inline (the `Markdown.tsx` resolver exists); `blob:` refs get
-  the blob resolver instead of today's skip (asymmetry #4).
+- **R4 — live output + agent-produced media.** *(shipped 2026-08-16)*
+  Render E3's cumulative `tool_call_update` output inside the running
+  tool row (scroll-capped like kimi-web's 50-line block); render
+  agent-produced images inline; resolve `blob:` refs instead of
+  skipping them (asymmetry #4).
+
+  **Three of this line's five specifics were wrong** — recorded because
+  the corrections are the wedge:
+
+  1. *"folding by the `streamingPartials.ts` chain mechanism"* — no.
+     That module lives in `ui/`, not `state/`, its `FOLD_KINDS` is
+     `text|thought|plan`, and its chains key on **`message_id`**. A
+     `tool_call_update` carries neither: its id field is `toolCallId`.
+     Nothing needed folding — `useToolMaps`' `updateById` already
+     joins updates to their parent call, latest-wins. The real gap was
+     downstream: `ToolCallBody` took only `(p, result)`, so the folded
+     update had no way in, and `isToolCallUpdateHidden` suppresses the
+     standalone card whenever a visible parent exists. E3's output was
+     reaching the client and being dropped by the renderer.
+  2. *"MCP image blocks"* — only half. claude M2 forwards claude's own
+     `tool_result` content verbatim (`driver_stdio.go:446`), which is
+     the **Anthropic** dialect `{type:"image", source:{type:"base64",
+     media_type, data}}`. Measured, not assumed: `claude --print
+     --output-format stream-json` reading a PNG returns exactly that,
+     as a LIST, with `is_error` absent rather than false. The MCP
+     dialect (`mimeType`+`data`) is the ACP/bridge shape. Both render.
+  3. *"`termipod-att://` refs paint inline"* — a category error. That
+     scheme is Tauri-only note-attachment plumbing for the Read
+     surface (`state/attachments.ts:200`); no agent event has ever
+     carried one. Out of scope, nothing to do.
+
+  And one framing correction: *"a `blob:` ref would mean a future hub"*
+  (the old code comment) is already false. `payload_externalize.go`
+  swaps **every** string leaf over 64 KiB for a `blob:sha256/` ref on
+  agent-event ingest (`handlers_agent_events.go:118`), so for any real
+  screenshot the blob path is the **normal** one, not an edge case.
+  Two consequences the plan could not have anticipated: the MIME must
+  come from the event block (the hub stores the leaf as
+  `application/octet-stream`), and the fetched body is base64 **text**,
+  so it needs one decode — `getBlobDataUrl` would double-encode it.
+  Neither client had ever resolved an externalized payload leaf;
+  mobile's blob code is all artifact viewers, a different case.
 - **R5 — subagent panel.** The dock's flat name-match rows
   (`stateDock.ts`) gain a detail panel: click a subagent chip → side
   panel with that subagent's filtered event stream (events already

@@ -194,10 +194,22 @@ test('an image reaches the model in the variant this build accepts', async (t) =
         },
       ],
     });
-    const text = await l.wait(
-      (e) => e.kind === 'text' && e.payload.partial !== true,
-      'an answer about the image',
+    // Wait for a completed text that NAMES the colour, not merely the first
+    // completed text: a turn is free to open with a preamble message ("i'll
+    // inspect the image…") before the answer, and asserting on whichever text
+    // lands first races that choice — the same class as the two assertions
+    // this e2e already had to unlearn. If no text ever says green, the wait
+    // times out and fails with every collected text in hand.
+    const answered = l.wait(
+      (e) => e.kind === 'text' && e.payload.partial !== true && /green/.test(String(e.payload.text).toLowerCase()),
+      'an answer naming the colour green',
     );
+    await answered.catch((err: unknown) => {
+      const texts = l.events
+        .filter((e) => e.kind === 'text' && e.payload.partial !== true)
+        .map((e) => JSON.stringify(e.payload.text));
+      throw new Error(`${err instanceof Error ? err.message : String(err)} — completed texts: ${texts.join(' | ')}`);
+    });
     // If the block shape were wrong, `turn/start` would have failed with
     // `-32600 unknown variant` and this would be an `error` row instead.
     assert.equal(
@@ -205,7 +217,6 @@ test('an image reaches the model in the variant this build accepts', async (t) =
       false,
       'turn/start rejected the image block',
     );
-    assert.match(String(text.payload.text).toLowerCase(), /green/);
   } finally {
     l.driver.stop();
     fs.rmSync(cwd, { recursive: true, force: true });

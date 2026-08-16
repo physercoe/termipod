@@ -272,12 +272,42 @@ test('an approval is parked as an R1 card and the click becomes the JSON-RPC res
   const card = find(r.events, 'approval_request');
   assert.ok(card !== undefined, 'expected an approval_request event');
   const requestId = String(card.payload.request_id);
-  assert.match(requestId, /^codex-1-7$/);
+  assert.match(requestId, /^codex-[0-9a-f]{8}-7$/);
 
   r.driver.input('approval', { request_id: requestId, decision: 'accept' });
   const answer = r.sent.find((f) => f.id === 7);
   assert.ok(answer !== undefined, 'expected a response on the parked id');
   assert.deepEqual(answer.result, { decision: 'accept' });
+});
+
+test('request ids never collide across driver instances, so a stale card cannot answer a new request', async () => {
+  // The server's JSON-RPC id counter restarts with every connection, and a
+  // rebind is a NEW driver instance — so any per-instance counter in the
+  // request id collides exactly there: the card left over from the instance
+  // that died would answer whatever request happened to reach the same number
+  // on the next connection. That click can APPROVE a command the director
+  // never saw. The prefix must therefore differ per instance.
+  const ask = {
+    jsonrpc: '2.0',
+    id: 7,
+    method: 'item/commandExecution/requestApproval',
+    params: { command: 'ls' },
+  };
+  const a = rig();
+  await handshake(a);
+  a.recv(ask);
+  const b = rig();
+  await handshake(b);
+  b.recv(ask);
+  const idA = String(find(a.events, 'approval_request')?.payload.request_id);
+  const idB = String(find(b.events, 'approval_request')?.payload.request_id);
+  assert.notEqual(idA, idB, 'same jsonrpc id on two instances must mint two request ids');
+
+  // The stale click lands as unmatched — reported, not misdelivered.
+  b.driver.input('approval', { request_id: idA, decision: 'accept' });
+  assert.equal(b.sent.some((f) => f.id === 7 && f.result !== undefined), false, 'the old card must not answer the new request');
+  const unmatched = b.events.find((e) => e.kind === 'system' && e.payload.kind === 'codex_answer_unmatched');
+  assert.ok(unmatched !== undefined, 'the stale click must be reported as unmatched');
 });
 
 test('a question is answered with the option label, on the question-id map', async () => {

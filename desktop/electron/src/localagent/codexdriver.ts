@@ -38,6 +38,7 @@
 /// place a failed claude launch already reports, rather than an exception
 /// thrown somewhere that cannot say which session it was about.
 
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { applyProfile } from '../frameprofile/translate.ts';
 import type { EmittedEvent } from '../frameprofile/types.ts';
@@ -136,9 +137,15 @@ export class CodexDriver implements LocalDriver {
   readonly #queue: InputPayload[] = [];
   #channel: CodexChannel | null = null;
   #nextId = 0;
-  /// Bumped on every channel open so a card left on screen across a rebind
-  /// cannot answer a request that merely reached the same JSON-RPC id.
-  #epoch = 0;
+  /// Distinguishes THIS driver instance's server requests from every other's —
+  /// the instance a rebind replaced, and one from a previous app run whose
+  /// unanswered card a restored transcript still shows. The server's JSON-RPC
+  /// id counter restarts with every connection, so a per-instance counter
+  /// would collide exactly where it matters: each rebind is a new instance
+  /// counting from the same start. Random, because transcripts outlive the
+  /// process; a stale card's click then lands as `codex_answer_unmatched`
+  /// instead of answering a request the director never saw.
+  readonly #instance = randomUUID().slice(0, 8);
   #threadId = '';
   #turnId = '';
   #started = false;
@@ -266,7 +273,6 @@ export class CodexDriver implements LocalDriver {
       return;
     }
     this.#channel = channel;
-    this.#epoch += 1;
     // The rung is a fact about what this session IS, so it is a row, not a log
     // line: on `daemon` the thread survives the app and shows up in the codex
     // TUI; on `spawn` it dies with this window.
@@ -393,7 +399,7 @@ export class CodexDriver implements LocalDriver {
   // ── Parked requests ────────────────────────────────────────────────────────
 
   #park(jsonrpcId: number | string, method: string, params: unknown): void {
-    const requestId = `codex-${String(this.#epoch)}-${String(jsonrpcId)}`;
+    const requestId = `codex-${this.#instance}-${String(jsonrpcId)}`;
     const ask = parseServerAsk(method, params, requestId);
 
     if (ask.form === 'unsupported') {

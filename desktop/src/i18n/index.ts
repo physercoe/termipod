@@ -394,6 +394,19 @@ const en: Dict = {
   'ctx.label': 'ctx',
   'ctx.title': 'Context window: {used} / {total} tokens ({pct}). Past ~90% the next response spills — a good moment to compact or branch a fresh thread.',
   'ctx.compactHint': 'Click to put {cmd} in the composer — it is not sent for you.',
+  // R6 — runtime model / permission-mode pills beside the composer.
+  'pills.model': 'Model',
+  'pills.mode': 'Mode',
+  'pills.unset': 'not reported',
+  'pills.locked':
+    'This engine cannot change its {field} while running — shown for reference. Switching it means spawning a new agent.',
+  'pills.respawnHint': 'Changing the {field} restarts the agent on this session.',
+  'pills.respawnWarn':
+    'Switching {field} to "{value}" restarts the agent. The session and its transcript continue; anything the current turn has not finished is lost.',
+  'pills.restartAndSwitch': 'Restart and switch',
+  'pills.typeHint': 'model id or alias',
+  'pills.apply': 'Switch',
+  'pills.failed': 'Switch refused: {err}',
   'ctx.costTitle': 'Cost this session, as reported by the engine. Engines that report none show nothing here rather than an estimate.',
   'tx.new': 'new',
   'tx.latest': 'Latest',
@@ -2714,6 +2727,18 @@ const zh: Dict = {
   'ctx.label': '上下文',
   'ctx.title': '上下文窗口：{used} / {total} tokens（{pct}）。超过约 90% 后下一次回复会溢出——此时适合压缩上下文或另开一个会话。',
   'ctx.compactHint': '点击将 {cmd} 填入输入框——不会自动发送。',
+  // R6 — 输入框旁的运行时模型 / 权限模式标签。
+  'pills.model': '模型',
+  'pills.mode': '模式',
+  'pills.unset': '未报告',
+  'pills.locked': '该引擎在运行时无法更改{field}——此处仅作参考。要更改需要重新启动一个新的 agent。',
+  'pills.respawnHint': '更改{field}会在当前会话上重启 agent。',
+  'pills.respawnWarn':
+    '将{field}切换为「{value}」会重启 agent。会话及其记录会保留；当前这一轮尚未完成的内容会丢失。',
+  'pills.restartAndSwitch': '重启并切换',
+  'pills.typeHint': '模型 id 或别名',
+  'pills.apply': '切换',
+  'pills.failed': '切换被拒绝：{err}',
   'ctx.costTitle': '本会话费用，由引擎自行上报。不上报费用的引擎此处留空，而不是给出估算值。',
   'tx.new': '新',
   'tx.latest': '最新',

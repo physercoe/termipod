@@ -133,6 +133,44 @@ type Family struct {
 	// per-family token couldn't disambiguate.
 	RuntimeModeSwitch map[string]string `yaml:"runtime_mode_switch,omitempty" json:"runtime_mode_switch,omitempty"`
 
+	// RuntimeSwitchFields declares WHICH of the two picker fields the
+	// route above can actually carry. Keys are "mode" and "model";
+	// a missing key reads as false (vision-parity R6).
+	//
+	// Split out because one routing token was answering for two
+	// independent capabilities, and it was wrong for three of the four
+	// (family, field) pairs the desktop Companion drives. `respawn`
+	// rewrites a flag that must already be in the spec's backend.cmd
+	// (respawn_with_spec_mutation.go), so a field is switchable only if
+	// the engine HAS such a flag and a spawn template ships it:
+	//
+	//   - claude-code / model → `--model`, present in every claude
+	//     template's cmd. Works.
+	//   - claude-code / mode  → `--permission-mode`. The flag is real
+	//     (claude 2.1.220: acceptEdits|auto|bypassPermissions|manual|
+	//     dontAsk|plan) but NO template carries it, so every switch
+	//     answered 422 "backend.cmd does not carry the expected flag …
+	//     pick a fresh template that exposes it" — advice pointing at a
+	//     template that does not exist. Adding one is not enough on its
+	//     own: `--permission-mode plan` was MEASURED not to gate Bash
+	//     under `--print`, so an M2 pill offering it would assert a
+	//     safety boundary the engine does not enforce.
+	//   - codex / mode  → the table asked for `--approval-policy`, which
+	//     codex-cli 0.147.0 does not have at all ("error: unexpected
+	//     argument '--approval-policy' found"; the real flag is
+	//     `-a, --ask-for-approval`).
+	//   - codex / model → `codex app-server`, the M2 argv, accepts no
+	//     `-m/--model` (it is a flag of the interactive/exec rungs), so
+	//     mutating one in would produce a spec that fails to launch.
+	//     Codex's real runtime override is `thread/start.config` (a map
+	//     of config overrides, measured in L4c) or `-c model=…`; both
+	//     are driver work, not a spec mutation.
+	//
+	// Declared explicitly by every family that declares a route, so a
+	// new family cannot inherit a capability by omission — the same
+	// no-affordance-by-default rule the prompt_* maps follow.
+	RuntimeSwitchFields map[string]bool `yaml:"runtime_switch_fields,omitempty" json:"runtime_switch_fields,omitempty"`
+
 	// PromptImage declares image-content-block support per driving_mode
 	// (ADR-021 D5 / W4.6). Mobile composer reads this map keyed by the
 	// active agent's driving_mode to gate the inline image attach

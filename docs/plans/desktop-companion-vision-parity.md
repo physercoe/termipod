@@ -3,8 +3,8 @@
 > **Type:** plan
 > **Status:** In flight (2026-08-05) — **W1 + W2 + W3 complete**
 > (F1 F2 L1 E1 R1 · L2 E2 R2 R3 F3 · L3a L3b E3 E4 R4; L3c deferrable).
-> **W4 in flight (2026-08-16)**: F4, L4a, L4b and L4c shipped, so
-> **lane L4 is complete** — codex is drivable locally. Left in W4: R5, R6.
+> **W4 in flight (2026-08-16)**: F4, L4a–L4c and R6 shipped — codex is
+> drivable locally and the composer carries model/mode pills. Left: R5.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -1075,6 +1075,52 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
      two shape quirks: mode entries carry `id` while model entries
      carry `modelId` (ACP spec), and the picker hides itself entirely
      when no agent has advertised the lists — degrade honestly (D-4).
+
+  ★★ *Measured while building the UI (2026-08-16, shipped with it).*
+  **Three of the four (family, field) pairs the Companion drives could
+  never have switched anything**, and the routing table could not say
+  so, because one token answered for two independent capabilities:
+
+  | family | field | flag the table wants | reality |
+  |---|---|---|---|
+  | claude-code | model | `--model` | in every claude template's cmd — **works** |
+  | claude-code | mode | `--permission-mode` | real flag (2.1.220: `acceptEdits\|auto\|bypassPermissions\|manual\|dontAsk\|plan`), in **no** template |
+  | codex | model | `--model` | `codex app-server` (the M2 argv) takes none |
+  | codex | mode | `--approval-policy` | **not a codex flag** — 0.147.0 says *"unexpected argument … a similar argument exists: `--approve-for-me`"*; the real one is `-a, --ask-for-approval` |
+
+  `respawn` rewrites a flag that must already be in `backend.cmd`, so
+  the last three answered a 422 reading *"backend.cmd does not carry the
+  expected flag; pick a fresh template that exposes it"* — advice
+  pointing at a template that cannot exist. Fixed by splitting the
+  capability from the route: `runtime_switch_fields: {mode, model}` on
+  the family, published on `GET /agent-families`, enforced ahead of the
+  route, so the client can hide a control instead of discovering the
+  refusal from an error. Note this is **not** the same defect as the
+  `agents.kind` one above — that gate matched no family at all; this one
+  matched the right family and asked it a question it could not express.
+
+  *Two consequences worth keeping:*
+
+  - **Claude's mode pill is deliberately read-only, not deferred work.**
+    Shipping a template that carries `--permission-mode` is necessary
+    but not sufficient: L3a MEASURED that `--permission-mode plan` does
+    not stop Bash under `--print` (`claudewire.test.ts:56`), so an M2
+    pill offering `plan` would name a boundary the engine does not
+    enforce — the failure mode
+    [a-safety-boundary-must-be-measured-not-named] exists to prevent.
+    Making it actionable needs a per-mode, per-driving-mode measurement
+    first.
+  - **Codex has a real path that is not respawn.** L4c measured
+    `thread/start.config` accepting a map of config overrides, and
+    `-c model=…` does the same from argv. Both are driver work; the
+    registry now says "no" honestly until one lands.
+
+  *And one correction to bullet 3 above:* porting mobile's hide-when-
+  unadvertised rule **exactly** would leave a claude session with no
+  model indicator at all, since claude advertises no lists. The desktop
+  adds a third state mobile has no equivalent for — a read-only pill
+  showing what `session.init` reported — so "cannot be changed" and
+  "unknown" stop looking identical.
 
 ### Lane D — design-system enforcement (desktop)
 

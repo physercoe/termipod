@@ -40,6 +40,19 @@ families:
     runtime_mode_switch:
       M1: respawn
       M2: respawn
+    # vision-parity R6 — which fields that route can actually carry.
+    # `--model` is in every claude template's cmd, so respawn rewrites
+    # it. `--permission-mode` is a real claude flag (2.1.220:
+    # acceptEdits|auto|bypassPermissions|manual|dontAsk|plan) that NO
+    # template ships, so the switch answered a 422 telling the director
+    # to pick a template that exposes it — and no such template exists.
+    # Shipping one is a separate decision, not an oversight: L3a
+    # MEASURED that `--permission-mode plan` does not stop Bash under
+    # `--print`, so a pill offering it on M2 would name a boundary the
+    # engine does not enforce. Full reasoning in families.go.
+    runtime_switch_fields:
+      model: true
+      mode: false
     # ADR-021 D5 / W4.6 — image content block input support per mode.
     # claude's stream-json (M2) accepts a content array with image
     # blocks; the driver wire shape lands in W4.2. M1 (claude-code SDK
@@ -365,6 +378,15 @@ families:
     runtime_mode_switch:
       M1: rpc
       M2: per_turn_argv
+    # vision-parity R6 — both fields ride the ACP RPC (M1) / next-argv
+    # (M2) route, so neither depends on a flag already being in the
+    # spawn cmd. Whether a given agent offers options is a second,
+    # runtime gate: the picker hydrates from the agent's own
+    # availableModes / availableModels advertisement and hides when it
+    # advertises neither.
+    runtime_switch_fields:
+      model: true
+      mode: true
     # ADR-021 D5 / W4.5–W4.6 — gemini's M1 (--acp) accepts ACP image
     # content blocks (driver wire shape in W4.4); M2 (gemini -p) has
     # no inline-image affordance, so the driver strips and warns
@@ -548,6 +570,20 @@ families:
     runtime_mode_switch:
       M1: respawn
       M2: respawn
+    # vision-parity R6 — BOTH false, measured against codex-cli 0.147.0.
+    # The respawn table asked for `--approval-policy`, which codex does
+    # not have ("error: unexpected argument '--approval-policy' found;
+    # tip: a similar argument exists: '--approve-for-me'" — the real
+    # flag is `-a, --ask-for-approval`). And `--model` is a flag of the
+    # interactive/exec rungs, not of `codex app-server`, which is the
+    # M2 argv — so mutating one into the cmd would yield a spec that
+    # fails to launch. Codex's real runtime override is the app-server's
+    # own `thread/start.config` map (measured in L4c) or `-c model=…`;
+    # both are driver work. Until then the hub says so honestly instead
+    # of routing a respawn that cannot succeed.
+    runtime_switch_fields:
+      model: false
+      mode: false
     # ADR-021 D5 / W4.3 — codex's app-server JSON-RPC `turn/start.input`
     # accepts an image content block. MEASURED against codex-cli
     # 0.147.0 (vision-parity L4c): the accepted shape is
@@ -973,6 +1009,14 @@ families:
     # See ADR-054 D6 and the follow-up configOptions wedge.
     runtime_mode_switch:
       M1: rpc
+    # vision-parity R6 — the ACP RPC route carries both fields. Note
+    # the caveat above still applies: kimi advertises via `configOptions`,
+    # which ACPDriver does not yet read, so the picker stays hidden until
+    # that wedge lands. That is the runtime gate doing its job, not this
+    # declaration being wrong.
+    runtime_switch_fields:
+      model: true
+      mode: true
     # Verified from the initialize reply's promptCapabilities:
     # image: true, audio: false; no PDF capability is advertised.
     # M4 (tmux pane) has no inline-multimodal affordance.

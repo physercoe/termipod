@@ -71,6 +71,12 @@
             "enum": ["rpc", "respawn", "per_turn_argv", "unsupported"]
           }
         },
+        "runtime_switch_fields": {
+          "type": "object",
+          "description": "Which of the two picker fields the route above can actually carry (vision-parity R6). Keyed by field because one routing token was answering for two independent capabilities and got three of four (family, field) pairs wrong: the `respawn` route rewrites a flag that must already be in the spec's backend.cmd, and claude-code's `--permission-mode` is in no spawn template while codex's `--approval-policy` is not a codex flag at all. Missing key = not switchable, so a new family cannot inherit the capability by omission.",
+          "propertyNames": { "enum": ["mode", "model"] },
+          "additionalProperties": { "type": "boolean" }
+        },
         "prompt_image": { "$ref": "#/$defs/ModalitySupport" },
         "prompt_pdf": { "$ref": "#/$defs/ModalitySupport" },
         "prompt_audio": { "$ref": "#/$defs/ModalitySupport" },

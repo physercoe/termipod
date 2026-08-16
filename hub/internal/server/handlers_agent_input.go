@@ -154,7 +154,8 @@ func validateAttachments(
 }
 
 // resolveRuntimeModeSwitch returns the routing token for the given
-// agent's family + driving_mode (ADR-021 D4 / W2.1). Returns:
+// agent's family + driving_mode (ADR-021 D4 / W2.1), plus the family's
+// per-field switchability mask (vision-parity R6). Returns:
 //   - "rpc" / "respawn" / "per_turn_argv" — declared route the handler
 //     dispatches on.
 //   - "unsupported" — declared explicitly, OR the family didn't declare
@@ -163,16 +164,25 @@ func validateAttachments(
 //   - error — only on unexpected SQL failures; agent-not-found is folded
 //     into "unsupported" because the agent_belongs_to_team check has
 //     already ruled it out at the call site.
-func (s *Server) resolveRuntimeModeSwitch(ctx context.Context, agentID string) (string, error) {
+//
+// The fields mask is returned alongside rather than resolved separately
+// because both answers come from one family lookup, and a second
+// resolver would be a second place for the `agents.kind` vs
+// `backend_json.kind` distinction below to be got wrong — the exact
+// duplication respawn_with_spec_mutation.go was refactored to remove.
+// A nil mask (family declares none) grants nothing.
+func (s *Server) resolveRuntimeModeSwitch(
+	ctx context.Context, agentID string,
+) (string, map[string]bool, error) {
 	var kind, drivingMode, backendJSON sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT kind, driving_mode, COALESCE(backend_json, '{}') FROM agents WHERE id = ?`,
 		agentID).Scan(&kind, &drivingMode, &backendJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "unsupported", nil
+			return "unsupported", nil, nil
 		}
-		return "", err
+		return "", nil, err
 	}
 	mode := drivingMode.String
 	if mode == "" {
@@ -191,13 +201,13 @@ func (s *Server) resolveRuntimeModeSwitch(ctx context.Context, agentID string) (
 	}
 	fam, ok := s.agentFamilies.ByName(engine)
 	if !ok {
-		return "unsupported", nil
+		return "unsupported", nil, nil
 	}
 	route := fam.RuntimeModeSwitch[mode]
 	if route == "" {
-		return "unsupported", nil
+		return "unsupported", nil, nil
 	}
-	return route, nil
+	return route, fam.RuntimeSwitchFields, nil
 }
 
 // P1.8: structured user input sink. Writes land in agent_events with
@@ -476,19 +486,34 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	// orchestration (W2.3) — currently a stub returning 501. unsupported
 	// is the explicit "this engine path can't switch at runtime" signal.
 	if in.Kind == "set_mode" || in.Kind == "set_model" {
-		route, routeErr := s.resolveRuntimeModeSwitch(r.Context(), agent)
+		route, switchFields, routeErr := s.resolveRuntimeModeSwitch(r.Context(), agent)
 		if routeErr != nil {
 			s.writeDBErr(w, routeErr)
+			return
+		}
+		// vision-parity R6 — the route says HOW a switch travels; this says
+		// WHETHER this field can travel at all. They are separate questions
+		// and the single token got three of four (family, field) pairs wrong:
+		// claude-code's `--permission-mode` is in no spawn template, and
+		// codex's `--approval-policy` is not a codex flag. Both answered a
+		// respawn 422 whose text told the director to go find a template
+		// that exposes the flag — advice for a template that cannot exist.
+		// Refusing here, before the route, gives the client one honest
+		// sentence and lets it hide the control instead of offering a
+		// button that always fails.
+		field := strings.TrimPrefix(in.Kind, "set_")
+		if !switchFields[field] {
+			writeErr(w, http.StatusUnprocessableEntity,
+				"engine does not support runtime "+field+
+					" switching for this driving_mode")
 			return
 		}
 		switch route {
 		case "rpc", "per_turn_argv":
 			// Fall through to the standard event-emit path below.
 		case "respawn":
-			field := "mode"
 			value := in.ModeID
 			if in.Kind == "set_model" {
-				field = "model"
 				value = in.ModelID
 			}
 			if err := s.respawnWithSpecMutation(r.Context(), agent, field, value); err != nil {
@@ -513,8 +538,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 			return
 		case "unsupported", "":
 			writeErr(w, http.StatusUnprocessableEntity,
-				"engine does not support runtime "+
-					strings.TrimPrefix(in.Kind, "set_")+
+				"engine does not support runtime "+field+
 					" switching for this driving_mode")
 			return
 		default:

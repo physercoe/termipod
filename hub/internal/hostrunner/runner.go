@@ -1114,14 +1114,15 @@ func (a *Runner) fetchFamilies(ctx context.Context) []agentfamilies.Family {
 			})
 		}
 		out = append(out, agentfamilies.Family{
-			Family:            f.Family,
-			Bin:               f.Bin,
-			VersionFlag:       f.VersionFlag,
-			Supports:          f.Supports,
-			Incompatibilities: incompat,
-			DefaultAuthMethod: f.DefaultAuthMethod,
-			RuntimeModeSwitch: f.RuntimeModeSwitch,
-			PromptImage:       f.PromptImage,
+			Family:              f.Family,
+			Bin:                 f.Bin,
+			VersionFlag:         f.VersionFlag,
+			Supports:            f.Supports,
+			Incompatibilities:   incompat,
+			DefaultAuthMethod:   f.DefaultAuthMethod,
+			RuntimeModeSwitch:   f.RuntimeModeSwitch,
+			RuntimeSwitchFields: f.RuntimeSwitchFields,
+			PromptImage:         f.PromptImage,
 		})
 	}
 	return out

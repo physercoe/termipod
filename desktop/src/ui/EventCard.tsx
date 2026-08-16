@@ -7,6 +7,8 @@ import { useT, type TLookup } from '../i18n';
 import { arr, bool, num, obj, str, type Entity } from '../hub/types';
 import { callToolId } from './toolGroups';
 import { contextDivider, fmtCost, fmtDuration, turnFooter, type ContextDivider } from './turnMarkers.ts';
+import { EventImage, EventImages, StreamedOutput } from './EventMedia';
+import { imageRefsOf, mediaRefFrom, resultTextOf, streamedOutputOf } from './toolMedia';
 
 // Re-exported from its new home in toolGroups.ts (the P1 tool-lineage
 // substrate) so existing importers keep working.
@@ -239,8 +241,29 @@ function ToolResultBody({ result }: { result: Entity }): JSX.Element {
   const t = useT();
   const isErr = bool(result, 'is_error') === true;
   const denied = bool(result, 'denied') === true;
-  const content = str(result, 'content') ?? jsonText(result['content']);
+  // A tool that returns a picture (claude reading a PNG, or any bridge tool
+  // behind E4's relay passthrough) sends image BLOCKS, and the drivers forward
+  // the content verbatim. Painting them beats the old behaviour, which
+  // jsonText'd the array and printed a screen of base64 at the director.
+  const media = imageRefsOf(result['content']);
   const label = denied ? t('tx.denied') : isErr ? t('tx.errorLabel') : t('tx.result');
+  if (media.length > 0) {
+    // The image IS the result. Any text blocks that came with it still show;
+    // the raw content deliberately does NOT, because "raw" here is megabytes of
+    // base64 and <details> keeps its children in the DOM even when closed.
+    const sidecar = resultTextOf(result['content']);
+    return (
+      <div className={`ev-result${isErr ? ' err' : ''}`}>
+        <EventImages media={media} alt={t('tx.result')} />
+        {sidecar !== '' && (
+          <Collapsible label={`${label} · ${firstLine(sidecar)}`} open={isErr}>
+            <pre className="ev-mono">{sidecar}</pre>
+          </Collapsible>
+        )}
+      </div>
+    );
+  }
+  const content = str(result, 'content') ?? jsonText(result['content']);
   return (
     <div className={`ev-result${isErr ? ' err' : ''}`}>
       <Collapsible label={`${label} · ${firstLine(content)}`} open={isErr}>
@@ -254,13 +277,20 @@ function ToolResultBody({ result }: { result: Entity }): JSX.Element {
 /// Arguments disclosure, and the folded-in tool_result. Exported so the P1
 /// tool-group card (ToolGroupCard.tsx) reuses it verbatim as a row's lazy
 /// detail.
-export function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX.Element {
+export function ToolCallBody({ p, result, update }: { p: Entity; result?: Entity; update?: Entity }): JSX.Element {
   const t = useT();
   const name = str(p, 'name') ?? 'tool';
   const input = p['input'];
   const hasInput = input !== undefined && input !== null && input !== '';
   const meta = toolMeta(name, input);
   const errored = result !== undefined && bool(result, 'is_error') === true;
+  // E3 streams a running command's output as tool_call_update partials, each
+  // carrying the whole buffer so far; useToolMaps has already folded them
+  // latest-wins onto this call. Once the tool_result lands it carries the same
+  // bytes (codex's `aggregatedOutput`, which the E3 probe measured as identical
+  // to the reassembled deltas), so the live block stands down rather than
+  // printing the output twice.
+  const streamed = result === undefined ? streamedOutputOf(update) : '';
   return (
     <div className="ev-tool">
       <div className="ev-tool-head">
@@ -278,6 +308,7 @@ export function ToolCallBody({ p, result }: { p: Entity; result?: Entity }): JSX
           <pre className="ev-mono">{jsonText(input)}</pre>
         </Collapsible>
       )}
+      <StreamedOutput text={streamed} />
       {result !== undefined && <ToolResultBody result={result} />}
     </div>
   );
@@ -385,29 +416,36 @@ function InputTextBody({ p }: { p: Entity }): JSX.Element {
 function InputImages({ p }: { p: Entity }): JSX.Element | null {
   const images = arr(p, 'images');
   if (images.length === 0) return null;
+  // A `blob:sha256/` ref here is not hypothetical and not rare: the hub
+  // externalizes every payload string leaf over 64 KiB on ingest
+  // (payload_externalize.go), and any real screenshot's base64 clears that. It
+  // used to be skipped, so pasted images simply vanished from the transcript at
+  // the size where they matter most; EventImage resolves them by sha.
+  const media = images.flatMap((img) => {
+    const e = (img !== null && typeof img === 'object' ? img : {}) as Entity;
+    const ref = mediaRefFrom(str(e, 'mime_type'), str(e, 'data'));
+    // Keep the per-image filename as alt text — it is the only label a
+    // screen reader (or a broken image) has for a director's attachment.
+    return ref === undefined ? [] : [{ ref, alt: str(e, 'filename') ?? 'attachment' }];
+  });
+  if (media.length === 0) return null;
   return (
     <div className="ev-images">
-      {images.map((img, i) => {
-        const e = (img !== null && typeof img === 'object' ? img : {}) as Entity;
-        const mime = str(e, 'mime_type') ?? 'image/png';
-        const data = str(e, 'data') ?? '';
-        // A blob:sha256/ ref would mean a future hub externalized the payload;
-        // rendering that needs the blob resolver, so skip rather than break.
-        if (data === '' || data.startsWith('blob:')) return null;
-        return (
-          <img
-            key={`${String(i)}-${data.length}`}
-            className="ev-image"
-            src={`data:${mime};base64,${data}`}
-            alt={str(e, 'filename') ?? 'attachment'}
-          />
-        );
-      })}
+      {media.map((m, i) => (
+        <EventImage key={m.ref.source === 'blob' ? `b${m.ref.sha}` : `i${String(i)}-${m.ref.data.length}`} media={m.ref} alt={m.alt} />
+      ))}
     </div>
   );
 }
 
-function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, agentId?: string): ReactNode {
+function bodyFor(
+  ev: FeedEvent,
+  t: TLookup,
+  result?: Entity,
+  callName?: string,
+  agentId?: string,
+  update?: Entity,
+): ReactNode {
   const p = ev.payload;
   switch (ev.kind) {
     case 'text': {
@@ -439,7 +477,7 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, 
     case 'attention_request':
       return <AttentionRequestBody p={p} />;
     case 'tool_call':
-      return <ToolCallBody p={p} result={result} />;
+      return <ToolCallBody p={p} result={result} update={update} />;
     case 'tool_call_update': {
       // Standalone update — only reachable when the parent is gated or missing
       // (feedLens folds the rest into the parent card). Mobile parity
@@ -447,17 +485,13 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, 
       // of the ACP content array as a preview.
       const title = str(p, 'title') ?? str(p, 'name') ?? 'tool';
       const status = str(p, 'status');
-      let preview: string | undefined;
-      for (const b of arr(p, 'content')) {
-        if (b === null || typeof b !== 'object') continue;
-        const blk = b as Entity;
-        if (str(blk, 'type') !== 'content') continue;
-        const inner = obj(blk, 'content');
-        if (inner !== undefined && str(inner, 'type') === 'text') {
-          preview = str(inner, 'text');
-          break;
-        }
-      }
+      // This card is the ONLY place a parentless update's content is visible,
+      // so it shows the whole streamed output rather than mobile's one-line
+      // preview — for a command whose parent tool_call never arrived, the first
+      // line is rarely the one you need. Images render as images (an ACP update
+      // can carry an image block just as a tool_result can).
+      const streamed = streamedOutputOf(p);
+      const media = imageRefsOf(p['content']);
       return (
         <div className="ev-tool">
           <div className="ev-tool-head">
@@ -465,7 +499,8 @@ function bodyFor(ev: FeedEvent, t: TLookup, result?: Entity, callName?: string, 
             <span className="ev-tool-verb">{title}</span>
             {status !== undefined && <span className="muted small">· {status}</span>}
           </div>
-          {preview !== undefined && preview !== '' && <div className="ev-line muted">{firstLine(preview)}</div>}
+          <EventImages media={media} alt={title} />
+          <StreamedOutput text={streamed} />
         </div>
       );
     }
@@ -648,6 +683,7 @@ export const EventCard = memo(function EventCard({
   callName,
   agentId,
   onQuote,
+  update,
 }: {
   ev: FeedEvent;
   result?: Entity;
@@ -659,6 +695,9 @@ export const EventCard = memo(function EventCard({
   /// Quote this message into the composer (assistant text only). Omitted where
   /// there is no composer to quote into.
   onQuote?: (text: string) => void;
+  /// The latest `tool_call_update` folded onto this `tool_call` (useToolMaps'
+  /// updateById). Carries E3's streamed command output while the tool runs.
+  update?: Entity;
 }): JSX.Element {
   const t = useT();
   // #332: three tones (user / error / neutral); boxed only where action lives,
@@ -678,7 +717,7 @@ export const EventCard = memo(function EventCard({
   const text = messageText(ev);
   return (
     <div className={cls} data-seq={ev.seq}>
-      <div className="ev-body">{bodyFor(ev, t, result, callName, agentId)}</div>
+      <div className="ev-body">{bodyFor(ev, t, result, callName, agentId, update)}</div>
       {text !== undefined && (ev.ts !== undefined || text.trim() !== '') && (
         <div className="ev-meta">
           {ev.ts !== undefined && <TimeStamp ts={ev.ts} />}

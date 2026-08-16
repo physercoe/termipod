@@ -1339,6 +1339,62 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
+/* An externalized image being fetched by sha, and one we could not fetch.
+   Both hold the row's height so the transcript doesn't jump when it lands. */
+.ev-image-loading {
+  display: block;
+  width: 220px;
+  aspect-ratio: 16/10;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--bg));
+  border: 1px dashed var(--border);
+}
+.ev-image-missing {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-s8);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* ---- R4 live command output ----
+   E3 streams a running command's stdout/stderr as tool_call_update partials.
+   The block is always open (you watch a build, you don't unfold it) and scrolls
+   inside its own box so a long run can't push the composer off screen. */
+.ev-stream {
+  margin-top: var(--spacing-s4);
+}
+.ev-stream-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+.ev-stream-label {
+  font-weight: 500;
+}
+.ev-stream-clip {
+  font-style: italic;
+}
+/* The scroller is a flex column-reverse so it stays pinned to the newest line
+   as output arrives — the tail is what you're waiting on. It wraps a single
+   REAL child (never an anonymous text item, whose flex behaviour is the shaky
+   part of this pattern), and that child drops .ev-mono's own cap so there is
+   exactly one scrollbar. */
+.ev-stream-body {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column-reverse;
+}
+.ev-stream-text {
+  margin: 0;
+  max-height: none;
+  overflow: visible;
+}
 .digest pre {
   white-space: pre-wrap;
   word-break: break-word;

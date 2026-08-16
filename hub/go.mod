@@ -3,7 +3,7 @@ module github.com/termipod/hub
 go 1.23
 
 require (
-	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/chi/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.18.1
 	github.com/oklog/ulid/v2 v2.1.0
 	// Pinned: v0.26.0 is the first release whose go directive is 1.24.9, and

@@ -107,7 +107,7 @@ Six asymmetries keep this from feeling like kimi-web:
 | 2 | Annotation routing hardcodes `kimi: boolean` instead of a target registry | `desktop/src/state/annotationTargets.ts` |
 | 3 | Hub-relayed vision tools flatten MCP image blocks to JSON text | `hub/internal/server/mcp_browser_bridge.go` (`mcpResultJSON`) |
 | 4 | The transcript renders user-input images only; agent-produced images (screenshots, plots) don't paint | `desktop/src/ui/EventCard.tsx` (`InputImages`, blob refs skipped) |
-| 5 | User-level MCP reseed for ad-hoc sessions is kimi-only | `desktop/electron/src/kimimcp.ts` |
+| 5 | User-level MCP reseed for ad-hoc sessions is kimi-only | `desktop/electron/src/usermcp.ts` (was `kimimcp.ts`; F4 generalized it to claude + codex) |
 | 6 | Desktop Composer ignores the family registry's `prompt_image` flags (mobile checks them) | `lib/widgets/image_attach/composer_image_attach.dart` vs `desktop/src/ui/Composer.tsx` |
 
 ## 4. Options considered

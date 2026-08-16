@@ -8,7 +8,8 @@
 > 2026-08-14 — on-disk log + restart rebind) and **L3c** (session
 > catalog + loopback WS, split out of L3b). **E3 + E4 shipped
 > 2026-08-16** (streaming command output; relay result passthrough).
-> Remaining: R4; L3c is deferrable
+> Remaining in W3: R4; L3c is deferrable. **F4 shipped 2026-08-16**
+> (user-level MCP reseed for claude + codex) — first W4 wedge
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -173,14 +174,42 @@ transport rung (lane T), never the renderer's ceiling.
     the family registry is the only place the per-mode flags exist, and
     `session.init` carries none of them. Checked both channels before
     choosing.
-- **F4 — user-level MCP reseed for claude/codex.** Generalize
-  `desktop/electron/src/kimimcp.ts` (kimi-only today) so the
-  UI-sharing toggle also deep-merges/removes the additive
-  `termipod-desktop` stdio-relay entry in `~/.claude.json`
-  (`mcpServers`) and `~/.codex/config.toml` (`[mcp_servers]`), with the
-  same discipline: additive-only, atomic tmp+rename, corrupt file left
+- **F4 — user-level MCP reseed for claude/codex.** *(shipped
+  2026-08-16)* Generalize `kimimcp.ts` (kimi-only) so the UI-sharing
+  toggle also deep-merges/removes the additive `termipod-desktop`
+  stdio-relay entry in claude's and codex's user config, with the same
+  discipline: additive-only, atomic tmp+rename, unreadable file left
   untouched, no env in the entry. Ad-hoc (non-hub-spawned) claude/codex
   sessions then get vision pull like kimi does.
+
+  Renamed to `usermcp.ts` — "kimimcp" names one of the three engines it
+  now serves. Four corrections to this line, all found by running the
+  vendors' own CLIs against throwaway config homes rather than reading
+  docs:
+
+  1. **Neither path is fixed.** `CLAUDE_CONFIG_DIR` and `CODEX_HOME`
+     relocate both files, and claude's config home is **per-account** —
+     `localagent/store.ts` already persists it for that reason. Blindly
+     resolving `~/.claude.json` would reseed the wrong account, or a
+     file the running claude never reads.
+  2. **claude's entry shape is not kimi's.** `claude mcp add -s user`
+     writes `{type:"stdio", command, args, env:{}}` — the `type`
+     discriminator is new information; we match it and omit `env`
+     (the constraint is *no env*, and an empty map states nothing).
+  3. ⚠ **`.claude.json` is claude's live STATE file**, not a config
+     file: caches, ids, project history — 85 KiB on a working machine,
+     with **no `mcpServers` key at all** until something adds one. An
+     external read-modify-write races claude's own writer and last
+     writer wins. Recorded as accepted exposure (`claude mcp add`
+     carries the same), which is why the module touches nothing but its
+     own key.
+  4. **codex is TOML, and a parse-and-reserialize would eat the user's
+     comments.** Instead the entry is line-spliced, so every other byte
+     survives; a file expressing `mcp_servers` as an inline table or a
+     dotted key is **refused** (`'unsupported'`) rather than guessed at,
+     because getting it wrong destroys a model config. Verified
+     differentially: our output is **byte-identical** to `codex mcp
+     add`'s, and our remove to `codex mcp remove`'s.
 
 ### Lane L — local driving layer (desktop; hub optional, D-7)
 

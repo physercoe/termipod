@@ -1201,6 +1201,22 @@ test('workbench: primary surface headers share one grid and action height', asyn
   }
 });
 
+test('macOS: empty terminal session-header space remains a window drag region', async () => {
+  const os = await page.evaluate(() => window.__ELECTRON_BRIDGE__!.invoke<string>('platform_os'));
+  if (os !== 'macos') return;
+
+  await dismissConnectModal();
+  await page.locator('[data-job="terminal"]').click();
+
+  const actions = page.locator('.term-panel.surface .term-surface-actions');
+  const emptySpace = actions.locator(':scope > .spacer');
+  const addButton = actions.locator('.term-add-btn');
+  await expect(emptySpace).toBeVisible();
+  await expect(addButton).toBeVisible();
+  await expect.poll(() => emptySpace.evaluate((node) => getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('drag');
+  await expect.poll(() => addButton.evaluate((node) => getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
+});
+
 test('workbench: pane toggles stay pinned to the surface header edges', async () => {
   await dismissConnectModal();
 

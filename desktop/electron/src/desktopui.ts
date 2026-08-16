@@ -14,7 +14,7 @@
 ///     per-start boot push, which re-fires set_enabled) refreshes the stable
 ///     relay copy and re-merges the additive `termipod-desktop` entry;
 ///     toggle-off removes just that entry. All file mechanics live in the
-///     electron-free kimimcp.ts.
+///     electron-free usermcp.ts.
 ///
 /// D1 shipped LOCAL-ONLY; since D5 this module also re-posts the `desktop_ui`
 /// capability to the hub when the toggle flips (refreshHostCapabilities), so
@@ -22,7 +22,7 @@
 /// browserbridge_host.ts.
 import os from 'node:os';
 import { authorLeases } from './author';
-import { installStableRelay, mergeSharingEntry, removeSharingEntry, type KimiMcpWrite } from './kimimcp';
+import { installStableRelay, mergeSharingEntries, removeSharingEntries, type ReseedResult } from './usermcp';
 import { refreshHostCapabilities, setUiFocusProvider, stdioBridgePath } from './browserbridge_host';
 import type { Handler } from './ipc/dispatch';
 
@@ -55,24 +55,26 @@ export function currentFocusSnapshot(): Record<string, unknown> | null {
 /// of ids/paths); anything bigger is a bug, not a bigger allowance.
 const MAX_SNAPSHOT_BYTES = 16384;
 
-/// Reconcile the mcp.json entry + stable relay copy with the toggle. Never
-/// throws into the toggle path — a filesystem hiccup is reported, not fatal.
-function reconcileSharing(next: boolean): KimiMcpWrite | 'failed' {
+/// Reconcile every engine's user-level MCP entry + the stable relay copy with
+/// the toggle. Never throws into the toggle path — a filesystem hiccup is
+/// reported per engine, not fatal, and one engine's failure never stops another.
+function reconcileSharing(next: boolean): ReseedResult | 'failed' {
   // e2e hermeticity (the Playwright suites set TERMIPOD_E2E): the reconcile
-  // writes the REAL ~/.kimi-code/mcp.json and ~/.termipod/bridge — an e2e
-  // instance must never touch the user's files (the same gate pattern as the
-  // keychain migration skip). The sharing gate itself still flips, so the
-  // overlay/capture paths run for real.
-  if (process.env.TERMIPOD_E2E !== undefined) return 'noop';
+  // writes the REAL user configs — ~/.kimi-code/mcp.json, ~/.claude.json,
+  // ~/.codex/config.toml — and ~/.termipod/bridge. An e2e instance must never
+  // touch the user's files (the same gate pattern as the keychain migration
+  // skip), and .claude.json especially is live account state. The sharing gate
+  // itself still flips, so the overlay/capture paths run for real.
+  if (process.env.TERMIPOD_E2E !== undefined) return { kimi: 'noop', claude: 'noop', codex: 'noop' };
   const home = os.homedir();
   try {
     if (next) {
       installStableRelay(home, stdioBridgePath());
-      return mergeSharingEntry(home);
+      return mergeSharingEntries(home);
     }
-    return removeSharingEntry(home);
+    return removeSharingEntries(home);
   } catch (e) {
-    console.warn('desktopui: mcp.json reconcile failed:', e instanceof Error ? e.message : e);
+    console.warn('desktopui: user-MCP reconcile failed:', e instanceof Error ? e.message : e);
     return 'failed';
   }
 }
@@ -82,7 +84,7 @@ export const desktopuiHandlers: Record<string, Handler> = {
   /// publish the tool on the bridge + install the user-level mcp.json entry
   /// (also the per-app-start refresh — the renderer re-pushes at boot). Off:
   /// hide the tool, drop the cache, remove the entry.
-  desktopui_set_enabled: async (args): Promise<{ enabled: boolean; mcp: KimiMcpWrite | 'failed' }> => {
+  desktopui_set_enabled: async (args): Promise<{ enabled: boolean; mcp: ReseedResult | 'failed' }> => {
     sharingEnabled = args.enabled === true;
     if (!sharingEnabled) focusCache = null;
     // Coworking A3: toggle-off revokes every standing author lease. The toggle

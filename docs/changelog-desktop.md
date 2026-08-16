@@ -99,6 +99,19 @@ This complements:
   the same UI-sharing toggle as its siblings, and deliberately not audited: it
   reads nothing about the user. (coworking C2 + C3)
 
+- **A claude or codex session you started yourself can now see the desktop.**
+  UI-context sharing seeded its MCP relay entry into kimi's user config only,
+  so the feature reached ad-hoc kimi sessions and no one else. The toggle now
+  reseeds claude and codex too — additively, leaving every other server and
+  setting alone, and removing exactly its own entry when you turn it off.
+  Both file formats were verified by running the vendors' own CLIs (`claude mcp
+  add -s user`, `codex mcp add`) against throwaway config homes: `CLAUDE_CONFIG_DIR`
+  and `CODEX_HOME` relocate these files and claude's is **per-account**, so the
+  paths are resolved, not assumed. codex's TOML is line-spliced rather than
+  reparsed so your comments and formatting survive untouched — and a config
+  that writes `mcp_servers` in a form the splicer can't edit safely is left
+  alone and reported, never guessed at. (vision-parity F4)
+
 - **A running command's output now appears while it runs, and pictures render
   as pictures.** Two halves of the same gap — the transcript could describe
   what a tool did but never show it. A long build or test run used to sit as a

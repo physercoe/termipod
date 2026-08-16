@@ -41,6 +41,12 @@ function year(value: string | undefined): number | undefined {
   return Number.isFinite(timestamp) ? new Date(timestamp).getUTCFullYear() : undefined;
 }
 
+function publishedAt(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function atomLink(entry: Element): string | undefined {
   const links = children(entry, 'link');
   const preferred = links.find((link) => (link.getAttribute('rel') ?? 'alternate') === 'alternate') ?? links[0];
@@ -78,6 +84,7 @@ export function parseDiscoveryFeed(xml: string, feedUrl: string): ParsedDiscover
       title,
       authors: atom ? atomAuthors(entry) : rssAuthors(entry),
       year: year(published),
+      publishedAt: publishedAt(published),
       venue: feedTitle,
       abstract: summary,
       url,
@@ -87,20 +94,37 @@ export function parseDiscoveryFeed(xml: string, feedUrl: string): ParsedDiscover
 }
 
 export async function fetchDiscoveryFeed(url: string): Promise<ParsedDiscoveryFeed> {
-  let payload: FeedPayload;
-  if (isShell()) {
-    payload = await invoke<FeedPayload>('discovery_fetch_feed', {
-      url,
-      proxy: proxyForConnection('discovery') ?? null,
-    });
-  } else {
-    const response = await fetch(url, {
-      headers: { Accept: 'application/atom+xml, application/rss+xml, application/xml, text/xml' },
+  const fetchPayload = async (target: string): Promise<FeedPayload> => {
+    if (isShell()) {
+      return invoke<FeedPayload>('discovery_fetch_feed', {
+        url: target,
+        proxy: proxyForConnection('discovery') ?? null,
+      });
+    }
+    const response = await fetch(target, {
+      headers: { Accept: 'application/atom+xml, application/rss+xml, application/xml, text/xml, text/html;q=0.8' },
       signal: AbortSignal.timeout(45_000),
     });
     if (!response.ok) throw new Error(`RSS: HTTP ${response.status}`);
-    payload = { url: response.url || url, text: await response.text() };
-  }
-  return parseDiscoveryFeed(payload.text, payload.url);
-}
+    return { url: response.url || target, text: await response.text() };
+  };
 
+  let payload: FeedPayload;
+  payload = await fetchPayload(url);
+  try {
+    return parseDiscoveryFeed(payload.text, payload.url);
+  } catch (error) {
+    // Accept a normal website URL in the subscription form and discover its
+    // advertised RSS/Atom feed. The second request still goes through the
+    // native SSRF/redirect checks used by direct feeds.
+    const html = new DOMParser().parseFromString(payload.text, 'text/html');
+    const link = [...html.querySelectorAll<HTMLLinkElement>('link[rel~="alternate"]')].find((candidate) => {
+      const type = candidate.type.toLocaleLowerCase();
+      return type.includes('rss') || type.includes('atom') || type.includes('xml');
+    });
+    if (link?.href === undefined || link.href === '') throw error;
+    const discoveredUrl = new URL(link.getAttribute('href') ?? link.href, payload.url).toString();
+    const discovered = await fetchPayload(discoveredUrl);
+    return parseDiscoveryFeed(discovered.text, discovered.url);
+  }
+}

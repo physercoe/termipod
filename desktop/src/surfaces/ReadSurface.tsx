@@ -88,6 +88,7 @@ import { PopoverMenu } from '../ui/PopoverMenu';
 import {
   DiscoveryForYouPanel,
   DiscoverySubscriptionsPanel,
+  DiscoveryTrendsPanel,
   DiscoveryUpdatesPanel,
   type DiscoveryWorkspaceView,
 } from './DiscoveryWorkspace';
@@ -2093,6 +2094,10 @@ function DiscoveryRail({
           <Icon name="star" size={15} />
           <span>{t('read.monitorForYou')}</span>
         </button>
+        <button className={`discover-nav-destination${view === 'trends' ? ' active' : ''}`} aria-current={view === 'trends' ? 'page' : undefined} onClick={() => onView('trends')}>
+          <Icon name="crosshair" size={15} />
+          <span>{t('read.monitorTrends')}</span>
+        </button>
         <button className={`discover-nav-destination${view === 'subscriptions' ? ' active' : ''}`} aria-current={view === 'subscriptions' ? 'page' : undefined} onClick={() => onView('subscriptions')}>
           <Icon name="sliders" size={15} />
           <span>{t('read.monitorSubscriptions')}</span>
@@ -3590,6 +3595,14 @@ export function ReadSurface(): JSX.Element {
             />
           ) : mode === 'discover' && discoveryView === 'subscriptions' ? (
             <DiscoverySubscriptionsPanel />
+          ) : mode === 'discover' && discoveryView === 'trends' ? (
+            <DiscoveryTrendsPanel
+              onAdd={(paper) => addReference(paperToRef(paper))}
+              onInspect={(id) => {
+                setSelected(id);
+                foldInsp(false);
+              }}
+            />
           ) : mode === 'discover' ? (
             <DiscoveryForYouPanel
               onAdd={(paper) => addReference(paperToRef(paper))}

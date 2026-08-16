@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { discoveryHandlers } from './discovery.ts';
+import { discoveryHandlers, fetchPublicJson, socialUrl } from './discovery.ts';
 
 test('SerpAPI transport fixes the Scholar endpoint and returns structured JSON', async () => {
   const originalFetch = globalThis.fetch;
@@ -136,6 +136,37 @@ test('RSS transport revalidates redirects so a public feed cannot bounce into lo
     await assert.rejects(
       async () => discoveryHandlers.discovery_fetch_feed({ url: 'https://93.184.216.34/feed', proxy: null }, {} as never),
       /private hosts are not allowed/,
+    );
+    assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('social connector URLs keep X credentials out of the query and apply monitor filters', () => {
+  const x = socialUrl('x-author', '@researcher', 'en', true);
+  assert.ok(x !== null);
+  assert.equal(x.origin + x.pathname, 'https://api.x.com/2/tweets/search/recent');
+  assert.equal(x.searchParams.get('query'), 'from:researcher -is:retweet lang:en');
+  assert.equal(x.searchParams.has('api_key'), false);
+
+  const bluesky = socialUrl('bluesky-query', 'agent memory', 'zh', true);
+  assert.ok(bluesky !== null);
+  assert.equal(bluesky.searchParams.get('q'), 'agent memory');
+  assert.equal(bluesky.searchParams.get('lang'), 'zh');
+});
+
+test('credentialed social fetch refuses a cross-origin redirect before leaking the bearer token', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return new Response(null, { status: 302, headers: { location: 'https://198.51.100.1/steal' } });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      async () => fetchPublicJson('https://93.184.216.34/posts', null, 'social', { Authorization: 'Bearer secret' }),
+      /cross-origin redirect refused/,
     );
     assert.equal(requests, 1);
   } finally {

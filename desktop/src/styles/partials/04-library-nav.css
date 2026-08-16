@@ -1046,6 +1046,39 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
+.workspace-social-card {
+  gap: var(--spacing-s6);
+}
+.workspace-platform {
+  padding: 2px var(--spacing-s6);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.workspace-social-author {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  margin-bottom: var(--spacing-s6);
+}
+.workspace-social-author img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.workspace-social-author span {
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+.workspace-social-text {
+  margin: var(--spacing-s6) 0 var(--spacing-s8);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 .discovery-subscribe-card {
   flex: 0 0 auto;
   padding: var(--spacing-s12) var(--spacing-s16);
@@ -1057,6 +1090,45 @@
   max-width: 100%;
   overflow-x: auto;
   margin-bottom: var(--spacing-s12);
+}
+.discovery-follow-groups {
+  display: inline-flex;
+  margin: 0 var(--spacing-s12) var(--spacing-s12) 0;
+  padding: 2px;
+}
+.discovery-monitor-filters {
+  margin-top: var(--spacing-s8);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-small);
+}
+.discovery-monitor-filters summary {
+  width: max-content;
+  cursor: pointer;
+}
+.discovery-monitor-filters > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+  align-items: center;
+  gap: var(--spacing-s8);
+  margin-top: var(--spacing-s8);
+}
+.discovery-monitor-filters input:not([type='checkbox']) {
+  min-width: 0;
+  min-height: var(--control-md);
+}
+.discovery-monitor-filters label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  white-space: nowrap;
+}
+.discovery-credential-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  margin-top: var(--spacing-s8);
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
 }
 .discovery-subscribe-form {
   display: grid;
@@ -1155,6 +1227,77 @@
   justify-content: flex-end;
   gap: var(--spacing-s4);
 }
+.discovery-trends-layout {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  min-height: 0;
+}
+.discovery-trend-list {
+  min-width: 0;
+  padding: var(--spacing-s12);
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+.discovery-trend-card {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--spacing-s6);
+  margin-bottom: var(--spacing-s6);
+  padding: var(--spacing-s12);
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+.discovery-trend-card:hover,
+.discovery-trend-card.active {
+  border-color: var(--border-strong);
+  background: var(--raised);
+}
+.discovery-trend-name {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+.discovery-trend-velocity {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.discovery-trend-card > .small,
+.discovery-trend-spark {
+  grid-column: 1 / -1;
+}
+.discovery-trend-spark {
+  display: flex;
+  height: 24px;
+  align-items: flex-end;
+  gap: 3px;
+}
+.discovery-trend-spark i {
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--accent) 60%, var(--text-muted));
+}
+.discovery-trend-evidence {
+  min-width: 0;
+  overflow-y: auto;
+}
+.discovery-trend-evidence > .discovery-workspace-toolbar {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--glass-pane);
+}
+.trend-high {
+  color: var(--success);
+}
+.trend-medium {
+  color: var(--warning);
+}
 @media (max-width: 940px) {
   .discovery-subscribe-form {
     grid-template-columns: minmax(160px, 1fr) minmax(110px, auto);
@@ -1166,6 +1309,12 @@
   }
   .discovery-recommend-explain > div {
     justify-content: flex-start;
+  }
+  .discovery-monitor-filters > div {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+  .discovery-trends-layout {
+    grid-template-columns: minmax(220px, 42%) minmax(0, 1fr);
   }
 }
 .discover-source {

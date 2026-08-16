@@ -8,12 +8,16 @@ import {
   type DiscoverySourceId,
 } from '../discovery';
 import { fetchDiscoveryFeed } from '../discovery/rss';
+import { fetchSocialSubscription, SOCIAL_KINDS } from '../discovery/social';
 import { useDiscoveryHistory } from './discoveryHistory';
 import type { DiscoveryQuerySpec } from './discoveryHistoryCore';
 import {
-  mergeTargetResults,
+  mergeTargetItems,
   targetDue,
   type DiscoveryCadence,
+  type DiscoveryMonitorFilters,
+  type DiscoveryResult,
+  type DiscoverySocialPost,
   type DiscoverySubscription,
   type DiscoverySubscriptionKind,
   type DiscoveryTargetRun,
@@ -37,6 +41,7 @@ interface AddSubscription {
   sourceId?: DiscoverySourceId;
   cadence: DiscoveryCadence;
   referenceId?: string;
+  filters?: DiscoveryMonitorFilters;
 }
 
 interface DiscoveryMonitorState {
@@ -48,13 +53,18 @@ interface DiscoveryMonitorState {
   addSubscription: (input: AddSubscription) => string;
   removeSubscription: (id: string) => void;
   setSubscriptionCadence: (id: string, cadence: DiscoveryCadence) => void;
+  setSubscriptionPaused: (id: string, paused: boolean) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
   removeUpdate: (id: string) => void;
   clearRead: () => void;
 }
 
-const KINDS = new Set<DiscoverySubscriptionKind>(['author', 'journal', 'topic', 'citation', 'rss']);
+const KINDS = new Set<DiscoverySubscriptionKind>([
+  'author', 'journal', 'topic', 'citation', 'rss',
+  'bluesky-author', 'bluesky-feed', 'bluesky-query',
+  'mastodon-author', 'mastodon-tag', 'youtube-channel', 'x-author', 'x-query',
+]);
 const CADENCES = new Set<DiscoveryCadence>(['daily', 'weekly', 'monthly']);
 const SOURCES = new Set<DiscoverySourceId>([
   'openalex', 'semanticscholar', 'google-scholar', 'crossref', 'arxiv', 'pubmed', 'core',
@@ -66,10 +76,12 @@ function isSubscription(value: unknown): value is DiscoverySubscription {
   return typeof row.id === 'string' &&
     typeof row.kind === 'string' && KINDS.has(row.kind as DiscoverySubscriptionKind) &&
     typeof row.label === 'string' && typeof row.value === 'string' &&
-    typeof row.sourceId === 'string' && SOURCES.has(row.sourceId as DiscoverySourceId) &&
+    (row.sourceId === undefined || (typeof row.sourceId === 'string' && SOURCES.has(row.sourceId as DiscoverySourceId))) &&
     typeof row.cadence === 'string' && CADENCES.has(row.cadence as DiscoveryCadence) &&
     typeof row.createdAt === 'number' &&
-    (row.referenceId === undefined || typeof row.referenceId === 'string');
+    (row.referenceId === undefined || typeof row.referenceId === 'string') &&
+    (row.filters === undefined || (row.filters !== null && typeof row.filters === 'object')) &&
+    (row.paused === undefined || typeof row.paused === 'boolean');
 }
 
 function isPaper(value: unknown): value is DiscoveryPaper {
@@ -84,8 +96,16 @@ function isUpdate(value: unknown): value is DiscoveryUpdate {
   return typeof row.id === 'string' &&
     (row.originType === 'saved-search' || row.originType === 'subscription') &&
     typeof row.originId === 'string' && typeof row.originLabel === 'string' &&
-    typeof row.arrivedAt === 'number' && isPaper(row.paper) &&
+    typeof row.arrivedAt === 'number' && (isPaper(row.paper) || isSocialPost(row.social)) &&
     (row.readAt === undefined || typeof row.readAt === 'number');
+}
+
+function isSocialPost(value: unknown): value is DiscoverySocialPost {
+  if (value === null || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' &&
+    (row.platform === 'bluesky' || row.platform === 'mastodon' || row.platform === 'youtube' || row.platform === 'x') &&
+    typeof row.author === 'string' && typeof row.text === 'string' && typeof row.url === 'string';
 }
 
 function load(): Pick<DiscoveryMonitorState, 'subscriptions' | 'updates' | 'runs' | 'lastRefreshAt'> {
@@ -151,10 +171,11 @@ export const useDiscoveryMonitor = create<DiscoveryMonitorState>((set, get) => (
       kind: input.kind,
       label: input.label.trim() || input.value.trim(),
       value: input.value.trim(),
-      sourceId: input.sourceId ?? 'openalex',
+      sourceId: input.sourceId,
       cadence: input.cadence,
       createdAt: Date.now(),
       referenceId: input.referenceId,
+      filters: input.filters,
     };
     const subscriptions = [subscription, ...get().subscriptions];
     set({ subscriptions });
@@ -170,6 +191,11 @@ export const useDiscoveryMonitor = create<DiscoveryMonitorState>((set, get) => (
   },
   setSubscriptionCadence: (id, cadence) => {
     const subscriptions = get().subscriptions.map((entry) => entry.id === id ? { ...entry, cadence } : entry);
+    set({ subscriptions });
+    persist({ ...get(), subscriptions });
+  },
+  setSubscriptionPaused: (id, paused) => {
+    const subscriptions = get().subscriptions.map((entry) => entry.id === id ? { ...entry, paused } : entry);
     set({ subscriptions });
     persist({ ...get(), subscriptions });
   },
@@ -215,27 +241,30 @@ function filterSpecResults(papers: DiscoveryPaper[], spec: DiscoveryQuerySpec): 
   });
 }
 
-async function runSavedSearch(spec: DiscoveryQuerySpec): Promise<DiscoveryPaper[]> {
+async function runSavedSearch(spec: DiscoveryQuerySpec): Promise<DiscoveryResult[]> {
   const source = sourceById(spec.sourceId);
   let papers: DiscoveryPaper[] = (await source.search(spec.query, 25)).map((paper) => ({ ...paper, source: source.id }));
   if (spec.findPdfs) papers = await enrichWithUnpaywall(papers);
-  return filterSpecResults(papers, spec);
+  return filterSpecResults(papers, spec).map((paper) => ({ paper }));
 }
 
-async function runSubscription(subscription: DiscoverySubscription): Promise<DiscoveryPaper[]> {
+async function runSubscription(subscription: DiscoverySubscription): Promise<DiscoveryResult[]> {
+  if (SOCIAL_KINDS.has(subscription.kind)) {
+    return fetchSocialSubscription(subscription);
+  }
   if (subscription.kind === 'rss') {
-    return (await fetchDiscoveryFeed(subscription.value)).papers;
+    return (await fetchDiscoveryFeed(subscription.value)).papers.map((paper) => ({ paper }));
   }
   if (subscription.kind === 'citation') {
     if (subscription.sourceId === 'google-scholar') {
-      return (await loadGoogleScholarCitations(subscription.value, 0, 25)).papers.map((paper) => ({
+      return (await loadGoogleScholarCitations(subscription.value, 0, 25)).papers.map((paper) => ({ paper: {
         ...paper,
         source: 'google-scholar' as const,
-      }));
+      } }));
     }
-    return (await loadOpenAlexCitations(subscription.value, 25)).map((paper) => ({ ...paper, source: 'openalex' as const }));
+    return (await loadOpenAlexCitations(subscription.value, 25)).map((paper) => ({ paper: { ...paper, source: 'openalex' as const } }));
   }
-  const source = sourceById(subscription.sourceId);
+  const source = sourceById(subscription.sourceId ?? 'openalex');
   let papers = (await source.search(subscription.value, 25)).map((paper) => ({ ...paper, source: source.id }));
   const needle = subscription.value.toLocaleLowerCase();
   if (subscription.kind === 'author') {
@@ -243,7 +272,7 @@ async function runSubscription(subscription: DiscoverySubscription): Promise<Dis
   } else if (subscription.kind === 'journal') {
     papers = papers.filter((paper) => paper.venue?.toLocaleLowerCase().includes(needle) === true);
   }
-  return papers;
+  return papers.map((paper) => ({ paper }));
 }
 
 let refreshPromise: Promise<number> | null = null;
@@ -255,12 +284,12 @@ export function refreshDiscoveryTargets(options: { force?: boolean; targetKey?: 
     commit({ refreshing: true });
     let totalAdded = 0;
     const saved = useDiscoveryHistory.getState().saved.filter((entry) => entry.schedule !== undefined);
-    const subscriptions = useDiscoveryMonitor.getState().subscriptions;
+    const subscriptions = useDiscoveryMonitor.getState().subscriptions.filter((entry) => entry.paused !== true);
     const targets: Array<{
       key: string;
       cadence: DiscoveryCadence;
       origin: Pick<DiscoveryUpdate, 'originType' | 'originId' | 'originLabel'>;
-      run: () => Promise<DiscoveryPaper[]>;
+      run: () => Promise<DiscoveryResult[]>;
     }> = [
       ...saved.map((entry) => ({
         key: `saved-search:${entry.id}`,
@@ -281,14 +310,14 @@ export function refreshDiscoveryTargets(options: { force?: boolean; targetKey?: 
       const previousRun = state.runs[target.key];
       if (options.force !== true && !targetDue(target.cadence, previousRun, now)) continue;
       try {
-        const papers = await target.run();
-        const merged = mergeTargetResults(
+        const results = await target.run();
+        const merged = mergeTargetItems(
           state.updates,
           previousRun,
-          papers,
+          results,
           target.origin,
           Date.now(),
-          papers.map(() => newId('update')),
+          results.map(() => newId('update')),
         );
         totalAdded += merged.added;
         commit({

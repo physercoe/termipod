@@ -6,6 +6,7 @@ export interface DiscoveryPaper {
   title: string;
   authors: string[];
   year?: number;
+  publishedAt?: number; // precise feed timestamp when a provider exposes one
   venue?: string;
   abstract?: string;
   tldr?: string; // Semantic Scholar one-line summary

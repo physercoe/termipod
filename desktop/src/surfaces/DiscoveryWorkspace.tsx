@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { sourceById, type DiscoveryPaper, type DiscoverySourceId } from '../discovery';
+import { subscriptionGroup } from '../discovery/social';
 import { useT } from '../i18n';
 import { useDiscoveryHistory } from '../state/discoveryHistory';
 import {
@@ -8,8 +9,11 @@ import {
 } from '../state/discoveryMonitor';
 import {
   buildRecommendationSeed,
+  buildDiscoveryTrends,
   paperFingerprint,
   type DiscoveryCadence,
+  type DiscoverySocialPost,
+  type DiscoverySubscriptionGroup,
   type DiscoverySubscriptionKind,
   type DiscoveryUpdate,
 } from '../state/discoveryMonitorCore';
@@ -17,7 +21,7 @@ import { useLibrary } from '../state/library';
 import { Icon } from '../ui/Icon';
 import { useOpenLink } from '../ui/OpenLinkContext';
 
-export type DiscoveryWorkspaceView = 'explore' | 'updates' | 'subscriptions' | 'for-you';
+export type DiscoveryWorkspaceView = 'explore' | 'updates' | 'subscriptions' | 'trends' | 'for-you';
 
 function cadenceLabel(cadence: DiscoveryCadence, t: ReturnType<typeof useT>): string {
   return t(`read.monitorCadence.${cadence}`);
@@ -97,6 +101,85 @@ function WorkspacePaperCard({
   );
 }
 
+function socialToPaper(post: DiscoverySocialPost): DiscoveryPaper {
+  const title = post.title?.trim() || post.text.replace(/\s+/g, ' ').slice(0, 140);
+  return {
+    paperId: `social:${post.platform}:${post.id}`,
+    title,
+    authors: [post.author],
+    year: post.publishedAt === undefined ? undefined : new Date(post.publishedAt).getUTCFullYear(),
+    venue: post.platform === 'x' ? 'X' : post.platform[0]!.toLocaleUpperCase() + post.platform.slice(1),
+    abstract: post.text,
+    url: post.url,
+  };
+}
+
+function WorkspaceSocialCard({
+  update,
+  onAdd,
+  onInspect,
+}: {
+  update: DiscoveryUpdate & { social: DiscoverySocialPost };
+  onAdd: (paper: DiscoveryPaper) => string;
+  onInspect: (id: string) => void;
+}): JSX.Element {
+  const t = useT();
+  const openLink = useOpenLink();
+  const markRead = useDiscoveryMonitor((state) => state.markRead);
+  const removeUpdate = useDiscoveryMonitor((state) => state.removeUpdate);
+  const setPaused = useDiscoveryMonitor((state) => state.setSubscriptionPaused);
+  const post = update.social;
+  const total = (post.engagement?.likes ?? 0) + (post.engagement?.reposts ?? 0) + (post.engagement?.replies ?? 0);
+  return (
+    <article className={`discover-card workspace-paper-card workspace-social-card${update.readAt === undefined ? ' unread' : ''}`}>
+      <div className="workspace-paper-origin">
+        <span className="workspace-platform">{post.platform === 'x' ? 'X' : post.platform}</span>
+        <span>{update.originLabel}</span>
+        <span className="spacer" />
+        <span>{timeLabel(post.publishedAt ?? update.arrivedAt)}</span>
+      </div>
+      <div className="workspace-social-author">
+        {post.avatarUrl !== undefined && <img src={post.avatarUrl} alt="" />}
+        <strong>{post.author}</strong>
+        {post.handle !== undefined && <span>{post.handle}</span>}
+      </div>
+      {post.title !== undefined && <div className="discover-card-title">{post.title}</div>}
+      <div className="workspace-social-text">{post.text}</div>
+      <div className="discover-card-meta muted small">
+        {t('read.monitorWhyMatched').replace('{reason}', update.originLabel)}
+        {total > 0 ? ` · ${total} ${t('read.monitorEngagement')}` : ''}
+      </div>
+      <div className="discover-card-actions">
+        <button className="primary small" onClick={() => {
+          markRead(update.id);
+          onInspect(onAdd(socialToPaper(post)));
+        }}><Icon name="plus" size={13} /> {t('read.monitorSave')}</button>
+        <button className="small" onClick={() => openLink(post.url)}><Icon name="external" size={13} /> {t('read.monitorOpen')}</button>
+        {update.readAt === undefined && <button className="small" onClick={() => markRead(update.id)}>{t('read.monitorMarkRead')}</button>}
+        {update.originType === 'subscription' && (
+          <button className="small" onClick={() => setPaused(update.originId, true)}>{t('read.monitorMuteSource')}</button>
+        )}
+        <button className="icon-btn small" title={t('read.removeSearch')} onClick={() => removeUpdate(update.id)}><Icon name="close" size={13} /></button>
+      </div>
+    </article>
+  );
+}
+
+function WorkspaceUpdateCard({
+  update,
+  onAdd,
+  onInspect,
+}: {
+  update: DiscoveryUpdate;
+  onAdd: (paper: DiscoveryPaper) => string;
+  onInspect: (id: string) => void;
+}): JSX.Element {
+  if (update.paper !== undefined) {
+    return <WorkspacePaperCard paper={update.paper} update={update} onAdd={onAdd} onInspect={onInspect} />;
+  }
+  return <WorkspaceSocialCard update={update as DiscoveryUpdate & { social: DiscoverySocialPost }} onAdd={onAdd} onInspect={onInspect} />;
+}
+
 export function DiscoveryUpdatesPanel({
   onAdd,
   onInspect,
@@ -112,8 +195,12 @@ export function DiscoveryUpdatesPanel({
   const clearRead = useDiscoveryMonitor((state) => state.clearRead);
   const runs = useDiscoveryMonitor((state) => state.runs);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [contentType, setContentType] = useState<'all' | 'research' | 'social'>('all');
   const unread = updates.filter((entry) => entry.readAt === undefined).length;
-  const shown = unreadOnly ? updates.filter((entry) => entry.readAt === undefined) : updates;
+  const shown = updates.filter((entry) =>
+    (!unreadOnly || entry.readAt === undefined) &&
+    (contentType === 'all' || (contentType === 'research' ? entry.paper !== undefined : entry.social !== undefined)),
+  );
   const errors = Object.values(runs).filter((run) => run.lastError !== undefined);
   return (
     <div className="discovery-workspace-pane">
@@ -136,6 +223,11 @@ export function DiscoveryUpdatesPanel({
             {t('read.monitorUnread')} <span className="pill">{unread}</span>
           </button>
         </div>
+        <select value={contentType} aria-label={t('read.monitorContentType')} onChange={(event) => setContentType(event.target.value as typeof contentType)}>
+          <option value="all">{t('read.monitorAllSources')}</option>
+          <option value="research">{t('read.monitorResearch')}</option>
+          <option value="social">{t('read.monitorSocial')}</option>
+        </select>
         <span className="muted small">{t('read.monitorLastChecked').replace('{time}', timeLabel(lastRefreshAt))}</span>
         <span className="spacer" />
         <button className="link-btn" onClick={clearRead}>{t('read.monitorClearRead')}</button>
@@ -152,16 +244,28 @@ export function DiscoveryUpdatesPanel({
             <strong>{unreadOnly ? t('read.monitorNoUnread') : t('read.monitorNoUpdates')}</strong>
             <span>{t('read.monitorNoUpdatesHint')}</span>
           </div>
-        ) : shown.map((update) => (
-          <WorkspacePaperCard key={update.id} paper={update.paper} update={update} onAdd={onAdd} onInspect={onInspect} />
-        ))}
+        ) : shown.map((update) => <WorkspaceUpdateCard key={update.id} update={update} onAdd={onAdd} onInspect={onInspect} />)}
       </div>
     </div>
   );
 }
 
-const SUBSCRIPTION_KINDS: DiscoverySubscriptionKind[] = ['author', 'journal', 'topic', 'citation', 'rss'];
+const KINDS_BY_GROUP: Record<DiscoverySubscriptionGroup, DiscoverySubscriptionKind[]> = {
+  research: ['author', 'journal', 'topic', 'citation'],
+  social: ['bluesky-author', 'mastodon-author', 'youtube-channel', 'x-author'],
+  monitors: ['bluesky-query', 'mastodon-tag', 'x-query'],
+  feeds: ['rss', 'bluesky-feed'],
+};
+const GROUPS: DiscoverySubscriptionGroup[] = ['research', 'social', 'monitors', 'feeds'];
 const CADENCES: DiscoveryCadence[] = ['daily', 'weekly', 'monthly'];
+
+function subscriptionIcon(kind: DiscoverySubscriptionKind): 'globe' | 'link' | 'star' | 'search' | 'book' {
+  if (kind === 'rss' || kind === 'youtube-channel' || kind === 'bluesky-feed') return 'globe';
+  if (kind === 'citation') return 'link';
+  if (kind.endsWith('-query') || kind === 'mastodon-tag' || kind === 'topic') return 'search';
+  if (kind === 'journal') return 'book';
+  return 'star';
+}
 
 export function DiscoverySubscriptionsPanel(): JSX.Element {
   const t = useT();
@@ -173,12 +277,19 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
   const addSubscription = useDiscoveryMonitor((state) => state.addSubscription);
   const removeSubscription = useDiscoveryMonitor((state) => state.removeSubscription);
   const setCadence = useDiscoveryMonitor((state) => state.setSubscriptionCadence);
+  const setPaused = useDiscoveryMonitor((state) => state.setSubscriptionPaused);
+  const [group, setGroup] = useState<DiscoverySubscriptionGroup>('research');
   const [kind, setKind] = useState<DiscoverySubscriptionKind>('topic');
   const [value, setValue] = useState('');
   const [label, setLabel] = useState('');
   const [sourceId, setSourceId] = useState<DiscoverySourceId>('openalex');
   const [cadence, setNewCadence] = useState<DiscoveryCadence>('weekly');
   const [referenceId, setReferenceId] = useState('');
+  const [include, setInclude] = useState('');
+  const [exclude, setExclude] = useState('');
+  const [language, setLanguage] = useState('');
+  const [minEngagement, setMinEngagement] = useState('0');
+  const [excludeReposts, setExcludeReposts] = useState(true);
 
   const suggestions = useMemo(() => {
     if (kind === 'author') return [...new Set(references.flatMap((reference) => reference.authors))].sort();
@@ -192,6 +303,11 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
     setValue('');
     setLabel('');
     setReferenceId('');
+  }
+
+  function changeGroup(nextGroup: DiscoverySubscriptionGroup): void {
+    setGroup(nextGroup);
+    reset(KINDS_BY_GROUP[nextGroup][0]!);
   }
 
   function submit(): void {
@@ -210,7 +326,22 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
     if (targetValue === '') return;
     const citationReference = kind === 'citation' ? references.find((entry) => entry.id === referenceId) : undefined;
     const targetSource = citationReference?.scholar?.citesId !== undefined ? 'google-scholar' : sourceId;
-    const id = addSubscription({ kind, label: targetLabel, value: targetValue, sourceId: targetSource, cadence, referenceId: referenceId || undefined });
+    const social = group === 'social' || group === 'monitors';
+    const id = addSubscription({
+      kind,
+      label: targetLabel,
+      value: targetValue,
+      sourceId: group === 'research' ? targetSource : undefined,
+      cadence,
+      referenceId: referenceId || undefined,
+      filters: social ? {
+        include: include.trim() || undefined,
+        exclude: exclude.trim() || undefined,
+        language: language.trim() || undefined,
+        excludeReposts,
+        minEngagement: Math.max(0, Number(minEngagement) || 0),
+      } : undefined,
+    });
     setValue('');
     setLabel('');
     setReferenceId('');
@@ -223,8 +354,15 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
         <div><h2>{t('read.monitorSubscriptions')}</h2><p>{t('read.monitorSubscriptionsHint')}</p></div>
       </header>
       <div className="discovery-subscribe-card">
+        <div className="discovery-follow-groups seg compact">
+          {GROUPS.map((entry) => (
+            <button key={entry} className={group === entry ? 'seg-btn active' : 'seg-btn'} onClick={() => changeGroup(entry)}>
+              {t(`read.monitorGroup.${entry}`)}
+            </button>
+          ))}
+        </div>
         <div className="discovery-subscribe-kind seg compact">
-          {SUBSCRIPTION_KINDS.map((entry) => (
+          {KINDS_BY_GROUP[group].map((entry) => (
             <button key={entry} className={kind === entry ? 'seg-btn active' : 'seg-btn'} onClick={() => reset(entry)}>
               {t(`read.monitorKind.${entry}`)}
             </button>
@@ -243,14 +381,14 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
               <input
                 value={value}
                 list={suggestions.length > 0 ? 'discovery-subscription-values' : undefined}
-                placeholder={kind === 'rss' ? 'https://example.org/feed.xml' : t(`read.monitorPlaceholder.${kind}`)}
+                placeholder={t(`read.monitorPlaceholder.${kind}`)}
                 onChange={(event) => setValue(event.target.value)}
               />
               <datalist id="discovery-subscription-values">{suggestions.map((entry) => <option key={entry} value={entry} />)}</datalist>
             </>
           )}
-          {kind === 'rss' && <input value={label} placeholder={t('read.monitorOptionalName')} onChange={(event) => setLabel(event.target.value)} />}
-          {kind !== 'rss' && kind !== 'citation' && (
+          {(group !== 'research' || kind === 'rss') && <input value={label} placeholder={t('read.monitorOptionalName')} onChange={(event) => setLabel(event.target.value)} />}
+          {group === 'research' && kind !== 'citation' && (
             <select value={sourceId} aria-label={t('read.monitorProvider')} onChange={(event) => setSourceId(event.target.value as DiscoverySourceId)}>
               <option value="openalex">OpenAlex</option>
               <option value="semanticscholar">Semantic Scholar</option>
@@ -266,9 +404,22 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
             <Icon name="plus" size={14} /> {t('read.monitorSubscribe')}
           </button>
         </div>
+        {(group === 'social' || group === 'monitors') && (
+          <details className="discovery-monitor-filters">
+            <summary>{t('read.monitorFilters')}</summary>
+            <div>
+              <input value={include} placeholder={t('read.monitorInclude')} onChange={(event) => setInclude(event.target.value)} />
+              <input value={exclude} placeholder={t('read.monitorExclude')} onChange={(event) => setExclude(event.target.value)} />
+              <input value={language} placeholder={t('read.monitorLanguage')} onChange={(event) => setLanguage(event.target.value)} />
+              <input type="number" min="0" value={minEngagement} aria-label={t('read.monitorMinEngagement')} placeholder={t('read.monitorMinEngagement')} onChange={(event) => setMinEngagement(event.target.value)} />
+              <label><input type="checkbox" checked={excludeReposts} onChange={(event) => setExcludeReposts(event.target.checked)} /> {t('read.monitorExcludeReposts')}</label>
+            </div>
+          </details>
+        )}
+        {kind.startsWith('x-') && <div className="discovery-credential-hint"><Icon name="lock" size={13} /> {t('read.monitorXKeyHint')}</div>}
       </div>
 
-      <section className="discovery-monitor-section">
+      {group === 'monitors' && <section className="discovery-monitor-section">
         <h3>{t('read.monitorScheduledSearches')}</h3>
         {saved.length === 0 ? <p className="muted small">{t('read.savedSearchesEmpty')}</p> : saved.map((search) => {
           const run = runs[`saved-search:${search.id}`];
@@ -288,21 +439,22 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
             </div>
           );
         })}
-      </section>
+      </section>}
 
       <section className="discovery-monitor-section grow">
         <h3>{t('read.monitorSubscriptions')}</h3>
-        {subscriptions.length === 0 ? <p className="muted small">{t('read.monitorNoSubscriptions')}</p> : subscriptions.map((subscription) => {
+        {subscriptions.filter((subscription) => subscriptionGroup(subscription.kind) === group).length === 0 ? <p className="muted small">{t('read.monitorNoSubscriptions')}</p> : subscriptions.filter((subscription) => subscriptionGroup(subscription.kind) === group).map((subscription) => {
           const run = runs[`subscription:${subscription.id}`];
           return (
             <div className="discovery-monitor-row" key={subscription.id}>
-              <Icon name={subscription.kind === 'rss' ? 'globe' : subscription.kind === 'citation' ? 'link' : 'star'} size={14} />
+              <Icon name={subscriptionIcon(subscription.kind)} size={14} />
               <div className="discovery-monitor-row-main">
                 <strong>{subscription.label}</strong>
-                <span>{t(`read.monitorKind.${subscription.kind}`)} · {timeLabel(run?.lastRunAt)}</span>
+                <span>{t(`read.monitorKind.${subscription.kind}`)} · {subscription.paused === true ? t('read.monitorPaused') : timeLabel(run?.lastRunAt)}</span>
               </div>
-              {run?.lastError !== undefined && <span className="discovery-monitor-error" title={run.lastError}><Icon name="alert" size={13} /></span>}
-              <button className="icon-btn" title={t('read.monitorRefreshOne')} onClick={() => void refreshDiscoveryTargets({ force: true, targetKey: `subscription:${subscription.id}` })}><Icon name="refresh" size={13} /></button>
+              {run?.lastError !== undefined && <span className="discovery-monitor-error" title={run.lastError === 'x-needs-key' ? t('read.monitorXKeyHint') : run.lastError}><Icon name="alert" size={13} /></span>}
+              <button className={`icon-btn${subscription.paused === true ? '' : ' active'}`} title={subscription.paused === true ? t('read.monitorResume') : t('read.monitorPause')} onClick={() => setPaused(subscription.id, subscription.paused !== true)}><Icon name={subscription.paused === true ? 'play' : 'circle-half'} size={13} /></button>
+              <button className="icon-btn" disabled={subscription.paused === true} title={t('read.monitorRefreshOne')} onClick={() => void refreshDiscoveryTargets({ force: true, targetKey: `subscription:${subscription.id}` })}><Icon name="refresh" size={13} /></button>
               <select value={subscription.cadence} onChange={(event) => setCadence(subscription.id, event.target.value as DiscoveryCadence)}>
                 {CADENCES.map((entry) => <option key={entry} value={entry}>{cadenceLabel(entry, t)}</option>)}
               </select>
@@ -311,6 +463,59 @@ export function DiscoverySubscriptionsPanel(): JSX.Element {
           );
         })}
       </section>
+    </div>
+  );
+}
+
+export function DiscoveryTrendsPanel({
+  onAdd,
+  onInspect,
+}: {
+  onAdd: (paper: DiscoveryPaper) => string;
+  onInspect: (id: string) => void;
+}): JSX.Element {
+  const t = useT();
+  const updates = useDiscoveryMonitor((state) => state.updates);
+  const trends = useMemo(() => buildDiscoveryTrends(updates, Date.now()), [updates]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const active = trends.find((trend) => trend.term === selected) ?? trends[0];
+  const evidence = active === undefined ? [] : active.evidenceIds
+    .map((id) => updates.find((update) => update.id === id))
+    .filter((update): update is DiscoveryUpdate => update !== undefined);
+  return (
+    <div className="discovery-workspace-pane">
+      <header className="discovery-workspace-header">
+        <div><h2>{t('read.monitorTrends')}</h2><p>{t('read.monitorTrendsHint')}</p></div>
+      </header>
+      {trends.length === 0 ? (
+        <div className="discovery-workspace-empty"><Icon name="crosshair" size={24} /><strong>{t('read.monitorNoTrends')}</strong><span>{t('read.monitorNoTrendsHint')}</span></div>
+      ) : (
+        <div className="discovery-trends-layout">
+          <div className="discovery-trend-list scroll">
+            {trends.map((trend) => {
+              const max = Math.max(1, ...trend.days);
+              return (
+                <button key={trend.term} className={`discovery-trend-card${active?.term === trend.term ? ' active' : ''}`} onClick={() => setSelected(trend.term)}>
+                  <span className="discovery-trend-name">{trend.term}</span>
+                  <span className={`pill trend-${trend.confidence}`}>{t(`read.monitorConfidence.${trend.confidence}`)}</span>
+                  <span className="discovery-trend-velocity">{trend.velocity.toFixed(1)}×</span>
+                  <span className="discovery-trend-spark" aria-hidden="true">
+                    {trend.days.map((value, index) => <i key={index} style={{ height: `${Math.max(2, value / max * 22)}px` }} />)}
+                  </span>
+                  <span className="muted small">{t('read.monitorTrendEvidence').replace('{items}', String(trend.evidenceIds.length)).replace('{authors}', String(trend.authors)).replace('{sources}', String(trend.sources))}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="discovery-trend-evidence scroll">
+            <div className="discovery-workspace-toolbar">
+              <strong>{active?.term}</strong>
+              <span className="muted small">{t('read.monitorTrendDrilldown')}</span>
+            </div>
+            {evidence.map((update) => <WorkspaceUpdateCard key={update.id} update={update} onAdd={onAdd} onInspect={onInspect} />)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

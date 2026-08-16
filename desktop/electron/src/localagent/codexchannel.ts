@@ -299,10 +299,31 @@ function openSpawnChannel(
     for (const j of junk) handlers.onJunk?.(j);
   });
 
+  // stderr is never protocol, but it MUST be drained: the child is spawned with
+  // stderr piped, and codex writes WARNING lines there — an unread pipe blocks
+  // the engine outright once the ~64 KiB buffer fills, a hang with no symptom.
+  // The lines themselves go to onJunk (never onFrame, however JSON-shaped a log
+  // line looks): engine complaints belong somewhere other than the floor.
+  let errTail = '';
+  const relayErrText = (text: string): void => {
+    const pieces = (errTail + text).split('\n');
+    errTail = pieces.pop() ?? '';
+    for (const line of pieces) {
+      const t = line.trim();
+      if (t !== '') handlers.onJunk?.(t);
+    }
+  };
+  child.stderr?.setEncoding?.('utf8');
+  child.stderr?.on('data', (chunk: string | Buffer) => {
+    relayErrText(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+  });
+
   child.on('exit', (code) => {
     const { frames, junk } = buffer.flush();
     for (const f of frames) handlers.onFrame(f);
     for (const j of junk) handlers.onJunk?.(j);
+    if (errTail.trim() !== '') handlers.onJunk?.(errTail.trim());
+    errTail = '';
     handlers.onClose({ code, reason: `codex app-server exited (code ${String(code)})` });
   });
 

@@ -253,6 +253,32 @@ test('spawn rung: send writes a newline-delimited frame; close ends stdin', asyn
   assert.ok(d.child.killed);
 });
 
+test('spawn rung: stderr is drained to onJunk, never to onFrame', async () => {
+  const c = collector();
+  const d = deps();
+  await openCodexChannel(SPAWN_PLAN, c.handlers, { cwd: '/w' }, d.deps);
+
+  // codex writes WARNING chatter to stderr. It must be READ — the child is
+  // spawned with stderr piped, and an unread pipe blocks the engine once the
+  // ~64 KiB buffer fills, a hang with no symptom — and it must land in onJunk:
+  // a JSON-shaped log line on stderr is still a log line, not a frame.
+  d.child.stderr.write('WARNING: could not create PATH aliases\n{"looks":"like json"}\npartial');
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(c.junk, ['WARNING: could not create PATH aliases', '{"looks":"like json"}']);
+  assert.deepEqual(c.frames, [], 'stderr must never produce frames');
+
+  // The unterminated tail is still something the engine said.
+  d.child.emit('exit', 1);
+  assert.deepEqual(c.junk.at(-1), 'partial');
+});
+
+test('spawn rung: stderr flows even when no onJunk handler is given', async () => {
+  const d = deps();
+  // No onJunk — the drain must still be attached, or the pipe backs up.
+  await openCodexChannel(SPAWN_PLAN, { onFrame: () => {}, onClose: () => {} }, { cwd: '/w' }, d.deps);
+  assert.ok(d.child.stderr.listenerCount('data') > 0, 'stderr must have a reader regardless of handlers');
+});
+
 test('spawn rung: an exit flushes the unterminated tail before reporting close', async () => {
   const c = collector();
   const d = deps();

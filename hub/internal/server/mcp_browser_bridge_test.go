@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/termipod/hub/internal/auth"
+	"github.com/termipod/hub/internal/mcpwire"
 )
 
 // seedBrowserDesktop inserts an online host row carrying the
@@ -581,6 +582,13 @@ func TestBrowserInvoke_ImageResultStaysAnImageBlock(t *testing.T) {
 		if txt, _ := bb["text"].(string); strings.Contains(txt, png) {
 			t.Error("the base64 payload appears inside a text block — the wrapper is still in the path")
 		}
+	}
+	// The additive stamp rides on this path like every other (ADR-063 D3).
+	// The desktop stamps only its own HTTP leg, which the tunnel bypasses,
+	// so the relay is where it has to happen.
+	if m["resultType"] != mcpwire.ResultTypeComplete {
+		t.Errorf("resultType = %v; want %q — the passthrough must not be the one "+
+			"hub result that skips the additive stamp", m["resultType"], mcpwire.ResultTypeComplete)
 	}
 }
 

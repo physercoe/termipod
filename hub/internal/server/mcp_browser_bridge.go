@@ -36,6 +36,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/termipod/hub/internal/auth"
+	"github.com/termipod/hub/internal/mcpwire"
 )
 
 // browserTunnelKind discriminates browser-bridge envelopes on the A2A
@@ -422,8 +423,15 @@ func (s *Server) routeTunnelInvoke(ctx context.Context, tunnelKind, agentID, age
 	// gets, so forward it rather than describing it in JSON — otherwise a
 	// screenshot reaches a remote agent as base64 prose (E4). Anything
 	// that isn't already a tool result keeps the wrapper.
+	//
+	// Stamped like every other path: the desktop stamps the additive
+	// 2026-07-28 fields only on its own HTTP leg (stampMcpResult in
+	// browserbridge.ts), which the tunnel bypasses — and a local caller
+	// DOES see `resultType`, so forwarding without it would be the one
+	// hub result that omits what the tools/call wrapper's comment says
+	// every dispatch path carries (ADR-063 D3, additive-first).
 	if passthrough, ok := mcpToolResultPassthrough(result); ok {
-		return passthrough, nil
+		return mcpwire.StampResult(passthrough), nil
 	}
 	return mcpResultJSON(result), nil
 }

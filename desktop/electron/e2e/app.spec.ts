@@ -882,10 +882,11 @@ test('read: Discovery monitoring exposes updates, subscriptions, schedules, and 
     await page.getByRole('button', { name: 'Mark read', exact: true }).click();
     await expect(rail.locator('.discover-nav-count')).toHaveCount(0);
 
-    await rail.getByRole('button', { name: 'Subscriptions', exact: true }).click();
+    await rail.getByRole('button', { name: 'Following', exact: true }).click();
+    await expect(page.getByText('Graph learning', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Monitors', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Scheduled saved searches' })).toBeVisible();
     await expect(page.getByText('Saved graph query', { exact: true })).toBeVisible();
-    await expect(page.getByText('Graph learning', { exact: true })).toBeVisible();
 
     await rail.getByRole('button', { name: 'For you', exact: true }).click();
     await page.getByLabel('Seed collection').selectOption('collection-monitor');

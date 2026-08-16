@@ -731,6 +731,179 @@ test('read: Cite keeps Scholar and OpenAlex provenance separate', async () => {
   }
 });
 
+test('read: Discovery uses contextual saved and recent search navigation', async () => {
+  await dismissConnectModal();
+  const originals = await page.evaluate(() => {
+    const libraryKey = 'termipod.library.v1';
+    const historyKey = 'termipod.discover.history.v1';
+    const originalLibrary = localStorage.getItem(libraryKey);
+    const originalHistory = localStorage.getItem(historyKey);
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-discovery-rail',
+        type: 'article',
+        title: 'Library rail fixture',
+        authors: ['TermiPod'],
+        tags: ['library-only-tag'],
+        collectionIds: ['collection-only'],
+        notes: '',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [],
+      }],
+      collections: [{ id: 'collection-only', name: 'Library-only collection' }],
+    }));
+    localStorage.setItem(historyKey, JSON.stringify({
+      version: 1,
+      saved: [{
+        id: 'saved-e2e',
+        name: 'Saved core query',
+        query: 'saved discovery query',
+        sourceId: 'core',
+        authorFilter: 'Researcher',
+        yearFrom: '2024',
+        yearTo: '',
+        sort: 'newest',
+        findPdfs: false,
+        savedAt: Date.now() - 2000,
+      }],
+      recent: [{
+        id: 'recent-e2e',
+        query: 'recent discovery query',
+        sourceId: 'openalex',
+        authorFilter: '',
+        yearFrom: '',
+        yearTo: '',
+        sort: 'relevance',
+        findPdfs: true,
+        ranAt: Date.now() - 1000,
+        resultCount: 17,
+      }],
+    }));
+    return { originalLibrary, originalHistory };
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+
+    const rail = page.locator('.discover-nav');
+    await expect(rail).toBeVisible();
+    await expect(rail.getByText('Saved core query', { exact: true })).toBeVisible();
+    await expect(rail.getByText('recent discovery query', { exact: true })).toBeVisible();
+    await expect(rail.getByText('Recent searches', { exact: true })).toBeVisible();
+    await expect(page.getByText('Library-only collection', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('library-only-tag', { exact: true })).toHaveCount(0);
+
+    await rail.locator('.discover-nav-row').filter({ hasText: 'Saved core query' }).locator('.discover-nav-main').click();
+    await expect(page.locator('.discover-input')).toHaveValue('saved discovery query');
+    await expect(page.locator('.discover-src.active')).toHaveText('CORE');
+    await expect(page.getByRole('button', { name: 'Remove saved search', exact: true })).toBeVisible();
+
+    await page.locator('.discover-input').fill('a newly saved query');
+    await page.locator('.discover-save-search').click();
+    await expect(rail.getByText('a newly saved query', { exact: true })).toBeVisible();
+    await expect(page.locator('.discover-save-search')).toHaveAttribute(
+      'aria-label',
+      'Remove saved search',
+    );
+    await page.locator('.discover-save-search').click();
+    await expect(rail.getByText('a newly saved query', { exact: true })).toHaveCount(0);
+
+    await rail.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(rail.getByText('recent discovery query', { exact: true })).toHaveCount(0);
+    const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('termipod.discover.history.v1') ?? '{}'));
+    expect(persisted.recent).toEqual([]);
+    expect(persisted.saved).toHaveLength(1);
+  } finally {
+    await page.evaluate(({ originalLibrary, originalHistory }) => {
+      if (originalLibrary === null) localStorage.removeItem('termipod.library.v1');
+      else localStorage.setItem('termipod.library.v1', originalLibrary);
+      if (originalHistory === null) localStorage.removeItem('termipod.discover.history.v1');
+      else localStorage.setItem('termipod.discover.history.v1', originalHistory);
+    }, originals);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
+test('read: Discovery monitoring exposes updates, subscriptions, schedules, and collection recommendations', async () => {
+  await dismissConnectModal();
+  const originals = await page.evaluate(() => {
+    const keys = ['termipod.library.v1', 'termipod.discover.history.v1', 'termipod.discover.monitor.v1'];
+    const values = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
+    localStorage.setItem('termipod.library.v1', JSON.stringify({
+      collections: [{ id: 'collection-monitor', name: 'Graph research' }],
+      references: [{
+        id: 'reference-monitor', type: 'article', title: 'Graph learning for molecules', authors: ['Ada Researcher'],
+        venue: 'Graph Journal', rating: 5, topics: ['Graph learning'], tags: ['molecules'],
+        collectionIds: ['collection-monitor'], notes: '', addedAt: Date.now(), dirty: false, attachments: [],
+      }],
+    }));
+    localStorage.setItem('termipod.discover.history.v1', JSON.stringify({
+      version: 1,
+      recent: [],
+      saved: [{
+        id: 'saved-monitor', name: 'Saved graph query', query: 'graph learning', sourceId: 'openalex',
+        authorFilter: '', yearFrom: '', yearTo: '', sort: 'newest', findPdfs: false, savedAt: Date.now(),
+      }],
+    }));
+    localStorage.setItem('termipod.discover.monitor.v1', JSON.stringify({
+      version: 1,
+      subscriptions: [{
+        id: 'subscription-monitor', kind: 'topic', label: 'Graph learning', value: 'graph learning',
+        sourceId: 'openalex', cadence: 'weekly', createdAt: Date.now(),
+      }],
+      updates: [{
+        id: 'update-monitor', originType: 'subscription', originId: 'subscription-monitor',
+        originLabel: 'Graph learning', arrivedAt: Date.now(),
+        paper: { paperId: 'paper-monitor', title: 'A new graph paper', authors: ['A. Author'], year: 2026, venue: 'Graph Journal' },
+      }],
+      runs: {
+        'subscription:subscription-monitor': { lastRunAt: Date.now(), seen: ['id:paper-monitor'] },
+      },
+      lastRefreshAt: Date.now(),
+    }));
+    return values;
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+
+    const rail = page.locator('.discover-nav');
+    await expect(rail.getByRole('button', { name: /Updates/ })).toContainText('1');
+    await rail.getByRole('button', { name: /Updates/ }).click();
+    await expect(page.getByRole('heading', { name: 'Updates' })).toBeVisible();
+    await expect(page.getByText('A new graph paper', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect(rail.locator('.discover-nav-count')).toHaveCount(0);
+
+    await rail.getByRole('button', { name: 'Following', exact: true }).click();
+    await expect(page.getByText('Graph learning', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Monitors', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Scheduled saved searches' })).toBeVisible();
+    await expect(page.getByText('Saved graph query', { exact: true })).toBeVisible();
+
+    await rail.getByRole('button', { name: 'For you', exact: true }).click();
+    await page.getByLabel('Seed collection').selectOption('collection-monitor');
+    await expect(page.getByText('Seeded by 1 collection items', { exact: true })).toBeVisible();
+    await expect(page.locator('.discovery-recommend-explain')).toContainText('graph');
+    await expect(page.locator('.discovery-recommend-explain')).toContainText('molecules');
+  } finally {
+    await page.evaluate((values) => {
+      for (const [key, value] of Object.entries(values)) {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      }
+    }, originals);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {

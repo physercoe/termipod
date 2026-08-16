@@ -121,6 +121,11 @@ export interface DockCall {
   name: string;
   arg?: string;
   status: ToolStatus;
+  /// The TOOL id (`tool_use_id`/`id`), distinct from `id` (the event row).
+  /// R5's drill-down joins on this: a sub-agent's own events carry it as
+  /// `parent_tool_use_id`, and claude's `task_*` system frames as
+  /// `tool_use_id`. Absent when the call's payload carried no tool id.
+  toolId?: string;
 }
 
 /// One plan entry, normalized: content + the raw status string (ACP:
@@ -226,6 +231,7 @@ export function deriveStateDock(
       name,
       arg: toolCallKeyArg(p['input']),
       status: toolStatusOf(ev, maps.resultById, maps.updateById),
+      toolId: id,
     };
     (shellHit ? shell : subs).push(call);
   }
@@ -235,6 +241,161 @@ export function deriveStateDock(
     subagentRunning: runningCount(subs),
     subagentCalls: orderCalls(subs),
     todos: todoSnapshot(plan),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// R5 — one sub-agent's own activity.
+//
+// A delegated agent's work used to land in the transcript looking exactly like
+// the main agent's: same rows, same order, no marking. The producer half of R5
+// fixed that at the source — claude's M2 wire carries `parent_tool_use_id` on
+// every frame (null for the main agent, the spawning Agent/Task call's id for a
+// sub-agent's), MEASURED against claude-code 2.1.220, and the frame profile now
+// stamps it plus a cross-engine `subagent` boolean. This is the consumer:
+// given the dock row's tool id, everything that agent did.
+//
+// Correlation is claude's today. kimi's M4 tap marks its sub-agent events with
+// `kimi_agent_id` instead, which is a different join (agent id, not spawning
+// call) with no dock row to hang it on — supported here as a second accepted
+// key so a kimi row lights up the moment one is available to test against,
+// never guessed at. codex and gemini report nothing of the kind: for them the
+// header below is the whole honest answer, and `reported` says so.
+// ---------------------------------------------------------------------------
+
+/// One line of a sub-agent's activity — compact by design: the dock is an
+/// ambient mirror, so a delegated tool call reads as one row here and stays a
+/// full card in the transcript.
+export interface SubagentLine {
+  id: string;
+  kind: string;
+  /// Tool name, or the system frame's description; '' for prose.
+  label: string;
+  /// Key argument / text / result summary.
+  detail?: string;
+  status?: ToolStatus;
+}
+
+export interface SubagentDetail {
+  /// The prompt the parent handed the sub-agent (claude's Agent call carries
+  /// it as `input.prompt`; `description` is the short form the row shows).
+  prompt?: string;
+  /// e.g. claude's `general-purpose`.
+  subagentType?: string;
+  /// The newest `task_progress` line — what it is doing right now.
+  lastActivity?: string;
+  /// The sub-agent's own events, in feed order.
+  lines: SubagentLine[];
+  /// False when this engine publishes no per-sub-agent correlation at all.
+  /// Distinct from `lines: []`, which means it reported one and the agent has
+  /// not done anything yet — "nothing to show" and "cannot be shown" are
+  /// different sentences and the panel prints different ones.
+  reported: boolean;
+}
+
+/// Every event whose provenance points at [toolId]. Accepts claude's
+/// `parent_tool_use_id` and kimi's `kimi_agent_id`; the `task_*` system frames
+/// join on `tool_use_id`, which is the same id under a third name — claude's
+/// own wire spells it differently depending on whether the frame is ABOUT the
+/// sub-agent (task lifecycle) or FROM it (its own work).
+function belongsToSubagent(p: Entity, toolId: string): boolean {
+  return p['parent_tool_use_id'] === toolId || p['kimi_agent_id'] === toolId || p['tool_use_id'] === toolId;
+}
+
+/// True when any event in the session carries per-sub-agent provenance at all.
+/// Engine-agnostic: it asks the DATA, not the engine name, so an engine that
+/// starts reporting tomorrow needs no change here.
+function anyProvenance(events: FeedEvent[]): boolean {
+  for (const ev of events) {
+    const p = ev.payload;
+    if (typeof p['parent_tool_use_id'] === 'string' && p['parent_tool_use_id'] !== '') return true;
+    if (typeof p['kimi_agent_id'] === 'string' && p['kimi_agent_id'] !== '') return true;
+  }
+  return false;
+}
+
+/// Compact one-line summary of a sub-agent event.
+function lineOf(ev: FeedEvent, maps: DockMaps): SubagentLine | undefined {
+  const p = ev.payload;
+  switch (ev.kind) {
+    case 'tool_call': {
+      const id = callToolId(p);
+      const name = (typeof p['name'] === 'string' ? p['name'] : undefined) ?? (id !== undefined ? maps.nameById.get(id) : undefined) ?? '';
+      return { id: ev.id, kind: ev.kind, label: name, detail: toolCallKeyArg(p['input']), status: toolStatusOf(ev, maps.resultById, maps.updateById) };
+    }
+    case 'text': {
+      const text = typeof p['text'] === 'string' ? p['text'] : '';
+      if (text === '') return undefined;
+      return { id: ev.id, kind: ev.kind, label: '', detail: text };
+    }
+    case 'thought':
+      return { id: ev.id, kind: ev.kind, label: '', detail: typeof p['text'] === 'string' ? p['text'] : undefined };
+    case 'system': {
+      // task_progress lines are the sub-agent's live narration; the other
+      // task_* frames are lifecycle the header already summarizes.
+      const d = p['description'];
+      if (p['subtype'] !== 'task_progress' || typeof d !== 'string') return undefined;
+      return { id: ev.id, kind: ev.kind, label: '', detail: d };
+    }
+    // tool_result is deliberately absent: it folds into its call's status,
+    // exactly as the transcript's own tool grouping does. Showing both would
+    // double every row.
+    default:
+      return undefined;
+  }
+}
+
+interface DockMaps {
+  nameById: Map<string, string>;
+  resultById: Map<string, Entity>;
+  updateById: Map<string, Entity>;
+}
+
+/// Derive one sub-agent's detail from the FULL session event list. [call] is
+/// the dock row that was clicked — its own payload supplies the header, so the
+/// panel is useful even for an engine that reports no inner events at all.
+export function subagentDetail(events: FeedEvent[], call: DockCall, maps: DockMaps): SubagentDetail {
+  const lines: SubagentLine[] = [];
+  let prompt: string | undefined;
+  let subagentType: string | undefined;
+  let lastActivity: string | undefined;
+
+  // The spawning call itself carries the prompt + description.
+  for (const ev of events) {
+    if (ev.id !== call.id) continue;
+    const input = ev.payload['input'];
+    if (input !== null && typeof input === 'object') {
+      const inp = input as Entity;
+      if (typeof inp['prompt'] === 'string') prompt = inp['prompt'];
+      if (typeof inp['subagent_type'] === 'string') subagentType = inp['subagent_type'];
+    }
+    break;
+  }
+
+  if (call.toolId !== undefined && call.toolId !== '') {
+    for (const ev of events) {
+      if (ev.id === call.id) continue; // the spawning call is the header, not a line
+      if (!belongsToSubagent(ev.payload, call.toolId)) continue;
+      const st = ev.payload['subagent_type'];
+      if (subagentType === undefined && typeof st === 'string') subagentType = st;
+      if (ev.kind === 'system' && ev.payload['subtype'] === 'task_progress') {
+        const d = ev.payload['description'];
+        if (typeof d === 'string') lastActivity = d; // forward scan — newest wins
+      }
+      const line = lineOf(ev, maps);
+      if (line !== undefined) lines.push(line);
+    }
+  }
+
+  return {
+    prompt,
+    subagentType,
+    lastActivity,
+    lines,
+    // Reported when THIS sub-agent produced correlated events, or when the
+    // session shows the engine does publish provenance (so an idle sub-agent
+    // reads as "nothing yet" rather than "unsupported").
+    reported: lines.length > 0 || anyProvenance(events),
   };
 }
 

@@ -42,6 +42,26 @@ This complements:
 ## Unreleased
 
 ### Added
+- **You can now see what a sub-agent actually did.** The Sub-agents chip above
+  the composer lists the delegated agents; clicking one opens what it was asked
+  to do and everything it has done — its tool calls, its notes, and what it is
+  running right now. (vision-parity R5)
+
+  For an engine that does not say which events belong to a sub-agent, the panel
+  still shows the request and says plainly that the rest cannot be separated —
+  which is a different sentence from "this sub-agent has not done anything
+  yet", and the panel picks the right one.
+
+### Fixed
+- **A sub-agent's work used to be reported as the main agent's.** claude's
+  stream carries a `parent_tool_use_id` on every frame — null for the main
+  agent, the delegating call's id for a sub-agent's — and the translator threw
+  it away. So a delegated tool call appeared in the transcript as if the agent
+  you were talking to had run it, and the guard that keeps a sub-agent's token
+  usage out of the session's turn counts (added for kimi) never fired for
+  claude, quietly inflating them. Both translators now stamp it, along with the
+  sub-agent's type, and a real recording of a delegated run is pinned in the
+  parity corpus so the two implementations cannot drift apart on it.
 - **The Companion can now run a *codex* session on this machine too.** Pick
   `codex` in the local picker and the dock drives it through the vendor's own
   `app-server` — a JSON-RPC thread that streams as it writes, folds tool calls

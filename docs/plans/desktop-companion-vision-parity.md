@@ -3,8 +3,9 @@
 > **Type:** plan
 > **Status:** In flight (2026-08-05) — **W1 + W2 + W3 complete**
 > (F1 F2 L1 E1 R1 · L2 E2 R2 R3 F3 · L3a L3b E3 E4 R4; L3c deferrable).
-> **W4 in flight (2026-08-16)**: F4, L4a, L4b and L4c shipped, so
-> **lane L4 is complete** — codex is drivable locally. Left in W4: R5, R6.
+> **W4 in flight (2026-08-16)**: F4, lane L4 (L4a–L4c) and R5 shipped —
+> codex is drivable locally and a sub-agent's work is attributed to it
+> rather than to the main agent. R6 is in review (#573).
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -1015,10 +1016,51 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   Neither client had ever resolved an externalized payload leaf;
   mobile's blob code is all artifact viewers, a different case.
 - **R5 — subagent panel.** The dock's flat name-match rows
-  (`stateDock.ts`) gain a detail panel: click a subagent chip → side
-  panel with that subagent's filtered event stream (events already
-  carry `subagent` marking — the digest fold skips `subagent:true`
-  usage). Phase bars are kimi-only data — out (D-5).
+  (`ui/stateDock.ts` — the pure half; the plan said `state/`) gain a
+  detail panel: click a subagent row → that subagent's filtered event
+  stream. Phase bars are kimi-only data — out (D-5).
+
+  ★★ *"Events already carry `subagent` marking" was true of exactly one
+  engine, and not the one the Companion drives (measured 2026-08-16).*
+  The only producer of `subagent: true` was the **kimi M4 wire-tail**
+  (`kimi_code/mapper.go:235`). Built as written, the panel would have
+  been permanently empty for claude and codex.
+
+  The probe that settled it: a real `claude --print --output-format
+  stream-json` run making one Agent call (no session log on the dev box
+  had a sidechain in it, so there was nothing to read). claude-code
+  2.1.220 turns out to carry **more** than the plan assumed:
+
+  - **`parent_tool_use_id` on every assistant/user frame** — `null` for
+    the main agent, the spawning Agent call's `tool_use_id` for a
+    sub-agent's work. This is the correlation the panel needs.
+  - `subagent_type` + `task_description` alongside it.
+  - four `system` subtypes: `task_started` (carries the full prompt),
+    `task_progress` (`last_tool_name` + running usage), `task_updated`,
+    `task_notification` (final summary + output file).
+  - the tool is named **`Agent`**, not `Task` — the dock's existing
+    name set already matches it.
+
+  **Our translator dropped all of it**, so a sub-agent's tool calls and
+  prose landed in the transcript *indistinguishable from the main
+  agent's own work* — and #374's `subagent:true` guard, which exists to
+  keep a sub-agent's usage out of the session's turn counts, skipped
+  nothing on claude. R5 therefore ships the producer half first: the
+  frame profile stamps `parent_tool_use_id` + a derived `subagent`
+  boolean (the same one kimi already sets, so one vocabulary answers for
+  both engines and the two existing consumers start working with no
+  change), the legacy translator mirrors it field-for-field, and the
+  15-frame recording is now in the parity corpus — its first sidechain
+  coverage. The desktop's TS interpreter reads the same regenerated
+  fixture, so the local Companion gets it too.
+
+  *Honesty note.* codex and gemini publish no per-sub-agent correlation
+  at all. The panel still opens for them: the header (what the
+  sub-agent was asked to do) comes off the spawning call, which every
+  engine has. Below it, "this engine does not report which events are a
+  sub-agent's" — a different sentence from "this sub-agent has not done
+  anything yet", which is what an empty stream means when the engine
+  *does* report. Two facts, two sentences (D-4).
 - **R6 — composer pills.** Model pill and permission-mode pill wired
   to the **existing but unused** input kinds `set_model` / `set_mode`
   (`handlers_agent_input.go:415-503`), sourced from `session.init`

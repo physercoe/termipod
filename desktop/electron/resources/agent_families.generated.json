@@ -89,9 +89,11 @@
             "payload": {
               "description": "$.description",
               "last_tool_name": "$.last_tool_name",
+              "subagent_type": "$.subagent_type",
               "subtype": "$.subtype",
               "task_id": "$.task_id",
-              "text": "$.description"
+              "text": "$.description",
+              "tool_use_id": "$.tool_use_id"
             }
           }
         },
@@ -140,6 +142,9 @@
                 "producer": "agent",
                 "payload": {
                   "message_id": "$$.message.id",
+                  "parent_tool_use_id": "$$.parent_tool_use_id",
+                  "subagent": "present($$.parent_tool_use_id)",
+                  "subagent_type": "$$.subagent_type",
                   "text": "$.text"
                 }
               }
@@ -154,7 +159,10 @@
                 "payload": {
                   "id": "$.id",
                   "input": "$.input",
-                  "name": "$.name"
+                  "name": "$.name",
+                  "parent_tool_use_id": "$$.parent_tool_use_id",
+                  "subagent": "present($$.parent_tool_use_id)",
+                  "subagent_type": "$$.subagent_type"
                 }
               }
             },
@@ -168,7 +176,10 @@
                 "payload": {
                   "marker_only": "absent($.thinking)",
                   "message_id": "$$.message.id",
+                  "parent_tool_use_id": "$$.parent_tool_use_id",
                   "signature_present": "present($.signature)",
+                  "subagent": "present($$.parent_tool_use_id)",
+                  "subagent_type": "$$.subagent_type",
                   "text": "nonempty($.thinking) || \"Thinking…\""
                 }
               }
@@ -213,6 +224,9 @@
                 "payload": {
                   "content": "$.content",
                   "is_error": "$.is_error",
+                  "parent_tool_use_id": "$$.parent_tool_use_id",
+                  "subagent": "present($$.parent_tool_use_id)",
+                  "subagent_type": "$$.subagent_type",
                   "tool_use_id": "$.tool_use_id"
                 }
               }

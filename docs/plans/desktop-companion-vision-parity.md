@@ -9,9 +9,10 @@
 > catalog + loopback WS, split out of L3b). **E3 + E4 shipped
 > 2026-08-16** (streaming command output; relay result passthrough).
 > **R4 shipped 2026-08-16** (live output + agent-produced media) —
-> **W3 complete**. **F4 shipped 2026-08-16** (user-level MCP reseed
-> for claude + codex) — first W4 wedge. Remaining: L3c only, and it
-> is deferrable
+> **W3 complete**; L3c is deferrable. **W4 started 2026-08-16**:
+> **F4 shipped** (user-level MCP reseed for claude + codex) and
+> **L4a shipped** (codex attach-rung resolver; L4's WebSocket premise
+> was wrong — see the wedge). Left in W4: L4b, R5, R6
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -448,15 +449,79 @@ transport rung (lane T), never the renderer's ceiling.
   meaningful, since a cursor could then outlive the service that issued
   it.
 - **L4 — codex via the vendor's service (D-8: use theirs when it
-  exists).** Prefer **WebSocket attach** to a `codex app-server`
-  daemon — spawn it detached if absent, authenticate with its bearer
-  scheme — so the session survives Companion and app restarts and can
-  be shared with the vendor TUI; stdio spawn-per-session is the
-  fallback rung only. Text-delta throttle port, parked
-  approvals/elicitations surface directly as R1 cards (no attention
-  table locally), `turn/interrupt` cancel, `.codex/config.toml`
-  seeding. The spawn-fallback rung takes its resume argv from the same
-  N1 table L3 reads.
+  exists).** Attach to a shared `codex app-server` where one is
+  available so the session survives Companion and app restarts and is
+  visible to the vendor TUI; otherwise run a per-session app server.
+  Text-delta throttle port, parked approvals/elicitations surface
+  directly as R1 cards (no attention table locally), `turn/interrupt`
+  cancel, `.codex/config.toml` seeding. The spawn rung takes its resume
+  argv from the same N1 table L3 reads.
+
+  **L4a shipped 2026-08-16** — the attach-rung resolver
+  (`localagent/codexattach.ts`). **This line originally specified a
+  WebSocket attach with a bearer scheme; no such interface exists.**
+  Measured against codex-cli **0.147.0** (the installed CLI had also
+  moved on from the 0.133.0 that E3 was written against):
+
+  1. **The shared-daemon transport is a Unix domain socket, not a
+     WebSocket, and there is no bearer scheme.** `codex app-server
+     daemon start` brings the daemon up and `codex app-server proxy
+     --sock <path>` pipes stdio to its control socket at
+     `<CODEX_HOME>/app-server-control/app-server-control.sock`. The
+     `--code-mode-host <WS_URL>` flag is a different feature (where
+     *code mode* runs), not the session transport. So the attach rung
+     needs **no WebSocket client and no token** — it is the same
+     JSON-RPC-over-stdio we already speak, pointed at another process.
+  2. **"Spawn it detached if absent" is not available.** `daemon start`
+     refuses unless codex was installed by the official installer
+     script, wanting the managed binary at
+     `<CODEX_HOME>/packages/standalone/current/codex`. An npm /
+     homebrew / distro codex — including the one on this machine —
+     therefore has **no daemon rung at all**.
+  3. **The rung order inverts.** Per-session stdio is not "the fallback
+     rung only"; for the common install it is the only rung. The daemon
+     is an opportunistic upgrade taken when the managed install exists.
+
+  One more measured constraint: the control socket is subject to the
+  platform `SUN_LEN` cap (~104–108 bytes). A deeply relocated
+  `CODEX_HOME` fails at connect time with *"path must be shorter than
+  SUN_LEN"* — a message nobody would attribute to path length — so the
+  resolver disqualifies the daemon rung up front and says why.
+
+  **Confirmed against a live daemon (2026-08-16).** The dev machine was
+  moved to the installer-managed standalone codex, so the daemon rung —
+  previously unreachable here — could be exercised. `codex app-server
+  daemon start` reports both paths this resolver computes, **exactly**:
+  `managedCodexPath` = `<CODEX_HOME>/packages/standalone/current/codex`
+  and `socketPath` =
+  `<CODEX_HOME>/app-server-control/app-server-control.sock`. The socket
+  is created `srw-------` — **filesystem permissions are the auth**,
+  which is the positive form of "there is no bearer scheme".
+
+  **Open for L4b — the proxy's data path is NOT yet proven.** `codex
+  app-server proxy --sock <path>` connects and exits 0 with no stdout
+  and no stderr for the same `initialize` handshake that works over a
+  plain `codex app-server` child (E3's probe shape), with stdin held
+  open. Two candidate causes, neither confirmed: the daemon may require
+  `codex app-server daemon enable-remote-control` (its help does not say
+  what that exposes, and the sibling `bootstrap` frames it as
+  SSH-driven — a security-posture question for the director, not a
+  default), or the control socket may expect a framing/handshake the
+  bare JSON-RPC line does not supply. **L4b must not assume the attach
+  rung works until a round trip is observed**; the resolver deliberately
+  decides *which argv*, not *that it succeeds*.
+
+  **Discoverability regression to handle in L4b.** The standalone codex
+  lives at `~/.local/bin/codex` with its PATH entry written into
+  `.bashrc` — which a GUI-launched Electron app never sources. It is
+  therefore *less* discoverable than a `/usr/bin/codex` package was.
+  That is what `TERMIPOD_CODEX_BIN` exists for, and L4b should resolve
+  the binary the way `kimiweb.ts` already does for kimi
+  (`findKimiOnPath` + `mergePathDirs`) rather than trusting `PATH`.
+
+  **L4b** (still to do) is the driver itself: the app-server JSON-RPC
+  client over whichever argv L4a returns, delta throttling, R1 approval
+  cards, `turn/interrupt`, config seeding.
 
 ### Lane E — event-vocabulary gaps (hub; verified per-driver)
 

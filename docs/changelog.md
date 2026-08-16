@@ -173,6 +173,15 @@ binding). Seed entries prior to that are in
 
 ### Changed
 
+- **A screenshot taken through the hub arrives as an image.** A remote
+  agent driving someone's desktop got every bridge result — screenshots,
+  rendered figures, page reads — as a JSON rendering of a tool result
+  inside a text block, which for a PNG meant base64 prose no model can
+  look at. The desktop already answers with exactly the MCP result a
+  local caller receives, so the relay now forwards it instead of
+  describing it; anything that is not already a tool result keeps the
+  JSON wrapper it had. Local and relayed calls now return the same
+  thing. (vision-parity E4)
 - **The legacy idle detector's guard now names its own reason.**
   `hasStructuredDriver(kind)` becomes `hasAnyStateAuthority(agent)` — a
   live structured driver, or manifest coverage, or a registered engine

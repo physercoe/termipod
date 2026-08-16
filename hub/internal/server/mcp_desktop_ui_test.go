@@ -512,3 +512,41 @@ func TestDesktopUIToolClasses_AreExhaustiveAndDisjoint(t *testing.T) {
 		t.Error("ui_get_focus must be a read")
 	}
 }
+
+// An approved screenshot reaches the agent as an image, not as base64 prose
+// (vision-parity E4). This is the same relay fix the browser class gets, on
+// the path the asymmetry was actually named for: a captured screen is the one
+// bridge result that is worthless when flattened into text.
+func TestDesktopUIScreenshot_ReturnsARealImageBlock(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+	hostID := seedDesktopUIHost(t, s, defaultTeamID, `{"desktop_ui":true}`)
+	const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
+	startFakeBrowserDesktop(t, s, hostID, func(env *tunnelRequest) (int, string) {
+		return okBrowserToolResult(`{"type":"image","data":"` + png + `","mimeType":"image/png"}`)
+	})
+
+	done := desktopInvokeResult(s, agentID, map[string]any{"host_id": hostID, "tool": "ui_screenshot"})
+	id := awaitAttentionRow(t, s, "desktop_action", "")
+	resolveAttention(t, s, id, map[string]any{"decision": "approve", "by": "director"})
+	got := <-done
+	if got.jerr != nil {
+		t.Fatalf("ui_screenshot: %+v", got.jerr)
+	}
+
+	m, ok := got.out.(map[string]any)
+	if !ok {
+		t.Fatalf("result not a map: %T", got.out)
+	}
+	blocks, ok := m["content"].([]any)
+	if !ok || len(blocks) != 1 {
+		t.Fatalf("want one content block, got %+v", m["content"])
+	}
+	blk, _ := blocks[0].(map[string]any)
+	if blk["type"] != "image" || blk["data"] != png {
+		t.Fatalf("captured screen must arrive as an image block carrying its bytes; got %+v", blk)
+	}
+	if txt, _ := blk["text"].(string); strings.Contains(txt, png) {
+		t.Error("the PNG is inside a text block — the JSON wrapper is still in the path")
+	}
+}

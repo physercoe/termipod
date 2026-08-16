@@ -537,6 +537,58 @@ func mcpResultJSON(v any) map[string]any {
 	return mcpwire.AttachStructuredContent(mcpResultText(string(b)), v, b)
 }
 
+// mcpToolResultPassthrough reports whether v is *already* a well-formed
+// MCP tool result — a non-empty `content` array of typed blocks — and
+// hands it back unchanged when it is.
+//
+// A relay needs this because the thing on the far end already speaks
+// MCP. The desktop bridge answers a hub-relayed call with the very
+// object a local caller receives (`browserbridge.ts` dispatchHubInvoke →
+// callTool), so passing it through mcpResultJSON makes the reply
+// *describe* a tool result instead of *being* one: the agent gets
+// `{"content":[{"type":"image","data":"<base64 PNG>",…}]}` as the TEXT
+// of a single text block. For an image that is unusable — the bytes
+// arrive as prose no model can look at — and for everything else it is a
+// layer of quoting the local path does not have (vision-parity E4,
+// asymmetry #3).
+//
+// Forwarded verbatim, extra keys included: "what a local caller sees" is
+// the whole point, and the far end is the authority on its own tools'
+// results. `isError` therefore survives too, though today the desktop
+// maps a failed tool onto the envelope's error half before it gets here.
+//
+// The shape check is deliberately strict, and errs toward the wrapper:
+//   - `content` must be an ARRAY — a tool returning its own payload under
+//     that key (a page's content, a file's content) is far more likely to
+//     be a string or an object, and keeps the JSON wrapper it always had.
+//   - every element must be an object carrying a non-empty string `type`.
+//   - it must be NON-EMPTY. `{"content":[]}` is a legal MCP result, so
+//     this rejects a real one; that costs an agent a `{"content": []}`
+//     text block instead of an empty result. The other direction — an
+//     arbitrary object with an empty `content` list mistaken for a tool
+//     result — hands the agent something malformed, and no discriminator
+//     can tell those two apart. Losing nothing beats forwarding garbage.
+func mcpToolResultPassthrough(v any) (map[string]any, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	blocks, ok := m["content"].([]any)
+	if !ok || len(blocks) == 0 {
+		return nil, false
+	}
+	for _, b := range blocks {
+		blk, ok := b.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if t, _ := blk["type"].(string); t == "" {
+			return nil, false
+		}
+	}
+	return m, true
+}
+
 // mcpResultError builds a tool result flagged isError. Used for
 // recoverable, agent-visible failures — the agent sees the message
 // inline and can retry — as opposed to a *jrpcError protocol fault.

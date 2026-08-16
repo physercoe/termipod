@@ -638,6 +638,22 @@ test('read: ratings persist, update in one click, and sort highest first', async
       return library.references?.find((reference) => reference.id === 'ref-rating-none')?.rating;
     });
     expect(persisted).toBe(4);
+
+    await rows.filter({ hasText: 'Rating Gamma' }).click();
+    const metadataRow = page.locator('.ref-rating-type-row');
+    await expect(metadataRow).toBeVisible();
+    const metadataMetrics = await metadataRow.evaluate((node) => {
+      const rating = node.querySelector<HTMLElement>('.ref-rating-field')!.getBoundingClientRect();
+      const type = node.querySelector<HTMLElement>('.ref-type-field')!.getBoundingClientRect();
+      return {
+        ratingTop: Math.round(rating.top),
+        ratingRight: Math.round(rating.right),
+        typeTop: Math.round(type.top),
+        typeLeft: Math.round(type.left),
+      };
+    });
+    expect(metadataMetrics.typeTop).toBe(metadataMetrics.ratingTop);
+    expect(metadataMetrics.typeLeft).toBeGreaterThan(metadataMetrics.ratingRight);
   } finally {
     await page.evaluate((original) => {
       if (original === null) localStorage.removeItem('termipod.library.v1');

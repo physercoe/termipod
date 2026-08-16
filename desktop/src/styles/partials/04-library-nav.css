@@ -346,6 +346,17 @@
   font-size: var(--font-size-label);
   color: var(--text-secondary);
 }
+.ref-rating-type-row {
+  align-items: flex-start;
+}
+.ref-rating-type-row .ref-rating-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ref-rating-type-row .ref-type-field {
+  flex: 0 1 120px;
+  min-width: 96px;
+}
 .ref-rating-value {
   display: flex;
   align-items: center;

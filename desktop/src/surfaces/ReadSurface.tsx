@@ -1279,27 +1279,29 @@ function Inspector({
         {tab === 'info' && (
           <div className="ref-form">
             <label className="wide">
-              {t('read.fType')}
-              <select value={ref.type} onChange={(e) => update(ref.id, { type: e.target.value as RefType })}>
-                {REF_TYPES.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="wide">
               {t('read.fTitle')}
               <input value={ref.title} autoFocus={ref.title === ''} onChange={(e) => update(ref.id, { title: e.target.value })} />
             </label>
-            <div className="wide ref-rating-field">
-              <span>{t('read.fRating')}</span>
-              <div className="ref-rating-value">
-                <RatingControl value={ref.rating} onChange={(rating) => update(ref.id, { rating })} />
-                <span className="muted small">
-                  {ref.rating === undefined ? t('read.ratingUnrated') : `${ref.rating}/5`}
-                </span>
+            <div className="ref-form-row ref-rating-type-row">
+              <div className="ref-rating-field">
+                <span>{t('read.fRating')}</span>
+                <div className="ref-rating-value">
+                  <RatingControl value={ref.rating} onChange={(rating) => update(ref.id, { rating })} />
+                  <span className="muted small">
+                    {ref.rating === undefined ? t('read.ratingUnrated') : `${ref.rating}/5`}
+                  </span>
+                </div>
               </div>
+              <label className="ref-type-field">
+                {t('read.fType')}
+                <select value={ref.type} onChange={(e) => update(ref.id, { type: e.target.value as RefType })}>
+                  {REF_TYPES.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <label className="wide">
               {t('read.fAuthors')}

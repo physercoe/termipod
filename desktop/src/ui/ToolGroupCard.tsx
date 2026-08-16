@@ -68,7 +68,7 @@ function GroupRow({
       </button>
       {detailOpen && (
         <div className="tg-detail">
-          <ToolCallBody p={ev.payload} result={result} />
+          <ToolCallBody p={ev.payload} result={result} update={update} />
         </div>
       )}
     </div>

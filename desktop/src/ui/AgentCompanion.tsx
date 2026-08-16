@@ -24,6 +24,7 @@ import { InlineAttentionCards } from './ApprovalCards';
 import { pendingAttentionFor } from './approvalRequest';
 import { callToolId, EventCard, toFeedEvent } from './EventCard';
 import { isHiddenInFeed } from './feedLens';
+import { toolCallUpdateParentId } from './toolGroups';
 import { LocalAgentLauncher } from './LocalAgentLauncher';
 
 // Cap per-mention file text so a large file can't blow the message context.
@@ -262,14 +263,23 @@ export function AgentCompanion({
 
   const feed = useMemo(() => events.map((e, i) => toFeedEvent(e, i)), [events]);
 
-  const { resultById, nameById, callIds } = useMemo(() => {
+  // NOTE: a hand-copy of AgentTranscript's `useToolMaps`. The duplication is
+  // why this one silently lacked `updateById` (so R4's streamed output had
+  // nowhere to come from here) — worth collapsing into one shared hook, but
+  // that refactor is deliberately not folded into this wedge.
+  const { resultById, updateById, nameById, callIds } = useMemo(() => {
     const resultById = new Map<string, Entity>();
+    const updateById = new Map<string, Entity>();
     const nameById = new Map<string, string>();
     const callIds = new Set<string>();
     for (const ev of feed) {
       if (ev.kind === 'tool_result') {
         const id = str(ev.payload, 'tool_use_id');
         if (id !== undefined) resultById.set(id, ev.payload);
+      } else if (ev.kind === 'tool_call_update') {
+        // Latest update wins, matching useToolMaps.
+        const id = toolCallUpdateParentId(ev.payload);
+        if (id !== undefined) updateById.set(id, ev.payload);
       } else if (ev.kind === 'tool_call') {
         const id = callToolId(ev.payload);
         if (id !== undefined) {
@@ -279,7 +289,7 @@ export function AgentCompanion({
         }
       }
     }
-    return { resultById, nameById, callIds };
+    return { resultById, updateById, nameById, callIds };
   }, [feed]);
 
   // Visible feed: hide noise + fold tool_results that a tool_call already shows.
@@ -434,13 +444,19 @@ export function AgentCompanion({
       <div className="companion-feed scroll">
         {visible.map((ev) => {
           if (ev.kind === 'tool_call') {
+            // The two props were swapped here: a tool_call needs its `result`
+            // (ToolCallBody folds it in) and a tool_result needs `callName` (to
+            // borrow its tool's name back). Passing each the other's prop meant
+            // the Companion never folded a result into its call card and
+            // labelled every standalone result "Result".
             const id = callToolId(ev.payload);
             return (
               <EventCard
                 key={ev.id}
                 ev={ev}
                 agentId={agentId}
-                callName={id !== undefined ? nameById.get(id) : undefined}
+                result={id !== undefined ? resultById.get(id) : undefined}
+                update={id !== undefined ? updateById.get(id) : undefined}
               />
             );
           }
@@ -451,7 +467,7 @@ export function AgentCompanion({
                 key={ev.id}
                 ev={ev}
                 agentId={agentId}
-                result={id !== undefined ? resultById.get(id) : undefined}
+                callName={id !== undefined ? nameById.get(id) : undefined}
               />
             );
           }

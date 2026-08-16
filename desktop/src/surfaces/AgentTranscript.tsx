@@ -480,7 +480,14 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     }
     if (ev.kind === 'tool_call') {
       const id = callToolId(ev.payload);
-      return <EventCard ev={ev} agentId={live} result={id !== undefined ? resultById.get(id) : undefined} />;
+      return (
+        <EventCard
+          ev={ev}
+          agentId={live}
+          result={id !== undefined ? resultById.get(id) : undefined}
+          update={id !== undefined ? updateById.get(id) : undefined}
+        />
+      );
     }
     // Quote-into-composer only where the composer lives (live mode).
     return <EventCard ev={ev} agentId={live} onQuote={mode === 'live' ? quoteToComposer : undefined} />;

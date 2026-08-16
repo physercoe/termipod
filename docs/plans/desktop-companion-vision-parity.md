@@ -488,6 +488,37 @@ transport rung (lane T), never the renderer's ceiling.
   SUN_LEN"* — a message nobody would attribute to path length — so the
   resolver disqualifies the daemon rung up front and says why.
 
+  **Confirmed against a live daemon (2026-08-16).** The dev machine was
+  moved to the installer-managed standalone codex, so the daemon rung —
+  previously unreachable here — could be exercised. `codex app-server
+  daemon start` reports both paths this resolver computes, **exactly**:
+  `managedCodexPath` = `<CODEX_HOME>/packages/standalone/current/codex`
+  and `socketPath` =
+  `<CODEX_HOME>/app-server-control/app-server-control.sock`. The socket
+  is created `srw-------` — **filesystem permissions are the auth**,
+  which is the positive form of "there is no bearer scheme".
+
+  **Open for L4b — the proxy's data path is NOT yet proven.** `codex
+  app-server proxy --sock <path>` connects and exits 0 with no stdout
+  and no stderr for the same `initialize` handshake that works over a
+  plain `codex app-server` child (E3's probe shape), with stdin held
+  open. Two candidate causes, neither confirmed: the daemon may require
+  `codex app-server daemon enable-remote-control` (its help does not say
+  what that exposes, and the sibling `bootstrap` frames it as
+  SSH-driven — a security-posture question for the director, not a
+  default), or the control socket may expect a framing/handshake the
+  bare JSON-RPC line does not supply. **L4b must not assume the attach
+  rung works until a round trip is observed**; the resolver deliberately
+  decides *which argv*, not *that it succeeds*.
+
+  **Discoverability regression to handle in L4b.** The standalone codex
+  lives at `~/.local/bin/codex` with its PATH entry written into
+  `.bashrc` — which a GUI-launched Electron app never sources. It is
+  therefore *less* discoverable than a `/usr/bin/codex` package was.
+  That is what `TERMIPOD_CODEX_BIN` exists for, and L4b should resolve
+  the binary the way `kimiweb.ts` already does for kimi
+  (`findKimiOnPath` + `mergePathDirs`) rather than trusting `PATH`.
+
   **L4b** (still to do) is the driver itself: the app-server JSON-RPC
   client over whichever argv L4a returns, delta throttling, R1 approval
   cards, `turn/interrupt`, config seeding.

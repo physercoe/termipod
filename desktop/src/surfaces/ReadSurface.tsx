@@ -34,6 +34,13 @@ import {
 } from '../state/attachments';
 import { syncLibrary } from '../state/librarySync';
 import { useDiscoverySearch, type DiscoverySort } from '../state/discoverySearch';
+import {
+  discoveryQueryKey,
+  useDiscoveryHistory,
+  type DiscoveryQuerySpec,
+  type RecentDiscoverySearch,
+  type SavedDiscoverySearch,
+} from '../state/discoveryHistory';
 import { syncAnnotations } from '../state/annotationSync';
 import { useReadTabs } from '../state/readTabs';
 import { useSession } from '../state/session';
@@ -49,6 +56,7 @@ import {
   SOURCES,
   sourceById,
   type DiscoveryPaper,
+  type DiscoverySourceId,
   type ScrapePatch,
   type ScrapeSeed,
 } from '../discovery';
@@ -1979,7 +1987,146 @@ function ReaderView({
 
 // ---- Discover --------------------------------------------------------------
 
-const SOURCE_LS = 'termipod.discover.source';
+function discoverySourceLabel(id: DiscoverySourceId): string {
+  return SOURCES.find((source) => source.id === id)?.label ?? id;
+}
+
+function discoverySearchDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function DiscoverySearchRow({
+  entry,
+  saved,
+  onRun,
+  onSave,
+  onRemove,
+}: {
+  entry: RecentDiscoverySearch | SavedDiscoverySearch;
+  saved: boolean;
+  onRun: () => void;
+  onSave?: () => void;
+  onRemove: () => void;
+}): JSX.Element {
+  const t = useT();
+  const isRecent = 'ranAt' in entry;
+  const label = 'name' in entry ? entry.name : entry.query;
+  return (
+    <div className="discover-nav-row">
+      <button className="discover-nav-main" title={entry.query} onClick={onRun}>
+        <span className="discover-nav-query">{label}</span>
+        <span className="discover-nav-meta">
+          {discoverySourceLabel(entry.sourceId)}
+          {' · '}
+          {isRecent
+            ? `${entry.resultCount} · ${discoverySearchDate(entry.ranAt)}`
+            : discoverySearchDate(entry.savedAt)}
+        </span>
+      </button>
+      <span className="discover-nav-actions">
+        {onSave !== undefined && (
+          <button
+            className={`discover-nav-action${saved ? ' active' : ''}`}
+            title={saved ? t('read.searchSaved') : t('read.saveSearch')}
+            aria-label={saved ? t('read.searchSaved') : t('read.saveSearch')}
+            disabled={saved}
+            onClick={onSave}
+          >
+            <Icon name="star" size={13} />
+          </button>
+        )}
+        <button
+          className="discover-nav-action"
+          title={t('read.removeSearch')}
+          aria-label={t('read.removeSearch')}
+          onClick={onRemove}
+        >
+          <Icon name="close" size={13} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function DiscoveryRail(): JSX.Element {
+  const t = useT();
+  const recent = useDiscoveryHistory((state) => state.recent);
+  const saved = useDiscoveryHistory((state) => state.saved);
+  const save = useDiscoveryHistory((state) => state.save);
+  const removeRecent = useDiscoveryHistory((state) => state.removeRecent);
+  const removeSaved = useDiscoveryHistory((state) => state.removeSaved);
+  const clearRecent = useDiscoveryHistory((state) => state.clearRecent);
+  const restoreAndRun = useDiscoverySearch((state) => state.restoreAndRun);
+  const savedKeys = useMemo(() => new Set(saved.map(discoveryQueryKey)), [saved]);
+  return (
+    <div className="discover-nav">
+      <div className="discover-nav-primary">
+        <button className="discover-nav-destination active" aria-current="page">
+          <Icon name="search" size={15} />
+          <span>{t('read.discoverExplore')}</span>
+        </button>
+      </div>
+
+      <section className="discover-nav-section">
+        <div className="discover-nav-heading">
+          <span>{t('read.savedSearches')}</span>
+          <span className="muted tnum">{saved.length}</span>
+        </div>
+        {saved.length === 0 ? (
+          <div className="discover-nav-empty">{t('read.savedSearchesEmpty')}</div>
+        ) : (
+          saved.map((entry) => (
+            <DiscoverySearchRow
+              key={entry.id}
+              entry={entry}
+              saved
+              onRun={() => restoreAndRun(entry)}
+              onRemove={() => removeSaved(entry.id)}
+            />
+          ))
+        )}
+      </section>
+
+      <section className="discover-nav-section grow">
+        <div className="discover-nav-heading">
+          <span>{t('read.recentSearches')}</span>
+          {recent.length > 0 && (
+            <button className="discover-nav-clear" onClick={clearRecent}>
+              {t('read.clearSearchHistory')}
+            </button>
+          )}
+        </div>
+        {recent.length === 0 ? (
+          <div className="discover-nav-empty">{t('read.recentSearchesEmpty')}</div>
+        ) : (
+          recent.map((entry) => {
+            const isSaved = savedKeys.has(discoveryQueryKey(entry));
+            return (
+              <DiscoverySearchRow
+                key={entry.id}
+                entry={entry}
+                saved={isSaved}
+                onRun={() => restoreAndRun(entry)}
+                onSave={() => save(entry)}
+                onRemove={() => removeRecent(entry.id)}
+              />
+            );
+          })
+        )}
+      </section>
+
+      <div className="discover-nav-privacy">
+        <Icon name="lock" size={13} />
+        <span>{t('read.searchHistoryPrivacy')}</span>
+      </div>
+    </div>
+  );
+}
 
 function DiscoverPanel({
   selectedId,
@@ -2010,11 +2157,14 @@ function DiscoverPanel({
   const setYearTo = useDiscoverySearch((s) => s.setYearTo);
   const setResultSort = useDiscoverySearch((s) => s.setSort);
   const clearFilters = useDiscoverySearch((s) => s.clearFilters);
+  const sourceId = useDiscoverySearch((s) => s.sourceId);
+  const setSourceId = useDiscoverySearch((s) => s.setSourceId);
+  const findPdfs = useDiscoverySearch((s) => s.findPdfs);
+  const setFindPdfs = useDiscoverySearch((s) => s.setFindPdfs);
+  const runRequest = useDiscoverySearch((s) => s.runRequest);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [sourceId, setSourceId] = useState<string>(() => localStorage.getItem(SOURCE_LS) ?? 'openalex');
   const [showKey, setShowKey] = useState(false);
-  const [findPdfs, setFindPdfs] = useState(true);
   // When the query is a bare DOI / arXiv id / OpenAlex id, offer a direct
   // scrape-and-add instead of a keyword search.
   const idSeed = useMemo(() => detectIdentifier(q), [q]);
@@ -2024,9 +2174,20 @@ function DiscoverPanel({
   const [pdfErr, setPdfErr] = useState<{ id: string; msg: string } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersAnchorRef = useRef<HTMLButtonElement>(null);
+  const handledRunRequest = useRef(0);
+  const savedSearches = useDiscoveryHistory((state) => state.saved);
+  const saveSearch = useDiscoveryHistory((state) => state.save);
+  const removeSavedSearch = useDiscoveryHistory((state) => state.removeSaved);
+  const recordSearch = useDiscoveryHistory((state) => state.record);
 
   const source = sourceById(sourceId);
   const [key, setKey] = useState(() => (source.keyKey !== undefined ? lsGet(source.keyKey) : ''));
+  useEffect(() => {
+    const nextSource = sourceById(sourceId);
+    setKey(nextSource.keyKey !== undefined ? lsGet(nextSource.keyKey) : '');
+    setShowKey(false);
+    setErr(null);
+  }, [sourceId]);
 
   const importedByExternalId = useMemo(
     () =>
@@ -2060,35 +2221,43 @@ function DiscoverPanel({
     });
   }, [authorFilter, resultSort, results, yearFrom, yearTo]);
   const activeFilterCount = Number(authorFilter.trim() !== '') + Number(yearFrom !== '') + Number(yearTo !== '');
+  const currentSpec: DiscoveryQuerySpec = {
+    query: q,
+    sourceId,
+    authorFilter,
+    yearFrom,
+    yearTo,
+    sort: resultSort,
+    findPdfs,
+  };
+  const currentSaved =
+    q.trim() === '' ? undefined : savedSearches.find((entry) => discoveryQueryKey(entry) === discoveryQueryKey(currentSpec));
 
-  function pickSource(id: string): void {
+  function pickSource(id: DiscoverySourceId): void {
     setSourceId(id);
-    try {
-      localStorage.setItem(SOURCE_LS, id);
-    } catch {
-      /* ignore */
-    }
-    const s = sourceById(id);
-    setKey(s.keyKey !== undefined ? lsGet(s.keyKey) : '');
-    setShowKey(false);
-    setErr(null);
   }
 
   async function run(): Promise<void> {
     if (q.trim() === '') return;
+    const spec = { ...currentSpec, query: q.trim() };
+    const selectedSource = sourceById(spec.sourceId);
     setBusy(true);
     setErr(null);
     try {
-      let res: DiscoveryPaper[] = (await source.search(q, 25)).map((paper) => ({ ...paper, source: source.id }));
+      let res: DiscoveryPaper[] = (await selectedSource.search(spec.query, 25)).map((paper) => ({
+        ...paper,
+        source: selectedSource.id,
+      }));
       // Backfill open-access PDF links (Unpaywall) for results with a DOI but no
       // PDF — more "PDF" badges appear regardless of which source was used.
-      if (findPdfs) res = await enrichWithUnpaywall(res);
+      if (spec.findPdfs) res = await enrichWithUnpaywall(res);
       setResults(res);
+      recordSearch(spec, res.length);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'needs-key') {
-        setShowKey(source.keyManagedInVault !== true);
-        setErr(source.keyManagedInVault === true ? t('read.needsVaultKey') : t('read.needsKey'));
+        setShowKey(selectedSource.keyManagedInVault !== true);
+        setErr(selectedSource.keyManagedInVault === true ? t('read.needsVaultKey') : t('read.needsKey'));
       } else if (msg === 'serpapi-shell-required') {
         setErr(t('read.serpApiDesktopOnly'));
       } else {
@@ -2099,6 +2268,12 @@ function DiscoverPanel({
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (runRequest === 0 || handledRunRequest.current === runRequest) return;
+    handledRunRequest.current = runRequest;
+    void run();
+  }, [runRequest]);
 
   function importPaper(p: DiscoveryPaper): void {
     // Discovery is a batch workflow: save the result in place and let the card
@@ -2186,6 +2361,18 @@ function DiscoverPanel({
           placeholder={t('read.discoverPlaceholder')}
           autoFocus
         />
+        <button
+          className={`icon-btn discover-save-search${currentSaved !== undefined ? ' active' : ''}`}
+          disabled={q.trim() === ''}
+          title={currentSaved !== undefined ? t('read.removeSavedSearch') : t('read.saveSearch')}
+          aria-label={currentSaved !== undefined ? t('read.removeSavedSearch') : t('read.saveSearch')}
+          onClick={() => {
+            if (currentSaved !== undefined) removeSavedSearch(currentSaved.id);
+            else saveSearch(currentSpec);
+          }}
+        >
+          <Icon name="star" size={15} />
+        </button>
         <button className="primary" disabled={busy || q.trim() === ''} onClick={() => void run()}>
           {busy ? t('read.searching') : t('read.search')}
         </button>
@@ -3206,6 +3393,10 @@ export function ReadSurface(): JSX.Element {
         {!railCollapsed ? (
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
+          {mode === 'discover' ? (
+            <DiscoveryRail />
+          ) : (
+            <>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
               has its own scrollbar, and the divider between them drags vertically
               to reallocate height. The tag pane is always present (with its filter
@@ -3322,6 +3513,8 @@ export function ReadSurface(): JSX.Element {
               )}
             </div>
           </div>
+            </>
+          )}
         </aside>
 
         <ResizeHandle

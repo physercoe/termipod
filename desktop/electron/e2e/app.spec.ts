@@ -731,6 +731,103 @@ test('read: Cite keeps Scholar and OpenAlex provenance separate', async () => {
   }
 });
 
+test('read: Discovery uses contextual saved and recent search navigation', async () => {
+  await dismissConnectModal();
+  const originals = await page.evaluate(() => {
+    const libraryKey = 'termipod.library.v1';
+    const historyKey = 'termipod.discover.history.v1';
+    const originalLibrary = localStorage.getItem(libraryKey);
+    const originalHistory = localStorage.getItem(historyKey);
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-discovery-rail',
+        type: 'article',
+        title: 'Library rail fixture',
+        authors: ['TermiPod'],
+        tags: ['library-only-tag'],
+        collectionIds: ['collection-only'],
+        notes: '',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [],
+      }],
+      collections: [{ id: 'collection-only', name: 'Library-only collection' }],
+    }));
+    localStorage.setItem(historyKey, JSON.stringify({
+      version: 1,
+      saved: [{
+        id: 'saved-e2e',
+        name: 'Saved core query',
+        query: 'saved discovery query',
+        sourceId: 'core',
+        authorFilter: 'Researcher',
+        yearFrom: '2024',
+        yearTo: '',
+        sort: 'newest',
+        findPdfs: false,
+        savedAt: Date.now() - 2000,
+      }],
+      recent: [{
+        id: 'recent-e2e',
+        query: 'recent discovery query',
+        sourceId: 'openalex',
+        authorFilter: '',
+        yearFrom: '',
+        yearTo: '',
+        sort: 'relevance',
+        findPdfs: true,
+        ranAt: Date.now() - 1000,
+        resultCount: 17,
+      }],
+    }));
+    return { originalLibrary, originalHistory };
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+
+    const rail = page.locator('.discover-nav');
+    await expect(rail).toBeVisible();
+    await expect(rail.getByText('Saved core query', { exact: true })).toBeVisible();
+    await expect(rail.getByText('recent discovery query', { exact: true })).toBeVisible();
+    await expect(rail.getByText('Recent searches', { exact: true })).toBeVisible();
+    await expect(page.getByText('Library-only collection', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('library-only-tag', { exact: true })).toHaveCount(0);
+
+    await rail.locator('.discover-nav-row').filter({ hasText: 'Saved core query' }).locator('.discover-nav-main').click();
+    await expect(page.locator('.discover-input')).toHaveValue('saved discovery query');
+    await expect(page.locator('.discover-src.active')).toHaveText('CORE');
+    await expect(page.getByRole('button', { name: 'Remove saved search', exact: true })).toBeVisible();
+
+    await page.locator('.discover-input').fill('a newly saved query');
+    await page.locator('.discover-save-search').click();
+    await expect(rail.getByText('a newly saved query', { exact: true })).toBeVisible();
+    await expect(page.locator('.discover-save-search')).toHaveAttribute(
+      'aria-label',
+      'Remove saved search',
+    );
+    await page.locator('.discover-save-search').click();
+    await expect(rail.getByText('a newly saved query', { exact: true })).toHaveCount(0);
+
+    await rail.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(rail.getByText('recent discovery query', { exact: true })).toHaveCount(0);
+    const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('termipod.discover.history.v1') ?? '{}'));
+    expect(persisted.recent).toEqual([]);
+    expect(persisted.saved).toHaveLength(1);
+  } finally {
+    await page.evaluate(({ originalLibrary, originalHistory }) => {
+      if (originalLibrary === null) localStorage.removeItem('termipod.library.v1');
+      else localStorage.setItem('termipod.library.v1', originalLibrary);
+      if (originalHistory === null) localStorage.removeItem('termipod.discover.history.v1');
+      else localStorage.setItem('termipod.discover.history.v1', originalHistory);
+    }, originals);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {

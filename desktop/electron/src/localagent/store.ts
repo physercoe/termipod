@@ -28,7 +28,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { ToolPosture } from './claudewire.ts';
+import type { ToolPosture } from './driver.ts';
 
 export const SESSIONS_DIRNAME = 'local-sessions';
 export const META_FILENAME = 'meta.json';

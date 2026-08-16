@@ -549,18 +549,29 @@ families:
       M1: respawn
       M2: respawn
     # ADR-021 D5 / W4.3 — codex's app-server JSON-RPC `turn/start.input`
-    # accepts content blocks including `{type:"input_image",
-    # image_url:"data:..."}`. Driver wire shape lands in W4.3.
+    # accepts an image content block. MEASURED against codex-cli
+    # 0.147.0 (vision-parity L4c): the accepted shape is
+    # `{type:"image", url:"data:<mime>;base64,<data>"}`. The
+    # `{type:"input_image", image_url:...}` this comment previously
+    # claimed is REJECTED — `-32600 Invalid request: unknown variant
+    # 'input_image', expected one of 'text', 'image', 'localImage',
+    # 'audio', 'localAudio', 'skill', 'mention'`.
     prompt_image:
       M1: true
       M2: true
       M4: false
-    # artifact-type-registry W7.2 — codex accepts PDF as `file_data`
-    # content block; audio/video aren't supported on OpenAI chat
-    # input today.
+    # M2 is FALSE, measured, and this row used to say true.
+    # codex 0.147.0's `UserInput` union (the vendor's own
+    # `codex app-server generate-ts`) has no file variant at all, and
+    # `{type:"input_file", file_data:...}` is rejected with the same
+    # "unknown variant" error — so a PDF did not merely fail to reach
+    # the model, it failed the whole `turn/start` and lost the turn
+    # with it. M1 (the ACP adapter) is a different transport and is
+    # unaffected. Audio/video aren't supported on OpenAI chat input
+    # today.
     prompt_pdf:
       M1: true
-      M2: true
+      M2: false
       M4: false
     # ─── Launch contract (ADR-043) ────────────────────────────────
     # codex M2 drives the app-server's JSON-RPC stdio protocol. The

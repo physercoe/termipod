@@ -712,7 +712,7 @@
     },
     "prompt_pdf": {
       "M1": true,
-      "M2": true,
+      "M2": false,
       "M4": false
     }
   },

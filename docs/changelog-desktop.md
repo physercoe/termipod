@@ -42,6 +42,34 @@ This complements:
 ## Unreleased
 
 ### Added
+- **The Companion can now run a *codex* session on this machine too.** Pick
+  `codex` in the local picker and the dock drives it through the vendor's own
+  `app-server` — a JSON-RPC thread that streams as it writes, folds tool calls
+  the same way a claude session does, and comes back after an app restart with
+  its memory intact (`thread/resume`) and its transcript re-read from disk. It
+  reuses the hub's own codex frame profile, so a local codex transcript and a
+  hub-driven one are the same rows. Where a shared codex daemon is available
+  the session attaches to it and survives the app; otherwise it runs a
+  per-session app server, and the transcript **says which one it got** — those
+  are different promises. (vision-parity L4c)
+
+  **What the agent may do is measured, not named.** A codex session lowers the
+  same three postures to codex's own sandbox: `read_local` (the default) opens
+  the thread with `sandbox: read-only` and `approvalPolicy: never`, which was
+  probed by asking codex to create a file — it tried, failed, said *"the
+  environment is read-only"*, and nothing appeared on disk. `converse` cannot
+  be kept exactly (codex has no way to turn its tools off), so the transcript
+  carries a line saying the agent can still read files, rather than letting the
+  name imply otherwise.
+
+  **Approvals and questions arrive as cards in the feed**, answered inline —
+  a local session has no attention table, so this is where codex's gates live.
+  Four kinds are declined immediately instead, each with a line saying why: a
+  form-fill an inline card cannot type into, a "open this URL" request, a
+  permission-profile grant, and — deliberately — any question codex marks
+  **secret**, because an answer sent through the Companion is written to the
+  session transcript on disk, which is not where a secret belongs.
+
 - **The Companion can run a claude session on this machine, with no hub.**
   A local agent service in Electron main owns the engine child and keeps the
   session's transcript in an append-only log with cursor semantics, so a

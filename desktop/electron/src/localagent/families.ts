@@ -74,15 +74,34 @@ export function familyByName(families: readonly Family[], name: string): Family 
   return families.find((f) => f.family === name);
 }
 
-/// Whether a family can be driven by the local service.
+/// The engines the local service has a driver for.
 ///
-/// L3a ships the claude-code driver only; L4 adds codex through the vendor's
-/// app-server. A family is "supported locally" when we have a driver for it AND
-/// it declares the mode that driver speaks — the second half matters because
-/// the mode set is data, and a family that drops M2 should stop being offered
-/// without anyone editing this file.
+/// A closed union rather than a string: every branch that builds a driver has
+/// to handle each member, so adding an engine is a compile error at each site
+/// instead of a silent fallthrough to claude's.
+export type LocalEngine = 'claude-code' | 'codex';
+
+/// Which local driver a family gets, or null when it gets none.
+///
+/// A family qualifies when we have a driver for it AND it declares the mode
+/// that driver speaks — the second half matters because the mode set is data,
+/// and a family that drops M2 should stop being offered without anyone editing
+/// this file.
+///
+/// Both drivers are M2, and both read `launch.M2.mode_args` from the same
+/// registry, but they use it differently: claude's IS its argv, while codex's
+/// (`app-server --listen stdio://`) states the launch contract the desktop's
+/// spawn rung honours through `codexattach.ts`, which additionally has to
+/// FIND the binary (the installer's PATH line lives in `.bashrc`, which a
+/// GUI-launched app never sources).
+export function localEngine(fam: Family | undefined): LocalEngine | null {
+  if (fam === undefined) return null;
+  if (fam.family !== 'claude-code' && fam.family !== 'codex') return null;
+  const usable = (fam.supports ?? []).includes('M2') && (fam.launch?.M2?.mode_args ?? []).length > 0;
+  return usable ? fam.family : null;
+}
+
+/// Whether a family can be driven by the local service.
 export function supportsLocalDriving(fam: Family | undefined): boolean {
-  if (fam === undefined) return false;
-  if (fam.family !== 'claude-code') return false;
-  return (fam.supports ?? []).includes('M2') && (fam.launch?.M2?.mode_args ?? []).length > 0;
+  return localEngine(fam) !== null;
 }

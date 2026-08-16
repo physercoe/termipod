@@ -538,15 +538,37 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 	case "text":
 		body, _ := payload["body"].(string)
 		images := extractImageInputs(payload)
-		pdfs := extractAttachmentInputs(payload, "pdfs")
-		// audios/videos: silently dropped — OpenAI chat API doesn't
-		// accept audio/video input. The composer's family gate already
-		// hides the affordance; this is the backstop for A2A or other
+		// PDFs are STRIPPED here, not forwarded. Measured against
+		// codex-cli 0.147.0 (vision-parity L4c): `turn/start` answers
+		// `{type:"input_file", …}` with `-32600 Invalid request:
+		// unknown variant 'input_file', expected one of 'text',
+		// 'image', 'localImage', 'audio', 'localAudio', 'skill',
+		// 'mention'` — the vendor's `UserInput` union has no file
+		// variant at all. So forwarding one did not merely fail to
+		// reach the model: it failed the WHOLE turn/start and lost the
+		// director's message with it. Same strip-and-warn shape the
+		// gemini exec-per-turn driver uses for the modalities it
+		// cannot carry (driver_exec_resume.go). The family registry's
+		// `prompt_pdf.M2` is now `false`, so the composer no longer
+		// offers it; this is the backstop for A2A and other
 		// out-of-band injection paths.
-		if body == "" && len(images) == 0 && len(pdfs) == 0 {
+		//
+		// audios/videos: dropped for the same reason, and always were
+		// — OpenAI chat input accepts neither.
+		dropped := len(extractAttachmentInputs(payload, "pdfs")) +
+			len(extractAttachmentInputs(payload, "audios")) +
+			len(extractAttachmentInputs(payload, "videos"))
+		if dropped > 0 {
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", map[string]any{
+				"reason":  "codex app-server accepts no file/audio/video attachments — its turn/start input union is text|image|localImage|audio|localAudio|skill|mention, and a file block fails the whole turn",
+				"engine":  "codex-app-server",
+				"dropped": dropped,
+			})
+		}
+		if body == "" && len(images) == 0 {
 			return fmt.Errorf("appserver driver: text input missing body")
 		}
-		return d.startTurn(ctx, body, images, pdfs)
+		return d.startTurn(ctx, body, images)
 	case "attention_reply":
 		// Three paths depending on attention kind:
 		//  - kind=permission_prompt → we have a parked codex JSON-RPC
@@ -573,7 +595,7 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		if body == "" {
 			return fmt.Errorf("appserver driver: attention_reply produced no text")
 		}
-		return d.startTurn(ctx, body, nil, nil)
+		return d.startTurn(ctx, body, nil)
 	case "cancel":
 		// codex requires both `threadId` and `turnId` on turn/interrupt.
 		// Without either the server replies -32600 "missing field …".
@@ -846,41 +868,40 @@ func elicitationContentFromBody(body string) map[string]any {
 // through notifications (item/*, turn/started, turn/completed)
 // translated by the frame profile.
 //
-// ADR-021 W4.3 — image content blocks lower to OpenAI responses-API
-// shape `{type:"input_image", image_url:"data:<mime>;base64,<b64>"}`
-// and lead the input array; the text block (if any) comes last so
-// the model sees the imagery before the question. Image-only inputs
-// (no body text) are accepted at this layer.
+// ADR-021 W4.3 — images lead the input array and the text block (if
+// any) comes last, so the model sees the imagery before the question.
+// Image-only inputs (no body text) are accepted at this layer.
 //
-// artifact-type-registry W7.2 — PDFs lower to
-// `{type:"input_file", filename, file_data:"data:application/pdf;base64,..."}`
-// the OpenAI responses-API shape for inline document input.
+// It builds the array from the vendor's own `UserInput`
+// union — checked against `codex app-server generate-ts` @ codex-cli
+// 0.147.0 and confirmed on the wire, not read off prose:
+//
+//	text | image | localImage | audio | localAudio | skill | mention
+//
+// An image is `{type:"image", url:"data:<mime>;base64,<data>"}`. The
+// `input_image` / `input_file` spellings this function used to send are
+// OpenAI *responses-API* content types, not app-server ones, and codex
+// rejects them with `-32600 unknown variant`, failing the turn.
+//
+// `text` is sent without `text_elements` even though the generated type
+// marks it required: the server fills `text_elements: []` itself
+// (observed on the echoed userMessage item), and synthesizing UI spans
+// we do not have would be inventing data.
 func (d *AppServerDriver) startTurn(
 	ctx context.Context,
 	text string,
 	images []imageInput,
-	pdfs []attachmentInput,
 ) error {
 	tid := d.ThreadID()
 	if tid == "" {
 		return fmt.Errorf("appserver driver: no active thread (handshake didn't complete?)")
 	}
-	input := make([]map[string]any, 0, len(images)+len(pdfs)+1)
+	input := make([]map[string]any, 0, len(images)+1)
 	for _, img := range images {
 		input = append(input, map[string]any{
-			"type":      "input_image",
-			"image_url": "data:" + img.mime + ";base64," + img.data,
+			"type": "image",
+			"url":  "data:" + img.mime + ";base64," + img.data,
 		})
-	}
-	for _, p := range pdfs {
-		block := map[string]any{
-			"type":      "input_file",
-			"file_data": "data:" + p.mime + ";base64," + p.data,
-		}
-		if p.filename != "" {
-			block["filename"] = p.filename
-		}
-		input = append(input, block)
 	}
 	if text != "" {
 		input = append(input, map[string]any{"type": "text", "text": text})

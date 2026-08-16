@@ -10,6 +10,7 @@
 /// state (a turn counter, a per-model window learned from an earlier frame).
 /// L2's note says they "belong to whatever owns the session", and this is it.
 
+import type { InputKind, InputPayload, ToolPosture } from './driver.ts';
 import type { Family } from './families.ts';
 
 // ── Config root ──────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ export function resolveConfigHome(
 
 // ── Tool posture ─────────────────────────────────────────────────────────────
 
-/// Which built-in tools a local child is launched with.
+/// How claude keeps the posture contract (`driver.ts` `ToolPosture`).
 ///
 /// **This is not the hub's `permission mode`, and the difference is not
 /// cosmetic.** Permission mode gates whether a tool call is *approved*, and it
@@ -65,17 +66,12 @@ export function resolveConfigHome(
 ///     entirely. The model reports them as unavailable and calls nothing.
 ///
 /// So the only lever that gates a non-interactive child is the tool list, and
-/// this type is that list behind three named postures. An allowlist, not a
+/// this table is that list behind the three named postures. An allowlist, not a
 /// denylist: a denylist fails open for every tool claude adds after this file
 /// was written, and "the engine grew a capability" must not silently widen what
-/// a local session can do to the director's machine.
-export type ToolPosture = 'converse' | 'read_local' | 'unrestricted';
-
-/// The default. Reading the workdir is what makes a co-working Companion
-/// useful; writing, executing and reaching the network are what make an
-/// unattended one dangerous, and none of the three are here.
-export const DEFAULT_TOOL_POSTURE: ToolPosture = 'read_local';
-
+/// a local session can do to the director's machine. (codex keeps the same
+/// contract by a different mechanism — an OS sandbox — see `codexPosture`.)
+///
 /// Tool names are claude's own, read off a live `system/init` frame's `tools`
 /// array rather than from documentation.
 const POSTURE_TOOLS: Record<ToolPosture, string[] | null> = {
@@ -89,10 +85,6 @@ const POSTURE_TOOLS: Record<ToolPosture, string[] | null> = {
   // default — a caller has to name it.
   unrestricted: null,
 };
-
-export function isToolPosture(v: unknown): v is ToolPosture {
-  return v === 'converse' || v === 'read_local' || v === 'unrestricted';
-}
 
 /// The `--tools` argv for a posture, or [] when the posture adds no flag.
 export function toolArgs(posture: ToolPosture): string[] {
@@ -158,30 +150,6 @@ export function buildLaunchArgs(family: Family, opts: LaunchOptions): string[] {
 }
 
 // ── Input frames ─────────────────────────────────────────────────────────────
-
-/// A binary attachment lowered onto an Anthropic content block.
-export interface AttachmentInput {
-  mime: string;
-  /// base64, without a data: prefix.
-  data: string;
-  filename?: string;
-}
-
-export interface InputPayload {
-  body?: string;
-  images?: AttachmentInput[];
-  pdfs?: AttachmentInput[];
-  request_id?: string;
-  decision?: string;
-  note?: string;
-  reason?: string;
-}
-
-/// The input kinds the local claude driver accepts. A deliberate subset of the
-/// Go driver's: `attention_reply` and `attach` are hub concepts (an attention
-/// table, a document entity) that a local session has none of, so they are
-/// absent rather than stubbed (D-4).
-export type InputKind = 'text' | 'approval' | 'answer' | 'cancel';
 
 /// Build the stream-json line for one user-side input — the port of
 /// `buildStreamJSONInputFrame` (driver_stdio.go:707).

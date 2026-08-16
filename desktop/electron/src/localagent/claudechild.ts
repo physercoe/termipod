@@ -18,17 +18,16 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { applyProfile } from '../frameprofile/translate.ts';
 import type { EmittedEvent } from '../frameprofile/types.ts';
-import type { Family } from './families.ts';
 import {
-  buildInputFrame,
-  buildLaunchArgs,
-  ContextWindows,
   DEFAULT_TOOL_POSTURE,
-  TurnClock,
+  type DriverEvent,
   type InputKind,
   type InputPayload,
+  type LocalDriver,
   type ToolPosture,
-} from './claudewire.ts';
+} from './driver.ts';
+import type { Family } from './families.ts';
+import { buildInputFrame, buildLaunchArgs, ContextWindows, TurnClock } from './claudewire.ts';
 
 /// The child's streams, narrowed to what this module uses. Structural so a
 /// test can supply plain Node streams.
@@ -45,14 +44,6 @@ export type SpawnFn = (
   args: string[],
   opts: { cwd: string; env: NodeJS.ProcessEnv },
 ) => SpawnedChild;
-
-/// An event on its way to the session log — kind/producer/payload, before the
-/// log assigns it a `seq`.
-export interface DriverEvent {
-  kind: string;
-  producer: string;
-  payload: Record<string, unknown>;
-}
 
 export interface ClaudeChildOptions {
   family: Family;
@@ -83,7 +74,7 @@ export interface ClaudeChildOptions {
 /// growing main's heap without bound.
 export const MAX_FRAME_BYTES = 1 << 20;
 
-export class ClaudeChild {
+export class ClaudeChild implements LocalDriver {
   readonly #opts: ClaudeChildOptions;
   readonly #turns = new TurnClock();
   readonly #windows = new ContextWindows();

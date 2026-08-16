@@ -210,6 +210,26 @@ binding). Seed entries prior to that are in
 
 ### Fixed
 
+- **Sending an image to a codex agent never reached the model, and sending a
+  PDF silently lost the whole message.** The app-server driver lowered
+  attachments to OpenAI *responses-API* content types — `input_image` and
+  `input_file` — which codex's `turn/start` does not accept. Measured against
+  codex-cli 0.147.0, it answers both with `-32600 Invalid request: unknown
+  variant`, and because that rejects the entire call, a PDF took the
+  director's text down with it. Images now ride the variant codex actually
+  documents in its own generated protocol (`{type:"image", url:"data:…"}`,
+  confirmed end to end — the model described the picture), and PDFs are
+  stripped with a `system` row saying so, the same strip-and-warn shape the
+  gemini exec-per-turn driver uses for what it cannot carry. The engine
+  registry agreed with the old shape and has been corrected too:
+  `codex.prompt_pdf.M2` is now `false` — codex 0.147.0 has no file input
+  variant at all — so the composer stops offering an attachment that cannot
+  arrive. `prompt_image.M2` stays `true`; only the shape was wrong. The
+  driver's test used a fake app-server that accepts any params, so it had
+  pinned the broken shape rather than the protocol; the replacement asserts
+  the stripped-but-still-sent turn, and the desktop's new codex driver ships
+  an opt-in live e2e against a real app-server. (vision-parity L4c)
+
 - **Changing a steward's model or permission mode never worked.** Both the
   routing gate and the executor resolved the engine from `agents.kind`, which
   for a steward is the persona template (`steward.claude-m4`), not the family

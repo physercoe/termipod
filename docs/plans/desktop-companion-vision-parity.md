@@ -1,21 +1,10 @@
 # Desktop Companion vision parity — kimi-web's bar on our data scheme
 
 > **Type:** plan
-> **Status:** In flight (2026-08-05) — W1 landed (F1, F2, L1, E1, R1);
-> **W2 complete** (L2, E2, R2, R3, F3). Principal review done. **W3 in
-> flight**: L3 split into **L3a** (shipped 2026-08-10 — the local agent
-> service, claude M2 child, renderer source), **L3b** (shipped
-> 2026-08-14 — on-disk log + restart rebind) and **L3c** (session
-> catalog + loopback WS, split out of L3b). **E3 + E4 shipped
-> 2026-08-16** (streaming command output; relay result passthrough).
-> **R4 shipped 2026-08-16** (live output + agent-produced media) —
-> **W3 complete**; L3c is deferrable. **W4 started 2026-08-16**:
-> **F4 shipped** (user-level MCP reseed for claude + codex),
-> **L4a shipped** (codex attach-rung resolver) and **L4b shipped**
-> (codex app-server transport — which corrected L4a: the daemon's
-> control socket *is* a WebSocket, and L4a's `app-server proxy` data
-> path was a dead channel). L4 split again: **L4c** is the driver.
-> Left in W4: L4c, R5, R6
+> **Status:** In flight (2026-08-05) — **W1 + W2 + W3 complete**
+> (F1 F2 L1 E1 R1 · L2 E2 R2 R3 F3 · L3a L3b E3 E4 R4; L3c deferrable).
+> **W4 in flight (2026-08-16)**: F4, L4a, L4b and L4c shipped, so
+> **lane L4 is complete** — codex is drivable locally. Left in W4: R5, R6.
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -562,17 +551,112 @@ transport rung (lane T), never the renderer's ceiling.
   resolves through PATH plus the well-known dirs the way `kimiweb.ts`
   does for kimi, with `TERMIPOD_CODEX_BIN` as the override.
 
-  **L4c** (still to do) is the driver itself: the app-server JSON-RPC
-  client over L4b's channel, delta throttling, R1 approval cards,
-  `turn/interrupt`, config seeding, and resume argv from the N1 table.
-  The translation half is already done and shipped — the hub's `codex`
-  frame profile maps `thread/started` → `session.init`,
-  `item/completed` → `text`/`tool_result` and so on, and it rides to
-  the desktop in `agent_families.generated.json`, so L4c reads that
-  table rather than writing a second one. The vendor also generates the
-  whole protocol on demand (`codex app-server generate-ts --out DIR`,
-  and `generate-json-schema`), which is the authority to check request
-  shapes against.
+  **L4c shipped 2026-08-16** — the driver
+  (`localagent/codexdriver.ts` + `localagent/codexwire.ts`), which
+  makes the whole lane user-visible for the first time: a codex session
+  is now offered in the local picker, opens a thread, streams, takes
+  approvals, and reattaches after a restart.
+
+  *What the plan got right.* The translation half really was already
+  done: the hub's `codex` frame profile ships to the desktop in
+  `agent_families.generated.json`, and the driver reads that table
+  rather than writing a second one. And the vendor really does generate
+  its own protocol (`codex app-server generate-ts --out DIR`, 93 files
+  at 0.147.0), which is what every request shape below was checked
+  against.
+
+  ★★ *What the plan got wrong, and what it cost.* Two lines:
+
+  1. **"resume argv from the N1 table" describes a rung this driver
+     does not use** — and N1's own table says so. Its codex family row
+     reads `mechanism: appserver_thread_resume`, with a note recording
+     that the `codex resume <id>` CLI recipe is "the spawn-per-session
+     fallback rung … not what the hub drives today". Resume here is an
+     RPC (`thread/resume`), so `service.rebind` now routes by
+     *mechanism*: argv families get a splice, the rest hand their handle
+     to a driver that knows what to do with it. The plan line pointed at
+     a table that contradicted it.
+  2. ★★ **Two of the input shapes we ship are REJECTED by codex, and
+     the fixtures could not see it.** Measured against codex-cli
+     0.147.0:
+
+     | sent | answer |
+     |---|---|
+     | `{type:"input_image", image_url:"data:…"}` | `-32600 Invalid request: unknown variant 'input_image', expected one of 'text', 'image', 'localImage', 'audio', 'localAudio', 'skill', 'mention'` |
+     | `{type:"input_file", file_data:"data:…"}` | the same error |
+     | `{type:"image", url:"data:…"}` | accepted — the model described the pixel |
+
+     Those are OpenAI **responses-API** content types, not app-server
+     ones. This is not only the new driver's problem: the hub's
+     `AppServerDriver.startTurn` has been sending both since W4.3, so
+     **E4's image passthrough has never reached a codex M2 agent**, and
+     a PDF was worse than useless — an unknown variant fails the whole
+     `turn/start`, so the director's message was lost with it. Fixed in
+     the same commit, with the strip-and-warn shape the gemini
+     exec-per-turn driver already uses for what it cannot carry.
+
+     The registry was asserting it too: `codex.prompt_pdf.M2` was
+     `true`, which is what the composer's F3 gate reads. It is now
+     `false`, measured — codex 0.147.0's `UserInput` union has no file
+     variant at all. `prompt_image.M2` stays `true`; only the shape was
+     wrong.
+
+     **Why it survived a green suite:** the Go test's fake app-server
+     accepts any params, so it pinned the shipped shape rather than the
+     protocol — a fixture that cannot disprove the rule it is testing.
+     The desktop's equivalent would have had the same blind spot, which
+     is why L4c ships an opt-in live e2e
+     (`TERMIPOD_CODEX_DRIVER_E2E=1`) that runs real turns.
+
+  *Two more measurements the driver is built on.*
+
+  - **`thread/resume` restores the memory and emits no replay** — the
+    only notifications after it are `configWarning`,
+    `remoteControl/status/changed`, `thread/status/changed`,
+    `thread/tokenUsage/updated`, `thread/goal/cleared`. Same shape as
+    claude's `--resume`, so L3b's durable log is what restores the view
+    for codex too. (Its *response*, unlike claude's, does carry the
+    whole `thread.turns[]` history — a replay source we do not need
+    while the log exists, recorded because it would be the answer if
+    that ever changed.)
+  - **`sandbox: read-only` + `approvalPolicy: never` is a real write
+    barrier**, not a name: asked to create a file in its cwd, codex
+    tried, failed, said *"the environment is read-only"*, and nothing
+    appeared on disk. The response echoes the lowered policy as
+    `{"type":"readOnly","networkAccess":false}`. That is how the codex
+    driver keeps the `read_local` posture claude keeps with `--tools` —
+    one contract, two mechanisms, each with its own probe. `converse`
+    cannot be kept exactly (codex has no tool-disable switch) so the
+    lifecycle row carries a `posture_note` saying so rather than
+    letting the name imply a boundary that is not there.
+
+  *Approvals, with no attention table.* Server-initiated requests
+  become `approval_request` events in R1's own shapes and are answered
+  by the cards that already ship — which is exactly what R1's comment
+  predicted ("A local driver parks nothing … answered by the two cards
+  above (plan L4)"). Four things are deliberately **refused at once
+  rather than parked**, because a card nobody can answer holds the
+  engine open forever: a form-mode elicitation (its schema wants typed
+  fields the card has no input for), a `url` elicitation, an
+  `item/permissions/requestApproval` (its response is a granted
+  *profile*, not a verdict), and — the one worth naming — a question
+  flagged `isSecret`, because `service.input()` records every input into
+  the durable on-disk transcript before sending it, so answering a
+  secret through a card would write it to disk. Each refusal uses that
+  method's own response shape; an empty `{}` fails to deserialize on
+  every one of them.
+
+  Also carried over: `.codex/config.toml` seeding is **not** a written
+  file. `ThreadStartParams` takes a `config` map of the same overrides,
+  scoped to the thread — so configuring a session never leaves a file in
+  the director's project that outlives it.
+
+  Still open in this lane, named rather than silently skipped: no
+  posture maps to `approvalPolicy: on-request`, so codex's own
+  command/file-change gates never fire from a Companion session today.
+  Adding one is a posture decision (it means "read local, but the agent
+  may ask to escape"), not a driver change — the approval path is built
+  and tested, and MCP elicitations already exercise it.
 
 ### Lane E — event-vocabulary gaps (hub; verified per-driver)
 

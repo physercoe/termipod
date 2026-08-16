@@ -5,7 +5,7 @@
 /// rest of `electron/src` uses. Everything here arrives from the renderer as
 /// `unknown`, so this is the boundary that gives it a type.
 
-import { isToolPosture, type InputKind, type InputPayload, type ToolPosture } from './claudewire.ts';
+import { isToolPosture, type InputKind, type InputPayload, type ToolPosture } from './driver.ts';
 
 export function requireString(args: Record<string, unknown>, key: string): string {
   const v = args[key];

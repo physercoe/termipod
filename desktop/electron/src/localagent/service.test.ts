@@ -8,7 +8,8 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { LocalAgentService } from './service.ts';
+import { LocalAgentService, type ServiceOptions } from './service.ts';
+import type { CodexChannelHandlers, CodexFrame } from './codexchannel.ts';
 import type { SpawnedChild } from './claudechild.ts';
 import type { Family } from './families.ts';
 import type { LocalAgentEvent } from './log.ts';
@@ -49,6 +50,22 @@ const CLAUDE: Family = {
 };
 // Declares M2 but ships no launch contract — offered by the hub, undrivable here.
 const CODEX: Family = { family: 'codex', bin: 'codex', supports: ['M2'] };
+/// The drivable codex row (vision-parity L4c), with the launch contract the
+/// real registry carries.
+const CODEX_LOCAL: Family = {
+  family: 'codex',
+  bin: 'codex',
+  supports: ['M2'],
+  launch: { M2: { mode_args: ['app-server', '--listen', 'stdio://'] } },
+  frame_profile: {
+    rules: [
+      {
+        match: { method: 'thread/started' },
+        emit: { kind: 'session.init', producer: 'agent', payload: { session_id: '$.params.thread.id' } },
+      },
+    ],
+  },
+};
 
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
 
@@ -94,7 +111,11 @@ process.on('exit', () => {
   for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
 });
 
-function service(families: Family[] = [CLAUDE, CODEX], dataDir?: string): Harness {
+function service(
+  families: Family[] = [CLAUDE, CODEX],
+  dataDir?: string,
+  codex?: ServiceOptions['codex'],
+): Harness {
   const dir = dataDir ?? mkdtempSync(path.join(tmpdir(), 'termipod-l3b-svc-'));
   if (dataDir === undefined) tempDirs.push(dir);
   const children: FakeChild[] = [];
@@ -111,14 +132,63 @@ function service(families: Family[] = [CLAUDE, CODEX], dataDir?: string): Harnes
       children.push(c);
       return c as unknown as SpawnedChild;
     },
+    ...(codex !== undefined ? { codex } : {}),
   });
   return {
     svc,
     children,
     dataDir: dir,
-    restart: () => service(families, dir),
+    restart: () => service(families, dir, codex),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
+}
+
+/// A codex service whose channel is a fake: the byte path is L4b's and has its
+/// own live e2e, so what these tests exercise is the SERVICE's half — which
+/// driver a family gets, where the handle comes from, and how a rebind carries
+/// it.
+interface CodexHarness extends Harness {
+  sent: CodexFrame[];
+  recv: (frame: CodexFrame) => void;
+  restart: () => CodexHarness;
+}
+
+function codexService(dataDir?: string): CodexHarness {
+  const sent: CodexFrame[] = [];
+  let handlers: CodexChannelHandlers | null = null;
+  const h = service([CLAUDE, CODEX_LOCAL], dataDir, {
+    plan: { mode: 'spawn', argv: ['codex', 'app-server'], reason: 'test rung' },
+    openChannel: (plan, hs) => {
+      handlers = hs;
+      return Promise.resolve({
+        mode: 'spawn' as const,
+        reason: plan.reason,
+        send: (frame: CodexFrame) => sent.push(frame),
+        close: () => undefined,
+      });
+    },
+  });
+  return {
+    ...h,
+    sent,
+    recv: (frame) => handlers?.onFrame(frame),
+    restart: () => codexService(h.dataDir),
+  };
+}
+
+/// Answer the codex handshake and report the thread id, as a real app-server
+/// would.
+async function codexHandshake(h: CodexHarness, threadId: string): Promise<void> {
+  await settle();
+  const init = h.sent.find((f) => f.method === 'initialize');
+  assert.ok(init !== undefined, 'expected an initialize call');
+  h.recv({ jsonrpc: '2.0', id: init.id, result: {} });
+  await settle();
+  const open = h.sent.find((f) => f.method === 'thread/start' || f.method === 'thread/resume');
+  assert.ok(open !== undefined, 'expected thread/start or thread/resume');
+  h.recv({ jsonrpc: '2.0', id: open.id, result: { thread: { id: threadId } } });
+  await settle();
+  await settle();
 }
 
 /// Capture the argv a spawn was called with, which is how the resume flags are
@@ -516,18 +586,123 @@ test('a session with no engine handle refuses to rebind rather than cold-startin
   }
 });
 
-test('a family that does not resume by argv refuses to rebind', () => {
-  const h = service([CLAUDE, { ...CODEX, launch: { M2: { mode_args: ['--x'] } } }]);
+test('an argv-resume family whose recipe went missing refuses to rebind', () => {
+  // The guard that used to catch codex here. codex now rebinds by RPC (see the
+  // L4c tests below), so the only way to reach `not_argv_resume` is a family
+  // whose driver splices argv while its N1 row says it does not — a generated
+  // table drifting from the driver, which is exactly the case worth refusing
+  // rather than silently cold-starting.
+  const h = service([CLAUDE], undefined);
   try {
     const desc = h.svc.create({ cwd: '/w' });
     h.svc.stop(desc.id);
     const meta = readSessionMeta(h.dataDir, desc.id);
     assert.ok(meta !== null);
-    writeSessionMeta(h.dataDir, { ...meta, family: 'codex' });
+    writeSessionMeta(h.dataDir, { ...meta, family: 'ghost' });
 
     const next = h.restart();
     next.svc.reload();
-    assert.throws(() => next.svc.rebind(desc.id), /not_argv_resume/);
+    // No driver at all for `ghost`, so the refusal lands one step earlier —
+    // which is the honest place for it.
+    assert.throws(() => next.svc.rebind(desc.id), /cannot drive family ghost/);
+  } finally {
+    h.cleanup();
+  }
+});
+
+// ── codex (vision-parity L4c) ────────────────────────────────────────────────
+
+test('a codex session gets NO pre-assigned handle, and learns one from the engine', async () => {
+  const h = codexService();
+  try {
+    const desc = h.svc.create({ family: 'codex', cwd: '/w' });
+    // claude honours `--session-id`, so its handle is assigned at create time.
+    // codex mints its own thread id and takes no such flag — writing a UUID
+    // here would record a thread id codex has never heard of, and the later
+    // `thread/resume` would fail against it.
+    assert.equal(desc.engine_session_id, undefined);
+
+    await codexHandshake(h, 'th-42');
+    h.recv({ jsonrpc: '2.0', method: 'thread/started', params: { thread: { id: 'th-42' } } });
+    await settle();
+    assert.equal(h.svc.get(desc.id)?.engine_session_id, 'th-42');
+    // And it survives to disk, which is what makes the rebind below possible.
+    assert.equal(readSessionMeta(h.dataDir, desc.id)?.engine_session_id, 'th-42');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a codex rebind is thread/resume, not argv — which is what N1s own row says', async () => {
+  const h = codexService();
+  try {
+    const desc = h.svc.create({ family: 'codex', cwd: '/w' });
+    await codexHandshake(h, 'th-42');
+    h.recv({ jsonrpc: '2.0', method: 'thread/started', params: { thread: { id: 'th-42' } } });
+    await settle();
+    h.svc.stop(desc.id);
+
+    const next = h.restart();
+    next.svc.reload();
+    next.svc.rebind(desc.id);
+    await settle();
+    const init = next.sent.find((f) => f.method === 'initialize');
+    assert.ok(init !== undefined);
+    next.recv({ jsonrpc: '2.0', id: init.id, result: {} });
+    await settle();
+
+    const resume = next.sent.find((f) => f.method === 'thread/resume');
+    assert.ok(resume !== undefined, 'expected a thread/resume, not a resume argv');
+    assert.equal((resume.params as Record<string, unknown>).threadId, 'th-42');
+    // The table says so itself: the codex family's mechanism is
+    // `appserver_thread_resume`, and its `codex resume <id>` CLI row is a
+    // different rung.
+    assert.equal(next.sent.some((f) => f.method === 'thread/start'), false);
+    next.cleanup();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a codex session with no learned handle refuses to rebind', async () => {
+  const h = codexService();
+  try {
+    const desc = h.svc.create({ family: 'codex', cwd: '/w' });
+    // Never handshook, so no thread id was ever reported.
+    h.svc.stop(desc.id);
+    const next = h.restart();
+    next.svc.reload();
+    assert.throws(() => next.svc.rebind(desc.id), /no engine session id/);
+    next.cleanup();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a codex input is recorded in the transcript and reaches the engine', async () => {
+  const h = codexService();
+  try {
+    const desc = h.svc.create({ family: 'codex', cwd: '/w' });
+    await codexHandshake(h, 'th-42');
+    h.svc.input(desc.id, 'text', { body: 'hello codex' });
+    await settle();
+
+    const turn = h.sent.find((f) => f.method === 'turn/start');
+    assert.ok(turn !== undefined);
+    assert.deepEqual((turn.params as Record<string, unknown>).input, [{ type: 'text', text: 'hello codex' }]);
+    // The director's own turn is in the log — otherwise the transcript is the
+    // agent's half of a conversation (the L3b defect, one engine over).
+    const page = h.svc.history(desc.id);
+    assert.ok(page.events.some((e) => e.kind === 'input.text' && e.payload?.body === 'hello codex'));
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('both engines are offered when both declare a launch contract', () => {
+  const h = codexService();
+  try {
+    assert.deepEqual(h.svc.localFamilies().map((f) => f.family), ['claude-code', 'codex']);
   } finally {
     h.cleanup();
   }

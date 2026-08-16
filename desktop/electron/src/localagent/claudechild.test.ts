@@ -13,7 +13,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
-import { ClaudeChild, MAX_FRAME_BYTES, type DriverEvent, type SpawnedChild } from './claudechild.ts';
+import { ClaudeChild, MAX_FRAME_BYTES, type SpawnedChild } from './claudechild.ts';
+import type { DriverEvent } from './driver.ts';
 import type { Family } from './families.ts';
 
 class FakeChild extends EventEmitter {

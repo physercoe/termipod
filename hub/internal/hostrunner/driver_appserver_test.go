@@ -305,12 +305,19 @@ func TestAppServerDriver_HandshakeAndTurn(t *testing.T) {
 	}
 }
 
-// TestAppServerDriver_TurnStart_ImageBlocks pins the W4.3 wire shape:
-// when payload["images"] is set, turn/start.params.input leads with
-// `{type:"input_image", image_url:"data:<mime>;base64,<b64>"}` blocks
-// and follows with the `{type:"text", text:body}` block. Image-only
-// inputs (no body) produce a single image block. Hub-side W4.1
-// validation is upstream; the driver trusts the payload shape.
+// TestAppServerDriver_TurnStart_ImageBlocks pins the wire shape codex
+// actually accepts: turn/start.params.input leads with
+// `{type:"image", url:"data:<mime>;base64,<b64>"}` blocks and follows
+// with `{type:"text", text:body}`. Hub-side W4.1 validation is
+// upstream; the driver trusts the payload shape.
+//
+// It used to pin `{type:"input_image", image_url:…}` — an OpenAI
+// responses-API content type, not an app-server one. The fake server
+// below accepts any params, so the test passed for as long as the
+// shipped shape was wrong; measured against codex-cli 0.147.0, the
+// real server answers it `-32600 Invalid request: unknown variant
+// 'input_image', expected one of 'text', 'image', 'localImage',
+// 'audio', 'localAudio', 'skill', 'mention'` (vision-parity L4c).
 func TestAppServerDriver_TurnStart_ImageBlocks(t *testing.T) {
 	pipes := newPipePair()
 	t.Cleanup(pipes.closeFn)
@@ -363,19 +370,99 @@ func TestAppServerDriver_TurnStart_ImageBlocks(t *testing.T) {
 		t.Fatalf("input: want 3 blocks, got %d (%+v)", len(input), input)
 	}
 	first, _ := input[0].(map[string]any)
-	if first["type"] != "input_image" {
-		t.Errorf("input[0].type = %v, want input_image", first["type"])
+	if first["type"] != "image" {
+		t.Errorf("input[0].type = %v, want image", first["type"])
 	}
-	if got := first["image_url"]; got != "data:image/png;base64,AAA=" {
-		t.Errorf("input[0].image_url = %v", got)
+	if got := first["url"]; got != "data:image/png;base64,AAA=" {
+		t.Errorf("input[0].url = %v", got)
 	}
 	second, _ := input[1].(map[string]any)
-	if second["type"] != "input_image" || second["image_url"] != "data:image/jpeg;base64,BBB=" {
+	if second["type"] != "image" || second["url"] != "data:image/jpeg;base64,BBB=" {
 		t.Errorf("input[1] malformed: %+v", second)
 	}
 	third, _ := input[2].(map[string]any)
 	if third["type"] != "text" || third["text"] != "what's in these?" {
 		t.Errorf("input[2] malformed: %+v", third)
+	}
+}
+
+// TestAppServerDriver_TurnStart_PdfsAreStrippedNotForwarded pins the
+// other half of the same measurement. codex-cli 0.147.0's `UserInput`
+// union has no file variant at all, so `{type:"input_file", …}` is
+// answered `-32600 unknown variant 'input_file'` — which fails the
+// WHOLE turn/start, not just the attachment. A PDF must therefore be
+// stripped with a `system` row saying so, the same strip-and-warn
+// shape driver_exec_resume.go uses for what gemini cannot carry.
+//
+// The separating input is a PDF *with body text*: the turn must still
+// reach the engine carrying the text, which is what distinguishes
+// "stripped" from "refused".
+func TestAppServerDriver_TurnStart_PdfsAreStrippedNotForwarded(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any {
+		return map[string]any{"protocolVersion": "1.0"}
+	})
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_pdf"}}
+	})
+	server.onCall("turn/start", func(_ map[string]any) any {
+		return map[string]any{"turn": map[string]any{"id": "turn_pdf"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-pdf",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("thread/start", time.Second)
+
+	if err := drv.Input(ctx, "text", map[string]any{
+		"body": "summarise this",
+		"pdfs": []any{map[string]any{"mime_type": "application/pdf", "data": "JVBER"}},
+	}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	turnFrame := server.waitForMethod("turn/start", time.Second)
+	params, _ := turnFrame["params"].(map[string]any)
+	input, _ := params["input"].([]any)
+	if len(input) != 1 {
+		t.Fatalf("input: want only the text block, got %d (%+v)", len(input), input)
+	}
+	block, _ := input[0].(map[string]any)
+	if block["type"] != "text" || block["text"] != "summarise this" {
+		t.Errorf("input[0] = %+v, want the text block", block)
+	}
+
+	// Stripped, and SAID SO — a silent drop would leave the agent
+	// answering a question about a document it never received.
+	var dropped bool
+	for _, ev := range poster.snapshot() {
+		if ev.Kind != "system" {
+			continue
+		}
+		if n, ok := ev.Payload["dropped"].(int); ok && n == 1 {
+			dropped = true
+		}
+	}
+	if !dropped {
+		t.Errorf("expected a system event reporting the dropped attachment, got %+v", poster.snapshot())
 	}
 }
 

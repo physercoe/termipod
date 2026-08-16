@@ -7,12 +7,11 @@ import {
   buildLaunchArgs,
   ContextWindows,
   CONFIG_HOME_ENV,
-  DEFAULT_TOOL_POSTURE,
-  isToolPosture,
   resolveConfigHome,
   toolArgs,
   TurnClock,
 } from './claudewire.ts';
+import { DEFAULT_TOOL_POSTURE, isToolPosture } from './driver.ts';
 import type { Family } from './families.ts';
 
 const FAMILY: Family = {

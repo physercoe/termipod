@@ -40,9 +40,12 @@ import { useSession } from '../state/session';
 import {
   detectIdentifier,
   enrichWithUnpaywall,
+  isLikelySameWork,
+  loadGoogleScholarCitations,
   lsGet,
   lsSet,
   scrapeMetadata,
+  searchGoogleScholar,
   SOURCES,
   sourceById,
   type DiscoveryPaper,
@@ -352,8 +355,21 @@ function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
     abstract: p.abstract,
     tldr: p.tldr,
     citationCount: p.citationCount,
-    source: 'semantic-scholar',
+    source: p.source ?? 'manual',
     externalId: p.paperId,
+    scholar:
+      p.scholar !== undefined
+        ? {
+            resultId: p.scholar.resultId,
+            citedByCount: p.scholar.citedByCount,
+            citesId: p.scholar.citesId,
+            citedByUrl: p.scholar.citedByUrl,
+            relatedUrl: p.scholar.relatedUrl,
+            versionsCount: p.scholar.versionsCount,
+            versionsUrl: p.scholar.versionsUrl,
+            cachedUrl: p.scholar.cachedUrl,
+          }
+        : undefined,
     tags: [],
     collectionIds: [],
     notes: '',
@@ -363,9 +379,18 @@ function paperToRef(p: DiscoveryPaper): Omit<Reference, 'id' | 'addedAt'> {
 // Resolve an existing library item using its strongest identifiers. Enrichment
 // lives with Citation data, but its patch still preserves hand-edited core fields.
 function refToSeed(r: Reference): ScrapeSeed {
-  const openAlexId =
-    r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined;
-  return { doi: r.doi, arxivId: r.arxivId, openAlexId, title: r.title, url: r.url, abstract: r.abstract };
+  const openAlexId = r.openAlexId ??
+    (r.externalId !== undefined && /^https?:\/\/openalex\.org\/W\d+$/i.test(r.externalId) ? r.externalId : undefined);
+  return {
+    doi: r.doi,
+    arxivId: r.arxivId,
+    openAlexId,
+    title: r.title,
+    year: r.year,
+    authors: r.authors,
+    url: r.url,
+    abstract: r.abstract,
+  };
 }
 
 function patchToRefFields(patch: ScrapePatch, cur: Reference): Partial<Reference> {
@@ -382,6 +407,7 @@ function patchToRefFields(patch: ScrapePatch, cur: Reference): Partial<Reference
     resourceLinks: patch.resourceLinks,
     enrichedAt: patch.enrichedAt,
     enrichSource: patch.enrichSource,
+    openAlexId: patch.openAlexId,
   };
   if (patch.title !== undefined && empty(cur.title)) out.title = patch.title;
   if (patch.authors !== undefined && empty(cur.authors)) out.authors = patch.authors;
@@ -909,7 +935,8 @@ function WorkList({ label, works, total }: { label: string; works?: WorkLink[]; 
   const t = useT();
   const openLink = useOpenLink();
   if (works === undefined || works.length === 0) return null;
-  const href = (w: WorkLink): string => (w.doi !== undefined ? `https://doi.org/${w.doi}` : (w.id ?? ''));
+  const href = (w: WorkLink): string =>
+    w.doi !== undefined ? `https://doi.org/${w.doi}` : (w.url ?? w.id ?? '');
   const count =
     total !== undefined && total > works.length
       ? t('read.workSample').replace('{n}', String(works.length)).replace('{total}', total.toLocaleString())
@@ -946,18 +973,37 @@ function CitationData({
   scraping,
   msg,
   onScrape,
+  scholarBusy,
+  scholarMsg,
+  onLoadScholar,
+  onFindScholar,
 }: {
   reference: Reference;
   scraping: boolean;
   msg: string | null;
   onScrape: () => void;
+  scholarBusy: boolean;
+  scholarMsg: string | null;
+  onLoadScholar: () => void;
+  onFindScholar: () => void;
 }): JSX.Element {
   const t = useT();
   const openLink = useOpenLink();
   const j = ref.journal;
-  const cited = ref.citedByCount ?? ref.citationCount;
+  const scholar = ref.scholar;
+  const scholarCount = scholar?.citedByCount ?? (ref.source === 'google-scholar' ? ref.citationCount : undefined);
+  const openAlexCount = ref.citedByCount ?? (ref.source === 'openalex' ? ref.citationCount : undefined);
+  const otherCount =
+    ref.source !== 'google-scholar' && ref.source !== 'openalex' && ref.citationCount !== undefined
+      ? ref.citationCount
+      : undefined;
   const enriched = ref.enrichedAt !== undefined;
-  const hasMetrics = cited !== undefined || ref.referenceCount !== undefined || j?.twoYearMeanCitedness !== undefined;
+  const hasMetrics =
+    scholarCount !== undefined ||
+    openAlexCount !== undefined ||
+    otherCount !== undefined ||
+    ref.referenceCount !== undefined ||
+    j?.twoYearMeanCitedness !== undefined;
   const hasData =
     hasMetrics ||
     j?.name !== undefined ||
@@ -988,9 +1034,21 @@ function CitationData({
 
       {hasMetrics && (
         <div className="ref-metrics">
-          {cited !== undefined && (
+          {scholarCount !== undefined && (
             <div className="ref-metric">
-              <span className="ref-metric-n">{cited}</span>
+              <span className="ref-metric-n">{scholarCount.toLocaleString()}</span>
+              <span className="ref-metric-l">{t('read.mScholarCitedBy')}</span>
+            </div>
+          )}
+          {openAlexCount !== undefined && (
+            <div className="ref-metric">
+              <span className="ref-metric-n">{openAlexCount.toLocaleString()}</span>
+              <span className="ref-metric-l">{t('read.mOpenAlexCitedBy')}</span>
+            </div>
+          )}
+          {otherCount !== undefined && (
+            <div className="ref-metric">
+              <span className="ref-metric-n">{otherCount.toLocaleString()}</span>
               <span className="ref-metric-l">{t('read.mCitedBy')}</span>
             </div>
           )}
@@ -1013,6 +1071,9 @@ function CitationData({
             </div>
           )}
         </div>
+      )}
+      {scholarCount !== undefined && openAlexCount !== undefined && scholarCount !== openAlexCount && (
+        <div className="ref-provider-note muted small">{t('read.citationCoverageNote')}</div>
       )}
       {j?.name !== undefined && (
         <div className="muted small">
@@ -1044,8 +1105,80 @@ function CitationData({
         </div>
       )}
 
+      <div className="ref-meta-sec ref-scholar-data">
+        <div className="ref-section-label">Google Scholar</div>
+        <div className="ref-scholar-actions">
+          {scholar === undefined && (
+            <button className="primary small" disabled={scholarBusy} onClick={onFindScholar}>
+              <Icon name="search" size={13} />
+              {scholarBusy ? t('read.scholarFinding') : t('read.scholarFind')}
+            </button>
+          )}
+          {scholar !== undefined && (
+            <>
+              {scholar.citedByUrl !== undefined && (
+                <button className="small" onClick={() => openLink(scholar.citedByUrl ?? '')}>
+                  <Icon name="external" size={13} /> {t('read.scholarCitedByPage')}
+                </button>
+              )}
+              {scholar.relatedUrl !== undefined && (
+                <button className="small" onClick={() => openLink(scholar.relatedUrl ?? '')}>
+                  <Icon name="link" size={13} /> {t('read.scholarRelated')}
+                </button>
+              )}
+              {scholar.versionsUrl !== undefined && (
+                <button className="small" onClick={() => openLink(scholar.versionsUrl ?? '')}>
+                  <Icon name="copy" size={13} />
+                  {t('read.scholarVersions').replace('{n}', String(scholar.versionsCount ?? ''))}
+                </button>
+              )}
+              {scholar.cachedUrl !== undefined && (
+                <button className="small" onClick={() => openLink(scholar.cachedUrl ?? '')}>
+                  <Icon name="globe" size={13} /> {t('read.scholarCached')}
+                </button>
+              )}
+              {scholar.citesId !== undefined &&
+                (scholar.citationsHasMore !== false || scholar.citationsLoadedAt === undefined) && (
+                  <button className="primary small" disabled={scholarBusy} onClick={onLoadScholar}>
+                    <Icon name={scholar.citationsLoadedAt === undefined ? 'download' : 'plus'} size={13} />
+                    {scholarBusy
+                      ? t('read.scholarLoading')
+                      : scholar.citationsLoadedAt === undefined
+                        ? t('read.scholarLoadCitations')
+                        : t('read.scholarLoadMore')}
+                  </button>
+                )}
+            </>
+          )}
+        </div>
+        {scholarMsg !== null && <div className="ref-citation-msg muted small">{scholarMsg}</div>}
+        {scholar?.citationsLoadedAt !== undefined && (
+          <div className="muted small">
+            {t('read.scholarLoadedAt').replace('{time}', new Date(scholar.citationsLoadedAt).toLocaleDateString())}
+          </div>
+        )}
+        {scholar?.citationsPerYear !== undefined && scholar.citationsPerYear.length > 0 && (
+          <div className="ref-scholar-years" aria-label={t('read.scholarCitationsPerYear')}>
+            {scholar.citationsPerYear.map((point) => {
+              const max = Math.max(...(scholar.citationsPerYear ?? []).map((entry) => entry.citations), 1);
+              return (
+                <div key={point.year} className="ref-scholar-year" title={`${point.year}: ${point.citations}`}>
+                  <span className="ref-scholar-year-bar" style={{ height: `${Math.max(4, (point.citations / max) * 100)}%` }} />
+                  <span>{String(point.year).slice(-2)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <WorkList
+          label={t('read.scholarCitingWorks')}
+          works={scholar?.citations}
+          total={scholar?.citationTotalResults ?? scholarCount}
+        />
+      </div>
+
       <WorkList label={t('read.mRefList')} works={ref.references} total={ref.referenceCount} />
-      <WorkList label={t('read.mCiteList')} works={ref.citations} total={ref.citedByCount ?? ref.citationCount} />
+      <WorkList label={t('read.openAlexCitingWorks')} works={ref.citations} total={openAlexCount} />
     </section>
   );
 }
@@ -1110,11 +1243,14 @@ function Inspector({
   const [confirming, setConfirming] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
+  const [scholarBusy, setScholarBusy] = useState(false);
+  const [scholarMsg, setScholarMsg] = useState<string | null>(null);
   useEffect(() => {
     const b = useLibrary.getState().references.find((r) => r.id === refId)?.bodyMarkdown ?? '';
     setEditingBody(b === '');
     setConfirming(false);
     setScrapeMsg(null);
+    setScholarMsg(null);
   }, [refId]);
 
   async function runScrape(): Promise<void> {
@@ -1138,6 +1274,87 @@ function Inspector({
       setScrapeMsg(t('read.scrapeFailed'));
     } finally {
       setScraping(false);
+    }
+  }
+
+  async function runScholarCitations(): Promise<void> {
+    const current = useLibrary.getState().references.find((r) => r.id === refId);
+    const scholar = current?.scholar;
+    if (current === undefined || scholar?.citesId === undefined) return;
+    const existing = scholar.citations ?? [];
+    setScholarBusy(true);
+    setScholarMsg(null);
+    try {
+      const page = await loadGoogleScholarCitations(scholar.citesId, existing.length, 20);
+      const byKey = new Map(existing.map((work) => [work.id ?? work.doi ?? work.url ?? work.title, work] as const));
+      for (const paper of page.papers) {
+        const work: WorkLink = {
+          id: paper.paperId,
+          title: paper.title,
+          year: paper.year,
+          doi: paper.doi,
+          url: paper.url,
+        };
+        byKey.set(work.id ?? work.doi ?? work.url ?? work.title, work);
+      }
+      update(current.id, {
+        scholar: {
+          ...scholar,
+          citations: [...byKey.values()],
+          citationsPerYear: page.citationsPerYear.length > 0 ? page.citationsPerYear : scholar.citationsPerYear,
+          citationTotalResults: page.totalResults ?? scholar.citationTotalResults,
+          citationsLoadedAt: Date.now(),
+          citationsHasMore: page.hasMore,
+        },
+      });
+      setScholarMsg(
+        page.papers.length === 0
+          ? t('read.scholarNoMore')
+          : t('read.scholarLoaded').replace('{n}', String(page.papers.length)),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      setScholarMsg(message === 'needs-key' ? t('read.needsVaultKey') : t('read.scholarLoadFailed'));
+    } finally {
+      setScholarBusy(false);
+    }
+  }
+
+  async function findScholarMetadata(): Promise<void> {
+    const current = useLibrary.getState().references.find((r) => r.id === refId);
+    if (current === undefined || current.title.trim() === '') return;
+    setScholarBusy(true);
+    setScholarMsg(null);
+    try {
+      const candidates = await searchGoogleScholar(`"${current.title}"`, 10);
+      const match = candidates.find((paper) =>
+        isLikelySameWork(
+          { title: current.title, year: current.year, authors: current.authors },
+          { title: paper.title, year: paper.year, authors: paper.authors },
+        ),
+      );
+      if (match?.scholar === undefined) {
+        setScholarMsg(t('read.scholarMatchNone'));
+        return;
+      }
+      update(current.id, {
+        scholar: {
+          resultId: match.scholar.resultId,
+          citedByCount: match.scholar.citedByCount,
+          citesId: match.scholar.citesId,
+          citedByUrl: match.scholar.citedByUrl,
+          relatedUrl: match.scholar.relatedUrl,
+          versionsCount: match.scholar.versionsCount,
+          versionsUrl: match.scholar.versionsUrl,
+          cachedUrl: match.scholar.cachedUrl,
+        },
+      });
+      setScholarMsg(t('read.scholarMatchFound'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      setScholarMsg(message === 'needs-key' ? t('read.needsVaultKey') : t('read.scholarLoadFailed'));
+    } finally {
+      setScholarBusy(false);
     }
   }
 
@@ -1613,6 +1830,10 @@ function Inspector({
               scraping={scraping}
               msg={scrapeMsg}
               onScrape={() => void runScrape()}
+              scholarBusy={scholarBusy}
+              scholarMsg={scholarMsg}
+              onLoadScholar={() => void runScholarCitations()}
+              onFindScholar={() => void findScholarMetadata()}
             />
           </div>
         )}
@@ -1858,7 +2079,7 @@ function DiscoverPanel({
     setBusy(true);
     setErr(null);
     try {
-      let res = await source.search(q, 25);
+      let res: DiscoveryPaper[] = (await source.search(q, 25)).map((paper) => ({ ...paper, source: source.id }));
       // Backfill open-access PDF links (Unpaywall) for results with a DOI but no
       // PDF — more "PDF" badges appear regardless of which source was used.
       if (findPdfs) res = await enrichWithUnpaywall(res);
@@ -1937,6 +2158,7 @@ function DiscoverPanel({
         details: p.detailsAdd,
         enrichedAt: p.enrichedAt,
         enrichSource: p.enrichSource,
+        openAlexId: p.openAlexId,
         tags: [],
         collectionIds: [],
         notes: '',

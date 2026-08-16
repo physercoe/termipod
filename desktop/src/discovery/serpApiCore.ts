@@ -1,4 +1,4 @@
-import type { DiscoveryPaper } from './types.ts';
+import type { DiscoveryPaper, ScholarCitationPage, ScholarCitationYear } from './types.ts';
 
 const ENDPOINT = 'https://serpapi.com/search.json';
 
@@ -60,7 +60,9 @@ export function normalizeSerpApiPaper(raw: unknown): DiscoveryPaper | null {
   const pdf = resources
     .map(object)
     .find((resource) => resource !== null && text(resource.file_format)?.toUpperCase() === 'PDF');
-  const citedBy = object(object(row.inline_links)?.cited_by ?? row.cited_by);
+  const inlineLinks = object(row.inline_links);
+  const citedBy = object(inlineLinks?.cited_by ?? row.cited_by);
+  const versions = object(inlineLinks?.versions);
   const resultId = text(row.result_id);
 
   return {
@@ -74,6 +76,46 @@ export function normalizeSerpApiPaper(raw: unknown): DiscoveryPaper | null {
     doi: doiFromUrl(link),
     pdfUrl: text(pdf?.link) ?? (link?.toLowerCase().endsWith('.pdf') === true ? link : undefined),
     url: link,
+    source: 'google-scholar',
+    scholar: {
+      resultId,
+      citedByCount: typeof citedBy?.total === 'number' ? citedBy.total : undefined,
+      citesId: text(citedBy?.cites_id),
+      citedByUrl: text(citedBy?.link),
+      relatedUrl: text(inlineLinks?.related_pages_link),
+      versionsCount: typeof versions?.total === 'number' ? versions.total : undefined,
+      versionsUrl: text(versions?.link),
+      cachedUrl: text(inlineLinks?.cached_page_link),
+    },
+  };
+}
+
+/// Normalize a `cites=<id>` Scholar response. This is deliberately separate
+/// from initial search normalization: loading it costs another SerpAPI query and
+/// is therefore invoked only when the user asks from the Cite tab.
+export function normalizeSerpApiCitationPage(raw: unknown, requestedLimit: number, start = 0): ScholarCitationPage {
+  const root = object(raw) ?? {};
+  const papers = Array.isArray(root.organic_results)
+    ? root.organic_results.map(normalizeSerpApiPaper).filter((paper): paper is DiscoveryPaper => paper !== null)
+    : [];
+  const citationsPerYear: ScholarCitationYear[] = Array.isArray(root.citations_per_year)
+    ? root.citations_per_year
+        .map((entry) => {
+          const row = object(entry);
+          const year = row?.year;
+          const citations = row?.citations;
+          return typeof year === 'number' && typeof citations === 'number' ? { year, citations } : null;
+        })
+        .filter((entry): entry is ScholarCitationYear => entry !== null)
+    : [];
+  const total = object(root.search_information)?.total_results;
+  const totalResults = typeof total === 'number' ? total : undefined;
+  const pageSize = Math.max(1, Math.min(20, Math.trunc(requestedLimit)));
+  return {
+    papers,
+    citationsPerYear,
+    totalResults,
+    hasMore: totalResults !== undefined ? Math.max(0, Math.trunc(start)) + papers.length < totalResults : papers.length === pageSize,
   };
 }
 
@@ -84,6 +126,18 @@ export function serpApiSearchUrl(query: string, limit: number, apiKey: string): 
     api_key: apiKey,
     hl: 'en',
     num: String(Math.max(1, Math.min(20, Math.trunc(limit)))),
+  });
+  return `${ENDPOINT}?${params.toString()}`;
+}
+
+export function serpApiCitationsUrl(citesId: string, limit: number, start: number, apiKey: string): string {
+  const params = new URLSearchParams({
+    engine: 'google_scholar',
+    cites: citesId,
+    api_key: apiKey,
+    hl: 'en',
+    num: String(Math.max(1, Math.min(20, Math.trunc(limit)))),
+    start: String(Math.max(0, Math.trunc(start))),
   });
   return `${ENDPOINT}?${params.toString()}`;
 }

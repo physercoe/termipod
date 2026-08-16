@@ -39,6 +39,8 @@ function buildEnrichment(r: Reference): Record<string, unknown> | undefined {
   if (r.resourceLinks !== undefined) e.resourceLinks = r.resourceLinks;
   if (r.enrichedAt !== undefined) e.enrichedAt = r.enrichedAt;
   if (r.enrichSource !== undefined) e.enrichSource = r.enrichSource;
+  if (r.openAlexId !== undefined) e.openAlexId = r.openAlexId;
+  if (r.scholar !== undefined) e.scholar = r.scholar;
   return Object.keys(e).length > 0 ? e : undefined;
 }
 
@@ -56,6 +58,8 @@ function applyEnrichment(ref: Partial<Reference>, enr: Entity): void {
   if (Array.isArray(enr.resourceLinks)) ref.resourceLinks = enr.resourceLinks as Reference['resourceLinks'];
   if ('enrichedAt' in enr) ref.enrichedAt = num(enr, 'enrichedAt');
   if ('enrichSource' in enr) ref.enrichSource = str(enr, 'enrichSource');
+  if ('openAlexId' in enr) ref.openAlexId = str(enr, 'openAlexId');
+  if (enr.scholar !== undefined && enr.scholar !== null) ref.scholar = enr.scholar as Reference['scholar'];
 }
 
 // Desktop Reference → hub reference body (snake_case wire shape). collectionIds

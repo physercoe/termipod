@@ -663,6 +663,74 @@ test('read: ratings persist, update in one click, and sort highest first', async
   }
 });
 
+test('read: Cite keeps Scholar and OpenAlex provenance separate', async () => {
+  await dismissConnectModal();
+  const originalLibrary = await page.evaluate(() => {
+    const libraryKey = 'termipod.library.v1';
+    const original = localStorage.getItem(libraryKey);
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-citation-provenance',
+        type: 'article',
+        title: 'Citation provenance fixture',
+        authors: ['TermiPod'],
+        year: 2025,
+        citationCount: 120,
+        citedByCount: 95,
+        referenceCount: 14,
+        source: 'google-scholar',
+        externalId: 'scholar-fixture',
+        openAlexId: 'https://openalex.org/W123',
+        scholar: {
+          resultId: 'scholar-fixture',
+          citedByCount: 120,
+          citesId: 'fixture-cites',
+          citedByUrl: 'https://scholar.google.com/scholar?cites=fixture-cites',
+          versionsCount: 3,
+          versionsUrl: 'https://scholar.google.com/scholar?cluster=fixture',
+          citations: [{ id: 'scholar-citing-1', title: 'Scholar citing work', year: 2026, url: 'https://example.test/scholar' }],
+          citationsPerYear: [{ year: 2025, citations: 20 }, { year: 2026, citations: 40 }],
+          citationTotalResults: 120,
+          citationsLoadedAt: Date.now(),
+          citationsHasMore: true,
+        },
+        citations: [{ id: 'https://openalex.org/W456', title: 'OpenAlex citing work', year: 2026 }],
+        tags: [],
+        collectionIds: [],
+        notes: '',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [],
+      }],
+      collections: [],
+    }));
+    return original;
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    await page.locator('.read-table tbody tr').filter({ hasText: 'Citation provenance fixture' }).click();
+    await page.getByRole('tab', { name: 'Cite', exact: true }).click();
+
+    const cite = page.locator('.ref-cite');
+    await expect(cite.locator('.ref-metric').filter({ hasText: 'Google Scholar' })).toContainText('120');
+    await expect(cite.locator('.ref-metric').filter({ hasText: 'OpenAlex' })).toContainText('95');
+    await expect(cite.locator('.ref-provider-note')).toContainText('different sources');
+    await expect(cite.getByText('Scholar citing work', { exact: true })).toBeVisible();
+    await expect(cite.getByText('OpenAlex citing work', { exact: true })).toBeVisible();
+    await expect(cite.getByRole('button', { name: 'Load more', exact: true })).toBeVisible();
+    await expect(cite.locator('.ref-scholar-year-bar')).toHaveCount(2);
+  } finally {
+    await page.evaluate((original) => {
+      if (original === null) localStorage.removeItem('termipod.library.v1');
+      else localStorage.setItem('termipod.library.v1', original);
+    }, originalLibrary);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {

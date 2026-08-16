@@ -49,3 +49,36 @@ test('SerpAPI transport does not echo a rejected credential in its error', async
     globalThis.fetch = originalFetch;
   }
 });
+
+test('SerpAPI citations transport sends a fixed cites query with pagination', async () => {
+  const originalFetch = globalThis.fetch;
+  let requested = '';
+  globalThis.fetch = (async (input) => {
+    requested = String(input);
+    return new Response(JSON.stringify({ organic_results: [{ title: 'Citing paper' }] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await discoveryHandlers.serpapi_citations(
+      { citesId: 'abc_123', apiKey: 'test-secret', limit: 20, start: 40, proxy: null },
+      {} as never,
+    );
+    const url = new URL(requested);
+    assert.equal(url.origin + url.pathname, 'https://serpapi.com/search.json');
+    assert.equal(url.searchParams.get('cites'), 'abc_123');
+    assert.equal(url.searchParams.get('start'), '40');
+    assert.equal(url.searchParams.get('api_key'), 'test-secret');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('SerpAPI citations transport rejects malformed ids before network access', async () => {
+  await assert.rejects(
+    async () =>
+      discoveryHandlers.serpapi_citations(
+        { citesId: 'https://evil.test/', apiKey: 'secret', limit: 20, start: 0, proxy: null },
+        {} as never,
+      ),
+    /valid cites id is required/,
+  );
+});

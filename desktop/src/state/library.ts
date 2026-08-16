@@ -19,10 +19,36 @@ export const REF_TYPES: RefType[] = ['article', 'preprint', 'book', 'report', 'w
 /// a work that cites it). Carries just enough to display + open it; the full
 /// record is fetched on demand, not stored.
 export interface WorkLink {
-  id?: string; // OpenAlex work id (URL form)
+  id?: string; // source-native work id
   title: string;
   year?: number;
   doi?: string;
+  url?: string;
+}
+
+export interface ScholarCitationYear {
+  year: number;
+  citations: number;
+}
+
+/// Google Scholar metadata is kept as its own provenance block instead of
+/// being folded into OpenAlex enrichment. Citation databases index different
+/// corpora, so their counts are valid side-by-side and must not overwrite one
+/// another.
+export interface ScholarMetadata {
+  resultId?: string;
+  citedByCount?: number;
+  citesId?: string;
+  citedByUrl?: string;
+  relatedUrl?: string;
+  versionsCount?: number;
+  versionsUrl?: string;
+  cachedUrl?: string;
+  citations?: WorkLink[];
+  citationsPerYear?: ScholarCitationYear[];
+  citationTotalResults?: number;
+  citationsLoadedAt?: number;
+  citationsHasMore?: boolean;
 }
 
 /// A code / data / model resource attached to a paper, detected by the scraper
@@ -62,8 +88,21 @@ export interface Reference {
   tldr?: string; // Semantic Scholar one-line summary
   citationCount?: number;
   rating?: number; // director-curated score, 1..5; undefined means unrated
-  source?: 'semantic-scholar' | 'manual' | 'paste' | 'zotero' | 'scrape';
+  source?:
+    | 'openalex'
+    | 'semanticscholar'
+    | 'semantic-scholar' // legacy spelling retained for persisted rows
+    | 'google-scholar'
+    | 'crossref'
+    | 'arxiv'
+    | 'pubmed'
+    | 'core'
+    | 'manual'
+    | 'paste'
+    | 'zotero'
+    | 'scrape';
   externalId?: string; // e.g. Semantic Scholar paperId / Zotero item key — dedupes imports
+  scholar?: ScholarMetadata;
   tags: string[];
   collectionIds: string[];
   notes: string; // the reader's own notes on this reference
@@ -90,6 +129,7 @@ export interface Reference {
   resourceLinks?: ResourceLink[]; // code / data / model links found in metadata
   enrichedAt?: number; // when the scraper last ran
   enrichSource?: string; // provenance, e.g. "OpenAlex"
+  openAlexId?: string; // resolved OpenAlex work id; separate from source-native externalId
   // --- Hub sync linkage (state/librarySync.ts) -----------------------------
   hubId?: string; // the id of the linked hub reference_items row, once synced
   syncedAt?: number; // when this row last reconciled with the hub

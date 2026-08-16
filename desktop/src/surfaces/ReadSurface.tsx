@@ -109,29 +109,32 @@ const ALL = '__all__';
 // stores synchronously, so surface-local state could never be published (G1).
 
 // Sortable columns for the Zotero-style library table.
-type SortKey = 'title' | 'creator' | 'year' | 'venue' | 'type';
+type SortKey = 'title' | 'creator' | 'year' | 'venue' | 'rating' | 'type';
 type SortDir = 'asc' | 'desc';
 const SORT_COLS: { key: SortKey; labelKey: string }[] = [
   { key: 'title', labelKey: 'read.colTitle' },
   { key: 'creator', labelKey: 'read.colCreator' },
   { key: 'year', labelKey: 'read.colYear' },
   { key: 'venue', labelKey: 'read.colVenue' },
+  { key: 'rating', labelKey: 'read.colRating' },
   { key: 'type', labelKey: 'read.colType' },
 ];
 type LibraryColumnWidths = Record<SortKey, number>;
 const LIB_COLUMN_WIDTHS_KEY = 'termipod.read.libraryColumnWidths';
 const DEFAULT_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
-  title: 40,
-  creator: 22,
-  year: 9,
-  venue: 19,
-  type: 10,
+  title: 34,
+  creator: 20,
+  year: 8,
+  venue: 18,
+  rating: 12,
+  type: 8,
 };
 const MIN_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
-  title: 20,
-  creator: 14,
+  title: 18,
+  creator: 13,
   year: 7,
-  venue: 12,
+  venue: 11,
+  rating: 10,
   type: 8,
 };
 
@@ -173,9 +176,62 @@ function sortVal(r: Reference, key: SortKey): string | number {
       return r.year ?? 0;
     case 'venue':
       return (r.venue ?? '').toLowerCase();
+    case 'rating':
+      return r.rating ?? 0;
     case 'type':
       return r.type;
   }
+}
+
+function RatingControl({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value?: number;
+  onChange: (rating: number | undefined) => void;
+  compact?: boolean;
+}): JSX.Element {
+  const t = useT();
+  const [preview, setPreview] = useState<number | null>(null);
+  const shown = preview ?? value ?? 0;
+  return (
+    <span
+      className={`read-rating${compact ? ' compact' : ''}`}
+      role="group"
+      aria-label={t('read.rating')}
+      onMouseLeave={() => setPreview(null)}
+    >
+      {[1, 2, 3, 4, 5].map((score) => {
+        const current = value === score;
+        const title = current
+          ? t('read.ratingClear').replace('{n}', String(score))
+          : t('read.ratingSet').replace('{n}', String(score));
+        return (
+          <button
+            key={score}
+            type="button"
+            className={`read-rating-star${score <= shown ? ' filled' : ''}${current ? ' current' : ''}`}
+            aria-label={title}
+            aria-pressed={current}
+            title={title}
+            onMouseEnter={() => setPreview(score)}
+            onFocus={() => setPreview(score)}
+            onBlur={() => setPreview(null)}
+            onKeyDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onChange(current ? undefined : score);
+              setPreview(null);
+            }}
+          >
+            <Icon name="star" size={compact ? 12 : 16} />
+          </button>
+        );
+      })}
+    </span>
+  );
 }
 
 function splitList(s: string, sep: string): string[] {
@@ -196,6 +252,7 @@ interface LibRowCtx {
   onOpen: (id: string) => void; // open the reader (double-click / Enter with a viewable attachment)
   onMenu: (id: string, x: number, y: number) => void;
   hasPdf: (r: Reference) => boolean;
+  onRate: (id: string, rating: number | undefined) => void;
 }
 
 // Custom table wrapper keeps the class stable. Header widths control the fixed
@@ -1235,6 +1292,15 @@ function Inspector({
               {t('read.fTitle')}
               <input value={ref.title} autoFocus={ref.title === ''} onChange={(e) => update(ref.id, { title: e.target.value })} />
             </label>
+            <div className="wide ref-rating-field">
+              <span>{t('read.fRating')}</span>
+              <div className="ref-rating-value">
+                <RatingControl value={ref.rating} onChange={(rating) => update(ref.id, { rating })} />
+                <span className="muted small">
+                  {ref.rating === undefined ? t('read.ratingUnrated') : `${ref.rating}/5`}
+                </span>
+              </div>
+            </div>
             <label className="wide">
               {t('read.fAuthors')}
               <input
@@ -2433,6 +2499,7 @@ export function ReadSurface(): JSX.Element {
         setRowMenu({ x, y, id });
       },
       hasPdf: (r) => hasAnyAttachment(r),
+      onRate: (id, rating) => useLibrary.getState().updateReference(id, { rating }),
     }),
     // openPdfTab is a stable closure over refs/state setters; selection drives re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2443,7 +2510,7 @@ export function ReadSurface(): JSX.Element {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else {
       setSortKey(key);
-      setSortDir('asc');
+      setSortDir(key === 'rating' ? 'desc' : 'asc');
     }
   }
 
@@ -3164,6 +3231,13 @@ export function ReadSurface(): JSX.Element {
                           </td>
                           <td className="tnum">{r.year ?? ''}</td>
                           <td className="read-td-venue">{r.venue ?? ''}</td>
+                          <td className="read-td-rating">
+                            <RatingControl
+                              compact
+                              value={r.rating}
+                              onChange={(rating) => libRowCtx.onRate(r.id, rating)}
+                            />
+                          </td>
                           <td className="read-td-type">{r.type}</td>
                         </>
                       );

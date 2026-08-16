@@ -34,7 +34,8 @@ data-ownership law, the correct home for that metadata is the hub.
 keyword; the entity, REST path, and tools all use "reference"). It is a clean
 projection of the desktop `Reference` shape: `type` (article | preprint | book |
 report | webpage | note), `title`, `authors[]`, `year`, `venue`, `doi`,
-`arxiv_id`, `url`, `pdf_url`, `abstract`, `tldr`, `citation_count`, `source`,
+`arxiv_id`, `url`, `pdf_url`, `abstract`, `tldr`, `citation_count`, `rating`
+(the director's optional 1–5 score), `source`,
 `external_id` (dedupe key, e.g. `zotero:<key>`), `tags[]`, `collections[]`
 (names), `notes`, `body_markdown`, `details{}` (long-tail source fields),
 `zotero_storage{key,file}` (attachment coordinates — **not bytes**). Team-scoped

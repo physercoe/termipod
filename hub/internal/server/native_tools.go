@@ -221,7 +221,7 @@ func buildNativeTools() []nativeTool {
 		{
 			Name:        "reference_create",
 			Short:       "Add a reference to the library.",
-			Description: "Create a reference. Provide at least title or external_id. Fields: type (article|preprint|book|report|webpage|note), title, authors (string array), year, venue, doi, arxiv_id, url, pdf_url, abstract, tldr, source, external_id (dedupe key), tags, collections (name array), notes, body_markdown, attachments (portable key/file descriptors; never absolute paths).",
+			Description: "Create a reference. Provide at least title or external_id. Fields: type (article|preprint|book|report|webpage|note), title, authors (string array), year, venue, doi, arxiv_id, url, pdf_url, abstract, tldr, rating (integer 1–5), source, external_id (dedupe key), tags, collections (name array), notes, body_markdown, attachments (portable key/file descriptors; never absolute paths).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -234,6 +234,7 @@ func buildNativeTools() []nativeTool {
 					"arxiv_id":    map[string]any{"type": "string"},
 					"url":         map[string]any{"type": "string"},
 					"abstract":    map[string]any{"type": "string"},
+					"rating":      map[string]any{"type": "integer", "minimum": 1, "maximum": 5},
 					"source":      map[string]any{"type": "string"},
 					"external_id": map[string]any{"type": "string"},
 					"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -279,6 +280,7 @@ func buildNativeTools() []nativeTool {
 					"collections": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"notes":       map[string]any{"type": "string"},
 					"abstract":    map[string]any{"type": "string"},
+					"rating":      map[string]any{"type": "integer", "minimum": 1, "maximum": 5},
 					"attachments": map[string]any{
 						"type": "array",
 						"items": map[string]any{

@@ -16,11 +16,13 @@ func TestReferenceCRUD(t *testing.T) {
 	team := defaultTeamID
 
 	yr := 2023
+	rating := 5
 	created, err := s.createReference(ctx, team, referenceBody{
 		Type:        "preprint",
 		Title:       "Attention Is All You Need",
 		Authors:     []string{"Ashish Vaswani", "Noam Shazeer"},
 		Year:        &yr,
+		Rating:      &rating,
 		ArxivID:     "1706.03762",
 		Source:      "zotero",
 		ExternalID:  "zotero:ABC123",
@@ -31,7 +33,7 @@ func TestReferenceCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if created.ID == "" || created.Type != "preprint" || len(created.Authors) != 2 {
+	if created.ID == "" || created.Type != "preprint" || len(created.Authors) != 2 || created.Rating == nil || *created.Rating != 5 {
 		t.Fatalf("unexpected created row: %+v", created)
 	}
 	if created.Details["publisher"] != "NeurIPS" {
@@ -65,6 +67,19 @@ func TestReferenceCRUD(t *testing.T) {
 	}
 	if patched.Notes != "seminal" || patched.Title != "Attention Is All You Need" || *patched.Year != 2023 {
 		t.Fatalf("patch didn't preserve untouched fields: %+v", patched)
+	}
+	if patched.Rating == nil || *patched.Rating != 5 {
+		t.Fatalf("patch dropped rating: %+v", patched)
+	}
+
+	// A nullable rating can be explicitly cleared without disturbing the item.
+	cleared, err := s.patchReference(ctx, team, created.ID, json.RawMessage(`{"rating":null}`))
+	if err != nil || cleared.Rating != nil || cleared.Title != created.Title {
+		t.Fatalf("clear rating: %v %+v", err, cleared)
+	}
+	invalidRating := 6
+	if _, err := s.createReference(ctx, team, referenceBody{Title: "Invalid rating", Rating: &invalidRating}); err == nil {
+		t.Fatal("rating above 5 should violate the reference rating constraint")
 	}
 
 	// Delete.

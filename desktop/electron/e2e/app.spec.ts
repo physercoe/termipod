@@ -572,6 +572,67 @@ test('read: synced Zotero files open from the default attachment location', asyn
   }
 });
 
+test('read: ratings persist, update in one click, and sort highest first', async () => {
+  await dismissConnectModal();
+  const originalLibrary = await page.evaluate(() => {
+    const libraryKey = 'termipod.library.v1';
+    const original = localStorage.getItem(libraryKey);
+    const base = {
+      type: 'article',
+      authors: ['TermiPod'],
+      tags: [],
+      collectionIds: [],
+      notes: '',
+      addedAt: Date.now(),
+      dirty: false,
+      attachments: [],
+    };
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [
+        { ...base, id: 'ref-rating-two', title: 'Rating Alpha', rating: 2 },
+        { ...base, id: 'ref-rating-five', title: 'Rating Beta', rating: 5 },
+        { ...base, id: 'ref-rating-none', title: 'Rating Gamma' },
+      ],
+      collections: [],
+    }));
+    return original;
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+
+    const table = page.locator('.read-table');
+    const rows = table.locator('tbody tr');
+    await table.getByRole('button', { name: 'Sort by Rating', exact: true }).click();
+    await expect(rows.nth(0)).toContainText('Rating Beta');
+    await expect(rows.nth(1)).toContainText('Rating Alpha');
+    await expect(rows.nth(2)).toContainText('Rating Gamma');
+
+    const unrated = rows.filter({ hasText: 'Rating Gamma' });
+    await unrated.getByRole('button', { name: 'Rate 4 out of 5', exact: true }).click();
+    await expect(rows.nth(0)).toContainText('Rating Beta');
+    await expect(rows.nth(1)).toContainText('Rating Gamma');
+    await expect(rows.nth(2)).toContainText('Rating Alpha');
+    await expect(rows.nth(1).getByRole('button', { name: 'Clear 4-star rating', exact: true })).toBeVisible();
+
+    const persisted = await page.evaluate(() => {
+      const library = JSON.parse(localStorage.getItem('termipod.library.v1') ?? '{}') as {
+        references?: { id: string; rating?: number }[];
+      };
+      return library.references?.find((reference) => reference.id === 'ref-rating-none')?.rating;
+    });
+    expect(persisted).toBe(4);
+  } finally {
+    await page.evaluate((original) => {
+      if (original === null) localStorage.removeItem('termipod.library.v1');
+      else localStorage.setItem('termipod.library.v1', original);
+    }, originalLibrary);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {

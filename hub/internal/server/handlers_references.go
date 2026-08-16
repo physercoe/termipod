@@ -66,6 +66,7 @@ type referenceBody struct {
 	Abstract      string                `json:"abstract,omitempty"`
 	TLDR          string                `json:"tldr,omitempty"`
 	CitationCount *int                  `json:"citation_count,omitempty"`
+	Rating        *int                  `json:"rating,omitempty"`
 	Source        string                `json:"source,omitempty"`
 	ExternalID    string                `json:"external_id,omitempty"`
 	Tags          []string              `json:"tags"`
@@ -144,17 +145,17 @@ func referenceAttachmentsJSON(v []referenceAttachment) string {
 // ---- shared store methods (used by REST + MCP) -----------------------------
 
 const referenceCols = `id, team_id, type, title, authors_json, year, venue, doi, arxiv_id,
-	url, pdf_url, abstract, tldr, citation_count, source, external_id, tags_json,
+	url, pdf_url, abstract, tldr, citation_count, rating, source, external_id, tags_json,
 	collections_json, notes, body_markdown, details_json, zotero_storage_json,
 	attachments_json, enrichment_json, created_at, updated_at`
 
 func scanReference(row interface{ Scan(...any) error }) (referenceOut, error) {
 	var r referenceOut
 	var authors, tags, collections string
-	var year, citation sql.NullInt64
+	var year, citation, rating sql.NullInt64
 	var venue, doi, arxiv, url, pdfURL, abstract, tldr, source, extID, bodyMD, details, zotero, attachments, enrichment sql.NullString
 	err := row.Scan(&r.ID, &r.TeamID, &r.Type, &r.Title, &authors, &year, &venue, &doi, &arxiv,
-		&url, &pdfURL, &abstract, &tldr, &citation, &source, &extID, &tags,
+		&url, &pdfURL, &abstract, &tldr, &citation, &rating, &source, &extID, &tags,
 		&collections, &r.Notes, &bodyMD, &details, &zotero, &attachments, &enrichment, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return r, err
@@ -172,6 +173,10 @@ func scanReference(row interface{ Scan(...any) error }) (referenceOut, error) {
 	if citation.Valid {
 		v := int(citation.Int64)
 		r.CitationCount = &v
+	}
+	if rating.Valid {
+		v := int(rating.Int64)
+		r.Rating = &v
 	}
 	r.Venue, r.DOI, r.ArxivID, r.URL = venue.String, doi.String, arxiv.String, url.String
 	r.PDFURL, r.Abstract, r.TLDR, r.Source, r.ExternalID = pdfURL.String, abstract.String, tldr.String, source.String, extID.String
@@ -222,10 +227,10 @@ func (s *Server) createReference(ctx context.Context, team string, b referenceBo
 	now := NowUTC()
 	_, err := s.writeDB.ExecContext(ctx, `
 		INSERT INTO reference_items (`+referenceCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, team, normalizeRefType(b.Type), b.Title, jsonStrArray(b.Authors), nullInt(b.Year),
 		refNullStr(b.Venue), refNullStr(b.DOI), refNullStr(b.ArxivID), refNullStr(b.URL), refNullStr(b.PDFURL),
-		refNullStr(b.Abstract), refNullStr(b.TLDR), nullInt(b.CitationCount), refNullStr(b.Source),
+		refNullStr(b.Abstract), refNullStr(b.TLDR), nullInt(b.CitationCount), nullInt(b.Rating), refNullStr(b.Source),
 		refNullStr(b.ExternalID), jsonStrArray(b.Tags), jsonStrArray(b.Collections), b.Notes,
 		refNullStr(b.BodyMarkdown), detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage),
 		referenceAttachmentsJSON(b.Attachments), enrichmentJSON(b.Enrichment), now, now)
@@ -308,13 +313,13 @@ func (s *Server) patchReference(ctx context.Context, team, id string, patch json
 	_, err = s.writeDB.ExecContext(ctx, `
 		UPDATE reference_items SET
 			type = ?, title = ?, authors_json = ?, year = ?, venue = ?, doi = ?, arxiv_id = ?,
-			url = ?, pdf_url = ?, abstract = ?, tldr = ?, citation_count = ?, source = ?,
+			url = ?, pdf_url = ?, abstract = ?, tldr = ?, citation_count = ?, rating = ?, source = ?,
 			external_id = ?, tags_json = ?, collections_json = ?, notes = ?, body_markdown = ?,
 			details_json = ?, zotero_storage_json = ?, attachments_json = ?, enrichment_json = ?, updated_at = ?
 		WHERE team_id = ? AND id = ?`,
 		normalizeRefType(b.Type), b.Title, jsonStrArray(b.Authors), nullInt(b.Year), refNullStr(b.Venue),
 		refNullStr(b.DOI), refNullStr(b.ArxivID), refNullStr(b.URL), refNullStr(b.PDFURL), refNullStr(b.Abstract),
-		refNullStr(b.TLDR), nullInt(b.CitationCount), refNullStr(b.Source), refNullStr(b.ExternalID),
+		refNullStr(b.TLDR), nullInt(b.CitationCount), nullInt(b.Rating), refNullStr(b.Source), refNullStr(b.ExternalID),
 		jsonStrArray(b.Tags), jsonStrArray(b.Collections), b.Notes, refNullStr(b.BodyMarkdown),
 		detailsJSON(b.Details), zoteroJSON(b.ZoteroStorage), referenceAttachmentsJSON(b.Attachments),
 		enrichmentJSON(b.Enrichment), NowUTC(), team, id)

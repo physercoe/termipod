@@ -339,6 +339,19 @@
 .ref-form-row label.grow {
   flex: 1;
 }
+.ref-rating-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+.ref-rating-value {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  min-height: var(--control-sm);
+}
 .ref-col-checks {
   display: flex;
   flex-wrap: wrap;

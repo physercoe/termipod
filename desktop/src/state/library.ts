@@ -61,6 +61,7 @@ export interface Reference {
   abstract?: string;
   tldr?: string; // Semantic Scholar one-line summary
   citationCount?: number;
+  rating?: number; // director-curated score, 1..5; undefined means unrated
   source?: 'semantic-scholar' | 'manual' | 'paste' | 'zotero' | 'scrape';
   externalId?: string; // e.g. Semantic Scholar paperId / Zotero item key — dedupes imports
   tags: string[];
@@ -435,6 +436,13 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           addedAt: cur.addedAt,
           notes: cur.notes,
           bodyMarkdown: cur.bodyMarkdown ?? it.ref.bodyMarkdown,
+          // Ratings are director curation: a Zotero re-import never clears one.
+          // A clean hub pull may update it (agent/device edit); a failed local
+          // push keeps the dirty local value for the next retry.
+          rating:
+            it.ref.syncedAt !== undefined && cur.dirty !== true
+              ? it.ref.rating
+              : (cur.rating ?? it.ref.rating),
           tags: [...new Set([...cur.tags, ...it.ref.tags])],
           collectionIds: [...new Set([...cur.collectionIds, ...collectionIds])],
           attachments,

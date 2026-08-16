@@ -54,7 +54,9 @@ export type McpEngine = 'kimi' | 'claude' | 'codex';
 /// 'unsupported' is the codex-only outcome: the file expresses `mcp_servers` in
 /// a TOML form this splicer will not edit (an inline table or a dotted key). It
 /// is a *deliberate* refusal, not a failure — see `spliceTomlEntry`.
-export type McpWrite = 'written' | 'noop' | 'corrupt' | 'unsupported';
+/// 'failed' is a WRITE-path failure (EACCES on the config dir, disk full); the
+/// tmp+rename write means the target file itself is still untouched.
+export type McpWrite = 'written' | 'noop' | 'corrupt' | 'unsupported' | 'failed';
 
 export type ReseedResult = Record<McpEngine, McpWrite>;
 
@@ -316,6 +318,20 @@ function removeCodexEntry(target: string, log: (msg: string) => void): McpWrite 
 
 // ── the three-engine lifecycle ───────────────────────────────────────────────
 
+/// Run one engine's merge/remove with a WRITE-path net: read failures already
+/// come back as 'corrupt', but a throw out of the write itself (EACCES on the
+/// config dir, disk full) would otherwise abort the sibling engines mid-object
+/// — kimi's result discarded, codex never attempted. One engine's failure must
+/// never stop the others, so it becomes that engine's own 'failed'.
+function perEngine(target: string, log: (msg: string) => void, op: () => McpWrite): McpWrite {
+  try {
+    return op();
+  } catch (e) {
+    log(`usermcp: writing ${target} failed: ${e instanceof Error ? e.message : String(e)}`);
+    return 'failed';
+  }
+}
+
 /// Deep-merge the ONE additive termipod-desktop entry into every engine's user
 /// config, preserving every foreign key and server. Idempotent — toggle-on and
 /// the per-start refresh both land here. One engine's failure never stops the
@@ -325,10 +341,13 @@ export function mergeSharingEntries(
   env: NodeJS.ProcessEnv = process.env,
   log: (msg: string) => void = console.warn,
 ): ReseedResult {
+  const kimiPath = kimiMcpConfigPath(home);
+  const claudePath = claudeMcpConfigPath(home, env);
+  const codexPath = codexMcpConfigPath(home, env);
   return {
-    kimi: mergeJsonEntry(kimiMcpConfigPath(home), sharingEntry(home), log),
-    claude: mergeJsonEntry(claudeMcpConfigPath(home, env), claudeSharingEntry(home), log),
-    codex: mergeCodexEntry(codexMcpConfigPath(home, env), home, log),
+    kimi: perEngine(kimiPath, log, () => mergeJsonEntry(kimiPath, sharingEntry(home), log)),
+    claude: perEngine(claudePath, log, () => mergeJsonEntry(claudePath, claudeSharingEntry(home), log)),
+    codex: perEngine(codexPath, log, () => mergeCodexEntry(codexPath, home, log)),
   };
 }
 
@@ -339,9 +358,12 @@ export function removeSharingEntries(
   env: NodeJS.ProcessEnv = process.env,
   log: (msg: string) => void = console.warn,
 ): ReseedResult {
+  const kimiPath = kimiMcpConfigPath(home);
+  const claudePath = claudeMcpConfigPath(home, env);
+  const codexPath = codexMcpConfigPath(home, env);
   return {
-    kimi: removeJsonEntry(kimiMcpConfigPath(home), log),
-    claude: removeJsonEntry(claudeMcpConfigPath(home, env), log),
-    codex: removeCodexEntry(codexMcpConfigPath(home, env), log),
+    kimi: perEngine(kimiPath, log, () => removeJsonEntry(kimiPath, log)),
+    claude: perEngine(claudePath, log, () => removeJsonEntry(claudePath, log)),
+    codex: perEngine(codexPath, log, () => removeCodexEntry(codexPath, log)),
   };
 }

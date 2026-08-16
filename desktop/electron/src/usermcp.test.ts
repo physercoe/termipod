@@ -400,6 +400,30 @@ test('codex: a Windows relay path is escaped, not read as escapes', () => {
   assert.equal(tomlString('tab\there'), '"tab\\there"');
 });
 
+test(
+  'a WRITE failure on one engine still reseeds the others',
+  { skip: process.getuid?.() === 0 ? 'chmod cannot forbid root' : false },
+  () => {
+    const home = tmpHome();
+    const ro = tmpHome();
+    try {
+      // A read-only config dir: the read comes back ENOENT (benign), so the
+      // failure happens in the WRITE — which used to throw out of
+      // mergeSharingEntries, discarding kimi's result and skipping codex.
+      fs.chmodSync(ro, 0o500);
+      const r = mergeSharingEntries(home, claudeEnv(ro), NOLOG);
+      assert.equal(r.claude, 'failed');
+      assert.equal(r.kimi, 'written');
+      assert.equal(r.codex, 'written', 'a claude write failure must not stop the codex reseed');
+      assert.ok(!fs.existsSync(path.join(ro, '.claude.json')), 'the unwritable target must stay absent');
+    } finally {
+      fs.chmodSync(ro, 0o700);
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(ro, { recursive: true, force: true });
+    }
+  },
+);
+
 test('one engine failing never stops the others', () => {
   const home = tmpHome();
   try {

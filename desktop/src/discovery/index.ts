@@ -3,6 +3,7 @@ import { CORE_KEY, searchCore } from './core';
 import { searchCrossref } from './crossref';
 import { searchOpenAlex } from './openAlex';
 import { searchPubmed } from './pubmed';
+import { searchGoogleScholar } from './serpApi';
 import { S2_KEY, searchSemanticScholar } from './semanticScholar';
 import type { SearchSource } from './types';
 
@@ -23,6 +24,14 @@ export const SOURCES: SearchSource[] = [
     keyKey: S2_KEY,
     keyUrl: 'https://www.semanticscholar.org/product/api#api-key',
     search: searchSemanticScholar,
+  },
+  {
+    id: 'google-scholar',
+    label: 'Google Scholar',
+    note: 'via SerpAPI · broad citation coverage',
+    keyManagedInVault: true,
+    keyUrl: 'https://serpapi.com/manage-api-key',
+    search: searchGoogleScholar,
   },
   { id: 'crossref', label: 'Crossref', note: 'DOI metadata · 150M+', search: searchCrossref },
   { id: 'arxiv', label: 'arXiv', note: 'preprints · CS/physics/math', search: searchArxiv },

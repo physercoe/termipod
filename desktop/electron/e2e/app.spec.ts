@@ -1033,15 +1033,19 @@ test('web tab: a <webview> guest loads, isolates the bridge, and cannot reach ap
       });
       const title = wv.getTitle();
       const hasBridge = await wv.executeJavaScript('typeof window.__ELECTRON_BRIDGE__');
+      const userAgent = await wv.executeJavaScript('navigator.userAgent');
       const appFetch = await wv.executeJavaScript(
         "fetch('app://termipod/index.html').then(r => 'reached:' + r.status).catch(() => 'blocked')",
       );
       wv.remove();
-      return { title, hasBridge, appFetch };
+      return { title, hasBridge, userAgent, appFetch };
     }, guestUrl);
     expect(result.title).toBe('E2E Webview OK');
     // No preload → the bridge (and the whole command allowlist) never exists here.
     expect(result.hasBridge).toBe('undefined');
+    // Do not impersonate stock Chrome. A rewritten UA misrepresents the client
+    // and is itself a bot-detection signal; use Electron's truthful default.
+    expect(result.userAgent).toContain('Electron/');
     // The app:// scheme handler is installed on defaultSession only — the guest
     // partition can't resolve it.
     expect(result.appFetch).toBe('blocked');

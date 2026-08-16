@@ -90,6 +90,16 @@ export function BrowserView({
   // A real load failure (DNS / offline / TLS) — the replacement for the old
   // frame-refused panel, now only for genuine failures.
   const [loadError, setLoadError] = useState<{ code: number; desc: string; url: string } | null>(null);
+  // A persistent Electron session can begin loading as soon as a <webview> is
+  // attached. Keep the guest entirely unmounted until setProxy has settled, so
+  // its first request cannot escape through the previous/system route.
+  const [proxyReady, setProxyReady] = useState(() => !isShell());
+  const [proxyError, setProxyError] = useState(false);
+  const [proxyAttempt, setProxyAttempt] = useState(0);
+  // A user can submit the start-page address during the short proxy wait. Keep
+  // that URL as the guest's mount-time src instead of losing it while no element
+  // exists yet.
+  const pendingMountUrl = useRef<string | null>(null);
 
   const bookmarks = useBookmarks((s) => s.bookmarks);
   const addBookmark = useBookmarks((s) => s.add);
@@ -112,6 +122,7 @@ export function BrowserView({
     setCurrent(u);
     const v = viewRef.current;
     if (v !== null) void v.loadURL(u).catch(() => undefined);
+    else pendingMountUrl.current = u;
   }, []);
 
   // Reflect the guest's real navigation state after a (best-effort) settle.
@@ -177,14 +188,30 @@ export function BrowserView({
       v.removeEventListener('did-fail-load', onFail);
       v.removeEventListener('dom-ready', onReady);
     };
-  }, [onTitle, onNavigate, syncNavState, current]);
+  }, [onTitle, onNavigate, syncNavState, current, proxyReady]);
 
-  // Push the app's effective proxy to the webtab session before the first load
-  // (the session default is system-proxy; this applies a manual override).
+  // Push the app's effective proxy before a guest is allowed to mount. Electron
+  // begins navigating a <webview src=...> as part of attachment, so merely
+  // starting this async command before render still leaves a first-load race.
   useEffect(() => {
-    if (!isShell()) return;
-    void invoke('webtab_set_proxy', { proxy: proxyForConnection('webtab') ?? null }).catch(() => undefined);
-  }, []);
+    if (!isShell()) {
+      setProxyReady(true);
+      return;
+    }
+    let live = true;
+    setProxyReady(false);
+    setProxyError(false);
+    void invoke('webtab_set_proxy', { proxy: proxyForConnection('webtab') ?? null })
+      .then(() => {
+        if (live) setProxyReady(true);
+      })
+      .catch(() => {
+        if (live) setProxyError(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [proxyAttempt]);
 
   // Ctrl/Cmd+L focuses the address bar (the one browser shortcut worth stealing;
   // it collides with nothing in the app's map).
@@ -239,15 +266,26 @@ export function BrowserView({
         </button>
       </div>
       <div className="browser-frame-wrap">
-        {/* The guest is always mounted (stable per tab); `src` is the mount-time
-            URL — later navigation goes through loadURL, never `src`. */}
-        <Webview
-          ref={viewRef as unknown as React.Ref<HTMLElement>}
-          className="browser-webview"
-          src={initialSrc}
-          partition="persist:webtab"
-          allowpopups="true"
-        />
+        {/* Do not even attach the guest until the persistent session's proxy is
+            configured. `src` is fixed at mount; later navigation uses loadURL. */}
+        {proxyReady && (
+          <Webview
+            ref={viewRef as unknown as React.Ref<HTMLElement>}
+            className="browser-webview"
+            src={pendingMountUrl.current ?? initialSrc}
+            partition="persist:webtab"
+            allowpopups="true"
+          />
+        )}
+        {proxyError && (
+          <div className="browser-error">
+            <Icon name="alert" size={22} />
+            <p className="muted">{t('read.browserProxyFailed')}</p>
+            <button className="browser-nav" onClick={() => setProxyAttempt((attempt) => attempt + 1)}>
+              <Icon name="refresh" /> {t('read.browserRetry')}
+            </button>
+          </div>
+        )}
         {!started && (
           <div className="browser-start">
             <Icon name="globe" size={28} />

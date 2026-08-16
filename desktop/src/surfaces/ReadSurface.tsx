@@ -1866,8 +1866,10 @@ function DiscoverPanel({
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'needs-key') {
-        setShowKey(true);
-        setErr(t('read.needsKey'));
+        setShowKey(source.keyManagedInVault !== true);
+        setErr(source.keyManagedInVault === true ? t('read.needsVaultKey') : t('read.needsKey'));
+      } else if (msg === 'serpapi-shell-required') {
+        setErr(t('read.serpApiDesktopOnly'));
       } else {
         setErr(msg === 'rate-limited' ? t('read.rateLimited') : t('read.searchFailed'));
       }
@@ -1995,6 +1997,7 @@ function DiscoverPanel({
             {key !== '' ? t('read.apiKeySet') : t('read.apiKeyAdd')}
           </button>
         )}
+        {source.keyManagedInVault === true && <span>{t('read.apiKeyInVault')}</span>}
       </div>
       {showKey && source.keyKey !== undefined && (
         <div className="discover-key">

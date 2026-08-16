@@ -1,6 +1,6 @@
 /// A normalized paper across every discovery source (Semantic Scholar, OpenAlex,
-/// Crossref, arXiv, PubMed, CORE). Each source maps its own response into this
-/// shape so the Read/Discover UI is source-agnostic.
+/// Google Scholar/SerpAPI, Crossref, arXiv, PubMed, CORE). Each source maps its
+/// own response into this shape so the Read/Discover UI is source-agnostic.
 export interface DiscoveryPaper {
   paperId: string; // source-native id (S2 paperId / DOI / OpenAlex id / arXiv url / PMID) — dedupes imports
   title: string;
@@ -24,5 +24,6 @@ export interface SearchSource {
   note?: string; // short descriptor shown under the picker
   keyKey?: string; // localStorage key holding the user's API key, if required
   keyUrl?: string; // where to get a free key
+  keyManagedInVault?: boolean; // fixed keychain slot in Settings → Vault → TermiPod
   search: (query: string, limit: number) => Promise<DiscoveryPaper[]>;
 }

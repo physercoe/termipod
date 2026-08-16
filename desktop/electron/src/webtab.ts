@@ -51,6 +51,9 @@ function webtabSession(): Electron.Session {
   return session.fromPartition(WEBTAB_PARTITION);
 }
 
+let appliedProxy: string | null | undefined;
+let proxyApply: Promise<void> = Promise.resolve();
+
 /// The allowlist policy for a guest webContents, identified by its session
 /// (`session.fromPartition` is memoized per partition string, so identity
 /// comparison works). `null` = not an allowlisted guest partition — the
@@ -64,22 +67,21 @@ export function policyForGuest(wc: Electron.WebContents): PartitionPolicy | null
   return null;
 }
 
-/// The stock-Chrome user agent Electron derives from — with the `Electron/x.y`
-/// and app-name tokens stripped. Several sites (Scholar, Cloudflare) degrade or
-/// block non-Chrome UAs; the remaining string is a plain Chrome UA.
-function stockChromeUA(): string {
-  return session.defaultSession
-    .getUserAgent()
-    .replace(/ Electron\/\S+/i, '')
-    .replace(new RegExp(` ${app.getName()}\\/\\S+`, 'i'), '')
-    .trim();
-}
-
 /// Apply the app's proxy to the webtab session — same semantics as the updater:
 /// an explicit proxy when configured, else Chromium's own system resolution.
 async function applyProxy(proxy: string | null): Promise<void> {
-  const ses = webtabSession();
-  await ses.setProxy(proxy === null || proxy === '' ? { mode: 'system' } : { proxyRules: proxy });
+  // Serialize callers (two browser panes can mount together) and skip identical
+  // settings. Closing pooled sockets is necessary when the route changes, but
+  // doing it on every tab switch would needlessly interrupt other web guests.
+  const task = proxyApply.catch(() => undefined).then(async () => {
+    if (appliedProxy === proxy) return;
+    const ses = webtabSession();
+    await ses.setProxy(proxy === null || proxy === '' ? { mode: 'system' } : { proxyRules: proxy });
+    await ses.closeAllConnections();
+    appliedProxy = proxy;
+  });
+  proxyApply = task;
+  await task;
 }
 
 // ── Guest context menu ───────────────────────────────────────────────────────
@@ -173,10 +175,9 @@ function popupGuestContextMenu(wc: Electron.WebContents, params: Electron.Contex
 /// catches the main window's own webContents and its `will-attach-webview`).
 export function setupWebtab(): void {
   const ses = webtabSession();
-  ses.setUserAgent(stockChromeUA());
-  // Default to system-proxy resolution; the renderer pushes an explicit override
-  // via `webtab_set_proxy` when Settings → Network configures one.
-  void applyProxy(null);
+  // Do not start an unawaited default setProxy here. BrowserView deliberately
+  // keeps its guest unmounted while webtab_set_proxy applies either the selected
+  // override or Electron's system mode, making the first navigation deterministic.
   // Deny every permission a preview browser has no business granting; allow only
   // fullscreen (video). Applies to the whole partition.
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'fullscreen'));

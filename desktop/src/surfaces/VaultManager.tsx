@@ -706,7 +706,7 @@ function ItemEditor({
   );
 }
 
-// ── TermiPod tab: the app's own integrations (WebDAV/S3 sync + voice key) ─────
+// ── TermiPod tab: app integrations (sync, voice, discovery credentials) ──────
 
 /// A raw keychain-slot secret (not a vault item) with reveal / copy / inline edit.
 /// Used for the app-integration secrets, which live under fixed keychain keys.

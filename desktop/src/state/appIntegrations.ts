@@ -3,18 +3,20 @@ import { secretGet, secretSetMany } from './persist';
 import { loadWebdavConfig, loadZoteroBackend, loadZoteroS3Config } from './webdav';
 import { loadS3Config, loadSyncBackend, loadWorkspaceSyncConfig } from './workspaceSync';
 import { getVoiceModel } from '../voice/settings';
+import { SERPAPI_KEY } from './discoverySecrets';
 
 /// TermiPod's own integration config + secrets, gathered in one place so they can
 /// be (a) surfaced/managed in the Vault's "TermiPod" tab and (b) sealed into the
 /// synced vault bundle — so setting up a new machine restores the WebDAV/S3 sync
-/// endpoints and the voice API key along with everything else.
+/// endpoints, voice API key, and discovery API key along with everything else.
 ///
-/// The four integrations (each secret already lives in the consolidated keychain
+/// These integrations (each secret already lives in the consolidated keychain
 /// item via `persist`):
 ///   • Read storage — Zotero-compatible WebDAV (webdav.ts)
 ///   • Author workspace — WebDAV (workspaceSync.ts)
 ///   • Author workspace — S3 / S3-compatible (workspaceSync.ts / s3.rs)
 ///   • Voice input — DashScope realtime ASR (voice/settings.ts)
+///   • Literature discovery — Google Scholar through SerpAPI
 
 /// Non-secret config that seals into / restores from the vault. Snapshotting the
 /// raw localStorage strings keeps it trivially forward-compatible (e.g. `voice.model`
@@ -48,6 +50,7 @@ export const APP_SECRET_KEYS = [
   'termipod.workspacesync.password',
   'termipod.workspacesync.s3.secret',
   'voice_dashscope_api_key',
+  SERPAPI_KEY,
 ] as const;
 
 // ── UI descriptors (Vault → TermiPod tab) ───────────────────────────────────
@@ -132,6 +135,13 @@ export function listAppIntegrations(): AppIntegration[] {
       icon: 'music',
       info: [{ labelKey: 'vault.tpModel', value: model }],
       secrets: [{ slot: 'voice_dashscope_api_key', labelKey: 'vault.tpApiKey' }],
+    },
+    {
+      id: 'serpapi',
+      titleKey: 'vault.tpSerpApi',
+      icon: 'search',
+      info: [],
+      secrets: [{ slot: SERPAPI_KEY, labelKey: 'vault.tpApiKey' }],
     },
   ];
 }

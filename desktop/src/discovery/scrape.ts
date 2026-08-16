@@ -1,5 +1,6 @@
 import { CONTACT, getJson } from './http';
 import type { JournalMetrics, ResourceLink, WorkLink } from '../state/library';
+import { isLikelySameWork } from './scrapeMatch';
 
 /// The library **scraper** — given whatever identifiers an item already has
 /// (DOI / arXiv id / OpenAlex id / title), it pulls the rich metadata the plain
@@ -19,6 +20,8 @@ export interface ScrapeSeed {
   arxivId?: string;
   openAlexId?: string;
   title?: string;
+  year?: number;
+  authors?: string[];
   url?: string;
   abstract?: string;
 }
@@ -46,6 +49,7 @@ export interface ScrapePatch {
   detailsAdd?: Record<string, string>;
   enrichedAt: number;
   enrichSource: string;
+  openAlexId?: string;
 }
 
 export interface ScrapeResult {
@@ -184,7 +188,22 @@ async function resolveWork(seed: ScrapeSeed): Promise<Record<string, unknown> | 
       `https://api.openalex.org/works?search=${encodeURIComponent(title)}&per-page=1&${mail}`,
     );
     const results = j !== null && Array.isArray(j.results) ? (j.results as unknown[]) : [];
-    if (results.length > 0) return asObj(results[0]);
+    if (results.length > 0) {
+      const candidate = asObj(results[0]);
+      const authorships = Array.isArray(candidate.authorships) ? candidate.authorships : [];
+      const authors = authorships
+        .map((entry) => asStr(asObj(asObj(entry).author).display_name))
+        .filter((name): name is string => name !== undefined);
+      if (
+        isLikelySameWork(seed, {
+          title: asStr(candidate.title) ?? asStr(candidate.display_name),
+          year: asNum(candidate.publication_year),
+          authors,
+        })
+      ) {
+        return candidate;
+      }
+    }
   }
   return null;
 }
@@ -306,6 +325,7 @@ export async function scrapeMetadata(seed: ScrapeSeed): Promise<ScrapeResult> {
     detailsAdd: Object.keys(detailsAdd).length > 0 ? detailsAdd : undefined,
     enrichedAt: Date.now(),
     enrichSource: 'OpenAlex',
+    openAlexId: asStr(work.id),
   };
   return { patch, found, identifier: asStr(work.id) };
 }

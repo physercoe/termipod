@@ -572,6 +572,165 @@ test('read: synced Zotero files open from the default attachment location', asyn
   }
 });
 
+test('read: ratings persist, update in one click, and sort highest first', async () => {
+  await dismissConnectModal();
+  const originalLibrary = await page.evaluate(() => {
+    const libraryKey = 'termipod.library.v1';
+    const original = localStorage.getItem(libraryKey);
+    const base = {
+      type: 'article',
+      authors: ['TermiPod'],
+      tags: [],
+      collectionIds: [],
+      notes: '',
+      addedAt: Date.now(),
+      dirty: false,
+      attachments: [],
+    };
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [
+        { ...base, id: 'ref-rating-two', title: 'Rating Alpha', rating: 2 },
+        { ...base, id: 'ref-rating-five', title: 'Rating Beta', rating: 5 },
+        { ...base, id: 'ref-rating-none', title: 'Rating Gamma' },
+      ],
+      collections: [],
+    }));
+    return original;
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+
+    const table = page.locator('.read-table');
+    const scrollMetrics = await page.locator('.read-table-wrap').evaluate((wrapper) => {
+      const candidates = [wrapper, ...wrapper.querySelectorAll<HTMLElement>('div')];
+      const scroller = candidates.find((candidate) => {
+        const overflowX = getComputedStyle(candidate).overflowX;
+        return candidate.scrollWidth > candidate.clientWidth + 1 && (overflowX === 'auto' || overflowX === 'scroll');
+      });
+      if (scroller === undefined) return null;
+      scroller.scrollLeft = 120;
+      return { clientWidth: scroller.clientWidth, scrollWidth: scroller.scrollWidth, scrollLeft: scroller.scrollLeft };
+    });
+    expect(scrollMetrics).not.toBeNull();
+    expect(scrollMetrics!.scrollWidth).toBeGreaterThan(scrollMetrics!.clientWidth);
+    expect(scrollMetrics!.scrollLeft).toBeGreaterThan(0);
+
+    const rows = table.locator('tbody tr');
+    await table.getByRole('button', { name: 'Sort by Rating', exact: true }).click();
+    await expect(rows.nth(0)).toContainText('Rating Beta');
+    await expect(rows.nth(1)).toContainText('Rating Alpha');
+    await expect(rows.nth(2)).toContainText('Rating Gamma');
+
+    const unrated = rows.filter({ hasText: 'Rating Gamma' });
+    await unrated.getByRole('button', { name: 'Rate 4 out of 5', exact: true }).click();
+    await expect(rows.nth(0)).toContainText('Rating Beta');
+    await expect(rows.nth(1)).toContainText('Rating Gamma');
+    await expect(rows.nth(2)).toContainText('Rating Alpha');
+    await expect(rows.nth(1).getByRole('button', { name: 'Clear 4-star rating', exact: true })).toBeVisible();
+
+    const persisted = await page.evaluate(() => {
+      const library = JSON.parse(localStorage.getItem('termipod.library.v1') ?? '{}') as {
+        references?: { id: string; rating?: number }[];
+      };
+      return library.references?.find((reference) => reference.id === 'ref-rating-none')?.rating;
+    });
+    expect(persisted).toBe(4);
+
+    await rows.filter({ hasText: 'Rating Gamma' }).click();
+    const metadataRow = page.locator('.ref-rating-type-row');
+    await expect(metadataRow).toBeVisible();
+    const metadataMetrics = await metadataRow.evaluate((node) => {
+      const rating = node.querySelector<HTMLElement>('.ref-rating-field')!.getBoundingClientRect();
+      const type = node.querySelector<HTMLElement>('.ref-type-field')!.getBoundingClientRect();
+      return {
+        ratingTop: Math.round(rating.top),
+        ratingRight: Math.round(rating.right),
+        typeTop: Math.round(type.top),
+        typeLeft: Math.round(type.left),
+      };
+    });
+    expect(metadataMetrics.typeTop).toBe(metadataMetrics.ratingTop);
+    expect(metadataMetrics.typeLeft).toBeGreaterThan(metadataMetrics.ratingRight);
+  } finally {
+    await page.evaluate((original) => {
+      if (original === null) localStorage.removeItem('termipod.library.v1');
+      else localStorage.setItem('termipod.library.v1', original);
+    }, originalLibrary);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
+test('read: Cite keeps Scholar and OpenAlex provenance separate', async () => {
+  await dismissConnectModal();
+  const originalLibrary = await page.evaluate(() => {
+    const libraryKey = 'termipod.library.v1';
+    const original = localStorage.getItem(libraryKey);
+    localStorage.setItem(libraryKey, JSON.stringify({
+      references: [{
+        id: 'ref-citation-provenance',
+        type: 'article',
+        title: 'Citation provenance fixture',
+        authors: ['TermiPod'],
+        year: 2025,
+        citationCount: 120,
+        citedByCount: 95,
+        referenceCount: 14,
+        source: 'google-scholar',
+        externalId: 'scholar-fixture',
+        openAlexId: 'https://openalex.org/W123',
+        scholar: {
+          resultId: 'scholar-fixture',
+          citedByCount: 120,
+          citesId: 'fixture-cites',
+          citedByUrl: 'https://scholar.google.com/scholar?cites=fixture-cites',
+          versionsCount: 3,
+          versionsUrl: 'https://scholar.google.com/scholar?cluster=fixture',
+          citations: [{ id: 'scholar-citing-1', title: 'Scholar citing work', year: 2026, url: 'https://example.test/scholar' }],
+          citationsPerYear: [{ year: 2025, citations: 20 }, { year: 2026, citations: 40 }],
+          citationTotalResults: 120,
+          citationsLoadedAt: Date.now(),
+          citationsHasMore: true,
+        },
+        citations: [{ id: 'https://openalex.org/W456', title: 'OpenAlex citing work', year: 2026 }],
+        tags: [],
+        collectionIds: [],
+        notes: '',
+        addedAt: Date.now(),
+        dirty: false,
+        attachments: [],
+      }],
+      collections: [],
+    }));
+    return original;
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    await page.locator('.read-table tbody tr').filter({ hasText: 'Citation provenance fixture' }).click();
+    await page.getByRole('tab', { name: 'Cite', exact: true }).click();
+
+    const cite = page.locator('.ref-cite');
+    await expect(cite.locator('.ref-metric').filter({ hasText: 'Google Scholar' })).toContainText('120');
+    await expect(cite.locator('.ref-metric').filter({ hasText: 'OpenAlex' })).toContainText('95');
+    await expect(cite.locator('.ref-provider-note')).toContainText('different sources');
+    await expect(cite.getByText('Scholar citing work', { exact: true })).toBeVisible();
+    await expect(cite.getByText('OpenAlex citing work', { exact: true })).toBeVisible();
+    await expect(cite.getByRole('button', { name: 'Load more', exact: true })).toBeVisible();
+    await expect(cite.locator('.ref-scholar-year-bar')).toHaveCount(2);
+  } finally {
+    await page.evaluate((original) => {
+      if (original === null) localStorage.removeItem('termipod.library.v1');
+      else localStorage.setItem('termipod.library.v1', original);
+    }, originalLibrary);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {
@@ -942,15 +1101,19 @@ test('web tab: a <webview> guest loads, isolates the bridge, and cannot reach ap
       });
       const title = wv.getTitle();
       const hasBridge = await wv.executeJavaScript('typeof window.__ELECTRON_BRIDGE__');
+      const userAgent = await wv.executeJavaScript('navigator.userAgent');
       const appFetch = await wv.executeJavaScript(
         "fetch('app://termipod/index.html').then(r => 'reached:' + r.status).catch(() => 'blocked')",
       );
       wv.remove();
-      return { title, hasBridge, appFetch };
+      return { title, hasBridge, userAgent, appFetch };
     }, guestUrl);
     expect(result.title).toBe('E2E Webview OK');
     // No preload → the bridge (and the whole command allowlist) never exists here.
     expect(result.hasBridge).toBe('undefined');
+    // Do not impersonate stock Chrome. A rewritten UA misrepresents the client
+    // and is itself a bot-detection signal; use Electron's truthful default.
+    expect(result.userAgent).toContain('Electron/');
     // The app:// scheme handler is installed on defaultSession only — the guest
     // partition can't resolve it.
     expect(result.appFetch).toBe('blocked');
@@ -1124,6 +1287,22 @@ test('workbench: primary surface headers share one grid and action height', asyn
     await expect(primary).toBeVisible();
     await expect.poll(() => primary.evaluate((node) => node.getBoundingClientRect().height)).toBe(28);
   }
+});
+
+test('macOS: empty terminal session-header space remains a window drag region', async () => {
+  const os = await page.evaluate(() => window.__ELECTRON_BRIDGE__!.invoke<string>('platform_os'));
+  if (os !== 'macos') return;
+
+  await dismissConnectModal();
+  await page.locator('[data-job="terminal"]').click();
+
+  const actions = page.locator('.term-panel.surface .term-surface-actions');
+  const emptySpace = actions.locator(':scope > .spacer');
+  const addButton = actions.locator('.term-add-btn');
+  await expect(emptySpace).toBeVisible();
+  await expect(addButton).toBeVisible();
+  await expect.poll(() => emptySpace.evaluate((node) => getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('drag');
+  await expect.poll(() => addButton.evaluate((node) => getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
 });
 
 test('workbench: pane toggles stay pinned to the surface header edges', async () => {

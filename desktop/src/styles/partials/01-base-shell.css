@@ -454,6 +454,14 @@ pre {
 .shell-macos .term-nav-list {
   -webkit-app-region: no-drag;
 }
+/* The terminal header contains a flexible spacer after its session tabs. The
+   action strip itself must stay no-drag so tab scrolling remains interactive,
+   but that genuinely empty spacer should behave like the rest of the macOS
+   title band and let the user move the window. */
+.shell-macos .term-surface-actions > .spacer {
+  align-self: stretch;
+  -webkit-app-region: drag;
+}
 .shell-macos button,
 .shell-macos input,
 .shell-macos select,

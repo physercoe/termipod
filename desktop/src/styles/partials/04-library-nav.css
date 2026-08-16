@@ -339,6 +339,30 @@
 .ref-form-row label.grow {
   flex: 1;
 }
+.ref-rating-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+.ref-rating-type-row {
+  align-items: flex-start;
+}
+.ref-rating-type-row .ref-rating-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ref-rating-type-row .ref-type-field {
+  flex: 0 1 120px;
+  min-width: 96px;
+}
+.ref-rating-value {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+  min-height: var(--control-sm);
+}
 .ref-col-checks {
   display: flex;
   flex-wrap: wrap;
@@ -471,6 +495,12 @@
 .ref-citation-empty {
   padding: var(--spacing-s4) 0;
 }
+.ref-provider-note {
+  padding: var(--spacing-s8) var(--spacing-s12);
+  border-left: 2px solid var(--accent);
+  background: var(--accent-tint);
+  border-radius: var(--radius-sm);
+}
 .ref-metrics {
   display: flex;
   flex-wrap: wrap;
@@ -572,6 +602,52 @@
 }
 .ref-work-year {
   white-space: nowrap;
+}
+.ref-scholar-data {
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2, var(--surface));
+}
+.ref-scholar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-s8);
+}
+.ref-scholar-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  white-space: nowrap;
+}
+.ref-scholar-years {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-s4);
+  height: 92px;
+  padding: var(--spacing-s8) var(--spacing-s4) 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+.ref-scholar-year {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: end;
+  justify-items: center;
+  gap: var(--spacing-s2);
+  width: 22px;
+  min-width: 22px;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+}
+.ref-scholar-year-bar {
+  width: 12px;
+  max-height: 66px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
 }
 .ref-body-edit {
   min-height: 180px;

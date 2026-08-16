@@ -126,6 +126,42 @@ void main() {
       expect(pending, isNot(done));
     });
 
+    test('streamed updates with no status separate on their content', () {
+      // codex commandExecution output (vision-parity E3) streams a chain
+      // of statusless partials whose only difference is the cumulative
+      // text. Keying on id+status alone collapsed them to one, so a
+      // replayed transcript showed a finished command's oldest slice.
+      Map<String, dynamic> partial(String text) => {
+            'kind': 'tool_call_update',
+            'payload': {
+              'toolCallId': 'call_x',
+              'partial': true,
+              'content': [
+                {
+                  'type': 'content',
+                  'content': {'type': 'text', 'text': text},
+                },
+              ],
+            },
+          };
+      final first = agentEventReplayKey(partial('line 1\n'));
+      final grown = agentEventReplayKey(partial('line 1\nline 2\n'));
+      expect(first, isNotNull);
+      expect(first, isNot(grown));
+      // The same cumulative buffer re-delivered on replay still dedupes.
+      expect(agentEventReplayKey(partial('line 1\nline 2\n')), grown);
+    });
+
+    test('a contentless update still keys on id and status', () {
+      expect(
+        agentEventReplayKey({
+          'kind': 'tool_call_update',
+          'payload': {'toolCallId': 'tc-9', 'status': 'completed'},
+        }),
+        'tool_call_update:tc-9:completed',
+      );
+    });
+
     test('approval_request keys on request_id', () {
       final orig = agentEventReplayKey({
         'kind': 'approval_request',

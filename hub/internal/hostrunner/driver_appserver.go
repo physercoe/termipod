@@ -228,6 +228,16 @@ type AppServerDriver struct {
 	// place — chatbot-style streaming UX without DB-row spam.
 	streamMu      sync.Mutex
 	streamBuffers map[string]*streamBuffer
+	// outputBuffers is the same machinery for
+	// item/commandExecution/outputDelta — a running command's stdout,
+	// flushed as `kind=tool_call_update` so the principal watches a
+	// build scroll instead of staring at a spinner until it exits
+	// (vision-parity E3). Kept in its own map rather than sharing
+	// streamBuffers: the key is an item id from a different namespace
+	// (`call_…` vs `msg_…`) and, more to the point, flushing has to
+	// know which event kind to post — one map keyed by two meanings is
+	// how a keyed store starts serving the wrong consumer.
+	outputBuffers map[string]*streamBuffer
 	// StreamFlushInterval throttles the flush cadence. Zero falls
 	// back to the default (200 ms — fast enough to feel live without
 	// generating a row per word). A negative value disables streaming
@@ -294,6 +304,7 @@ func (d *AppServerDriver) Start(parent context.Context) error {
 	d.pending = make(map[int64]chan jsonRPCResponse)
 	d.pendingApprovals = make(map[string]pendingApproval)
 	d.streamBuffers = make(map[string]*streamBuffer)
+	d.outputBuffers = make(map[string]*streamBuffer)
 	d.streamCtx = parent
 	d.shutdownCh = make(chan struct{})
 	d.mu.Unlock()
@@ -468,11 +479,13 @@ func (d *AppServerDriver) Stop() {
 	// Cancel any in-flight stream-flush timers so a late callback
 	// doesn't post a partial event after the lifecycle.stopped one.
 	d.streamMu.Lock()
-	for id, buf := range d.streamBuffers {
-		if buf.timer != nil {
-			buf.timer.Stop()
+	for _, m := range []map[string]*streamBuffer{d.streamBuffers, d.outputBuffers} {
+		for id, buf := range m {
+			if buf.timer != nil {
+				buf.timer.Stop()
+			}
+			delete(m, id)
 		}
-		delete(d.streamBuffers, id)
 	}
 	d.streamMu.Unlock()
 
@@ -1437,9 +1450,12 @@ func (d *AppServerDriver) writeRawResponse(id int64, result any) error {
 // aggregate they reproduce what arrives complete on item/completed.
 // Posting them as agent_events would multiply transcript-row volume
 // 50–200× per turn for content the renderer doesn't show outside
-// debug mode anyway. The driver collapses them upstream; a future
-// streaming-UI wedge can opt back in by routing deltas through a
-// separate channel.
+// debug mode anyway, so this is a *routing* gate, not a drop: the two
+// deltas we surface (agentMessage text, commandExecution output) are
+// dispatched to their per-item buffers by translateNotification and
+// reach the transcript throttled. The rest — reasoning text, raw
+// reasoning content — stay dropped: internal monologue the
+// agent_event vocabulary doesn't surface.
 func isDeltaNotification(method string) bool {
 	if method == "" {
 		return false
@@ -1474,8 +1490,11 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 	// internal-monologue debug data the agent_event vocabulary
 	// doesn't surface.
 	if isDeltaNotification(method) {
-		if method == "item/agentMessage/delta" {
+		switch method {
+		case "item/agentMessage/delta":
 			d.handleAgentMessageDelta(frame)
+		case commandOutputDeltaMethod:
+			d.handleCommandOutputDelta(frame)
 		}
 		return
 	}
@@ -1487,10 +1506,16 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 	if method == "item/completed" {
 		if params, ok := frame["params"].(map[string]any); ok {
 			if item, ok := params["item"].(map[string]any); ok {
-				if t, _ := item["type"].(string); t == "agentMessage" {
-					if itemID, _ := item["id"].(string); itemID != "" {
-						d.finalizeStream(itemID)
-					}
+				itemID, _ := item["id"].(string)
+				switch t, _ := item["type"].(string); {
+				case t == "agentMessage" && itemID != "":
+					d.finalizeStream(itemID)
+				case t == "commandExecution" && itemID != "":
+					// Same contract one kind over: the profile is
+					// about to post the authoritative tool_result
+					// (payload.content = the item's aggregatedOutput),
+					// so stop streaming partials for this call.
+					d.finalizeOutputStream(itemID)
 				}
 			}
 		}
@@ -1978,4 +2003,148 @@ func (d *AppServerDriver) finalizeStream(itemID string) {
 		buf.timer.Stop()
 	}
 	delete(d.streamBuffers, itemID)
+}
+
+// ---------------------------------------------------------------------------
+// Streaming command output (vision-parity E3)
+// ---------------------------------------------------------------------------
+
+// commandOutputDeltaMethod is codex's notification for a chunk of a
+// running command's stdout/stderr. Name and params pinned against
+// `codex app-server generate-json-schema` @ codex-cli 0.133.0
+// (`CommandExecutionOutputDeltaNotification`: threadId, turnId, itemId,
+// delta) and confirmed on the wire. Its sibling
+// `item/fileChange/outputDelta` carries the schema's own note that
+// "the server no longer emits this notification", so it is
+// deliberately not wired.
+const commandOutputDeltaMethod = "item/commandExecution/outputDelta"
+
+// maxStreamedOutputBytes caps the cumulative output one running command
+// may carry on the wire. Each flush posts the WHOLE buffer (that is what
+// makes a partial self-contained, so a client that joins late still
+// renders correctly), so an uncapped buffer would cost O(n²) bytes over
+// a chatty command's lifetime. Past the cap we keep the TAIL: for a
+// running command the newest output is the interesting end, and the
+// authoritative full text arrives with the tool_result anyway.
+const maxStreamedOutputBytes = 32 * 1024
+
+// handleCommandOutputDelta accumulates one chunk of a running command's
+// output and ensures a flush is scheduled, mirroring
+// handleAgentMessageDelta's throttle (not debounce).
+func (d *AppServerDriver) handleCommandOutputDelta(frame map[string]any) {
+	if d.StreamFlushInterval < 0 {
+		return // streaming explicitly disabled
+	}
+	params, _ := frame["params"].(map[string]any)
+	if params == nil {
+		return
+	}
+	itemID, _ := params["itemId"].(string)
+	delta, _ := params["delta"].(string)
+	if itemID == "" || delta == "" {
+		return
+	}
+	d.streamMu.Lock()
+	defer d.streamMu.Unlock()
+	if d.outputBuffers == nil {
+		// Driver stopped — buffer was nilled in Stop(). Drop silently.
+		return
+	}
+	buf, ok := d.outputBuffers[itemID]
+	if !ok {
+		buf = &streamBuffer{}
+		d.outputBuffers[itemID] = buf
+	}
+	buf.text = trimToTail(buf.text+delta, maxStreamedOutputBytes)
+	if buf.timer == nil {
+		id := itemID
+		buf.timer = time.AfterFunc(d.StreamFlushInterval, func() {
+			d.flushOutputStream(id)
+		})
+	}
+}
+
+// trimToTail bounds s to at most max bytes, keeping the end. The cut is
+// moved forward to the next line boundary when one is within the kept
+// window, so a client previewing "the first line" of a truncated buffer
+// never renders half a line as if it were whole.
+func trimToTail(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	tail := s[len(s)-max:]
+	if nl := strings.IndexByte(tail, '\n'); nl >= 0 && nl+1 < len(tail) {
+		return tail[nl+1:]
+	}
+	return tail
+}
+
+// flushOutputStream posts the accumulated command output as a single
+// `tool_call_update`, then clears the timer slot so the next delta can
+// schedule a fresh flush.
+//
+// Payload shape is the ACP driver's tool_call_update verbatim
+// (driver_acp.go:1583) rather than a codex-shaped one: `toolCallId` is
+// the key BOTH clients fold on (desktop toolGroups.ts
+// `toolCallUpdateParentId`, mobile fold_maps.dart:66 — note that is
+// `toolCallId`/`tool_call_id`, NOT the `tool_use_id` that tool_result
+// uses), and `content[]` is the block array both already preview. So the
+// live output lands inside the running tool card with no client change;
+// R4 upgrades desktop from a one-line preview to a scroll-capped block.
+//
+// Deliberately carries NO `status`: in both clients the latest update's
+// status WINS over the one derived from a paired tool_result
+// (toolGroups.ts `toolStatusOf`, feed_reducer.dart
+// `toolCallDisplayStatus`). A trailing partial saying "in_progress"
+// would therefore pin the card at running forever, since nothing clears
+// it once the command exits. Omitting the field lets the tool_result
+// resolve the card, which is the behaviour that already ships.
+func (d *AppServerDriver) flushOutputStream(itemID string) {
+	d.streamMu.Lock()
+	if d.outputBuffers == nil {
+		d.streamMu.Unlock()
+		return
+	}
+	buf, ok := d.outputBuffers[itemID]
+	if !ok {
+		d.streamMu.Unlock()
+		return
+	}
+	text := buf.text
+	buf.timer = nil // free the slot for the next delta to re-schedule
+	ctx := d.streamCtx
+	d.streamMu.Unlock()
+	if text == "" {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", map[string]any{
+		"toolCallId": itemID,
+		"content": []any{map[string]any{
+			"type":    "content",
+			"content": map[string]any{"type": "text", "text": text},
+		}},
+		"partial": true,
+	})
+}
+
+// finalizeOutputStream cancels any pending flush and frees the buffer
+// for a command that has completed. The tool_result the profile posts
+// from the same item/completed frame carries the authoritative output.
+func (d *AppServerDriver) finalizeOutputStream(itemID string) {
+	d.streamMu.Lock()
+	defer d.streamMu.Unlock()
+	if d.outputBuffers == nil {
+		return
+	}
+	buf, ok := d.outputBuffers[itemID]
+	if !ok {
+		return
+	}
+	if buf.timer != nil {
+		buf.timer.Stop()
+	}
+	delete(d.outputBuffers, itemID)
 }

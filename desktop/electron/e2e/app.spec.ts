@@ -604,6 +604,20 @@ test('read: ratings persist, update in one click, and sort highest first', async
     await page.locator('[data-job="read"]').click();
 
     const table = page.locator('.read-table');
+    const scrollMetrics = await page.locator('.read-table-wrap').evaluate((wrapper) => {
+      const candidates = [wrapper, ...wrapper.querySelectorAll<HTMLElement>('div')];
+      const scroller = candidates.find((candidate) => {
+        const overflowX = getComputedStyle(candidate).overflowX;
+        return candidate.scrollWidth > candidate.clientWidth + 1 && (overflowX === 'auto' || overflowX === 'scroll');
+      });
+      if (scroller === undefined) return null;
+      scroller.scrollLeft = 120;
+      return { clientWidth: scroller.clientWidth, scrollWidth: scroller.scrollWidth, scrollLeft: scroller.scrollLeft };
+    });
+    expect(scrollMetrics).not.toBeNull();
+    expect(scrollMetrics!.scrollWidth).toBeGreaterThan(scrollMetrics!.clientWidth);
+    expect(scrollMetrics!.scrollLeft).toBeGreaterThan(0);
+
     const rows = table.locator('tbody tr');
     await table.getByRole('button', { name: 'Sort by Rating', exact: true }).click();
     await expect(rows.nth(0)).toContainText('Rating Beta');

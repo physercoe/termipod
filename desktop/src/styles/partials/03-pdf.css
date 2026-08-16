@@ -1321,6 +1321,7 @@
 }
 .read-table {
   width: 100%;
+  min-width: 1040px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: var(--font-size-13, 0.82rem);

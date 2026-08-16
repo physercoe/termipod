@@ -133,6 +133,23 @@ This complements:
   record, because the hub stores externalized bytes as
   `application/octet-stream` and no browser will paint that as an image.
 
+- **Groundwork for driving codex locally: the transport to its app-server.**
+  A codex installed by the official installer script runs a shared background
+  app-server, and a session on it outlives this app and is visible in codex's
+  own TUI. The desktop can now open that channel, or spawn a private
+  per-session app-server when the shared one is unavailable — falling back
+  with a sentence saying which it got, because "shared with your TUI" and
+  "dies with this window" are different promises. Not yet wired to any
+  surface: the driver that speaks the protocol is the next wedge, so nothing
+  visible changes yet. (vision-parity L4b)
+
+  **codex installed by the official script is now found even when it is not on
+  PATH.** The installer writes `~/.local/bin/codex` and puts its PATH line in
+  `.bashrc`, which an app launched from a Dock or Start-menu icon never reads
+  — so the officially-installed codex was *less* discoverable than a
+  distro-packaged one. The well-known install dirs are searched directly, with
+  `TERMIPOD_CODEX_BIN` as an override.
+
 ### Changed
 - **The UI-sharing consent text now lists all eight gated tools.** It had said
   "four things" since the first Author lane and had never been updated for

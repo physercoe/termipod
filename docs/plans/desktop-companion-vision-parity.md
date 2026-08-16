@@ -10,9 +10,12 @@
 > 2026-08-16** (streaming command output; relay result passthrough).
 > **R4 shipped 2026-08-16** (live output + agent-produced media) —
 > **W3 complete**; L3c is deferrable. **W4 started 2026-08-16**:
-> **F4 shipped** (user-level MCP reseed for claude + codex) and
-> **L4a shipped** (codex attach-rung resolver; L4's WebSocket premise
-> was wrong — see the wedge). Left in W4: L4b, R5, R6
+> **F4 shipped** (user-level MCP reseed for claude + codex),
+> **L4a shipped** (codex attach-rung resolver) and **L4b shipped**
+> (codex app-server transport — which corrected L4a: the daemon's
+> control socket *is* a WebSocket, and L4a's `app-server proxy` data
+> path was a dead channel). L4 split again: **L4c** is the driver.
+> Left in W4: L4c, R5, R6
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -458,26 +461,21 @@ transport rung (lane T), never the renderer's ceiling.
   argv from the same N1 table L3 reads.
 
   **L4a shipped 2026-08-16** — the attach-rung resolver
-  (`localagent/codexattach.ts`). **This line originally specified a
-  WebSocket attach with a bearer scheme; no such interface exists.**
-  Measured against codex-cli **0.147.0** (the installed CLI had also
-  moved on from the 0.133.0 that E3 was written against):
+  (`localagent/codexattach.ts`). Measured against codex-cli **0.147.0**
+  (the installed CLI had also moved on from the 0.133.0 that E3 was
+  written against), three corrections to this line, all of which stand:
 
-  1. **The shared-daemon transport is a Unix domain socket, not a
-     WebSocket, and there is no bearer scheme.** `codex app-server
-     daemon start` brings the daemon up and `codex app-server proxy
-     --sock <path>` pipes stdio to its control socket at
-     `<CODEX_HOME>/app-server-control/app-server-control.sock`. The
+  1. **There is no bearer scheme.** `daemon start` brings the daemon up
+     and the control socket lives at
+     `<CODEX_HOME>/app-server-control/app-server-control.sock`, created
+     `srw-------` — **filesystem permissions are the auth**. The
      `--code-mode-host <WS_URL>` flag is a different feature (where
-     *code mode* runs), not the session transport. So the attach rung
-     needs **no WebSocket client and no token** — it is the same
-     JSON-RPC-over-stdio we already speak, pointed at another process.
+     *code mode* runs), not the session transport.
   2. **"Spawn it detached if absent" is not available.** `daemon start`
      refuses unless codex was installed by the official installer
      script, wanting the managed binary at
      `<CODEX_HOME>/packages/standalone/current/codex`. An npm /
-     homebrew / distro codex — including the one on this machine —
-     therefore has **no daemon rung at all**.
+     homebrew / distro codex has **no daemon rung at all**.
   3. **The rung order inverts.** Per-session stdio is not "the fallback
      rung only"; for the common install it is the only rung. The daemon
      is an opportunistic upgrade taken when the managed install exists.
@@ -488,40 +486,93 @@ transport rung (lane T), never the renderer's ceiling.
   SUN_LEN"* — a message nobody would attribute to path length — so the
   resolver disqualifies the daemon rung up front and says why.
 
-  **Confirmed against a live daemon (2026-08-16).** The dev machine was
-  moved to the installer-managed standalone codex, so the daemon rung —
-  previously unreachable here — could be exercised. `codex app-server
-  daemon start` reports both paths this resolver computes, **exactly**:
-  `managedCodexPath` = `<CODEX_HOME>/packages/standalone/current/codex`
-  and `socketPath` =
-  `<CODEX_HOME>/app-server-control/app-server-control.sock`. The socket
-  is created `srw-------` — **filesystem permissions are the auth**,
-  which is the positive form of "there is no bearer scheme".
+  **L4b shipped 2026-08-16** — the transport
+  (`localagent/codexchannel.ts`), and **a correction to L4a's own
+  correction**.
 
-  **Open for L4b — the proxy's data path is NOT yet proven.** `codex
-  app-server proxy --sock <path>` connects and exits 0 with no stdout
-  and no stderr for the same `initialize` handshake that works over a
-  plain `codex app-server` child (E3's probe shape), with stdin held
-  open. Two candidate causes, neither confirmed: the daemon may require
-  `codex app-server daemon enable-remote-control` (its help does not say
-  what that exposes, and the sibling `bootstrap` frames it as
-  SSH-driven — a security-posture question for the director, not a
-  default), or the control socket may expect a framing/handshake the
-  bare JSON-RPC line does not supply. **L4b must not assume the attach
-  rung works until a round trip is observed**; the resolver deliberately
-  decides *which argv*, not *that it succeeds*.
+  ★★ **L4a claimed "the shared-daemon transport is a Unix domain
+  socket, NOT a WebSocket". That was wrong, and it shipped a dead
+  channel.** The control socket is a **WebSocket server bound to a Unix
+  domain socket** — the daemon's own argv is `codex app-server --listen
+  unix://`, and `--listen` accepts `stdio:// | unix:// | unix://PATH |
+  ws://IP:PORT`. So the plan's original "WebSocket attach" was right;
+  what it got wrong was the *authentication* and the *address family*.
 
-  **Discoverability regression to handle in L4b.** The standalone codex
-  lives at `~/.local/bin/codex` with its PATH entry written into
-  `.bashrc` — which a GUI-launched Electron app never sources. It is
-  therefore *less* discoverable than a `/usr/bin/codex` package was.
-  That is what `TERMIPOD_CODEX_BIN` exists for, and L4b should resolve
-  the binary the way `kimiweb.ts` already does for kimi
-  (`findKimiOnPath` + `mergePathDirs`) rather than trusting `PATH`.
+  How the error survived L4a: the evidence was a `--help` tree, and
+  `app-server proxy`'s summary reads "Proxy stdio bytes to the running
+  app-server control socket", which is exactly what an attach rung
+  should say. L4a therefore shipped
+  `[bin, 'app-server', 'proxy', '--sock', sock]` as the daemon data
+  path. Measured with a logging relay placed between the CLI and its
+  own socket:
 
-  **L4b** (still to do) is the driver itself: the app-server JSON-RPC
-  client over whichever argv L4a returns, delta throttling, R1 approval
-  cards, `turn/interrupt`, config seeding.
+  - `daemon version` — the vendor's OWN client for this socket — opens
+    with `GET / HTTP/1.1` + `Upgrade: websocket` +
+    `Sec-WebSocket-Version: 13`, takes `101 Switching Protocols`, and
+    only then speaks JSON-RPC inside frames.
+  - `app-server proxy --sock` forwards our stdin **verbatim, with no
+    upgrade**. The daemon closes the connection on the first byte of
+    anything that is not an HTTP upgrade — valid JSON-RPC and pure
+    garbage are closed identically, so it is not a parse error — and
+    the proxy exits **0 with no stdout and no stderr**. A dead channel
+    that reads exactly like a quiet agent.
+
+  Two candidate causes L4a recorded are now both **disproven**: it is
+  not a framing question (`Content-Length` and half-close fail the same
+  way), and it is not `enable-remote-control` — the live round trip
+  below succeeds with `remoteControl/status` reporting `disabled`
+  throughout, so that security-posture toggle was never needed and
+  remains off.
+
+  *As built:* `CodexAttachPlan` became a **discriminated union** — a
+  `daemon` plan carries a `socketPath` and *cannot* carry an argv, so
+  the shipped bug is now unrepresentable rather than merely fixed.
+  `codexchannel.ts` opens either rung behind one `send`/`onFrame`
+  surface: the spawn rung reassembles newline-delimited JSON across
+  chunk boundaries (`LineBuffer`), while the WebSocket rung must *not*
+  buffer, because a message with no trailing newline is already
+  complete and holding it would stall the channel forever.
+
+  ★ **`perMessageDeflate: false` is load-bearing.** `ws` offers
+  `permessage-deflate` by default and the daemon **hangs up on the
+  handshake** rather than declining the extension. Isolated by varying
+  one option at a time against the live daemon: deflate on fails with
+  or without a `Host` header, deflate off succeeds with or without it.
+  A unit test cannot see this at all — the e2e is what kills the
+  mutation, and it fails with the real symptom (`socket hang up`).
+
+  *Two decisions worth naming.* A daemon that will not come up **falls
+  back to spawn, and says so in a sentence** — "shared with your codex
+  TUI" and "dies with this window" are different promises, and a silent
+  downgrade would leave the user holding the wrong one. And `close()`
+  on a daemon channel closes **our socket only**: the rung exists so
+  the session outlives us, so nothing in that path may issue `daemon
+  stop`.
+
+  *Not yet reachable from the app.* Like L4a, this module is not
+  imported by `main.ts` — it is proven by an opt-in live e2e
+  (`TERMIPOD_CODEX_ATTACH_E2E=1`) against a real daemon, not by use.
+  L4c is what wires it in, and until then no user-visible behaviour
+  changes.
+
+  **Discoverability, handled.** The standalone codex lives at
+  `~/.local/bin/codex` with its PATH entry written into `.bashrc` —
+  which a GUI-launched Electron app never sources, making it *less*
+  discoverable than a `/usr/bin/codex` package was. `codexBinary` now
+  resolves through PATH plus the well-known dirs the way `kimiweb.ts`
+  does for kimi, with `TERMIPOD_CODEX_BIN` as the override.
+
+  **L4c** (still to do) is the driver itself: the app-server JSON-RPC
+  client over L4b's channel, delta throttling, R1 approval cards,
+  `turn/interrupt`, config seeding, and resume argv from the N1 table.
+  The translation half is already done and shipped — the hub's `codex`
+  frame profile maps `thread/started` → `session.init`,
+  `item/completed` → `text`/`tool_result` and so on, and it rides to
+  the desktop in `agent_families.generated.json`, so L4c reads that
+  table rather than writing a second one. The vendor also generates the
+  whole protocol on demand (`codex app-server generate-ts --out DIR`,
+  and `generate-json-schema`), which is the authority to check request
+  shapes against.
 
 ### Lane E — event-vocabulary gaps (hub; verified per-driver)
 

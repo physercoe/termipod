@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -85,6 +86,16 @@ func startFakeBrowserDesktop(t *testing.T, s *Server, hostID string,
 // okBrowserEnvelope is the desktop's success reply shape.
 func okBrowserEnvelope(result string) (int, string) {
 	return http.StatusOK, `{"ok":true,"result":` + result + `}`
+}
+
+// okBrowserToolResult wraps a *faithful* desktop reply. Every tool the
+// bridge exposes returns an MCP tool result — `browserbridge.ts` runTool
+// answers through textContent() or a literal `{content:[{type:"image",…}]}`,
+// and dispatchHubInvoke forwards that object untouched as the envelope's
+// `result`. Callers passing okBrowserEnvelope a bare JSON object are
+// exercising the fallback wrapper for a shape the desktop does not send.
+func okBrowserToolResult(blocks string) (int, string) {
+	return okBrowserEnvelope(`{"content":[` + blocks + `]}`)
 }
 
 // awaitBrowserActionRow polls until the approval card lands (the
@@ -233,7 +244,9 @@ func TestBrowserInvoke_ReadRoutesThroughTunnel(t *testing.T) {
 	agentID := seedAgentWithKind(t, s, defaultTeamID, "researcher", "claude-code", "")
 	hostID := seedBrowserDesktop(t, s, defaultTeamID)
 	fake := startFakeBrowserDesktop(t, s, hostID, func(env *tunnelRequest) (int, string) {
-		return okBrowserEnvelope(`{"tabs":[{"id":1,"url":"https://example.com"}]}`)
+		// What browser_list_tabs really answers: textContent() of the
+		// serialized rows, i.e. a one-block MCP tool result.
+		return okBrowserToolResult(`{"type":"text","text":"[{\"tabId\":1,\"url\":\"https://example.com\"}]"}`)
 	})
 
 	args, _ := json.Marshal(map[string]any{"host_id": hostID, "tool": "browser_list_tabs"})
@@ -241,10 +254,15 @@ func TestBrowserInvoke_ReadRoutesThroughTunnel(t *testing.T) {
 	if jerr != nil {
 		t.Fatalf("browser_invoke: %+v", jerr)
 	}
-	res := mcpResultMap(t, out)
-	tabs, ok := res["tabs"].([]any)
-	if !ok || len(tabs) != 1 {
-		t.Fatalf("result should carry the desktop's tabs; got %v", res)
+	// The agent reads the desktop's own text block, not a JSON rendering
+	// of the envelope around it (E4).
+	body := mcpResultTextBody(t, out)
+	var tabs []map[string]any
+	if err := json.Unmarshal([]byte(body), &tabs); err != nil {
+		t.Fatalf("result should carry the desktop's tab rows verbatim; got %q (%v)", body, err)
+	}
+	if len(tabs) != 1 || tabs[0]["url"] != "https://example.com" {
+		t.Fatalf("result should carry the desktop's tabs; got %v", tabs)
 	}
 
 	// The wire contract: one browser.invoke envelope whose payload is
@@ -513,5 +531,169 @@ func TestBrowserBridgeRevoke_ClearsGrant(t *testing.T) {
 	}
 	if s.bridgeGrants.has(browserGrantKind, defaultTeamID, hostID, "other-agent") {
 		t.Error("clear-all revoke left a grant behind")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Relay result passthrough (vision-parity E4, asymmetry #3)
+//
+// The desktop answers a relayed call with the same MCP tool result a local
+// caller gets (`browserbridge.ts` dispatchHubInvoke → callTool), so the relay
+// must forward it rather than render it into JSON. Before E4 every relayed
+// result reached the agent double-wrapped, which for an image meant a base64
+// PNG delivered as prose.
+// ---------------------------------------------------------------------------
+
+// The headline: an image survives the relay AS an image.
+func TestBrowserInvoke_ImageResultStaysAnImageBlock(t *testing.T) {
+	s, _ := newTestServer(t)
+	agentID := seedAgentWithKind(t, s, defaultTeamID, "researcher", "claude-code", "")
+	hostID := seedBrowserDesktop(t, s, defaultTeamID)
+	const png = "iVBORw0KGgoAAAANSUhEUg=="
+	startFakeBrowserDesktop(t, s, hostID, func(env *tunnelRequest) (int, string) {
+		return okBrowserToolResult(`{"type":"image","data":"` + png + `","mimeType":"image/png"}`)
+	})
+
+	args, _ := json.Marshal(map[string]any{"host_id": hostID, "tool": "browser_screenshot"})
+	out, jerr := s.mcpBrowserInvoke(context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("browser_invoke: %+v", jerr)
+	}
+	m, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("result not a map: %T", out)
+	}
+	blocks, ok := m["content"].([]any)
+	if !ok || len(blocks) != 1 {
+		t.Fatalf("want one content block, got %+v", m["content"])
+	}
+	blk, _ := blocks[0].(map[string]any)
+	if blk["type"] != "image" {
+		t.Fatalf("content[0].type = %v; want image — a relayed screenshot must not "+
+			"arrive as base64 inside a text block, which is unreadable to the model", blk["type"])
+	}
+	if blk["data"] != png || blk["mimeType"] != "image/png" {
+		t.Errorf("image block lost its data/mimeType: %+v", blk)
+	}
+	// The failure this replaces: the PNG rendered into a text block.
+	for _, b := range blocks {
+		bb, _ := b.(map[string]any)
+		if txt, _ := bb["text"].(string); strings.Contains(txt, png) {
+			t.Error("the base64 payload appears inside a text block — the wrapper is still in the path")
+		}
+	}
+}
+
+// A text result stops being double-wrapped too. This is the same defect one
+// content type over, and it is what makes the relayed reply identical to the
+// local one rather than merely usable.
+func TestBrowserInvoke_TextResultIsNotDoubleWrapped(t *testing.T) {
+	s, _ := newTestServer(t)
+	agentID := seedAgentWithKind(t, s, defaultTeamID, "researcher", "claude-code", "")
+	hostID := seedBrowserDesktop(t, s, defaultTeamID)
+	startFakeBrowserDesktop(t, s, hostID, func(env *tunnelRequest) (int, string) {
+		return okBrowserToolResult(`{"type":"text","text":"hello from the page"}`)
+	})
+
+	args, _ := json.Marshal(map[string]any{"host_id": hostID, "tool": "browser_list_tabs"})
+	out, jerr := s.mcpBrowserInvoke(context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("browser_invoke: %+v", jerr)
+	}
+	if body := mcpResultTextBody(t, out); body != "hello from the page" {
+		t.Errorf("text block = %q; want the desktop's own text, not a JSON rendering of the result around it", body)
+	}
+}
+
+// The negative arm: a reply that is NOT already a tool result keeps the JSON
+// wrapper, so the passthrough can't be widened into "forward whatever the far
+// end sent". Kept faithful about why the shape is possible at all: no bridge
+// tool answers this way today, which is exactly why the guard has to be
+// asserted rather than assumed.
+func TestBrowserInvoke_NonToolResultKeepsTheJSONWrapper(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply string
+	}{
+		{"a bare object", `{"clicked":true}`},
+		{"content is not an array", `{"content":"just a string"}`},
+		{"a block is not an object", `{"content":["text"]}`},
+		{"a block carries no type", `{"content":[{"text":"untyped"}]}`},
+		{"an empty content array", `{"content":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := newTestServer(t)
+			agentID := seedAgentWithKind(t, s, defaultTeamID, "researcher", "claude-code", "")
+			hostID := seedBrowserDesktop(t, s, defaultTeamID)
+			startFakeBrowserDesktop(t, s, hostID, func(env *tunnelRequest) (int, string) {
+				return okBrowserEnvelope(tc.reply)
+			})
+
+			args, _ := json.Marshal(map[string]any{"host_id": hostID, "tool": "browser_list_tabs"})
+			out, jerr := s.mcpBrowserInvoke(context.Background(), defaultTeamID, agentID, args)
+			if jerr != nil {
+				t.Fatalf("browser_invoke: %+v", jerr)
+			}
+			// The wrapper renders the whole reply as JSON in one text block.
+			var got any
+			if err := json.Unmarshal([]byte(mcpResultTextBody(t, out)), &got); err != nil {
+				t.Fatalf("wrapped body should be the reply as JSON: %v", err)
+			}
+			var want any
+			if err := json.Unmarshal([]byte(tc.reply), &want); err != nil {
+				t.Fatalf("bad fixture: %v", err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("wrapped body = %v; want the reply verbatim %v", got, want)
+			}
+		})
+	}
+}
+
+// The shape predicate on its own, including the boundary this deliberately
+// gets "wrong": `{"content":[]}` is a legal MCP result and is still wrapped,
+// because nothing distinguishes it from an arbitrary object that happens to
+// carry an empty list under that key. Wrapping costs a reader one layer of
+// quoting; forwarding a non-result would hand the agent something malformed.
+func TestMCPToolResultPassthrough(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   any
+		want bool
+	}{
+		{"an image result", map[string]any{"content": []any{
+			map[string]any{"type": "image", "data": "aGk=", "mimeType": "image/png"}}}, true},
+		{"a text result", map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": "hi"}}}, true},
+		{"mixed blocks", map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": "rendered"},
+			map[string]any{"type": "image", "data": "aGk=", "mimeType": "image/svg+xml"}}}, true},
+		{"isError rides along", map[string]any{"isError": true, "content": []any{
+			map[string]any{"type": "text", "text": "boom"}}}, true},
+		{"not a map", []any{1, 2}, false},
+		{"nil", nil, false},
+		{"no content key", map[string]any{"clicked": true}, false},
+		{"content is a string", map[string]any{"content": "text"}, false},
+		{"content is an object", map[string]any{"content": map[string]any{"type": "text"}}, false},
+		{"a block is a string", map[string]any{"content": []any{"text"}}, false},
+		{"a block has no type", map[string]any{"content": []any{map[string]any{"text": "x"}}}, false},
+		{"a block's type is empty", map[string]any{"content": []any{map[string]any{"type": ""}}}, false},
+		{"a block's type is not a string", map[string]any{"content": []any{map[string]any{"type": 7}}}, false},
+		{"one bad block among good ones", map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": "ok"}, map[string]any{"no": "type"}}}, false},
+		{"an empty content array", map[string]any{"content": []any{}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := mcpToolResultPassthrough(tc.in)
+			if ok != tc.want {
+				t.Fatalf("mcpToolResultPassthrough(%#v) ok = %v; want %v", tc.in, ok, tc.want)
+			}
+			if ok && !reflect.DeepEqual(any(got), tc.in) {
+				t.Errorf("passthrough must forward the result verbatim; got %#v", got)
+			}
+			if !ok && got != nil {
+				t.Errorf("a rejected value must return a nil map; got %#v", got)
+			}
+		})
 	}
 }

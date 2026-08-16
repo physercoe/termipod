@@ -418,6 +418,13 @@ func (s *Server) routeTunnelInvoke(ctx context.Context, tunnelKind, agentID, age
 	if len(env.Result) > 0 {
 		_ = json.Unmarshal(env.Result, &result)
 	}
+	// The desktop answers with the same MCP tool result a local caller
+	// gets, so forward it rather than describing it in JSON — otherwise a
+	// screenshot reaches a remote agent as base64 prose (E4). Anything
+	// that isn't already a tool result keeps the wrapper.
+	if passthrough, ok := mcpToolResultPassthrough(result); ok {
+		return passthrough, nil
+	}
 	return mcpResultJSON(result), nil
 }
 

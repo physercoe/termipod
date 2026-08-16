@@ -6,8 +6,8 @@
 > flight**: L3 split into **L3a** (shipped 2026-08-10 — the local agent
 > service, claude M2 child, renderer source), **L3b** (shipped
 > 2026-08-14 — on-disk log + restart rebind) and **L3c** (session
-> catalog + loopback WS, split out of L3b). Remaining: E3, E4, R4;
-> L3c is deferrable
+> catalog + loopback WS, split out of L3b). **E4 shipped 2026-08-16**
+> (relay result passthrough). Remaining: E3, R4; L3c is deferrable
 > **Audience:** principal · contributors · maintainers
 > **Last verified vs code:** 2026.730.1231-alpha (`cea267fa`) — every
 > anchor below re-verified against that tip by the authoring audit
@@ -544,6 +544,37 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   the bridge result already carries MCP `content[]` with an `image`
   block, pass it through as a real image content block. Small Go
   change; the local stdio relay already proves the shape end-to-end.
+
+  **Shipped 2026-08-16.** The claim held, and reading the far end
+  widened it from a fix to *the* fix:
+  - *It was never image-specific.* `dispatchHubInvoke` answers a
+    relayed call with the object `callTool` returns, and **every**
+    bridge tool returns an MCP tool result — 16 `textContent()` calls
+    plus the literal `{content:[{type:"image",…}]}` returns. So the
+    relay was re-wrapping an already-conformant result on *every* call;
+    the image case is just the one where the extra layer destroys the
+    payload instead of merely quoting it. `routeTunnelInvoke` now
+    forwards a well-formed tool result verbatim (`isError` and extra
+    keys included — "what a local caller sees" is the point) and keeps
+    the JSON wrapper for anything else.
+  - *The guard errs toward the wrapper, deliberately.* `content` must
+    be a non-empty array of objects each carrying a string `type`.
+    That rejects the legal-but-indistinguishable `{"content":[]}`,
+    which costs a reader one layer of quoting; the other direction —
+    an arbitrary object with an empty list under that key, forwarded as
+    a tool result — hands the agent something malformed, and no
+    discriminator separates the two.
+  - *The Go fixtures were describing a desktop that does not exist.*
+    `okBrowserEnvelope` was being handed bare JSON (`{"tabs":…}`,
+    `{"clicked":true}`) — a shape no bridge tool has ever returned — so
+    the tests could not have caught the double-wrap and would not have
+    noticed the fix either. The read-routing test now asserts against
+    the real reply shape, with `okBrowserToolResult` naming the
+    distinction for the callers that still exercise the fallback.
+  - *The rest of the chain was checked, not assumed.* The host-runner
+    gateway forwards a `tools/call` result verbatim (`gwIdentity` only
+    stamps `_meta` server info), so the image block survives desktop →
+    hub → gateway → agent.
 
 ### Lane R — renderer + composer parity (desktop)
 

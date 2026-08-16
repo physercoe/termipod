@@ -122,19 +122,19 @@ const SORT_COLS: { key: SortKey; labelKey: string }[] = [
 type LibraryColumnWidths = Record<SortKey, number>;
 const LIB_COLUMN_WIDTHS_KEY = 'termipod.read.libraryColumnWidths';
 const DEFAULT_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
-  title: 34,
-  creator: 20,
-  year: 8,
+  title: 37,
+  creator: 22,
+  year: 7,
   venue: 18,
-  rating: 12,
+  rating: 8,
   type: 8,
 };
 const MIN_LIB_COLUMN_WIDTHS: LibraryColumnWidths = {
   title: 18,
   creator: 13,
-  year: 7,
+  year: 6,
   venue: 11,
-  rating: 10,
+  rating: 8,
   type: 8,
 };
 

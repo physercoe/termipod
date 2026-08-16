@@ -82,3 +82,63 @@ test('SerpAPI citations transport rejects malformed ids before network access', 
     /valid cites id is required/,
   );
 });
+
+test('RSS transport accepts a public HTTP feed and returns bounded text', async () => {
+  const originalFetch = globalThis.fetch;
+  let requested = '';
+  globalThis.fetch = (async (input) => {
+    requested = String(input);
+    return new Response('<rss><channel><title>Research</title></channel></rss>', { status: 200 });
+  }) as typeof fetch;
+  try {
+    const out = await discoveryHandlers.discovery_fetch_feed(
+      { url: 'https://93.184.216.34/research.xml', proxy: null },
+      {} as never,
+    );
+    assert.equal(requested, 'https://93.184.216.34/research.xml');
+    assert.deepEqual(out, {
+      url: 'https://93.184.216.34/research.xml',
+      text: '<rss><channel><title>Research</title></channel></rss>',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('RSS transport refuses loopback and private-network URLs before fetch', async () => {
+  let fetched = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetched = true;
+    return new Response('unexpected');
+  }) as typeof fetch;
+  try {
+    for (const url of ['http://127.0.0.1/feed', 'http://10.0.0.2/rss', 'file:///tmp/feed.xml']) {
+      await assert.rejects(
+        async () => discoveryHandlers.discovery_fetch_feed({ url, proxy: null }, {} as never),
+        /not allowed|only HTTP/,
+      );
+    }
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('RSS transport revalidates redirects so a public feed cannot bounce into loopback', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private-feed' } });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      async () => discoveryHandlers.discovery_fetch_feed({ url: 'https://93.184.216.34/feed', proxy: null }, {} as never),
+      /private hosts are not allowed/,
+    );
+    assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

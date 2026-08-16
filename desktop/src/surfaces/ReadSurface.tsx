@@ -85,6 +85,13 @@ import { useContextMenu } from '../ui/ContextMenu';
 import { WebdavModal } from '../ui/WebdavModal';
 import { HeaderPaneToggle, WorkbenchSurface } from '../ui/WorkbenchSurface';
 import { PopoverMenu } from '../ui/PopoverMenu';
+import {
+  DiscoveryForYouPanel,
+  DiscoverySubscriptionsPanel,
+  DiscoveryUpdatesPanel,
+  type DiscoveryWorkspaceView,
+} from './DiscoveryWorkspace';
+import { useDiscoveryMonitor } from '../state/discoveryMonitor';
 
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
@@ -2053,7 +2060,13 @@ function DiscoverySearchRow({
   );
 }
 
-function DiscoveryRail(): JSX.Element {
+function DiscoveryRail({
+  view,
+  onView,
+}: {
+  view: DiscoveryWorkspaceView;
+  onView: (view: DiscoveryWorkspaceView) => void;
+}): JSX.Element {
   const t = useT();
   const recent = useDiscoveryHistory((state) => state.recent);
   const saved = useDiscoveryHistory((state) => state.saved);
@@ -2062,16 +2075,32 @@ function DiscoveryRail(): JSX.Element {
   const removeSaved = useDiscoveryHistory((state) => state.removeSaved);
   const clearRecent = useDiscoveryHistory((state) => state.clearRecent);
   const restoreAndRun = useDiscoverySearch((state) => state.restoreAndRun);
+  const unreadUpdates = useDiscoveryMonitor((state) => state.updates.filter((entry) => entry.readAt === undefined).length);
   const savedKeys = useMemo(() => new Set(saved.map(discoveryQueryKey)), [saved]);
   return (
     <div className="discover-nav">
       <div className="discover-nav-primary">
-        <button className="discover-nav-destination active" aria-current="page">
+        <button className={`discover-nav-destination${view === 'explore' ? ' active' : ''}`} aria-current={view === 'explore' ? 'page' : undefined} onClick={() => onView('explore')}>
           <Icon name="search" size={15} />
           <span>{t('read.discoverExplore')}</span>
         </button>
+        <button className={`discover-nav-destination${view === 'updates' ? ' active' : ''}`} aria-current={view === 'updates' ? 'page' : undefined} onClick={() => onView('updates')}>
+          <Icon name="alert" size={15} />
+          <span>{t('read.monitorUpdates')}</span>
+          {unreadUpdates > 0 && <span className="discover-nav-count">{unreadUpdates}</span>}
+        </button>
+        <button className={`discover-nav-destination${view === 'for-you' ? ' active' : ''}`} aria-current={view === 'for-you' ? 'page' : undefined} onClick={() => onView('for-you')}>
+          <Icon name="star" size={15} />
+          <span>{t('read.monitorForYou')}</span>
+        </button>
+        <button className={`discover-nav-destination${view === 'subscriptions' ? ' active' : ''}`} aria-current={view === 'subscriptions' ? 'page' : undefined} onClick={() => onView('subscriptions')}>
+          <Icon name="sliders" size={15} />
+          <span>{t('read.monitorSubscriptions')}</span>
+        </button>
       </div>
 
+      {view === 'explore' ? (
+        <>
       <section className="discover-nav-section">
         <div className="discover-nav-heading">
           <span>{t('read.savedSearches')}</span>
@@ -2085,7 +2114,10 @@ function DiscoveryRail(): JSX.Element {
               key={entry.id}
               entry={entry}
               saved
-              onRun={() => restoreAndRun(entry)}
+              onRun={() => {
+                onView('explore');
+                restoreAndRun(entry);
+              }}
               onRemove={() => removeSaved(entry.id)}
             />
           ))
@@ -2111,7 +2143,10 @@ function DiscoveryRail(): JSX.Element {
                 key={entry.id}
                 entry={entry}
                 saved={isSaved}
-                onRun={() => restoreAndRun(entry)}
+                onRun={() => {
+                  onView('explore');
+                  restoreAndRun(entry);
+                }}
                 onSave={() => save(entry)}
                 onRemove={() => removeRecent(entry.id)}
               />
@@ -2119,10 +2154,12 @@ function DiscoveryRail(): JSX.Element {
           })
         )}
       </section>
+        </>
+      ) : <div className="discover-nav-spacer" />}
 
       <div className="discover-nav-privacy">
         <Icon name="lock" size={13} />
-        <span>{t('read.searchHistoryPrivacy')}</span>
+        <span>{view === 'explore' ? t('read.searchHistoryPrivacy') : t('read.monitorPrivacy')}</span>
       </div>
     </div>
   );
@@ -2617,6 +2654,7 @@ export function ReadSurface(): JSX.Element {
   const storagePath = useZoteroStorage((s) => s.path);
 
   const [mode, setMode] = useState<Mode>('library');
+  const [discoveryView, setDiscoveryView] = useState<DiscoveryWorkspaceView>('explore');
   const [collection, setCollection] = useState<string>(ALL);
   const [tag, setTag] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState('');
@@ -3394,7 +3432,7 @@ export function ReadSurface(): JSX.Element {
           <>
         <aside className="read-rail" style={{ width: railW }} ref={railRef}>
           {mode === 'discover' ? (
-            <DiscoveryRail />
+            <DiscoveryRail view={discoveryView} onView={setDiscoveryView} />
           ) : (
             <>
           {/* Collections and tags are separate scroll panes (Zotero-style): each
@@ -3530,7 +3568,7 @@ export function ReadSurface(): JSX.Element {
         ) : null}
 
         <div className="read-center">
-          {mode === 'discover' ? (
+          {mode === 'discover' && discoveryView === 'explore' ? (
             <DiscoverPanel
               selectedId={selected}
               onInspect={(id) => {
@@ -3540,6 +3578,24 @@ export function ReadSurface(): JSX.Element {
               onAddById={(id) => {
                 setMode('library');
                 setSelected(id);
+              }}
+            />
+          ) : mode === 'discover' && discoveryView === 'updates' ? (
+            <DiscoveryUpdatesPanel
+              onAdd={(paper) => addReference(paperToRef(paper))}
+              onInspect={(id) => {
+                setSelected(id);
+                foldInsp(false);
+              }}
+            />
+          ) : mode === 'discover' && discoveryView === 'subscriptions' ? (
+            <DiscoverySubscriptionsPanel />
+          ) : mode === 'discover' ? (
+            <DiscoveryForYouPanel
+              onAdd={(paper) => addReference(paperToRef(paper))}
+              onInspect={(id) => {
+                setSelected(id);
+                foldInsp(false);
               }}
             />
           ) : (

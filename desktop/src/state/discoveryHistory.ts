@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { DiscoverySourceId } from '../discovery/types';
 import type { DiscoverySort } from './discoverySearch';
+import type { DiscoveryCadence } from './discoveryMonitorCore';
 import {
   discoveryQueryKey,
   upsertRecentSearch,
@@ -25,6 +26,7 @@ interface DiscoveryHistoryState {
   save: (spec: DiscoveryQuerySpec, name?: string) => string;
   removeRecent: (id: string) => void;
   removeSaved: (id: string) => void;
+  setSavedSchedule: (id: string, cadence: DiscoveryCadence | undefined) => void;
   clearRecent: () => void;
 }
 
@@ -38,6 +40,7 @@ const SOURCES = new Set<DiscoverySourceId>([
   'core',
 ]);
 const SORTS = new Set<DiscoverySort>(['relevance', 'newest', 'oldest', 'citations', 'title']);
+const CADENCES = new Set<DiscoveryCadence>(['daily', 'weekly', 'monthly']);
 
 function isSpec(value: unknown): value is DiscoveryQuerySpec {
   if (value === null || typeof value !== 'object') return false;
@@ -67,7 +70,12 @@ function load(): Pick<DiscoveryHistoryState, 'recent' | 'saved'> {
     const saved = Array.isArray(parsed.saved)
       ? parsed.saved.filter(
           (entry): entry is SavedDiscoverySearch =>
-            isSpec(entry) && typeof entry.id === 'string' && typeof entry.name === 'string' && typeof entry.savedAt === 'number',
+            isSpec(entry) &&
+            typeof entry.id === 'string' &&
+            typeof entry.name === 'string' &&
+            typeof entry.savedAt === 'number' &&
+            (entry.schedule === undefined ||
+              (typeof entry.schedule === 'string' && CADENCES.has(entry.schedule as DiscoveryCadence))),
         )
       : [];
     return { recent: recent.slice(0, 20), saved };
@@ -113,6 +121,11 @@ export const useDiscoveryHistory = create<DiscoveryHistoryState>((set, get) => (
   },
   removeSaved: (searchId) => {
     const saved = get().saved.filter((entry) => entry.id !== searchId);
+    set({ saved });
+    persist(get().recent, saved);
+  },
+  setSavedSchedule: (searchId, schedule) => {
+    const saved = get().saved.map((entry) => (entry.id === searchId ? { ...entry, schedule } : entry));
     set({ saved });
     persist(get().recent, saved);
   },

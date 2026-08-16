@@ -828,6 +828,81 @@ test('read: Discovery uses contextual saved and recent search navigation', async
   }
 });
 
+test('read: Discovery monitoring exposes updates, subscriptions, schedules, and collection recommendations', async () => {
+  await dismissConnectModal();
+  const originals = await page.evaluate(() => {
+    const keys = ['termipod.library.v1', 'termipod.discover.history.v1', 'termipod.discover.monitor.v1'];
+    const values = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
+    localStorage.setItem('termipod.library.v1', JSON.stringify({
+      collections: [{ id: 'collection-monitor', name: 'Graph research' }],
+      references: [{
+        id: 'reference-monitor', type: 'article', title: 'Graph learning for molecules', authors: ['Ada Researcher'],
+        venue: 'Graph Journal', rating: 5, topics: ['Graph learning'], tags: ['molecules'],
+        collectionIds: ['collection-monitor'], notes: '', addedAt: Date.now(), dirty: false, attachments: [],
+      }],
+    }));
+    localStorage.setItem('termipod.discover.history.v1', JSON.stringify({
+      version: 1,
+      recent: [],
+      saved: [{
+        id: 'saved-monitor', name: 'Saved graph query', query: 'graph learning', sourceId: 'openalex',
+        authorFilter: '', yearFrom: '', yearTo: '', sort: 'newest', findPdfs: false, savedAt: Date.now(),
+      }],
+    }));
+    localStorage.setItem('termipod.discover.monitor.v1', JSON.stringify({
+      version: 1,
+      subscriptions: [{
+        id: 'subscription-monitor', kind: 'topic', label: 'Graph learning', value: 'graph learning',
+        sourceId: 'openalex', cadence: 'weekly', createdAt: Date.now(),
+      }],
+      updates: [{
+        id: 'update-monitor', originType: 'subscription', originId: 'subscription-monitor',
+        originLabel: 'Graph learning', arrivedAt: Date.now(),
+        paper: { paperId: 'paper-monitor', title: 'A new graph paper', authors: ['A. Author'], year: 2026, venue: 'Graph Journal' },
+      }],
+      runs: {
+        'subscription:subscription-monitor': { lastRunAt: Date.now(), seen: ['id:paper-monitor'] },
+      },
+      lastRefreshAt: Date.now(),
+    }));
+    return values;
+  });
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+
+    const rail = page.locator('.discover-nav');
+    await expect(rail.getByRole('button', { name: /Updates/ })).toContainText('1');
+    await rail.getByRole('button', { name: /Updates/ }).click();
+    await expect(page.getByRole('heading', { name: 'Updates' })).toBeVisible();
+    await expect(page.getByText('A new graph paper', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect(rail.locator('.discover-nav-count')).toHaveCount(0);
+
+    await rail.getByRole('button', { name: 'Subscriptions', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Scheduled saved searches' })).toBeVisible();
+    await expect(page.getByText('Saved graph query', { exact: true })).toBeVisible();
+    await expect(page.getByText('Graph learning', { exact: true })).toBeVisible();
+
+    await rail.getByRole('button', { name: 'For you', exact: true }).click();
+    await page.getByLabel('Seed collection').selectOption('collection-monitor');
+    await expect(page.getByText('Seeded by 1 collection items', { exact: true })).toBeVisible();
+    await expect(page.locator('.discovery-recommend-explain')).toContainText('graph');
+    await expect(page.locator('.discovery-recommend-explain')).toContainText('molecules');
+  } finally {
+    await page.evaluate((values) => {
+      for (const [key, value] of Object.entries(values)) {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      }
+    }, originals);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+});
+
 test('read: PDF frequent actions stay visible and the outline folds by level', async () => {
   await dismissConnectModal();
   const fixture = await page.evaluate(async ({ bytes }) => {

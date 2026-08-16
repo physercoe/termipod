@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { useApplyAppearance } from './state/appearance';
 import { useApplyTheme } from './state/theme';
+import { startDiscoveryScheduler } from './state/discoveryMonitor';
 import { AppShell } from './ui/AppShell';
 
 /// The shell renders always — even without a hub connection — so the terminal,
@@ -9,5 +11,6 @@ import { AppShell } from './ui/AppShell';
 export function App(): JSX.Element {
   useApplyTheme();
   useApplyAppearance();
+  useEffect(() => startDiscoveryScheduler(), []);
   return <AppShell />;
 }

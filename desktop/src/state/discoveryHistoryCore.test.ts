@@ -40,9 +40,11 @@ test('recent searches deduplicate, move to the top, and stay bounded', () => {
 
 test('saving the same search is idempotent and preserves its chosen name', () => {
   let saved = upsertSavedSearch([], base, 10, 'saved-one', 'My topic');
+  saved = [{ ...saved[0]!, schedule: 'weekly' }];
   saved = upsertSavedSearch(saved, { ...base, query: 'GRAPH LEARNING' }, 20, 'saved-two');
   assert.equal(saved.length, 1);
   assert.equal(saved[0]?.id, 'saved-one');
   assert.equal(saved[0]?.name, 'My topic');
   assert.equal(saved[0]?.savedAt, 10);
+  assert.equal(saved[0]?.schedule, 'weekly');
 });

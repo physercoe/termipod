@@ -1,5 +1,6 @@
 import type { DiscoverySourceId } from '../discovery/types.ts';
 import type { DiscoverySort } from './discoverySearch.ts';
+import type { DiscoveryCadence } from './discoveryMonitorCore.ts';
 
 export interface DiscoveryQuerySpec {
   query: string;
@@ -21,6 +22,7 @@ export interface SavedDiscoverySearch extends DiscoveryQuerySpec {
   id: string;
   name: string;
   savedAt: number;
+  schedule?: DiscoveryCadence;
 }
 
 export const MAX_RECENT_SEARCHES = 20;
@@ -77,6 +79,7 @@ export function upsertSavedSearch(
     id: previous?.id ?? id,
     name: name?.trim() || previous?.name || normalized.query,
     savedAt: previous?.savedAt ?? savedAt,
+    schedule: previous?.schedule,
   };
   return [entry, ...existing.filter((item) => discoveryQueryKey(item) !== key)].sort((a, b) => b.savedAt - a.savedAt);
 }

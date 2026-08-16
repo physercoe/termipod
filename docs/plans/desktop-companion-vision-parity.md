@@ -892,6 +892,55 @@ Audit ground truth: claude M2 = `driver_stdio.go`, codex M2 =
   engine reports it (`status_line` / `fast_mode_state`). Slash picker
   already exists — fold it into the same pill row.
 
+  ★ *Producer bug found while surveying the consumer — fixed ahead of
+  the UI (2026-08-16).* **Runtime model/mode switching was dead for
+  stewards, end to end.** Both the routing gate
+  (`resolveRuntimeModeSwitch`) and the executor
+  (`respawnWithSpecMutation`) resolved the engine from `agents.kind`,
+  which for a steward is the persona template (`steward.claude-m4`),
+  never the family. The gate matched no family and returned 422
+  *"engine does not support runtime mode switching"*. Building the pill
+  on top would have shipped a control that is disabled for exactly the
+  agents the Companion is built around — and looked like an engine
+  limitation rather than our bug. **Third instance of this class**
+  (`/compact` markers in R3; engine-gated affordances in R2), all the
+  same column, and the canonical fix was already written down at
+  `handlers_sessions.go:1088`.
+
+  The fix carried a trap the repo had itself predicted: `spliceResume`
+  is family-keyed too, and was unreachable for stewards only because
+  the flag table rejected them first
+  (`resume_splice_table_test.go:55` — *"Latent (flagForField gates
+  first), but it would have become a silent cold-start"*). Resolving
+  the engine at one site and not the other would have replaced a loud
+  422 with a **silent** loss of the resume cursor on every steward's
+  model flip. Both moved together, with a test pinning the cursor.
+
+  *Three plan specifics to correct before building the UI:*
+
+  1. *"the family registry's `permission_modes`"* — that is the
+     **spawn-time** argv map (`skip` → `--dangerously-skip-permissions`,
+     `prompt` → `--permission-prompt-tool …`), not a runtime vocabulary.
+     The runtime ids are the agent's advertised `availableModes` /
+     `availableModels` (`ModeID` is *"the agent's availableModes id
+     (`default`, `yolo`, `plan`, …)"*, `handlers_agent_input.go:219`).
+  2. *A pill implies a light toggle; for our two engines it is a
+     **respawn**.* `runtime_mode_switch` reads
+     `{claude-code: {M1: respawn, M2: respawn}, codex: {M1: respawn,
+     M2: respawn}}` — only gemini-cli routes `rpc`/`per_turn_argv`. The
+     hub terminates the agent and spawns a fresh one on the same
+     session row, answering `202 {"routed":"respawn"}`. Under IAA that
+     must be previewed, not silently actuated: switching model restarts
+     the agent, and the pill has to say so.
+  3. *This is a parity port, not a new design.* Mobile already ships
+     the picker (`session_details_sheet.dart` — a compact pill picker
+     over `availableModes`/`availableModels`, fed by
+     `modeModelStateFromEvents` in `live_feed.dart`). Port **its**
+     source of truth rather than the paraphrase above, including its
+     two shape quirks: mode entries carry `id` while model entries
+     carry `modelId` (ACP spec), and the picker hides itself entirely
+     when no agent has advertised the lists — degrade honestly (D-4).
+
 ### Lane D — design-system enforcement (desktop)
 
 - **D1 — desktop UI reference doc.** `ui-guidelines.md` is

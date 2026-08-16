@@ -210,6 +210,25 @@ binding). Seed entries prior to that are in
 
 ### Fixed
 
+- **Changing a steward's model or permission mode never worked.** Both the
+  routing gate and the executor resolved the engine from `agents.kind`, which
+  for a steward is the persona template (`steward.claude-m4`), not the family
+  (`claude-code`). The gate matched no family and answered 422 *"engine does
+  not support runtime mode switching"*; had a request reached the executor it
+  would have failed the same way on its flag table. So the feature was dead
+  end-to-end for the agent class the product is built around, while working
+  fine for a direct engine spawn — which is why every existing test passed.
+  Both now resolve through `backend_json.kind`, the column spawn writes for
+  exactly this purpose, falling back to `kind` for rows written before it was
+  populated. **Third instance of this class**, after the `/compact` marker and
+  the desktop's engine-gated affordances.
+
+  Fixing it also armed a trap the codebase had already written down: the
+  resume-cursor splice is family-keyed too, and was unreachable for stewards
+  only because the flag table rejected them first. Left alone, a steward's
+  model switch would have started respawning with no `--resume` — trading a
+  loud 422 for a silent cold start mid-session. Both lookups moved together.
+
 - **A host-runner-raised attention row was attributed to the host, never
   to the agent that asked.** `POST /attention` honoured a body-supplied
   `actor_handle` only when the authenticated caller had no handle of its

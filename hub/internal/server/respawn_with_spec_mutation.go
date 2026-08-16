@@ -63,16 +63,16 @@ func (s *Server) respawnWithSpecMutation(
 	// 1. Resolve the agent's identity + the session it's attached to.
 	var (
 		teamID, kind, handle, hostID, parentID sql.NullString
-		worktreePath                           sql.NullString
+		worktreePath, backendJSON              sql.NullString
 	)
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT team_id, kind, handle, host_id,
 		       (SELECT parent_agent_id FROM agent_spawns
 		         WHERE child_agent_id = agents.id
 		         ORDER BY spawned_at DESC LIMIT 1),
-		       worktree_path
+		       worktree_path, COALESCE(backend_json, '{}')
 		  FROM agents WHERE id = ?`, agentID).Scan(
-		&teamID, &kind, &handle, &hostID, &parentID, &worktreePath,
+		&teamID, &kind, &handle, &hostID, &parentID, &worktreePath, &backendJSON,
 	); err != nil {
 		return fmt.Errorf("respawn-with-spec-mutation: lookup agent: %w", err)
 	}
@@ -80,8 +80,19 @@ func (s *Server) respawnWithSpecMutation(
 		return errors.New("respawn-with-spec-mutation: agent missing required fields (team/kind/handle)")
 	}
 
+	// `agents.kind` is the ENGINE only for a direct spawn. For a steward it is
+	// the persona template (`steward.claude-m4`), and the engine family lives
+	// in `backend_json.kind` (handlers_agents.go:1567) — the same distinction
+	// handlers_sessions.go draws for context mutations. Everything below that
+	// is keyed by FAMILY must use `engine`; the respawn's own `Kind` must stay
+	// `kind`, because it re-spawns the same persona, not a bare engine.
+	engine := backendKindOf(backendJSON.String)
+	if engine == "" {
+		engine = kind.String
+	}
+
 	// 2. Resolve the flag for the agent's family + field.
-	flagMap, ok := flagForField[kind.String]
+	flagMap, ok := flagForField[engine]
 	if !ok {
 		return errUnknownFamilyField
 	}
@@ -132,8 +143,14 @@ func (s *Server) respawnWithSpecMutation(
 	//    and antigravity is absent — so an antigravity agent never reached here.
 	//    Adding it to flagForField would have silently turned that into a
 	//    cold-start on every mode/model flip. One table, one dispatch.
+	//
+	//    That warning came due the moment step 2 started resolving stewards:
+	//    `spliceResume` takes a FAMILY, and a persona template matches none, so
+	//    it would have returned the spec untouched and every steward's
+	//    mode/model flip would have cold-started — a silent transcript break
+	//    replacing a loud 422. Hence `engine`, not `kind`.
 	if engineSessionID.Valid && engineSessionID.String != "" {
-		mutated = spliceResume(mutated, kind.String, engineSessionID.String)
+		mutated = spliceResume(mutated, engine, engineSessionID.String)
 	}
 
 	// 6. Best-effort host-side terminate command for the running pane;

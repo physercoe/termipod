@@ -164,10 +164,10 @@ func validateAttachments(
 //     into "unsupported" because the agent_belongs_to_team check has
 //     already ruled it out at the call site.
 func (s *Server) resolveRuntimeModeSwitch(ctx context.Context, agentID string) (string, error) {
-	var kind, drivingMode sql.NullString
+	var kind, drivingMode, backendJSON sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT kind, driving_mode FROM agents WHERE id = ?`,
-		agentID).Scan(&kind, &drivingMode)
+		`SELECT kind, driving_mode, COALESCE(backend_json, '{}') FROM agents WHERE id = ?`,
+		agentID).Scan(&kind, &drivingMode, &backendJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "unsupported", nil
@@ -178,7 +178,18 @@ func (s *Server) resolveRuntimeModeSwitch(ctx context.Context, agentID string) (
 	if mode == "" {
 		mode = "M4"
 	}
-	fam, ok := s.agentFamilies.ByName(kind.String)
+	// The family registry is keyed by ENGINE, and `agents.kind` carries a
+	// persona template for stewards (`steward.claude-m4`) — so looking it up
+	// with `kind` matched no family and answered "unsupported", i.e. a 422
+	// "engine does not support runtime mode switching" for exactly the agent
+	// class the product is built around. The engine lives in
+	// `backend_json.kind` (handlers_agents.go:1567); fall back to `kind` for
+	// rows written before that column was populated.
+	engine := backendKindOf(backendJSON.String)
+	if engine == "" {
+		engine = kind.String
+	}
+	fam, ok := s.agentFamilies.ByName(engine)
 	if !ok {
 		return "unsupported", nil
 	}

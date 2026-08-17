@@ -201,7 +201,10 @@
               "message_id": "$.message.id",
               "model": "$.message.model",
               "output_tokens": "$.message.usage.output_tokens",
-              "service_tier": "$.message.usage.service_tier"
+              "parent_tool_use_id": "$.parent_tool_use_id",
+              "service_tier": "$.message.usage.service_tier",
+              "subagent": "present($.parent_tool_use_id)",
+              "subagent_type": "$.subagent_type"
             }
           }
         },

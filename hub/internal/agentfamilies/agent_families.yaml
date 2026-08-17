@@ -292,19 +292,28 @@ families:
         # Telemetry strip in mobile; gated by when_present so it
         # doesn't fire empty rows for assistant frames that omit
         # the usage block (post-result deltas, for example).
+        # R5 provenance here is not decoration: usage is the ONE kind
+        # #374's guard actually reads (digest_fold's token fold and
+        # transcriptStats' turn accounting both skip subagent:true
+        # USAGE frames), and a sub-agent's assistant frames carry
+        # message.usage too (corpus frame 25). No for_each, so the
+        # frame is the inner scope — `$.`, not the sub_rules' `$$.`.
         - match: { type: assistant }
           when_present: $.message.usage
           emit:
             kind: usage
             producer: agent
             payload:
-              input_tokens:  "$.message.usage.input_tokens"
-              output_tokens: "$.message.usage.output_tokens"
-              cache_read:    "$.message.usage.cache_read_input_tokens || $.message.usage.cache_read"
-              cache_create:  "$.message.usage.cache_creation_input_tokens || $.message.usage.cache_create"
-              service_tier:  "$.message.usage.service_tier"
-              message_id:    "$.message.id"
-              model:         "$.message.model"
+              input_tokens:       "$.message.usage.input_tokens"
+              output_tokens:      "$.message.usage.output_tokens"
+              cache_read:         "$.message.usage.cache_read_input_tokens || $.message.usage.cache_read"
+              cache_create:       "$.message.usage.cache_creation_input_tokens || $.message.usage.cache_create"
+              service_tier:       "$.message.usage.service_tier"
+              message_id:         "$.message.id"
+              model:              "$.message.model"
+              parent_tool_use_id: "$.parent_tool_use_id"
+              subagent:           "present($.parent_tool_use_id)"
+              subagent_type:      "$.subagent_type"
 
         # ── user.message.content[].type=tool_result  →  tool_result ─
         # In stream-json, `user` frames carry the agent's own view

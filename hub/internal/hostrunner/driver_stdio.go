@@ -452,7 +452,14 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			if model, ok := msg["model"].(string); ok && model != "" {
 				out["model"] = model
 			}
-			_ = d.emit(ctx, "usage", "agent", out)
+			// Usage is the event #374's guard actually reads: digest_fold's
+			// InTokens/OutTokens fold and transcriptStats' turn accounting
+			// both skip `subagent:true` USAGE frames. A sub-agent's
+			// assistant frames carry `message.usage` too (corpus frame 25),
+			// so leaving the stamp off this one emit keeps the delegated
+			// agent's tokens inside the main turn — the exact inflation R5
+			// set out to remove.
+			_ = d.emit(ctx, "usage", "agent", subProv(out))
 		}
 
 	case "user":

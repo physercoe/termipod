@@ -4130,6 +4130,10 @@ components:
             picker. The hub routes by `family.runtime_mode_switch[mode]`:
             rpc → forward to driver, respawn → mutate spec + DoSpawn,
             per_turn_argv → stash for next argv, unsupported → 422.
+            vision-parity R6 added a second gate ahead of the route:
+            `family.runtime_switch_fields[field]` must be true, else 422.
+            A route alone was not enough — it cannot express that claude-code
+            can switch its model but not its permission mode.
           - W4.1 added optional `images: [{mime_type, data}]` alongside
             `body` on text inputs. Validated mime allowlist
             (image/png|jpeg|webp|gif), ≤5 MiB decoded per image, ≤3
@@ -4216,6 +4220,18 @@ components:
           additionalProperties:
             type: string
             enum: [rpc, respawn, per_turn_argv, unsupported]
+        runtime_switch_fields:
+          type: object
+          description: |
+            vision-parity R6 — keyed by field (mode | model); true when the
+            route above can actually carry that field. Separate from the
+            route because they are separate questions: `respawn` rewrites a
+            flag that must already be in the spawn spec's backend.cmd, so a
+            family can declare a route and still be unable to switch one of
+            the two. Clients gate the picker on this — a false field means
+            /agents/{id}/input would answer 422. Missing key = false.
+          additionalProperties:
+            type: boolean
         prompt_image:
           type: object
           description: |

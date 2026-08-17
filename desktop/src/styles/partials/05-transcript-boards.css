@@ -1157,8 +1157,121 @@
    state to style. */
 .composer-gauge {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   padding: var(--spacing-s4) var(--spacing-s12) 0;
+}
+
+/* R6 — model / permission-mode pills, sharing the gauge row. `margin-right:
+   auto` rather than `justify-content: space-between` on the parent so the ring
+   stays hard right when no pill renders — the row predates the pills and its
+   layout must not shift for engines that report neither. */
+.switch-pills {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  margin-right: auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.switch-pill-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.switch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  max-width: 22ch;
+  padding: 1px var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-stadium);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  line-height: 1.6;
+  cursor: pointer;
+}
+button.switch-pill:hover,
+.switch-pill.open {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+/* A value the hub would refuse to change: no hover affordance, no pointer —
+   it is a readout, and it must not look like a control that failed. */
+.switch-pill.locked {
+  cursor: default;
+  border-style: dashed;
+}
+.switch-pill-key {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+.switch-pill-val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.switch-pill-err {
+  color: var(--danger);
+  font-size: var(--font-size-caption);
+}
+.switch-pop {
+  position: absolute;
+  bottom: calc(100% + var(--spacing-s4));
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 16rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: var(--spacing-s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--sh-3);
+}
+.switch-pop.typed {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-s4);
+  min-width: 18rem;
+}
+.switch-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-caption);
+}
+.switch-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.switch-opt:hover {
+  background: var(--surface-hover);
+}
+.switch-opt.current {
+  color: var(--accent);
+}
+.switch-opt-desc {
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  opacity: 0.8;
 }
 .ctx-ring {
   display: inline-flex;

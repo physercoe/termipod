@@ -1,7 +1,7 @@
 import { searchArxiv } from './arxiv';
 import { CORE_KEY, searchCore } from './core';
 import { searchCrossref } from './crossref';
-import { searchOpenAlex } from './openAlex';
+import { loadOpenAlexCitations, searchOpenAlex } from './openAlex';
 import { searchPubmed } from './pubmed';
 import { loadGoogleScholarCitations, searchGoogleScholar } from './serpApi';
 import { S2_KEY, searchSemanticScholar } from './semanticScholar';
@@ -20,6 +20,7 @@ export { enrichWithUnpaywall } from './unpaywall';
 export { scrapeMetadata, detectIdentifier, type ScrapePatch, type ScrapeSeed } from './scrape';
 export { isLikelySameWork } from './scrapeMatch';
 export { loadGoogleScholarCitations, searchGoogleScholar };
+export { loadOpenAlexCitations };
 
 /// The discovery source registry — the single source of truth the Read/Discover
 /// picker renders. OpenAlex is first (free, keyless, most generous → the default);

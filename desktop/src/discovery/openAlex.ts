@@ -47,6 +47,28 @@ function mapWork(w: Record<string, unknown>): DiscoveryPaper {
   };
 }
 
+async function resolveOpenAlexWorkId(seed: string): Promise<string> {
+  const trimmed = seed.trim();
+  const direct = trimmed.match(/(?:https?:\/\/openalex\.org\/)?(W\d+)/i)?.[1];
+  if (direct !== undefined) return direct.toLocaleUpperCase();
+  const doi = trimmed.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '');
+  if (doi === '') throw new Error('citation-subscription-needs-id');
+  const url = `https://api.openalex.org/works/${encodeURIComponent(`https://doi.org/${doi}`)}?mailto=${CONTACT}`;
+  const work = (await getJson(url)) as Record<string, unknown>;
+  const id = typeof work.id === 'string' ? work.id.match(/W\d+$/i)?.[0] : undefined;
+  if (id === undefined) throw new Error('citation-subscription-not-found');
+  return id.toLocaleUpperCase();
+}
+
+export async function loadOpenAlexCitations(seed: string, limit: number): Promise<DiscoveryPaper[]> {
+  const workId = await resolveOpenAlexWorkId(seed);
+  const filter = encodeURIComponent(`cites:${workId}`);
+  const url = `https://api.openalex.org/works?filter=${filter}&sort=publication_date:desc&per-page=${limit}&mailto=${CONTACT}`;
+  const json = (await getJson(url)) as Record<string, unknown>;
+  const results = Array.isArray(json.results) ? json.results : [];
+  return results.map((work) => mapWork(work as Record<string, unknown>)).filter((paper) => paper.title !== '');
+}
+
 export async function searchOpenAlex(query: string, limit: number): Promise<DiscoveryPaper[]> {
   const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=${limit}&mailto=${CONTACT}`;
   const j = (await getJson(url)) as Record<string, unknown>;

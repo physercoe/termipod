@@ -293,6 +293,10 @@
       "M1": "respawn",
       "M2": "respawn"
     },
+    "runtime_switch_fields": {
+      "mode": false,
+      "model": true
+    },
     "prompt_image": {
       "M1": true,
       "M2": true,
@@ -407,6 +411,10 @@
     "runtime_mode_switch": {
       "M1": "rpc",
       "M2": "per_turn_argv"
+    },
+    "runtime_switch_fields": {
+      "mode": true,
+      "model": true
     },
     "prompt_image": {
       "M1": true,
@@ -722,6 +730,10 @@
       "M1": "respawn",
       "M2": "respawn"
     },
+    "runtime_switch_fields": {
+      "mode": false,
+      "model": false
+    },
     "prompt_image": {
       "M1": true,
       "M2": true,
@@ -750,6 +762,10 @@
     },
     "runtime_mode_switch": {
       "M1": "rpc"
+    },
+    "runtime_switch_fields": {
+      "mode": true,
+      "model": true
     },
     "prompt_image": {
       "M1": true,

@@ -443,6 +443,50 @@ func TestPostAgentInput_SetModeRouting_Unsupported(t *testing.T) {
 	}
 }
 
+// TestPostAgentInput_SetSwitch_FieldMaskRefusal — vision-parity R6.
+// The route alone would send these to the respawn helper (and, with no
+// live session, a 500) — the field mask must refuse them FIRST with the
+// typed 422. These are the exact (family, field) pairs the mask exists
+// for: claude-code routes respawn for both fields but only `--model` is
+// in any spawn cmd, and codex can carry neither. The resolver test pins
+// the mask's VALUES; this pins that the handler actually consults it —
+// deleting the gate leaves that test green and turns every one of these
+// into a respawn attempt.
+func TestPostAgentInput_SetSwitch_FieldMaskRefusal(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	cases := []struct {
+		name string
+		kind string
+		body map[string]any
+	}{
+		{"claude_mode", "claude-code", map[string]any{"kind": "set_mode", "mode_id": "plan"}},
+		{"codex_mode", "codex", map[string]any{"kind": "set_mode", "mode_id": "never"}},
+		{"codex_model", "codex", map[string]any{"kind": "set_model", "model_id": "gpt-5-codex"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agentID := seedAgentWithKindMode(t, s, tc.kind, "M2")
+			status, raw := postInput(t, h, defaultTeamID, agentID, tc.body)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d want 422, body=%s", status, raw)
+			}
+			if !bytes.Contains(raw, []byte("does not support")) {
+				t.Errorf("body missing typed marker: %s", raw)
+			}
+			// A refusal writes nothing: no input event row, and no respawn
+			// side effects (the agent row is untouched).
+			var n int
+			_ = evRForTeam(t, s, defaultTeamID).QueryRow(
+				`SELECT COUNT(1) FROM agent_events WHERE agent_id = ? AND kind LIKE 'input.set_%'`,
+				agentID).Scan(&n)
+			if n != 0 {
+				t.Errorf("refused switch emitted %d input rows; want 0", n)
+			}
+		})
+	}
+}
+
 // TestPostAgentInput_SetMode_MissingFields — mode_id required for
 // set_mode, model_id required for set_model. Validation fires before
 // routing so an unknown family combined with a missing field still

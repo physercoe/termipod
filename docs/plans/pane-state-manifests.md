@@ -1,7 +1,8 @@
 # Pane-state manifests — declarative screen detection for every engine
 
 > **Type:** plan
-> **Status:** Proposed (2026-08-08) — for review. Derived from
+> **Status:** In flight (2026-08-17) — **P1–P4 + N1 + Q1 shipped**, all
+> cut in `2026.817.322-alpha`; **P5** and **S1/S2** remain. Derived from
 > [`discussions/herdr-runtime-borrows.md`](../discussions/herdr-runtime-borrows.md)
 > (B1 flagship + B2/B3/B4/B5 independents). The vendor-vs-fork call is
 > made: the director chose **vendor-plus-overlay** (2026-08-08); D-1

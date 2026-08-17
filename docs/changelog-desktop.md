@@ -1,9 +1,9 @@
 # Desktop Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-08-05)
+> **Status:** Current (2026-08-17)
 > **Audience:** contributors, operators
-> **Last verified vs code:** desktop 2026.805.1022 / electron-v2026.805.1022-alpha
+> **Last verified vs code:** desktop 2026.817.322 / electron-v2026.817.322-alpha
 
 **TL;DR.** Append-only record of what shipped in each **desktop workbench**
 release. One section per version, newest first. Format follows
@@ -39,86 +39,27 @@ This complements:
 
 ---
 
-## Unreleased
+## 2026.817.322 — 2026-08-17
+
+**The Companion becomes somewhere you can actually run an agent, and Read
+becomes somewhere you can actually find one.** A claude or codex session now
+runs on this machine with no hub in the path, survives quitting the app, and
+comes back with both halves restored — the transcript from our own append-only
+log, the memory from the vendor's native resume. The transcript around it grew
+what a session needs: streamed command output, inline images, a sub-agent
+panel, and model/permission pills that appear only where the switch is real.
+In parallel the Read lane went from a library to a discovery workspace — six
+literature sources plus Google Scholar, saved monitors on a cadence, social
+subscriptions, ratings and citation details — and the workbench itself took a
+visual pass: a monochrome product theme, integrated window chrome on macOS and
+Linux, and a bundled terminal font. `electron-v2026.817.322-alpha`, 32 desktop
+commits since `2026.805.1022`.
+
+> This is an unsigned alpha prerelease. It does **not** become the go-live
+> build until a `promote=2026.817.322` dispatch points the `electron-latest`
+> feed at it — a switch still owed from the previous two cuts.
 
 ### Added
-- **You can now see what a sub-agent actually did.** The Sub-agents chip above
-  the composer lists the delegated agents; clicking one opens what it was asked
-  to do and everything it has done — its tool calls, its notes, and what it is
-  running right now. (vision-parity R5)
-
-  For an engine that does not say which events belong to a sub-agent, the panel
-  still shows the request and says plainly that the rest cannot be separated —
-  which is a different sentence from "this sub-agent has not done anything
-  yet", and the panel picks the right one.
-
-- **The transcript now shows which model is about to answer — and lets you
-  change it where that is actually possible.** Two pills sit beside the
-  context ring, in the composer's own row, because these are questions asked
-  while typing rather than facts looked up in a details panel. An agent that
-  advertises its choices (the ACP engines) gets a menu; claude, which
-  advertises none, gets a text entry taking an alias or a full model name.
-  Switching a model on claude or codex **restarts the agent** — the hub spawns
-  a replacement on the same session, so the transcript continues — and the
-  pill says so and asks first, rather than doing it and letting you find out.
-  (vision-parity R6)
-
-  **A pill that cannot change anything says so instead of disappearing.**
-  Mobile's picker hides itself whenever the agent advertises no options, which
-  on a claude session means no model indicator at all. Here the value still
-  shows, greyed, with the reason on hover: "cannot be changed while running"
-  and "unknown" are different facts and should not look the same.
-
-### Fixed
-- **A sub-agent's work used to be reported as the main agent's.** claude's
-  stream carries a `parent_tool_use_id` on every frame — null for the main
-  agent, the delegating call's id for a sub-agent's — and the translator threw
-  it away. So a delegated tool call appeared in the transcript as if the agent
-  you were talking to had run it, and the guard that keeps a sub-agent's token
-  usage out of the session's turn counts (added for kimi) never fired for
-  claude, quietly inflating them. Both translators now stamp it, along with the
-  sub-agent's type, and a real recording of a delegated run is pinned in the
-  parity corpus so the two implementations cannot drift apart on it.
-- **Three of the four runtime switches could never have worked, and nothing
-  said so.** The registry recorded *how* a mode/model switch travels but not
-  *whether* a given field can travel at all, and a switch that rewrites a
-  launch flag can only work if the flag is in the spawn command to begin with.
-  Measured against the real binaries: claude's `--permission-mode` is a real
-  flag that no template ships, `codex app-server` takes no `--model`, and
-  `--approval-policy` is not a codex flag at all (0.147.0 answers *"unexpected
-  argument"*; it is `--ask-for-approval`). All three answered a 422 advising
-  the director to pick a template that exposes the flag — a template that
-  cannot exist. Families now declare `runtime_switch_fields` per field, the
-  hub checks it before routing, and the UI hides a control it knows would be
-  refused. Only claude's model switch was ever real; it still is.
-
-- **The Companion can now run a *codex* session on this machine too.** Pick
-  `codex` in the local picker and the dock drives it through the vendor's own
-  `app-server` — a JSON-RPC thread that streams as it writes, folds tool calls
-  the same way a claude session does, and comes back after an app restart with
-  its memory intact (`thread/resume`) and its transcript re-read from disk. It
-  reuses the hub's own codex frame profile, so a local codex transcript and a
-  hub-driven one are the same rows. Where a shared codex daemon is available
-  the session attaches to it and survives the app; otherwise it runs a
-  per-session app server, and the transcript **says which one it got** — those
-  are different promises. (vision-parity L4c)
-
-  **What the agent may do is measured, not named.** A codex session lowers the
-  same three postures to codex's own sandbox: `read_local` (the default) opens
-  the thread with `sandbox: read-only` and `approvalPolicy: never`, which was
-  probed by asking codex to create a file — it tried, failed, said *"the
-  environment is read-only"*, and nothing appeared on disk. `converse` cannot
-  be kept exactly (codex has no way to turn its tools off), so the transcript
-  carries a line saying the agent can still read files, rather than letting the
-  name imply otherwise.
-
-  **Approvals and questions arrive as cards in the feed**, answered inline —
-  a local session has no attention table, so this is where codex's gates live.
-  Four kinds are declined immediately instead, each with a line saying why: a
-  form-fill an inline card cannot type into, a "open this URL" request, a
-  permission-profile grant, and — deliberately — any question codex marks
-  **secret**, because an answer sent through the Companion is written to the
-  session transcript on disk, which is not where a secret belongs.
 
 - **The Companion can run a claude session on this machine, with no hub.**
   A local agent service in Electron main owns the engine child and keeps the
@@ -165,6 +106,99 @@ This complements:
   generated artifact and pinned to the hub's conformance corpus, so the two
   languages cannot drift on how an engine reattaches. (vision-parity L3b)
 
+- **The Companion can now run a *codex* session on this machine too.** Pick
+  `codex` in the local picker and the dock drives it through the vendor's own
+  `app-server` — a JSON-RPC thread that streams as it writes, folds tool calls
+  the same way a claude session does, and comes back after an app restart with
+  its memory intact (`thread/resume`) and its transcript re-read from disk. It
+  reuses the hub's own codex frame profile, so a local codex transcript and a
+  hub-driven one are the same rows. Where a shared codex daemon is available
+  the session attaches to it and survives the app; otherwise it runs a
+  per-session app server, and the transcript **says which one it got** — those
+  are different promises. (vision-parity L4c)
+
+  **What the agent may do is measured, not named.** A codex session lowers the
+  same three postures to codex's own sandbox: `read_local` (the default) opens
+  the thread with `sandbox: read-only` and `approvalPolicy: never`, which was
+  probed by asking codex to create a file — it tried, failed, said *"the
+  environment is read-only"*, and nothing appeared on disk. `converse` cannot
+  be kept exactly (codex has no way to turn its tools off), so the transcript
+  carries a line saying the agent can still read files, rather than letting the
+  name imply otherwise.
+
+  **Approvals and questions arrive as cards in the feed**, answered inline —
+  a local session has no attention table, so this is where codex's gates live.
+  Four kinds are declined immediately instead, each with a line saying why: a
+  form-fill an inline card cannot type into, a "open this URL" request, a
+  permission-profile grant, and — deliberately — any question codex marks
+  **secret**, because an answer sent through the Companion is written to the
+  session transcript on disk, which is not where a secret belongs.
+
+- **Groundwork for driving codex locally: the transport to its app-server.**
+  A codex installed by the official installer script runs a shared background
+  app-server, and a session on it outlives this app and is visible in codex's
+  own TUI. The desktop can now open that channel, or spawn a private
+  per-session app-server when the shared one is unavailable — falling back
+  with a sentence saying which it got, because "shared with your TUI" and
+  "dies with this window" are different promises. Not yet wired to any
+  surface: the driver that speaks the protocol is the next wedge, so nothing
+  visible changes yet. (vision-parity L4b)
+
+  **codex installed by the official script is now found even when it is not on
+  PATH.** The installer writes `~/.local/bin/codex` and puts its PATH line in
+  `.bashrc`, which an app launched from a Dock or Start-menu icon never reads
+  — so the officially-installed codex was *less* discoverable than a
+  distro-packaged one. The well-known install dirs are searched directly, with
+  `TERMIPOD_CODEX_BIN` as an override.
+
+- **You can now see what a sub-agent actually did.** The Sub-agents chip above
+  the composer lists the delegated agents; clicking one opens what it was asked
+  to do and everything it has done — its tool calls, its notes, and what it is
+  running right now. (vision-parity R5)
+
+  For an engine that does not say which events belong to a sub-agent, the panel
+  still shows the request and says plainly that the rest cannot be separated —
+  which is a different sentence from "this sub-agent has not done anything
+  yet", and the panel picks the right one.
+
+- **The transcript now shows which model is about to answer — and lets you
+  change it where that is actually possible.** Two pills sit beside the
+  context ring, in the composer's own row, because these are questions asked
+  while typing rather than facts looked up in a details panel. An agent that
+  advertises its choices (the ACP engines) gets a menu; claude, which
+  advertises none, gets a text entry taking an alias or a full model name.
+  Switching a model on claude or codex **restarts the agent** — the hub spawns
+  a replacement on the same session, so the transcript continues — and the
+  pill says so and asks first, rather than doing it and letting you find out.
+  (vision-parity R6)
+
+  **A pill that cannot change anything says so instead of disappearing.**
+  Mobile's picker hides itself whenever the agent advertises no options, which
+  on a claude session means no model indicator at all. Here the value still
+  shows, greyed, with the reason on hover: "cannot be changed while running"
+  and "unknown" are different facts and should not look the same.
+
+- **A running command's output now appears while it runs, and pictures render
+  as pictures.** Two halves of the same gap — the transcript could describe
+  what a tool did but never show it. A long build or test run used to sit as a
+  silent spinner until it exited; its output now streams into the tool row,
+  scroll-capped and pinned to the newest line, and stands down when the
+  finished result arrives carrying the same bytes. And an image a tool returns
+  — claude reading a PNG, or any bridge tool behind the hub relay — now paints
+  inline instead of printing a screen of base64 at you. Both dialects our
+  engines actually emit are read (claude's `source:{type:"base64"}` and
+  MCP/ACP's `mimeType`+`data`), and a `url` source is deliberately not painted:
+  it would make the renderer fetch a host the agent chose. (vision-parity R4,
+  consuming E3 + E4)
+
+  **Large images stopped disappearing.** The hub replaces any payload field
+  over 64 KiB with a content-addressed reference on ingest, which is every real
+  screenshot — and the transcript skipped those references rather than
+  resolving them, so an image vanished at exactly the size where it mattered.
+  They are now fetched by hash. The MIME comes from the event, not the blob
+  record, because the hub stores externalized bytes as
+  `application/octet-stream` and no browser will paint that as an image.
+
 - **`author_guide` — the agent looks up a format before it writes one.**
   `author_apply` refuses a malformed body rather than repairing it, which is
   only a fair trade if the rules are readable somewhere cheaper than a failed
@@ -190,51 +224,106 @@ This complements:
   that writes `mcp_servers` in a form the splicer can't edit safely is left
   alone and reported, never guessed at. (vision-parity F4)
 
-- **A running command's output now appears while it runs, and pictures render
-  as pictures.** Two halves of the same gap — the transcript could describe
-  what a tool did but never show it. A long build or test run used to sit as a
-  silent spinner until it exited; its output now streams into the tool row,
-  scroll-capped and pinned to the newest line, and stands down when the
-  finished result arrives carrying the same bytes. And an image a tool returns
-  — claude reading a PNG, or any bridge tool behind the hub relay — now paints
-  inline instead of printing a screen of base64 at you. Both dialects our
-  engines actually emit are read (claude's `source:{type:"base64"}` and
-  MCP/ACP's `mimeType`+`data`), and a `url` source is deliberately not painted:
-  it would make the renderer fetch a host the agent chose. (vision-parity R4,
-  consuming E3 + E4)
+- **Read becomes a discovery workspace, not just a library.** A dedicated
+  Discovery surface searches six literature sources (arXiv, Crossref, OpenAlex,
+  PubMed, Semantic Scholar, CORE) plus **Google Scholar** through SerpApi, and
+  what you find can be kept: a query becomes a **monitor** that re-runs on a
+  cadence and shows only what is new since the last run, with its history
+  retained so "new" means something. Monitors extend past papers to RSS feeds
+  and **social subscriptions** — Bluesky authors, feeds and queries, Mastodon
+  authors and tags, YouTube channels, X authors and queries — so a research
+  watch covers where the work is announced as well as where it is published.
+  Provider API keys are held in the vault rather than in settings, and
+  Unpaywall enrichment fills in open-access links. (#575, #572, #543)
 
-  **Large images stopped disappearing.** The hub replaces any payload field
-  over 64 KiB with a content-addressed reference on ingest, which is every real
-  screenshot — and the transcript skipped those references rather than
-  resolving them, so an image vanished at exactly the size where it mattered.
-  They are now fetched by hash. The MIME comes from the event, not the blob
-  record, because the hub stores externalized bytes as
-  `application/octet-stream` and no browser will paint that as an image.
+- **Ratings and provider-aware citation details in the library.** A reference
+  can be scored 1–5 to prioritize a reading list (backed by the hub's new
+  `rating` column), and the citation inspector reports counts alongside which
+  provider supplied them — OpenAlex and Google Scholar disagree often enough
+  that an unattributed number is not a fact. Library columns rebalance and
+  scroll horizontally rather than crushing, and the inspector metadata is
+  compacted. (#572, #543)
 
-- **Groundwork for driving codex locally: the transport to its app-server.**
-  A codex installed by the official installer script runs a shared background
-  app-server, and a session on it outlives this app and is visible in codex's
-  own TUI. The desktop can now open that channel, or spawn a private
-  per-session app-server when the shared one is unavailable — falling back
-  with a sentence saying which it got, because "shared with your TUI" and
-  "dies with this window" are different promises. Not yet wired to any
-  surface: the driver that speaks the protocol is the next wedge, so nothing
-  visible changes yet. (vision-parity L4b)
+- **Rich Markdown and CSV previews in Inspect.** A `.md` file renders as
+  formatted prose instead of source, and a `.csv`/`.tsv` opens as a sortable
+  table with soft wrap. Deliberately read-only and deliberately separate from
+  Author's table model: Inspect shows the bytes as they are and never
+  manufactures editable document state from them, so opening a data file
+  cannot start an edit you did not ask for. (#552)
 
-  **codex installed by the official script is now found even when it is not on
-  PATH.** The installer writes `~/.local/bin/codex` and puts its PATH line in
-  `.bashrc`, which an app launched from a Dock or Start-menu icon never reads
-  — so the officially-installed codex was *less* discoverable than a
-  distro-packaged one. The well-known install dirs are searched directly, with
-  `TERMIPOD_CODEX_BIN` as an override.
+- **PDF reading grew the controls a long document needs.** Hierarchical
+  outlines fold, the toolbar reflows instead of overflowing at narrow widths,
+  fit-width pins to the toolbar, and a text selection offers actions in place —
+  with the native context menu preserved rather than replaced. Annotation
+  actions are compacted and their swatches stay circular. (#562, #561, #543)
+
+- **A bundled terminal font, and a correct terminal on macOS.** Maple Mono NF
+  CN ships with the app (SIL Open Font License, see the bundled `LICENSE.txt`)
+  so a Nerd-Font prompt and CJK text render without asking the user to install
+  anything. macOS switches to the DOM renderer, where the WebGL path
+  mis-rendered, and the right-edge gutter and final glyph are no longer
+  clipped. (#557, #558)
+
+- **SFTP became a usable file browser.** Transfers queue in the background and
+  can be cancelled, column headers sort, the split is adjustable and centred on
+  open, panes scroll independently, and refresh is on the file menus. An SSH
+  connection is saved when you connect rather than only when you remember to
+  press Save, and saved hosts get a quick-connect. (#554, #553, #551, #561)
+
+- **Appearance controls.** Theme and density are settable in Settings, with a
+  light-mode Linux icon and a title-bar logo routed through the theme tokens so
+  it inverts with everything else. (#548, #546)
+
+- **Projects gained archiving and typed documents.** A project or workspace can
+  be archived behind a confirm, template groups collapse by default instead of
+  presenting everything at once, and a project document with a section schema
+  renders as its sections — each with an `empty` / `draft` / `ratified` status —
+  rather than as raw body text. (#558)
 
 ### Changed
+
+- **A monochrome product theme, and window chrome that belongs to the app.**
+  The workbench moved to a monochrome palette with a stronger pane tonal
+  hierarchy and soft glass chrome; pane boundaries were simplified and the
+  dividers and popovers that broke along the way were repaired. macOS and Linux
+  window chrome are integrated into the shell rather than sitting above it, and
+  a shared `PopoverMenu` replaces the one-off menus. The app icon is
+  re-cut — the midnight logo is now canonical in the brand docs. (#540, #562,
+  #561, #546)
+
+- **Workbench headers and pane grids align.** Pane toggles pin to their surface
+  headers, every pane-aware header uses the same alignment, the activity rail
+  and Inspect tree search controls are compacted, and Settings content centres
+  at wide widths. (#560, #556, #543)
+
 - **The UI-sharing consent text now lists all eight gated tools.** It had said
   "four things" since the first Author lane and had never been updated for
   `author_render` or `desktop_open` — so the sentence understated what the
   toggle grants. Both dicts.
 
 ### Fixed
+
+- **A sub-agent's work used to be reported as the main agent's.** claude's
+  stream carries a `parent_tool_use_id` on every frame — null for the main
+  agent, the delegating call's id for a sub-agent's — and the translator threw
+  it away. So a delegated tool call appeared in the transcript as if the agent
+  you were talking to had run it, and the guard that keeps a sub-agent's token
+  usage out of the session's turn counts (added for kimi) never fired for
+  claude, quietly inflating them. Both translators now stamp it, along with the
+  sub-agent's type, and a real recording of a delegated run is pinned in the
+  parity corpus so the two implementations cannot drift apart on it.
+- **Three of the four runtime switches could never have worked, and nothing
+  said so.** The registry recorded *how* a mode/model switch travels but not
+  *whether* a given field can travel at all, and a switch that rewrites a
+  launch flag can only work if the flag is in the spawn command to begin with.
+  Measured against the real binaries: claude's `--permission-mode` is a real
+  flag that no template ships, `codex app-server` takes no `--model`, and
+  `--approval-policy` is not a codex flag at all (0.147.0 answers *"unexpected
+  argument"*; it is `--ask-for-approval`). All three answered a 422 advising
+  the director to pick a template that exposes the flag — a template that
+  cannot exist. Families now declare `runtime_switch_fields` per field, the
+  hub checks it before routing, and the UI hides a control it knows would be
+  refused. Only claude's model switch was ever real; it still is.
 - **A local session's transcript was missing your own messages.** Every row in
   it is translated from an engine frame, and the engine never echoes the prompt
   back — so the Companion showed the agent's replies and none of the questions.
@@ -252,6 +341,21 @@ This complements:
   standalone result was labelled just "Result". The full transcript surface was
   always correct; only the dock was wired backwards. Found while threading the
   streamed-output prop through the same call sites.
+- **A local file edited outside the app kept showing its old contents.** Author
+  and Inspect held what they had read, so an external write — an agent's, a
+  shell's — was invisible until the tab was reopened. Files are re-read when
+  they change on disk. Vault details also fill the width available instead of
+  being cramped into a fixed column. (#555)
+- **Author tab bookkeeping.** A saved tab can be closed directly, file actions
+  stay in sync with the tree, and the document tabs no longer drift out of
+  step with what is open. (#543, #540)
+- **Inspect's compare view scrolls and resizes again**, and an imported
+  discovery result can be inspected without ending the discovery session it
+  came from. (#562, #543)
+- **Attachment sync no longer loses portable coordinates.** Zotero and managed
+  attachments travel as `{source, key, file}` descriptors matching the hub's
+  new `attachments_json`, so a library opened on a second device resolves the
+  same files instead of chasing an absolute path from the first. (#546, #550)
 
 ---
 

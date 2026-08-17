@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-08-05)
+> **Status:** Current (2026-08-17)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.805.1022-alpha
+> **Last verified vs code:** 2026.817.322-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -39,7 +39,38 @@ binding). Seed entries prior to that are in
 
 ---
 
-## Unreleased
+## 2026.817.322-alpha — 2026-08-17
+
+**The fleet learns to read a pane, and the hub stops mis-attributing what an
+agent said.** host-runner can classify what is on an agent's screen — working,
+blocked, idle — from vendored declarative manifests instead of one regex and a
+90-second stall; a blocked pane raises attention and withdraws it again; and
+`pane_explain` answers *why* it reached that verdict, rule by rule. Alongside
+that, four engine-vocabulary corrections, each found by measuring a real
+binary rather than reading a spec: claude's stream carries sub-agent
+provenance we were discarding, codex's streaming command output was being
+swallowed, codex rejects the attachment shapes we were sending it, and the
+runtime mode/model switch resolved the engine from the wrong column — so it
+had never worked for a steward at all.
+
+**All three lanes are cut at this version** — `mobile-v2026.817.322-alpha`,
+`hub-v2026.817.322-alpha`, `host-v2026.817.322-alpha` — carrying 18 hub and
+host-runner commits since `2026.805.1022-alpha`. The desktop workbench cuts
+separately at `2026.817.322`
+([`changelog-desktop.md`](changelog-desktop.md)), where the bulk of this
+cycle's 32 commits landed.
+
+> ⚠ **Operators must redeploy the hub and host-runner binaries.** Both the
+> `2026.730.1231` and `2026.805.1022` sections said the same thing about their
+> own 51 and 17 commits. If neither redeploy has happened, this cut compounds
+> both and nothing server-side in any of the three sections is live — including
+> every pane-state feature above, which is host-runner code by construction.
+
+> **Mobile is a near-formality again.** Two changes reached `lib/` this cycle,
+> both riding hub wedges: `pane_state` joins the transcript's verbose tier, and
+> the replay de-duplication key now folds streamed text (below). Mobile shares
+> one version with hub and host by design (`make bump` writes both files), so
+> the lane is cut to keep the three in lockstep.
 
 ### Added
 
@@ -171,6 +202,26 @@ binding). Seed entries prior to that are in
   because the argv the driver uses is threaded per turn, not spliced at
   spawn. Pane-state-manifests plan, N1.
 
+- **A reference carries its attachments as portable coordinates, so a Read
+  library syncs across devices.** `reference_items` gains `attachments_json`
+  (migration 0075): a list of `{source, key, file, content_type, …}`
+  descriptors naming an attachment inside its backend — Zotero storage or the
+  managed store — rather than where one machine happens to keep it. Absolute
+  device paths are deliberately absent from the schema, because a path from
+  another laptop is not a fact the second device can use. The existing
+  `zotero_storage_json` column stays for clients that know only one Zotero
+  attachment; new clients read and write both. `reference_create` /
+  `reference_update` accept the array, with `file`, `source` and `key`
+  required. Bytes never move — the hub stores metadata, the backend keeps the
+  file. (#550)
+
+- **References can be rated 1–5.** `reference_items.rating` (migration 0076),
+  exposed on the REST payload and both reference MCP tools, so the director can
+  prioritize a reading list and an agent can read that priority back. `NULL`
+  means unrated, which is a different fact from "rated low" — the column is
+  nullable and constrained rather than defaulted to a number nobody chose.
+  (#572)
+
 ### Changed
 
 - **A screenshot taken through the hub arrives as an image.** A remote
@@ -249,6 +300,51 @@ binding). Seed entries prior to that are in
   model switch would have started respawning with no `--resume` — trading a
   loud 422 for a silent cold start mid-session. Both lookups moved together.
 
+- **Three of the four runtime switches could never have worked, and the hub
+  had no way to say so.** The registry recorded only *how* a mode/model switch
+  travels (`runtime_mode_switch`, keyed on driving mode) — but that route
+  answers for two independent capabilities at once, and a switch that rewrites
+  a launch flag can only work if the flag is in the spawn command to begin
+  with. Measured against the real binaries: claude's `--permission-mode` is a
+  genuine flag that no shipped template carries, `codex app-server` (the argv
+  our M2 driver uses) accepts no `--model`, and `--approval-policy` is not a
+  codex flag at all — 0.147.0 answers *"unexpected argument … a similar
+  argument exists: `--approve-for-me`"*, the real one being
+  `-a, --ask-for-approval`. All three reached the respawn executor and came
+  back 422 advising the director to pick a template that exposes the flag: a
+  template that cannot exist. Families now declare `runtime_switch_fields`
+  per field (`{mode, model}`), the hub checks that mask **before** routing,
+  and `GET /agent-families` publishes it so a client can hide a control rather
+  than learn from the error. Only claude's model switch was ever real; it
+  still is, and flipping a bit later turns another one on with no client
+  change. (#573, vision-parity R6)
+
+- **The hub threw away claude's sub-agent provenance, so a delegated agent's
+  work was reported as the main agent's — and its tokens were counted against
+  the session.** claude's stream-json carries `parent_tool_use_id` on every
+  assistant and user frame (`null` for the main agent, the delegating call's
+  `tool_use_id` for a sub-agent's), plus `subagent_type` and
+  `task_description`, and four `system` subtypes narrating a delegated run.
+  None of it survived translation. The frame profile and the legacy stdio
+  translator now stamp `parent_tool_use_id` / `subagent` / `subagent_type` on
+  text, thinking, tool calls, tool results **and usage** — usage being the one
+  kind the existing sub-agent guard reads, so this is what makes that guard
+  (written for kimi, the only engine that had ever marked a sub-agent) finally
+  fire for claude and stop inflating turn counts. `subagent` is derived once
+  at the producer rather than re-derived per consumer, so both clients answer
+  one vocabulary. A real 15-frame recording of a delegated run is pinned in
+  the parity corpus — its first sidechain coverage — so the Go and TypeScript
+  interpreters cannot drift apart on it. (#574, vision-parity R5)
+
+- **A replayed codex command collapsed to its oldest output.** The mobile
+  transcript's de-duplication key for a `tool_call_update` was
+  `kind:id:status`, which is enough to separate ACP's discrete updates but not
+  a chain of streaming partials — and E3's partials deliberately carry no
+  status, so every partial for one command keyed identically and a replay kept
+  only the first. The card then showed the opening slice of a command that had
+  long since finished. The key now folds the streamed text in, the way the
+  text and thought cases already did.
+
 - **A host-runner-raised attention row was attributed to the host, never
   to the agent that asked.** `POST /attention` honoured a body-supplied
   `actor_handle` only when the authenticated caller had no handle of its
@@ -264,23 +360,6 @@ binding). Seed entries prior to that are in
   token still loses to its context identity. Found by testing the new
   pane-state row against the real handler instead of a stub; neither
   client renders these two columns yet, which is why it went unnoticed.
-
-### Security
-
-- **A session id from the engine could inject shell into the next
-  respawn.** `engine_session_id` is captured verbatim from the agent's own
-  `session.init` payload with no validation, and the hub splices it into
-  the spawn spec's `backend.cmd` — which tmux runs through a shell. It was
-  joined in unquoted, so an id like `x; rm -rf /` would have executed with
-  the agent's privileges at the next resume, respawn or teleport. Values
-  now pass a validation envelope (non-empty, no control characters, ≤512
-  bytes) and are single-quoted when they contain anything outside a
-  conservative safe set; an id that quoting cannot rescue is refused and
-  the respawn cold-starts, which is what every other failure on that path
-  already does. Ordinary ids — UUIDs, hyphenated slugs — are byte-identical
-  to before, so no live spawn spec changed.
-
-### Fixed
 
 - **The hub's two resume-dispatch switches had already diverged.**
   `handlers_sessions.go` (the resume + teleport path) and
@@ -340,6 +419,21 @@ binding). Seed entries prior to that are in
   into two existing resolvers, with no wire-format change and an additive,
   backward-compatible command argument (an older hub sends nothing and the
   host falls back to its own environment).
+
+### Security
+
+- **A session id from the engine could inject shell into the next
+  respawn.** `engine_session_id` is captured verbatim from the agent's own
+  `session.init` payload with no validation, and the hub splices it into
+  the spawn spec's `backend.cmd` — which tmux runs through a shell. It was
+  joined in unquoted, so an id like `x; rm -rf /` would have executed with
+  the agent's privileges at the next resume, respawn or teleport. Values
+  now pass a validation envelope (non-empty, no control characters, ≤512
+  bytes) and are single-quoted when they contain anything outside a
+  conservative safe set; an id that quoting cannot rescue is refused and
+  the respawn cold-starts, which is what every other failure on that path
+  already does. Ordinary ids — UUIDs, hyphenated slugs — are byte-identical
+  to before, so no live spawn spec changed.
 
 ---
 

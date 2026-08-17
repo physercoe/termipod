@@ -86,6 +86,15 @@ func (s *Server) handleListAgentFamilies(w http.ResponseWriter, r *http.Request)
 			"incompatibilities":   v.Family.Incompatibilities,
 			"source":              string(v.Source),
 			"runtime_mode_switch": v.Family.RuntimeModeSwitch,
+			// vision-parity R6 — the route above says how a switch travels;
+			// this says which of the two fields it can carry at all. The
+			// desktop's pill row renders an actionable control only where
+			// this is true, so a switch the hub would refuse never gets a
+			// button. Published for the same reason the four modality maps
+			// below are: an unpublished capability and an absent one are
+			// the same thing on the wire, and the composers read this
+			// endpoint and nothing else.
+			"runtime_switch_fields": v.Family.RuntimeSwitchFields,
 			// All four modality maps, not just images. Publishing only
 			// `prompt_image` meant every client's PDF / audio / video gate
 			// resolved false for every family — the affordances
@@ -120,14 +129,15 @@ func (s *Server) handleGetAgentFamily(w http.ResponseWriter, r *http.Request) {
 	for _, v := range views {
 		if v.Family.Family == name {
 			writeJSON(w, http.StatusOK, map[string]any{
-				"family":              v.Family.Family,
-				"bin":                 v.Family.Bin,
-				"version_flag":        v.Family.VersionFlag,
-				"supports":            v.Family.Supports,
-				"incompatibilities":   v.Family.Incompatibilities,
-				"source":              string(v.Source),
-				"runtime_mode_switch": v.Family.RuntimeModeSwitch,
-				"prompt_image":        v.Family.PromptImage,
+				"family":                v.Family.Family,
+				"bin":                   v.Family.Bin,
+				"version_flag":          v.Family.VersionFlag,
+				"supports":              v.Family.Supports,
+				"incompatibilities":     v.Family.Incompatibilities,
+				"source":                string(v.Source),
+				"runtime_mode_switch":   v.Family.RuntimeModeSwitch,
+				"runtime_switch_fields": v.Family.RuntimeSwitchFields,
+				"prompt_image":          v.Family.PromptImage,
 			})
 			return
 		}

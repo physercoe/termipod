@@ -42,6 +42,36 @@ This complements:
 ## Unreleased
 
 ### Added
+- **The transcript now shows which model is about to answer — and lets you
+  change it where that is actually possible.** Two pills sit beside the
+  context ring, in the composer's own row, because these are questions asked
+  while typing rather than facts looked up in a details panel. An agent that
+  advertises its choices (the ACP engines) gets a menu; claude, which
+  advertises none, gets a text entry taking an alias or a full model name.
+  Switching a model on claude or codex **restarts the agent** — the hub spawns
+  a replacement on the same session, so the transcript continues — and the
+  pill says so and asks first, rather than doing it and letting you find out.
+  (vision-parity R6)
+
+  **A pill that cannot change anything says so instead of disappearing.**
+  Mobile's picker hides itself whenever the agent advertises no options, which
+  on a claude session means no model indicator at all. Here the value still
+  shows, greyed, with the reason on hover: "cannot be changed while running"
+  and "unknown" are different facts and should not look the same.
+
+### Fixed
+- **Three of the four runtime switches could never have worked, and nothing
+  said so.** The registry recorded *how* a mode/model switch travels but not
+  *whether* a given field can travel at all, and a switch that rewrites a
+  launch flag can only work if the flag is in the spawn command to begin with.
+  Measured against the real binaries: claude's `--permission-mode` is a real
+  flag that no template ships, `codex app-server` takes no `--model`, and
+  `--approval-policy` is not a codex flag at all (0.147.0 answers *"unexpected
+  argument"*; it is `--ask-for-approval`). All three answered a 422 advising
+  the director to pick a template that exposes the flag — a template that
+  cannot exist. Families now declare `runtime_switch_fields` per field, the
+  hub checks it before routing, and the UI hides a control it knows would be
+  refused. Only claude's model switch was ever real; it still is.
 - **The Companion can now run a *codex* session on this machine too.** Pick
   `codex` in the local picker and the dock drives it through the vendor's own
   `app-server` — a JSON-RPC thread that streams as it writes, folds tool calls

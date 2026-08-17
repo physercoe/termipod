@@ -553,6 +553,25 @@ export class HubClient {
       body,
     });
   }
+  /** Switch the agent's model or permission mode at runtime (vision-parity R6;
+   * `handlers_agent_input.go` `case "set_mode"` / `"set_model"`).
+   *
+   * The hub picks the wire path from the family registry, so one call covers
+   * all of them: `rpc` forwards an ACP `session/set_model`, `per_turn_argv`
+   * stashes the value for the next subprocess, and `respawn` terminates the
+   * agent and spawns a replacement on the same session row — answering
+   * `202 {"routed":"respawn"}`. The caller must have previewed that restart;
+   * `switchPills().respawns` is the flag for it.
+   *
+   * A 422 here means the engine cannot carry this field, which the registry
+   * publishes as `runtime_switch_fields` — check it before offering the
+   * control rather than discovering it from the error. */
+  switchAgentRuntime(id: string, field: 'mode' | 'model', value: string): Promise<unknown> {
+    return this.transport.post(this.transport.team(`/agents/${id}/input`), {
+      kind: field === 'mode' ? 'set_mode' : 'set_model',
+      ...(field === 'mode' ? { mode_id: value } : { model_id: value }),
+    });
+  }
   /** Interrupt the agent's current turn (parity — mobile agents_api `_cancel`:
    * `postAgentInput(kind:'cancel')`). Lands in agent_events as a `producer:'user'`
    * cancel input the driver acts on — distinct from the `/stop` lifecycle, which

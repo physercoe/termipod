@@ -136,6 +136,12 @@ type AgentFamilyFromHub struct {
 	// (ADR-021 D4 / W2.1) over the wire so probe sweeps see the same
 	// declaration the hub-server consults at /agents/{id}/input time.
 	RuntimeModeSwitch map[string]string `json:"runtime_mode_switch,omitempty"`
+	// RuntimeSwitchFields mirrors agentfamilies.Family.RuntimeSwitchFields
+	// (vision-parity R6) — which of mode/model the route above can carry.
+	// Mirrored for the same reason as the route itself: the sentence above
+	// promises a probe sweep sees what the input handler consults, and the
+	// handler now consults both.
+	RuntimeSwitchFields map[string]bool `json:"runtime_switch_fields,omitempty"`
 	// PromptImage mirrors agentfamilies.Family.PromptImage (ADR-021 D5
 	// / W4.6). Mobile composer reads it to gate inline image attach
 	// per active driving_mode.

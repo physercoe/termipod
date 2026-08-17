@@ -225,18 +225,28 @@ backend:
 // handler answered 422 "engine does not support runtime mode switching". So
 // the feature was dead for stewards at BOTH the routing gate and the executor
 // — fixing either alone leaves it broken.
+// The fields mask (vision-parity R6) rides along, and the cases below are
+// chosen to separate it from the route: every claude/codex row routes
+// "respawn", so a mask that simply mirrored the route would pass. The
+// distinguishing pairs are (claude-code, model) = true against (claude-code,
+// mode) = false — one family, one route, two different answers. That is the
+// whole reason the mask exists: `--model` is in every claude spawn cmd and
+// `--permission-mode` is in none, and codex's `--approval-policy` is not a
+// codex flag at all.
 func TestResolveRuntimeModeSwitch_StewardRoutes(t *testing.T) {
 	srv, _ := newTestServer(t)
 	for i, tc := range []struct {
-		name    string
-		kind    string
-		backend string
-		want    string
+		name      string
+		kind      string
+		backend   string
+		want      string
+		wantModel bool
+		wantMode  bool
 	}{
-		{"steward over claude-code", "steward.claude-m4", "claude-code", "respawn"},
-		{"steward over codex", "steward.codex", "codex", "respawn"},
-		{"direct spawn still works", "claude-code", "", "respawn"},
-		{"unknown engine stays unsupported", "steward.mystery", "no-such-engine", "unsupported"},
+		{"steward over claude-code", "steward.claude-m4", "claude-code", "respawn", true, false},
+		{"steward over codex", "steward.codex", "codex", "respawn", false, false},
+		{"direct spawn still works", "claude-code", "", "respawn", true, false},
+		{"unknown engine stays unsupported", "steward.mystery", "no-such-engine", "unsupported", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// The handle must be unique per case: `agents` has a live-handle
@@ -248,12 +258,18 @@ func TestResolveRuntimeModeSwitch_StewardRoutes(t *testing.T) {
 				Handle:  fmt.Sprintf("route-case-%d", i),
 				Spec:    "kind: steward\n",
 			})
-			got, err := srv.resolveRuntimeModeSwitch(context.Background(), agentID)
+			got, fields, err := srv.resolveRuntimeModeSwitch(context.Background(), agentID)
 			if err != nil {
 				t.Fatalf("resolve: %v", err)
 			}
 			if got != tc.want {
 				t.Errorf("route = %q; want %q", got, tc.want)
+			}
+			if fields["model"] != tc.wantModel {
+				t.Errorf("switch field model = %v; want %v", fields["model"], tc.wantModel)
+			}
+			if fields["mode"] != tc.wantMode {
+				t.Errorf("switch field mode = %v; want %v", fields["mode"], tc.wantMode)
 			}
 		})
 	}

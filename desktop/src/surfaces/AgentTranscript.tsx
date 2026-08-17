@@ -10,6 +10,8 @@ import { agentEngine } from '../state/agentEngine';
 import { drivingModeOf, promptCapabilities } from '../state/promptCapabilities';
 import { compactCommandFor, contextFill, foldTranscriptStats } from '../state/transcriptStats';
 import { ContextRing } from '../ui/ContextRing';
+import { SwitchPills } from '../ui/SwitchPills';
+import { anyPillVisible, switchPills } from '../state/runtimeSwitch';
 import type { InputAttachments } from '../hub/client';
 import { Composer } from '../ui/Composer';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -457,6 +459,25 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
         ? undefined
         : promptCapabilities(agentEngine(agentQ.data), drivingModeOf(agentQ.data), familiesQ.data),
     [agentQ.data, familiesQ.data],
+  );
+  // R6 — the model / permission-mode pills, resolved against the same
+  // registry for the same reason: which fields can actually be switched is
+  // published data (`runtime_switch_fields`), not a guess from the engine
+  // name. Three of the four (family, field) pairs the Companion drives cannot
+  // switch at all, and every one of those clicks used to be a 422 the UI had
+  // no way to see coming. Unlike `capabilities`, an unresolved registry is
+  // not a reason to abstain: a pill with no switch is still the honest
+  // readout of what is in effect, which is what a loading registry yields.
+  const pills = useMemo(
+    () =>
+      switchPills(
+        agentEngine(agentQ.data),
+        drivingModeOf(agentQ.data),
+        familiesQ.data ?? [],
+        sessionInit,
+        events,
+      ),
+    [agentQ.data, familiesQ.data, sessionInit, events],
   );
 
   // A tool_result folded into its matching tool_call — not rendered on its own.
@@ -1012,6 +1033,31 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
     }
   }
 
+  /// R6 — commit a model / permission-mode switch. Deliberately does NOT
+  /// catch: SwitchPills renders the refusal beside the pill that caused it,
+  /// where the surface-level error banner would separate the sentence from
+  /// the control it is about.
+  ///
+  /// The invalidation is the half that is easy to forget. On the `respawn`
+  /// route the hub terminates this agent and spawns a REPLACEMENT with a new
+  /// id on the same session row, so `agentId` — the id the composer posts to
+  /// and the stream reads from — is stale the moment the call returns.
+  /// Surfaces that resolve their agent from the session (SessionsPanel keys
+  /// the transcript on `session:agent` from the digest's `current_agent_id`)
+  /// re-resolve and remount once these caches drop; the ones opened on a
+  /// fixed agent id (FocusRegion, ProjectBoard) do not, and stay pointed at
+  /// the terminated agent until reopened. Following the swap from a
+  /// fixed-id mount needs a session→current-agent hop those surfaces do not
+  /// have yet — filed rather than half-built here.
+  async function switchRuntime(field: 'mode' | 'model', value: string): Promise<void> {
+    if (client === null) return;
+    await client.switchAgentRuntime(agentId, field, value);
+    await qc.invalidateQueries({ queryKey: ['agents'] });
+    await qc.invalidateQueries({ queryKey: ['agent', agentId] });
+    await qc.invalidateQueries({ queryKey: ['sessions'] });
+    await qc.invalidateQueries({ queryKey: ['session-digest'] });
+  }
+
   const modes: { v: Mode; label: string }[] = [
     { v: 'live', label: t('tx.live') },
     { v: 'insight', label: t('tx.insight') },
@@ -1273,9 +1319,14 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
               strip, because its question ("is there room for this prompt?")
               is asked while typing. The strip keeps the same numbers as text
               for anyone reading rather than glancing. */}
-          {fill !== undefined && (
+          {/* One row: pills left (R6), ring right (R2). Both are composer-time
+              questions — what will answer this, and is there room for it. */}
+          {(fill !== undefined || anyPillVisible(pills)) && (
             <div className="composer-gauge">
-              <ContextRing fill={fill} compactCommand={compactCommand} onCompact={injectCommand} />
+              <SwitchPills pills={pills} onPick={switchRuntime} />
+              {fill !== undefined && (
+                <ContextRing fill={fill} compactCommand={compactCommand} onCompact={injectCommand} />
+              )}
             </div>
           )}
           <Composer

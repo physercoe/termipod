@@ -21,7 +21,7 @@ import { agentIsBusy, errorLabel, eventIsError, FEED_LENSES, isHiddenInFeed, mat
 import { collapseStreamingPartials } from '../ui/streamingPartials';
 import { groupToolCalls, toolCallUpdateParentId, type FeedRow } from '../ui/toolGroups';
 import { ToolGroupCard } from '../ui/ToolGroupCard';
-import { deriveStateDock } from '../ui/stateDock';
+import { deriveStateDock, subagentDetail, type DockCall } from '../ui/stateDock';
 // NB explicit .tsx: the pure module `stateDock.ts` differs from this file
 // name only in casing, so on macOS's case-insensitive filesystem a bare
 // '../ui/StateDock' import resolves to stateDock.ts (TS1149). The extension
@@ -394,6 +394,13 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
   // untouched).
   const stateDock = useMemo(
     () => deriveStateDock(feed, { nameById, resultById, updateById }),
+    [feed, nameById, resultById, updateById],
+  );
+  // R5 — one sub-agent's own activity, resolved on demand. A callback rather
+  // than a precomputed map because only the row the director opened needs the
+  // scan, and the dock re-derives on every event.
+  const subagentDetailFor = useCallback(
+    (call: DockCall) => subagentDetail(feed, call, { nameById, resultById, updateById }),
     [feed, nameById, resultById, updateById],
   );
   // P1 tool-group collapse state (kimi-web parity — plan §7 decision 3):
@@ -1314,7 +1321,7 @@ export function AgentTranscript({ agentId, sessionId }: { agentId: string; sessi
           )}
           {/* P2 state dock — live mode only, outside the virtual list,
               directly above the composer. */}
-          <StateDock model={stateDock} />
+          <StateDock model={stateDock} subagentDetailFor={subagentDetailFor} />
           {/* R2 — the ring sits in the composer's own row, not the header
               strip, because its question ("is there room for this prompt?")
               is asked while typing. The strip keeps the same numbers as text

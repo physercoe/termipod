@@ -335,9 +335,15 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			// human line. The frame-profile rule in agent_families.yaml
 			// mirrors this shape — keep them in lockstep (the parity
 			// test diffs both paths over the corpus).
+			// R5 adds tool_use_id + subagent_type: #374 meant to drop the
+			// frame's uuid/session_id/usage noise, but took the
+			// correlation with it, so nothing could tie a progress line
+			// to the Agent call that produced it.
 			payload := map[string]any{
 				"subtype":        frame["subtype"],
 				"task_id":        frame["task_id"],
+				"tool_use_id":    frame["tool_use_id"],
+				"subagent_type":  frame["subagent_type"],
 				"description":    frame["description"],
 				"last_tool_name": frame["last_tool_name"],
 				"text":           frame["description"],
@@ -355,6 +361,26 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 		msg, _ := frame["message"].(map[string]any)
 		messageID, _ := msg["id"].(string)
 		blocks, _ := msg["content"].([]any)
+		// Sub-agent provenance (vision-parity R5). `parent_tool_use_id` is
+		// null on the main agent's frames and carries the spawning
+		// Agent/Task call's tool_use_id on a sub-agent's — the only thing
+		// on the M2 wire that says which agent did the work. Mirrors the
+		// YAML rule field-for-field; the parity test compares KEY SETS, so
+		// these are set unconditionally (nil when absent) exactly as
+		// `payload[k] = Eval(expr)` does on the profile path.
+		//
+		// `subagent` is derived here rather than read off the frame so the
+		// boolean the kimi M4 tap already stamps means one thing across
+		// engines. profile_eval.IsPresent for the same reason the thinking
+		// block uses it below: claude sends an explicit `null`, and a
+		// second local definition of "present" would be a divergence the
+		// parity test cannot see.
+		subProv := func(out map[string]any) map[string]any {
+			out["parent_tool_use_id"] = frame["parent_tool_use_id"]
+			out["subagent"] = profile_eval.IsPresent(frame["parent_tool_use_id"])
+			out["subagent_type"] = frame["subagent_type"]
+			return out
+		}
 		for _, b := range blocks {
 			block, _ := b.(map[string]any)
 			bt, _ := block["type"].(string)
@@ -368,7 +394,7 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 				if messageID != "" {
 					out["message_id"] = messageID
 				}
-				_ = d.emit(ctx, "text", "agent", out)
+				_ = d.emit(ctx, "text", "agent", subProv(out))
 			case "thinking":
 				// Extended reasoning. claude-code 2.1.x signs the block
 				// for API-side verification and ships `thinking` empty,
@@ -400,14 +426,14 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 				if messageID != "" {
 					out["message_id"] = messageID
 				}
-				_ = d.emit(ctx, "thought", "agent", out)
+				_ = d.emit(ctx, "thought", "agent", subProv(out))
 			case "tool_use":
 				_ = d.emit(ctx, "tool_call", "agent",
-					map[string]any{
+					subProv(map[string]any{
 						"id":    block["id"],
 						"name":  block["name"],
 						"input": block["input"],
-					})
+					}))
 			default:
 				_ = d.emit(ctx, "raw", "agent", block)
 			}
@@ -426,7 +452,14 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			if model, ok := msg["model"].(string); ok && model != "" {
 				out["model"] = model
 			}
-			_ = d.emit(ctx, "usage", "agent", out)
+			// Usage is the event #374's guard actually reads: digest_fold's
+			// InTokens/OutTokens fold and transcriptStats' turn accounting
+			// both skip `subagent:true` USAGE frames. A sub-agent's
+			// assistant frames carry `message.usage` too (corpus frame 25),
+			// so leaving the stamp off this one emit keeps the delegated
+			// agent's tokens inside the main turn — the exact inflation R5
+			// set out to remove.
+			_ = d.emit(ctx, "usage", "agent", subProv(out))
 		}
 
 	case "user":
@@ -441,11 +474,18 @@ func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any)
 			if bt != "tool_result" {
 				continue
 			}
+			// Same sub-agent provenance as the assistant branch: a
+			// sub-agent's tool RESULTS carry parent_tool_use_id too, and
+			// without it the tool half of a delegated call reads as the
+			// main agent's. Mirrors the YAML sub_rule.
 			_ = d.emit(ctx, "tool_result", "agent",
 				map[string]any{
-					"tool_use_id": block["tool_use_id"],
-					"content":     block["content"],
-					"is_error":    block["is_error"],
+					"tool_use_id":        block["tool_use_id"],
+					"content":            block["content"],
+					"is_error":           block["is_error"],
+					"parent_tool_use_id": frame["parent_tool_use_id"],
+					"subagent":           profile_eval.IsPresent(frame["parent_tool_use_id"]),
+					"subagent_type":      frame["subagent_type"],
 				})
 		}
 

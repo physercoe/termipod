@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import {
   deriveStateDock,
   isShellTaskName,
+  subagentDetail,
   isSubagentName,
   MAX_DOCK_CALLS,
   toolCallKeyArg,
@@ -266,4 +267,113 @@ test('toolCallKeyArg: command/prompt-class keys win; first string value is the f
   assert.equal(toolCallKeyArg({ count: 3 }), undefined);
   assert.equal(toolCallKeyArg(undefined), undefined);
   assert.equal(toolCallKeyArg('nope'), undefined);
+});
+
+// --- R5: one sub-agent's own activity -----------------------------------------
+
+/// Frames shaped like the real thing. The field names come from a MEASURED
+/// claude-code 2.1.220 run under `--print --output-format stream-json` (a real
+/// Agent call), translated by the frame profile: a sub-agent's own events carry
+/// `parent_tool_use_id` + `subagent: true`, and the task_* system frames carry
+/// the same id as `tool_use_id`.
+function subEvent(kind: string, parentId: string, payload: Record<string, unknown>): FeedEvent {
+  return ev(kind, { ...payload, parent_tool_use_id: parentId, subagent: true, subagent_type: 'general-purpose' });
+}
+
+function detailFor(events: FeedEvent[], toolId: string) {
+  const model = derive(events);
+  const row = model.subagentCalls.find((c) => c.toolId === toolId);
+  assert.ok(row !== undefined, `no dock row for ${toolId}`);
+  return subagentDetail(events, row, mapsFor(events));
+}
+
+test('a dock row carries the TOOL id, not just its event id', () => {
+  // The join key. `id` is the event row (`c-t1` here); `toolId` is what a
+  // sub-agent's events name as their parent. Asserting only on `id` would pass
+  // with the two confused, and the panel would then be empty for every agent.
+  const events = [call('t1', 'Agent', { input: { description: 'go look' } })];
+  const row = derive(events).subagentCalls[0];
+  assert.equal(row.toolId, 't1');
+  assert.notEqual(row.id, row.toolId);
+});
+
+test('a sub-agent detail collects only ITS events, not a sibling’s', () => {
+  // The separating input: two sub-agents running at once. A filter that merely
+  // asked "is this event a subagent's?" (the `subagent:true` boolean alone)
+  // would put both agents' work under each row and read as one agent doing
+  // twice the work.
+  const events = [
+    call('t1', 'Agent', { input: { prompt: 'first job', subagent_type: 'general-purpose' } }),
+    call('t2', 'Agent', { input: { prompt: 'second job' } }),
+    subEvent('tool_call', 't1', { id: 'inner-1', name: 'Bash', input: { command: 'ls /one' } }),
+    subEvent('tool_call', 't2', { id: 'inner-2', name: 'Bash', input: { command: 'ls /two' } }),
+    subEvent('text', 't1', { text: 'first is done' }),
+  ];
+  const d1 = detailFor(events, 't1');
+  assert.equal(d1.prompt, 'first job');
+  assert.equal(d1.subagentType, 'general-purpose');
+  assert.deepEqual(d1.lines.map((l) => l.detail), ['ls /one', 'first is done']);
+
+  const d2 = detailFor(events, 't2');
+  assert.deepEqual(d2.lines.map((l) => l.detail), ['ls /two']);
+  assert.equal(d2.prompt, 'second job');
+});
+
+test('task_progress joins on tool_use_id and the newest one is what it is doing now', () => {
+  const events = [
+    call('t1', 'Agent', { input: { description: 'dig' } }),
+    ev('system', { subtype: 'task_progress', tool_use_id: 't1', description: 'Running Read' }),
+    ev('system', { subtype: 'task_progress', tool_use_id: 't1', description: 'Running Grep' }),
+  ];
+  const d = detailFor(events, 't1');
+  assert.equal(d.lastActivity, 'Running Grep', 'forward scan — newest wins');
+  assert.equal(d.lines.length, 2, 'both progress lines are the activity stream');
+});
+
+test('the spawning call is the header, never a line in its own stream', () => {
+  const events = [call('t1', 'Agent', { input: { prompt: 'p' } }), subEvent('text', 't1', { text: 'x' })];
+  const d = detailFor(events, 't1');
+  assert.equal(d.lines.length, 1);
+  assert.equal(d.lines[0].detail, 'x');
+});
+
+test('an engine that reports no provenance says so; a quiet sub-agent does not', () => {
+  // Two empty lists, two different sentences. codex/gemini publish no
+  // per-sub-agent correlation at all, so the panel must not imply the agent
+  // has simply been idle.
+  const silent = [call('t1', 'Agent', { input: { prompt: 'ask codex' } })];
+  const d = detailFor(silent, 't1');
+  assert.equal(d.lines.length, 0);
+  assert.equal(d.reported, false, 'no event in the session carries provenance');
+  assert.equal(d.prompt, 'ask codex', 'the request is still worth showing');
+
+  // Same shape, but another sub-agent in the session HAS reported — so the
+  // engine does publish provenance and this one is merely quiet.
+  const quiet = [
+    call('t1', 'Agent', { input: { prompt: 'not started' } }),
+    call('t2', 'Agent', { input: { prompt: 'busy' } }),
+    subEvent('tool_call', 't2', { id: 'i', name: 'Bash', input: { command: 'ls' } }),
+  ];
+  assert.equal(detailFor(quiet, 't1').reported, true);
+});
+
+test('a tool_result does not double the row its call already shows', () => {
+  const events = [
+    call('t1', 'Agent', { input: { prompt: 'p' } }),
+    subEvent('tool_call', 't1', { id: 'inner', name: 'Bash', input: { command: 'ls' } }),
+    ev('tool_result', { tool_use_id: 'inner', parent_tool_use_id: 't1', subagent: true, content: 'ok' }),
+  ];
+  const d = detailFor(events, 't1');
+  assert.deepEqual(d.lines.map((l) => l.kind), ['tool_call']);
+  assert.equal(d.lines[0].status, 'done', 'the result resolves the call’s status instead');
+});
+
+test('kimi’s agent-id provenance is accepted as the same join', () => {
+  const events = [
+    call('agent-9', 'task', { input: { prompt: 'kimi job' } }),
+    ev('text', { text: 'sub report', subagent: true, kimi_agent_id: 'agent-9' }),
+  ];
+  const d = detailFor(events, 'agent-9');
+  assert.deepEqual(d.lines.map((l) => l.detail), ['sub report']);
+  assert.equal(d.reported, true);
 });

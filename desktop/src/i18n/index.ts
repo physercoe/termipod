@@ -451,6 +451,10 @@ const en: Dict = {
   'tx.dock.todos': 'Todos ({done}/{total})',
   'tx.dock.close': 'Close panel',
   'tx.dock.noTodos': 'No todos in the latest plan.',
+  // R5 — one sub-agent's own activity.
+  'tx.dock.back': 'Back to the list',
+  'tx.dock.subQuiet': 'This sub-agent has not done anything yet.',
+  'tx.dock.subUnreported': 'This engine does not report which events are a sub-agent’s, so its work cannot be separated from the main agent’s here. The request above is what it was asked to do.',
   'tx.now': 'now',
   'composer.attach': 'Attach file or image',
   'composer.slashMenu': 'Slash commands',
@@ -2894,6 +2898,10 @@ const zh: Dict = {
   'tx.dock.todos': '待办 ({done}/{total})',
   'tx.dock.close': '关闭面板',
   'tx.dock.noTodos': '最新的计划中没有待办。',
+  // R5 — 单个子代理的活动。
+  'tx.dock.back': '返回列表',
+  'tx.dock.subQuiet': '该子代理尚未有任何动作。',
+  'tx.dock.subUnreported': '该引擎不会标明哪些事件来自子代理，因此这里无法把它的工作与主代理分开。上方显示的是它被要求完成的任务。',
   'tx.now': '刚刚',
   'composer.attach': '附加文件或图片',
   'composer.slashMenu': '斜杠命令',

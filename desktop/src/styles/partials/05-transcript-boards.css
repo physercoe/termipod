@@ -703,6 +703,79 @@
   padding: var(--spacing-s4) 0;
   font-size: var(--font-size-body-small);
 }
+
+/* R5 — a sub-agent row opens that agent's own activity. The button carries
+   the row's layout so the drill-down affordance doesn't reflow the list; only
+   the chevron is new. Shell rows keep the plain <li> and are unaffected. */
+.sd-row-open {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s6);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sd-row-open:hover {
+  background: var(--surface-hover);
+}
+.sd-row-chev {
+  margin-left: auto;
+  opacity: 0.5;
+}
+.sd-sub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  min-width: 0;
+}
+.sd-sub-type {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-s4);
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+}
+/* The prompt is the one thing every engine can show, so it gets room to be
+   read — wrapped and selectable, not clamped to a row. */
+.sd-sub-prompt {
+  max-height: 7em;
+  overflow-y: auto;
+  padding: var(--spacing-s4) var(--spacing-s8);
+  border-left: 2px solid var(--border);
+  color: var(--text);
+  font-size: var(--font-size-body-small);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sd-sub-now {
+  font-size: var(--font-size-caption);
+  font-style: italic;
+}
+.sd-sub-line {
+  gap: var(--spacing-s4);
+}
+.sd-sub-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Prose the sub-agent produced reads as prose, not as a tool row. */
+.sd-sub-line.k-text .sd-sub-detail {
+  color: var(--text);
+}
+.sd-sub-line.k-thought .sd-sub-detail {
+  font-style: italic;
+  opacity: 0.8;
+}
 .sd-row-name {
   flex: 0 0 auto;
   font-weight: 600;

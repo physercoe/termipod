@@ -59,9 +59,11 @@
           "payload": {
             "description": "$.description",
             "last_tool_name": "$.last_tool_name",
+            "subagent_type": "$.subagent_type",
             "subtype": "$.subtype",
             "task_id": "$.task_id",
-            "text": "$.description"
+            "text": "$.description",
+            "tool_use_id": "$.tool_use_id"
           }
         }
       },
@@ -110,6 +112,9 @@
               "producer": "agent",
               "payload": {
                 "message_id": "$$.message.id",
+                "parent_tool_use_id": "$$.parent_tool_use_id",
+                "subagent": "present($$.parent_tool_use_id)",
+                "subagent_type": "$$.subagent_type",
                 "text": "$.text"
               }
             }
@@ -124,7 +129,10 @@
               "payload": {
                 "id": "$.id",
                 "input": "$.input",
-                "name": "$.name"
+                "name": "$.name",
+                "parent_tool_use_id": "$$.parent_tool_use_id",
+                "subagent": "present($$.parent_tool_use_id)",
+                "subagent_type": "$$.subagent_type"
               }
             }
           },
@@ -138,7 +146,10 @@
               "payload": {
                 "marker_only": "absent($.thinking)",
                 "message_id": "$$.message.id",
+                "parent_tool_use_id": "$$.parent_tool_use_id",
                 "signature_present": "present($.signature)",
+                "subagent": "present($$.parent_tool_use_id)",
+                "subagent_type": "$$.subagent_type",
                 "text": "nonempty($.thinking) || \"Thinking…\""
               }
             }
@@ -160,7 +171,10 @@
             "message_id": "$.message.id",
             "model": "$.message.model",
             "output_tokens": "$.message.usage.output_tokens",
-            "service_tier": "$.message.usage.service_tier"
+            "parent_tool_use_id": "$.parent_tool_use_id",
+            "service_tier": "$.message.usage.service_tier",
+            "subagent": "present($.parent_tool_use_id)",
+            "subagent_type": "$.subagent_type"
           }
         }
       },
@@ -183,6 +197,9 @@
               "payload": {
                 "content": "$.content",
                 "is_error": "$.is_error",
+                "parent_tool_use_id": "$$.parent_tool_use_id",
+                "subagent": "present($$.parent_tool_use_id)",
+                "subagent_type": "$$.subagent_type",
                 "tool_use_id": "$.tool_use_id"
               }
             }
@@ -338,9 +355,11 @@
         "payload": {
           "description": "investigate stale sessions",
           "last_tool_name": "Bash",
+          "subagent_type": null,
           "subtype": "task_progress",
           "task_id": "brgb0gz57",
-          "text": "investigate stale sessions"
+          "text": "investigate stale sessions",
+          "tool_use_id": "toolu_9"
         }
       }
     ],
@@ -378,6 +397,9 @@
         "producer": "agent",
         "payload": {
           "message_id": "msg_text_only",
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null,
           "text": "Reading the file."
         }
       }
@@ -388,6 +410,9 @@
         "producer": "agent",
         "payload": {
           "message_id": "msg_with_tool",
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null,
           "text": "I'll read it."
         }
       },
@@ -399,7 +424,10 @@
           "input": {
             "file_path": "/etc/hosts"
           },
-          "name": "Read"
+          "name": "Read",
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null
         }
       },
       {
@@ -412,7 +440,10 @@
           "message_id": "msg_with_tool",
           "model": "claude-opus-4-7",
           "output_tokens": 40,
-          "service_tier": "standard"
+          "parent_tool_use_id": null,
+          "service_tier": "standard",
+          "subagent": false,
+          "subagent_type": null
         }
       }
     ],
@@ -423,6 +454,9 @@
         "payload": {
           "content": "127.0.0.1 localhost",
           "is_error": false,
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null,
           "tool_use_id": "toolu_1"
         }
       }
@@ -482,7 +516,10 @@
         "payload": {
           "marker_only": true,
           "message_id": "msg_thinking_signed",
+          "parent_tool_use_id": null,
           "signature_present": true,
+          "subagent": false,
+          "subagent_type": null,
           "text": "Thinking…"
         }
       },
@@ -491,6 +528,9 @@
         "producer": "agent",
         "payload": {
           "message_id": "msg_thinking_signed",
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null,
           "text": "Done."
         }
       }
@@ -502,7 +542,10 @@
         "payload": {
           "marker_only": false,
           "message_id": "msg_thinking_text",
+          "parent_tool_use_id": null,
           "signature_present": false,
+          "subagent": false,
+          "subagent_type": null,
           "text": "Let me check the file first."
         }
       }
@@ -552,6 +595,401 @@
           "subtype": "success",
           "total_cost_usd": 0.42,
           "type": "result"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "rate_limit",
+        "producer": "agent",
+        "payload": {
+          "is_using_overage": false,
+          "overage_status": "rejected",
+          "reason": "out_of_credits",
+          "resets_at": 1786904400,
+          "status": "allowed",
+          "window": "five_hour"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "estimated_tokens": 50,
+          "estimated_tokens_delta": 50,
+          "session_id": "sess-subagent-probe",
+          "subtype": "thinking_tokens",
+          "type": "system",
+          "uuid": "d317903f-9e0b-4759-bb4e-8de4159902fd"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "estimated_tokens": 97,
+          "estimated_tokens_delta": 47,
+          "session_id": "sess-subagent-probe",
+          "subtype": "thinking_tokens",
+          "type": "system",
+          "uuid": "2784b051-657d-4071-9924-09657be1f645"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "thought",
+        "producer": "agent",
+        "payload": {
+          "marker_only": true,
+          "message_id": "msg_011Ce6mKzDwb4V8cyEtwQrnj",
+          "parent_tool_use_id": null,
+          "signature_present": true,
+          "subagent": false,
+          "subagent_type": null,
+          "text": "Thinking…"
+        }
+      },
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "cache_create": 8695,
+          "cache_read": 23976,
+          "input_tokens": 2,
+          "message_id": "msg_011Ce6mKzDwb4V8cyEtwQrnj",
+          "model": "claude-sonnet-5",
+          "output_tokens": 2,
+          "parent_tool_use_id": null,
+          "service_tier": "standard",
+          "subagent": false,
+          "subagent_type": null
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB",
+          "input": {
+            "description": "Read note.txt contents",
+            "prompt": "Read note.txt in the current directory and reply with its contents, nothing else.",
+            "run_in_background": false,
+            "subagent_type": "general-purpose"
+          },
+          "name": "Agent",
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null
+        }
+      },
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "cache_create": 8695,
+          "cache_read": 23976,
+          "input_tokens": 2,
+          "message_id": "msg_011Ce6mKzDwb4V8cyEtwQrnj",
+          "model": "claude-sonnet-5",
+          "output_tokens": 2,
+          "parent_tool_use_id": null,
+          "service_tier": "standard",
+          "subagent": false,
+          "subagent_type": null
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "description": "Read note.txt contents",
+          "prompt": "Read note.txt in the current directory and reply with its contents, nothing else.",
+          "session_id": "sess-subagent-probe",
+          "subagent_type": "general-purpose",
+          "subtype": "task_started",
+          "task_id": "ad21f6bf1e8cd9e23",
+          "task_type": "local_agent",
+          "tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB",
+          "type": "system",
+          "uuid": "03a9bf2d-0548-4ad3-a08f-05ec0795c8ea"
+        }
+      }
+    ],
+    [],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "description": "Running Read note.txt in current directory",
+          "last_tool_name": "Bash",
+          "subagent_type": "general-purpose",
+          "subtype": "task_progress",
+          "task_id": "ad21f6bf1e8cd9e23",
+          "text": "Running Read note.txt in current directory",
+          "tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_call",
+        "producer": "agent",
+        "payload": {
+          "id": "toolu_01CZN44DqkfWBSdbzPBDZvAj",
+          "input": {
+            "command": "cat \"note.txt\"",
+            "description": "Read note.txt in current directory"
+          },
+          "name": "Bash",
+          "parent_tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB",
+          "subagent": true,
+          "subagent_type": "general-purpose"
+        }
+      },
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "cache_create": 14351,
+          "cache_read": 0,
+          "input_tokens": 2,
+          "message_id": "msg_011Ce6mLCFFFKr6tCGj9xDig",
+          "model": "claude-sonnet-5",
+          "output_tokens": 17,
+          "parent_tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB",
+          "service_tier": "standard",
+          "subagent": true,
+          "subagent_type": "general-purpose"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_result",
+        "producer": "agent",
+        "payload": {
+          "content": "hello from the probe file",
+          "is_error": false,
+          "parent_tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB",
+          "subagent": true,
+          "subagent_type": "general-purpose",
+          "tool_use_id": "toolu_01CZN44DqkfWBSdbzPBDZvAj"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "patch": {
+            "end_time": 1786898719260,
+            "status": "completed"
+          },
+          "session_id": "sess-subagent-probe",
+          "subtype": "task_updated",
+          "task_id": "ad21f6bf1e8cd9e23",
+          "type": "system",
+          "uuid": "54bb259f-9ee0-404d-b4f1-4755aae9afcc"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "system",
+        "producer": "agent",
+        "payload": {
+          "output_file": "/tmp/tasks/ad21f6bf1e8cd9e23.output",
+          "session_id": "sess-subagent-probe",
+          "status": "completed",
+          "subtype": "task_notification",
+          "summary": "hello from the probe file",
+          "task_id": "ad21f6bf1e8cd9e23",
+          "tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB",
+          "type": "system",
+          "usage": {
+            "duration_ms": 3053,
+            "tool_uses": 1,
+            "total_tokens": 15274
+          },
+          "uuid": "d1decfe7-a84f-47e4-9efa-1ffe146b077b"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "tool_result",
+        "producer": "agent",
+        "payload": {
+          "content": [
+            {
+              "text": "hello from the probe file",
+              "type": "text"
+            },
+            {
+              "text": "agentId: ad21f6bf1e8cd9e23 (use SendMessage with to: 'ad21f6bf1e8cd9e23', summary: '\u003c5-10 word recap\u003e' to continue this agent)\n\u003cusage\u003esubagent_tokens: 15265\ntool_uses: 1\nduration_ms: 3054\u003c/usage\u003e",
+              "type": "text"
+            }
+          ],
+          "is_error": null,
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null,
+          "tool_use_id": "toolu_016w6UKd3wKShW1Z3BUZ9UtB"
+        }
+      }
+    ],
+    [
+      {
+        "kind": "text",
+        "producer": "agent",
+        "payload": {
+          "message_id": "msg_011Ce6mLRtnEZR9eJj6avHfV",
+          "parent_tool_use_id": null,
+          "subagent": false,
+          "subagent_type": null,
+          "text": "The subagent reported the contents of note.txt as: **\"hello from the probe file\"**"
+        }
+      },
+      {
+        "kind": "usage",
+        "producer": "agent",
+        "payload": {
+          "cache_create": 322,
+          "cache_read": 32671,
+          "input_tokens": 2,
+          "message_id": "msg_011Ce6mLRtnEZR9eJj6avHfV",
+          "model": "claude-sonnet-5",
+          "output_tokens": 1,
+          "parent_tool_use_id": null,
+          "service_tier": "standard",
+          "subagent": false,
+          "subagent_type": null
+        }
+      }
+    ],
+    [
+      {
+        "kind": "turn.result",
+        "producer": "agent",
+        "payload": {
+          "by_model": {
+            "claude-haiku-4-5-20251001": {
+              "cache_create": 0,
+              "cache_read": 0,
+              "context_window": 200000,
+              "cost_usd": 0.000652,
+              "input": 567,
+              "max_output_tokens": 32000,
+              "output": 17
+            },
+            "claude-sonnet-5": {
+              "cache_create": 24271,
+              "cache_read": 70998,
+              "context_window": 1000000,
+              "cost_usd": 0.1374879,
+              "input": 8,
+              "max_output_tokens": 64000,
+              "output": 324
+            }
+          },
+          "cost_usd": 0.13813989999999998,
+          "duration_ms": 7100,
+          "fast_mode_state": "off",
+          "num_turns": 2,
+          "permission_denials": [],
+          "terminal_reason": "completed"
+        }
+      },
+      {
+        "kind": "completion",
+        "producer": "agent",
+        "payload": {
+          "api_error_status": null,
+          "duration_api_ms": 7747,
+          "duration_ms": 7100,
+          "fast_mode_disabled_reason": "sdk_opt_in_required",
+          "fast_mode_state": "off",
+          "is_error": false,
+          "modelUsage": {
+            "claude-haiku-4-5-20251001": {
+              "cacheCreationInputTokens": 0,
+              "cacheReadInputTokens": 0,
+              "canonicalModel": "claude-haiku-4-5",
+              "contextWindow": 200000,
+              "costUSD": 0.000652,
+              "inputTokens": 567,
+              "maxOutputTokens": 32000,
+              "outputTokens": 17,
+              "provider": "firstParty",
+              "webSearchRequests": 0
+            },
+            "claude-sonnet-5": {
+              "cacheCreationInputTokens": 24271,
+              "cacheReadInputTokens": 70998,
+              "canonicalModel": "claude-sonnet-5",
+              "contextWindow": 1000000,
+              "costUSD": 0.1374879,
+              "inputTokens": 8,
+              "maxOutputTokens": 64000,
+              "outputTokens": 324,
+              "provider": "firstParty",
+              "webSearchRequests": 0
+            }
+          },
+          "num_turns": 2,
+          "permission_denials": [],
+          "result": "The subagent reported the contents of note.txt as: **\"hello from the probe file\"**",
+          "session_id": "sess-subagent-probe",
+          "stop_reason": "end_turn",
+          "subtype": "success",
+          "terminal_reason": "completed",
+          "time_to_request_ms": 135,
+          "total_cost_usd": 0.13813989999999998,
+          "ttft_ms": 2176,
+          "ttft_stream_ms": 1057,
+          "type": "result",
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 9017,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 9017,
+            "cache_read_input_tokens": 56647,
+            "inference_geo": "not_available",
+            "input_tokens": 4,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 322,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 322,
+                "cache_read_input_tokens": 32671,
+                "input_tokens": 2,
+                "output_tokens": 29,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 231,
+            "server_tool_use": {
+              "web_fetch_requests": 0,
+              "web_search_requests": 0
+            },
+            "service_tier": "standard",
+            "speed": "standard"
+          },
+          "uuid": "ce9ce2e5-ab21-4c34-a1b4-9042a18455f0"
         }
       }
     ]

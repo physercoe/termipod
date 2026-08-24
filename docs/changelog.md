@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-08-17)
+> **Status:** Current (2026-08-24)
 > **Audience:** contributors, operators
-> **Last verified vs code:** 2026.817.322-alpha
+> **Last verified vs code:** 2026.824.751-alpha
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -39,15 +39,54 @@ binding). Seed entries prior to that are in
 
 ---
 
-## Unreleased
+## 2026.824.751-alpha — 2026-08-24
+
+**The breakglass terminal stops lying about why it failed.** A transient SSH
+drop used to surface as a secondary "SSH client not available" error, because
+the transport was reported healthy while two more round-trips were still
+outstanding — so Retry rebuilt nothing and recovery only arrived minutes
+later, if at all. The connected state is now raised after tmux detection and
+the persistent shell are actually up; every immediate reconnect trigger
+(Retry, lifecycle resume, network change, stale watchdog) funnels through one
+single-flight dial instead of racing to replace each other's client; and a
+reconnect can finish terminal setup that the first dial never got to start.
+
+**Mobile is the only lane cut here** — `mobile-v2026.824.751-alpha`. The
+window holds one PR (#578) and touches no hub, host-runner, or desktop code;
+`hub-v` and `host-v` stay at `2026.817.322-alpha`. `pubspec.yaml` and
+`buildinfo.go` still move together, as the shared mobile/hub/host CalVer
+requires.
 
 ### Fixed
 
-- **Mobile SSH/tmux recovery no longer stalls behind a secondary “SSH client
-  not available” error or silently loses its active pane.** Reconnect triggers
+- **Mobile SSH/tmux recovery no longer stalls behind a secondary "SSH client
+  not available" error or silently loses its active pane.** Reconnect triggers
   are single-flight, Retry can finish deferred terminal setup, connection
   preparation is deadline-bounded, and successful tmux tree responses are
   parsed using their exit status rather than user-controlled window titles.
+  (#578)
+- **The tmux action bar's buttons never worked, and could not have.** They
+  sent prefix chords (`C-b c`, `C-b x`) through `tmux send-keys`, but TermiPod
+  drives tmux through `exec` and is not an attached client — so tmux never saw
+  the prefix and the chord was typed into whatever ran inside the pane. The
+  buttons now dispatch to the same confirmation-aware window/pane/session
+  operations the navigation UI uses. The retired chords were swept out of the
+  description map and the cheat sheet too, and a test pins both directions so
+  the two cannot drift apart again. (#578)
+- **A tmux tree refresh could discard the live session tree.** Refresh merged
+  stderr into stdout and ignored exit status, so transient noise parsed as
+  "no sessions". Exit status is now authoritative, a malformed response
+  preserves the last good tree, and pane selection follows tmux's stable `%N`
+  pane ID rather than an index tmux is free to renumber. (#578)
+
+### Security
+
+- **A connection's configured tmux path was spliced unquoted into a shell
+  command.** `test -x ${tmuxPath}` ran the operator-supplied path through the
+  remote shell without quoting during connection setup; it is now shell-escaped.
+  The field is validated in the connection form, but validation is not
+  quoting. Same class as the `engine_session_id` splice fixed in
+  `2026.817.322-alpha`. (#578)
 
 ---
 

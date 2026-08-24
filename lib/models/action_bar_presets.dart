@@ -251,17 +251,13 @@ class ActionBarPresets {
   );
 
   // ---------------------------------------------------------------------------
-  // Tmux (prefix-chord action buttons)
+  // Tmux (native controller actions)
   //
-  // Buttons whose `value` contains a space are routed through
-  // [TmuxCommands.sendKeySequence] by [TmuxBackend.sendSpecialKey], which
-  // splits the string and passes each token as a separate positional
-  // argument to `tmux send-keys`. That lets a single button fire a
-  // full `C-b x` chord from inside an attached session — tmux sees the
-  // prefix followed by the action key and reacts exactly as if the
-  // user had typed both. Only works under the tmux backend; the raw
-  // PTY backend would send the literal string, so users on that
-  // backend should avoid this profile.
+  // TermiPod controls tmux with exec commands and is not itself an attached
+  // tmux client. Prefix chords passed to `tmux send-keys` therefore reach the
+  // application inside the pane. These private action tokens are intercepted
+  // by TmuxBackend and routed to the same confirmation-aware screen actions
+  // used by the session/window/pane UI.
   // ---------------------------------------------------------------------------
 
   static const tmux = ActionBarProfile(
@@ -270,29 +266,27 @@ class ActionBarPresets {
     isBuiltIn: true,
     groups: [
       ActionBarGroup(id: 'tx-windows', name: 'Windows', buttons: [
-        ActionBarButton(id: 'tx-win-new', label: 'New', type: ActionBarButtonType.specialKey, value: 'C-b c'),
-        ActionBarButton(id: 'tx-win-next', label: 'Next', type: ActionBarButtonType.specialKey, value: 'C-b n'),
-        ActionBarButton(id: 'tx-win-prev', label: 'Prev', type: ActionBarButtonType.specialKey, value: 'C-b p'),
-        ActionBarButton(id: 'tx-win-list', label: 'List', type: ActionBarButtonType.specialKey, value: 'C-b w'),
-        ActionBarButton(id: 'tx-win-rename', label: 'Rename', type: ActionBarButtonType.specialKey, value: 'C-b ,'),
-        ActionBarButton(id: 'tx-win-kill', label: 'Kill', type: ActionBarButtonType.specialKey, value: 'C-b &'),
+        ActionBarButton(id: 'tx-win-new', label: 'New', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:new-window'),
+        ActionBarButton(id: 'tx-win-next', label: 'Next', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:next-window'),
+        ActionBarButton(id: 'tx-win-prev', label: 'Prev', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:previous-window'),
+        ActionBarButton(id: 'tx-win-list', label: 'List', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:list-windows'),
+        ActionBarButton(id: 'tx-win-rename', label: 'Rename', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:rename-window'),
+        ActionBarButton(id: 'tx-win-kill', label: 'Kill', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:kill-window'),
       ]),
       ActionBarGroup(id: 'tx-panes', name: 'Panes', buttons: [
-        ActionBarButton(id: 'tx-pane-vsplit', label: 'VSplit', type: ActionBarButtonType.specialKey, value: 'C-b %'),
-        ActionBarButton(id: 'tx-pane-hsplit', label: 'HSplit', type: ActionBarButtonType.specialKey, value: 'C-b "'),
-        ActionBarButton(id: 'tx-pane-next', label: 'NextP', type: ActionBarButtonType.specialKey, value: 'C-b o'),
-        ActionBarButton(id: 'tx-pane-kill', label: 'KillP', type: ActionBarButtonType.specialKey, value: 'C-b x'),
-        ActionBarButton(id: 'tx-pane-zoom', label: 'Zoom', type: ActionBarButtonType.specialKey, value: 'C-b z'),
+        ActionBarButton(id: 'tx-pane-vsplit', label: 'VSplit', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:split-horizontal'),
+        ActionBarButton(id: 'tx-pane-hsplit', label: 'HSplit', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:split-vertical'),
+        ActionBarButton(id: 'tx-pane-next', label: 'NextP', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:next-pane'),
+        ActionBarButton(id: 'tx-pane-kill', label: 'KillP', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:kill-pane'),
+        ActionBarButton(id: 'tx-pane-zoom', label: 'Zoom', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:zoom-pane'),
       ]),
       ActionBarGroup(id: 'tx-session', name: 'Session', buttons: [
-        ActionBarButton(id: 'tx-sess-detach', label: 'Detach', type: ActionBarButtonType.specialKey, value: 'C-b d'),
-        ActionBarButton(id: 'tx-sess-list', label: 'SessLs', type: ActionBarButtonType.specialKey, value: 'C-b s'),
-        ActionBarButton(id: 'tx-sess-prompt', label: ':', type: ActionBarButtonType.specialKey, value: 'C-b :'),
-        ActionBarButton(id: 'tx-sess-help', label: '?', type: ActionBarButtonType.specialKey, value: 'C-b ?'),
+        ActionBarButton(id: 'tx-sess-new', label: 'NewSess', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:new-session'),
+        ActionBarButton(id: 'tx-sess-list', label: 'SessLs', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:list-sessions'),
+        ActionBarButton(id: 'tx-sess-rename', label: 'Rename', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:rename-session'),
       ]),
       ActionBarGroup(id: 'tx-copy', name: 'Copy', buttons: [
-        ActionBarButton(id: 'tx-copy-enter', label: 'Copy', type: ActionBarButtonType.specialKey, value: 'C-b ['),
-        ActionBarButton(id: 'tx-copy-paste', label: 'Paste', type: ActionBarButtonType.specialKey, value: 'C-b ]'),
+        ActionBarButton(id: 'tx-copy-enter', label: 'Copy', type: ActionBarButtonType.specialKey, value: 'termipod:tmux:copy-mode'),
       ]),
     ],
   );

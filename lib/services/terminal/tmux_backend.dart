@@ -19,6 +19,12 @@ typedef CopyModeCallback = void Function(bool isInCopyMode);
 /// Callback signature for adaptive polling interval recommendation.
 typedef PollingIntervalCallback = int Function();
 
+/// Handles TermiPod-native tmux action-bar commands. These are deliberately
+/// dispatched to the screen controller instead of being injected into the
+/// pane with `tmux send-keys`: an exec-based client is not an attached tmux
+/// client, so sending `C-b c` would type that chord into the application.
+typedef TmuxActionCallback = Future<void> Function(String action);
+
 /// TmuxBackend — polls capture-pane, sends keys via tmux send-keys.
 ///
 /// Extracted from terminal_screen.dart to implement [TerminalBackend].
@@ -28,6 +34,7 @@ class TmuxBackend implements TerminalBackend {
   final CursorUpdateCallback? onCursorUpdate;
   final CopyModeCallback? onCopyModeChange;
   final PollingIntervalCallback? getRecommendedInterval;
+  final TmuxActionCallback? onTmuxAction;
 
   /// Baseline scrollback window size set at construction — the value the
   /// user configured in settings. [resetScrollback] snaps back to this.
@@ -225,6 +232,7 @@ class TmuxBackend implements TerminalBackend {
     this.onCursorUpdate,
     this.onCopyModeChange,
     this.getRecommendedInterval,
+    this.onTmuxAction,
     int scrollbackLines = 100,
   })  : _sshClient = sshClient,
         _getCurrentTarget = getCurrentTarget,
@@ -610,15 +618,17 @@ class TmuxBackend implements TerminalBackend {
   @override
   Future<void> sendSpecialKey(String tmuxKey, {String? escapeSequence}) async {
     if (!_sshClient.isConnected) return;
+    if (tmuxKey.startsWith('termipod:tmux:')) {
+      await onTmuxAction?.call(tmuxKey);
+      return;
+    }
     final target = _getCurrentTarget();
     if (target == null) return;
 
     try {
-      // Whitespace-separated chords like "C-b c" (new window) must be
-      // sent as separate positional args to `tmux send-keys` so tmux
-      // reads them as a sequence, not as one literal key name. The
-      // default sendKeys path would escape the whole string into a
-      // single quoted arg, which tmux rejects as an unknown key.
+      // Multi-key sequences here are application input only. Tmux control
+      // actions use the native callback above; prefix chords sent through
+      // `send-keys` are received by the program running inside the pane.
       final cmd = tmuxKey.contains(RegExp(r'\s'))
           ? TmuxCommands.sendKeySequence(target, tmuxKey)
           : TmuxCommands.sendKeys(target, tmuxKey, literal: false);

@@ -598,9 +598,47 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     // Capture all provider reads up front. Re-reading after awaits
     // risks touching a ref whose notifier was disposed between checks.
-    final newClient =
-        ref.read(sshProvider(widget.connectionId).notifier).client;
-    final backend = _backend;
+    final sshNotifier =
+        ref.read(sshProvider(widget.connectionId).notifier);
+    final newClient = sshNotifier.client;
+    var backend = _backend;
+    var rebuiltBackend = false;
+
+    // An initial dial failure happens before a terminal backend exists. A
+    // later automatic or manual reconnect must finish the original setup,
+    // rather than merely reporting a healthy transport underneath the error
+    // overlay.
+    if (newClient != null && backend == null) {
+      final connection = ref
+          .read(connectionsProvider.notifier)
+          .getById(widget.connectionId);
+      if (connection == null) {
+        if (mounted) {
+          setState(() => _connectionError = 'Connection not found');
+        }
+        return;
+      }
+
+      setState(() => _isConnecting = true);
+      try {
+        if (widget.forceRawMode || connection.isRawMode) {
+          await _setupRawPtyBackend(sshNotifier);
+        } else {
+          await _setupTmuxBackend(connection, sshNotifier);
+        }
+        backend = _backend;
+        rebuiltBackend = true;
+      } catch (e) {
+        await _disposeBackend();
+        if (!mounted || _isDisposed) return;
+        setState(() {
+          _isConnecting = false;
+          _connectionError = e.toString();
+        });
+        _showErrorSnackBar(e.toString());
+        return;
+      }
+    }
     final supportsNav = backend?.supportsNavigation ?? false;
 
     // Rebind the backend to the newly-created SshClient. The backend
@@ -608,7 +646,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // polling (tmux) or holding a dead shell stream (raw PTY) against
     // a disposed socket — that's why latency can tick while the
     // terminal content stays frozen across a reconnect.
-    if (newClient != null && backend != null) {
+    if (newClient != null && backend != null && !rebuiltBackend) {
       try {
         await backend.rebindSshClient(newClient);
       } catch (e) {
@@ -631,10 +669,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // Guard on a live backend so we never hide the overlay over a terminal whose
     // backend genuinely failed to come up.
     final clearError = _connectionError != null && backend != null;
-    if (_isConnectionStale || clearError) {
+    if (_isConnectionStale || clearError || _isConnecting) {
       setState(() {
         _isConnectionStale = false;
         if (clearError) _connectionError = null;
+        _isConnecting = false;
       });
     }
 
@@ -761,6 +800,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _isConnecting = false;
       });
     } catch (e) {
+      await _disposeBackend();
       if (!mounted) return;
       setState(() {
         _isConnecting = false;
@@ -768,6 +808,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       });
       _showErrorSnackBar(e.toString());
     }
+  }
+
+  Future<void> _disposeBackend() async {
+    await _backendContentSub?.cancel();
+    _backendContentSub = null;
+    await _backendHeartbeatSub?.cancel();
+    _backendHeartbeatSub = null;
+    await _shellExitedSub?.cancel();
+    _shellExitedSub = null;
+    _backend?.dispose();
+    _backend = null;
   }
 
   /// Raw PTY backend setup — start shell, subscribe to content stream.
@@ -1074,6 +1125,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         final ansiTextViewState = _ansiTextViewKey.currentState;
         return ansiTextViewState?.recommendedPollingInterval ?? 100;
       },
+      onTmuxAction: _handleTmuxAction,
     );
 
     await _backend!.initialize(
@@ -1239,9 +1291,21 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     try {
       final cmd = TmuxCommands.listAllPanes();
-      final output = await sshClient.exec(cmd, timeout: timeout);
+      final result = await sshClient.execWithExitCode(cmd, timeout: timeout);
       if (!mounted || _isDisposed) return;
-      ref.read(tmuxProvider(widget.connectionId).notifier).parseAndUpdateFullTree(output);
+      final combined = '${result.stdout}${result.stderr}';
+      if (result.exitCode != 0) {
+        if (combined.toLowerCase().contains('no server running')) {
+          ref.read(tmuxProvider(widget.connectionId).notifier).updateSessions(const []);
+          return;
+        }
+        throw Exception(
+          combined.trim().isEmpty
+              ? 'tmux session refresh failed (exit ${result.exitCode})'
+              : combined.trim(),
+        );
+      }
+      ref.read(tmuxProvider(widget.connectionId).notifier).parseAndUpdateFullTree(result.stdout);
     } catch (_) {
       if (surfaceErrors) rethrow;
       // Tree update errors are silently ignored (retried on next poll)
@@ -1460,7 +1524,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       proxyPort: connection.proxyPort,
       proxyUsername: connection.proxyUsername,
       proxyPassword: connection.proxyPassword,
+      tmuxPath: connection.tmuxPath,
     );
+  }
+
+  Future<void> _retryConnection() async {
+    if (_isDisposed) return;
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
+    final sshState = ref.read(sshProvider(widget.connectionId));
+
+    if (sshNotifier.lastConnection == null) {
+      await _connectAndSetup();
+      return;
+    }
+
+    if (_backend == null && sshState.isConnected && sshNotifier.client != null) {
+      await _onReconnectSuccess();
+      return;
+    }
+    await sshNotifier.reconnectNow();
   }
 
   /// Show an error SnackBar with a Retry action.
@@ -1480,7 +1562,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         action: SnackBarAction(
           label: AppLocalizations.of(context)!.buttonRetry,
           textColor: Colors.white,
-          onPressed: _connectAndSetup,
+          onPressed: _retryConnection,
         ),
       ),
     );
@@ -2395,9 +2477,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 ElevatedButton(
-                  onPressed: () {
-                    ref.read(sshProvider(widget.connectionId).notifier).reconnectNow();
-                  },
+                  onPressed: _retryConnection,
                   child: Text(AppLocalizations.of(context)!.retryNow),
                 ),
                 if (_sshState.isReconnecting) ...[
@@ -4381,6 +4461,90 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (_) {}
   }
 
+  Future<void> _handleTmuxAction(String action) async {
+    if (!mounted || _isDisposed) return;
+    final tmuxState = ref.read(tmuxProvider(widget.connectionId));
+    final session = tmuxState.activeSession;
+    final window = tmuxState.activeWindow;
+    final pane = tmuxState.activePane;
+
+    switch (action) {
+      case 'termipod:tmux:new-window':
+        if (session != null) _showCreateWindowDialog(session);
+        return;
+      case 'termipod:tmux:next-window':
+      case 'termipod:tmux:previous-window':
+        if (session == null || window == null || session.windows.isEmpty) return;
+        final windows = [...session.windows]
+          ..sort((a, b) => a.index.compareTo(b.index));
+        final current = windows.indexWhere((candidate) => candidate.index == window.index);
+        if (current < 0) return;
+        final delta = action.endsWith('next-window') ? 1 : -1;
+        final next = (current + delta + windows.length) % windows.length;
+        await _selectWindow(session.name, windows[next].index);
+        return;
+      case 'termipod:tmux:list-windows':
+        _showWindowSelector(tmuxState);
+        return;
+      case 'termipod:tmux:rename-window':
+        if (session != null && window != null) {
+          await _renameTmuxWindow(session.name, window.index, window.name);
+        }
+        return;
+      case 'termipod:tmux:kill-window':
+        if (session != null && window != null) {
+          _confirmAndKillWindow(
+            sessionName: session.name,
+            windowIndex: window.index,
+            windowName: window.name,
+            isLastWindow: session.windows.length == 1,
+          );
+        }
+        return;
+      case 'termipod:tmux:split-horizontal':
+        if (pane != null) await _splitPane(pane.id, SplitDirection.horizontal);
+        return;
+      case 'termipod:tmux:split-vertical':
+        if (pane != null) await _splitPane(pane.id, SplitDirection.vertical);
+        return;
+      case 'termipod:tmux:next-pane':
+        if (window == null || pane == null || window.panes.isEmpty) return;
+        final panes = [...window.panes]..sort((a, b) => a.index.compareTo(b.index));
+        final current = panes.indexWhere((candidate) => candidate.id == pane.id);
+        if (current >= 0) await _selectPane(panes[(current + 1) % panes.length].id);
+        return;
+      case 'termipod:tmux:kill-pane':
+        if (session != null && window != null && pane != null) {
+          _confirmAndKillPane(
+            paneId: pane.id,
+            paneTitle: pane.title ?? pane.currentCommand ?? pane.id,
+            isLastPane: window.panes.length == 1,
+            isLastWindow: session.windows.length == 1,
+          );
+        }
+        return;
+      case 'termipod:tmux:zoom-pane':
+        if (pane == null) return;
+        final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
+        if (sshClient == null || !sshClient.isConnected) return;
+        await sshClient.exec(TmuxCommands.resizePane(pane.id));
+        _backend?.boostRefresh();
+        return;
+      case 'termipod:tmux:new-session':
+        _showCreateSessionDialog(tmuxState);
+        return;
+      case 'termipod:tmux:list-sessions':
+        _showSessionSelector(tmuxState);
+        return;
+      case 'termipod:tmux:rename-session':
+        if (session != null) await _renameTmuxSession(session.name);
+        return;
+      case 'termipod:tmux:copy-mode':
+        await _enterTmuxCopyMode();
+        return;
+    }
+  }
+
   /// Enter tmux copy-mode (tmux backend only; no-op on raw PTY).
   Future<void> _enterTmuxCopyMode() async {
     final backend = _backend;
@@ -4924,4 +5088,3 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 }
-

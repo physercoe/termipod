@@ -13,6 +13,12 @@ import '../services/network/network_monitor.dart';
 import '../services/ssh/ssh_client.dart';
 import 'connection_provider.dart';
 
+/// Factory kept behind a provider so reconnection ownership can be exercised
+/// without opening real sockets in unit tests.
+final sshClientFactoryProvider = Provider<SshClient Function()>((ref) {
+  return SshClient.new;
+});
+
 /// SSH connection state
 class SshState {
   final SshConnectionState connectionState;
@@ -78,8 +84,9 @@ class SshState {
 
 /// SSH connection manager — one instance per connectionId via .family provider.
 ///
-/// Each connection gets its own isolated SshNotifier. No generation counters
-/// or cross-connection race guards needed — isolation is structural.
+/// Each connection gets its own isolated SshNotifier. A per-instance
+/// generation guard still prevents lifecycle probes and user retries from
+/// racing to replace that connection's client.
 ///
 /// Lifetime model: the provider is `autoDispose`, but after a successful
 /// connect we grab a `KeepAliveLink` so the SSH socket survives across
@@ -122,17 +129,27 @@ class SshNotifier extends Notifier<SshState> {
 
   // Reconnect timer
   Timer? _reconnectTimer;
+  Completer<bool>? _reconnectTimerCompleter;
+
+  // At most one dial/authentication attempt may own [_client]. Mobile
+  // lifecycle probes, the stale watchdog, and the Retry button can all fire
+  // close together, so every immediate reconnect is routed through this
+  // shared future.
+  Future<bool>? _reconnectInFlight;
+  int _connectionGeneration = 0;
+  bool _manuallyDisconnected = false;
 
   // Disconnect callback (set externally by terminal screen)
   void Function()? onDisconnectDetected;
 
   // Reconnect success callback (set externally by terminal screen)
-  void Function()? onReconnectSuccess;
+  Future<void> Function()? onReconnectSuccess;
 
   @override
   SshState build() {
     // Monitor network state
-    _startNetworkMonitoring();
+    final networkMonitor = ref.read(networkMonitorProvider);
+    _startNetworkMonitoring(networkMonitor);
 
     // Register cleanup — auto-dispose handles calling this. Reached
     // only after [disconnect] (which closes [_keepAliveLink]) or app
@@ -144,13 +161,11 @@ class SshNotifier extends Notifier<SshState> {
       _networkStatusSubscription?.cancel();
       _client?.dispose();
       _foregroundService.stopService(connectionId: connectionId);
-      // Belt-and-braces — if we got here without going through
-      // [disconnect] (e.g. app shutdown), make sure the active-IDs
-      // set doesn't carry a stale entry that would leave the Hosts
-      // row showing a live dot for a dead connection.
-      ref.read(activeSshConnectionIdsProvider.notifier).remove(connectionId);
+      // Provider lifecycle callbacks may not mutate another provider in
+      // Riverpod 3. Manual disconnect removes the live-dot entry before
+      // releasing the keep-alive link; app teardown discards both providers.
     });
-    return const SshState();
+    return SshState(isNetworkAvailable: networkMonitor.isOnline);
   }
 
   /// Hold the provider alive across navigation and surface this
@@ -163,8 +178,7 @@ class SshNotifier extends Notifier<SshState> {
   }
 
   /// Start network state monitoring
-  void _startNetworkMonitoring() {
-    final monitor = ref.read(networkMonitorProvider);
+  void _startNetworkMonitoring(NetworkMonitor monitor) {
     _networkStatusSubscription = monitor.statusStream.listen(_onNetworkStatusChanged);
   }
 
@@ -177,13 +191,13 @@ class SshNotifier extends Notifier<SshState> {
     if (isOnline) {
       if (state.isPaused && state.isReconnecting) {
         state = state.copyWith(isPaused: false, reconnectAttempt: 0);
-        _reconnectTimer?.cancel();
-        _doReconnect();
+        _cancelReconnectTimer();
+        reconnectNow();
       }
     } else {
       if (state.isReconnecting) {
         state = state.copyWith(isPaused: true);
-        _reconnectTimer?.cancel();
+        _cancelReconnectTimer();
       }
     }
   }
@@ -219,7 +233,7 @@ class SshNotifier extends Notifier<SshState> {
     );
 
     try {
-      _client = SshClient();
+      _client = ref.read(sshClientFactoryProvider)();
 
       await _client!.connect(
         host: connection.host,
@@ -273,10 +287,12 @@ class SshNotifier extends Notifier<SshState> {
     _lastOptions = options;
 
     // Clean up any existing connection
-    _reconnectTimer?.cancel();
+    _manuallyDisconnected = false;
+    _cancelReconnectTimer();
+    final generation = ++_connectionGeneration;
     await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
-    _client?.dispose();
+    await _client?.dispose();
     _client = null;
 
     state = state.copyWith(
@@ -287,18 +303,23 @@ class SshNotifier extends Notifier<SshState> {
     );
 
     try {
-      _client = SshClient();
+      final client = ref.read(sshClientFactoryProvider)();
+      _client = client;
 
-      _connectionStateSubscription = _client!.connectionStateStream.listen(
+      _connectionStateSubscription = client.connectionStateStream.listen(
         _onConnectionStateChanged,
       );
 
-      await _client!.connect(
+      await client.connect(
         host: connection.host,
         port: connection.port,
         username: connection.username,
         options: options,
       );
+      if (generation != _connectionGeneration || _manuallyDisconnected) {
+        await client.dispose();
+        return;
+      }
 
       state = state.copyWith(
         connectionState: SshConnectionState.connected,
@@ -319,22 +340,37 @@ class SshNotifier extends Notifier<SshState> {
         connectionState: SshConnectionState.error,
         error: e.message,
       );
-      _client?.dispose();
+      await _connectionStateSubscription?.cancel();
+      _connectionStateSubscription = null;
+      await _client?.dispose();
       _client = null;
+      if (!_manuallyDisconnected && generation == _connectionGeneration) {
+        Future.microtask(reconnect);
+      }
+      rethrow;
     } on SshAuthenticationError catch (e) {
       state = state.copyWith(
         connectionState: SshConnectionState.error,
         error: e.message,
       );
-      _client?.dispose();
+      await _connectionStateSubscription?.cancel();
+      _connectionStateSubscription = null;
+      await _client?.dispose();
       _client = null;
+      rethrow;
     } catch (e) {
       state = state.copyWith(
         connectionState: SshConnectionState.error,
         error: e.toString(),
       );
-      _client?.dispose();
+      await _connectionStateSubscription?.cancel();
+      _connectionStateSubscription = null;
+      await _client?.dispose();
       _client = null;
+      if (!_manuallyDisconnected && generation == _connectionGeneration) {
+        Future.microtask(reconnect);
+      }
+      rethrow;
     }
   }
 
@@ -361,6 +397,11 @@ class SshNotifier extends Notifier<SshState> {
     if (_lastConnection == null || _lastOptions == null) {
       return false;
     }
+
+    final inFlight = _reconnectInFlight;
+    if (inFlight != null) return inFlight;
+    final scheduled = _reconnectTimerCompleter;
+    if (scheduled != null) return scheduled.future;
 
     if (!state.isNetworkAvailable) {
       state = state.copyWith(
@@ -393,9 +434,12 @@ class SshNotifier extends Notifier<SshState> {
     );
 
     final completer = Completer<bool>();
-    _reconnectTimer?.cancel();
+    _cancelReconnectTimer();
+    _reconnectTimerCompleter = completer;
     _reconnectTimer = Timer(Duration(milliseconds: delayMs), () async {
-      final result = await _doReconnect();
+      _reconnectTimer = null;
+      _reconnectTimerCompleter = null;
+      final result = await _startReconnectAttempt();
       if (!completer.isCompleted) {
         completer.complete(result);
       }
@@ -404,8 +448,21 @@ class SshNotifier extends Notifier<SshState> {
     return completer.future;
   }
 
+  Future<bool> _startReconnectAttempt() {
+    final existing = _reconnectInFlight;
+    if (existing != null) return existing;
+
+    late final Future<bool> attempt;
+    attempt = _doReconnect().whenComplete(() {
+      if (identical(_reconnectInFlight, attempt)) {
+        _reconnectInFlight = null;
+      }
+    });
+    _reconnectInFlight = attempt;
+    return attempt;
+  }
+
   /// Perform the actual reconnection.
-  /// No generation guards needed — each connection has its own isolated notifier.
   Future<bool> _doReconnect() async {
     if (_lastConnection == null || _lastOptions == null) {
       return false;
@@ -416,22 +473,37 @@ class SshNotifier extends Notifier<SshState> {
       return false;
     }
 
+    final generation = ++_connectionGeneration;
+    SshClient? candidate;
     try {
+      state = state.copyWith(
+        connectionState: SshConnectionState.connecting,
+        isReconnecting: true,
+        isPaused: false,
+        error: null,
+      );
+
       await _connectionStateSubscription?.cancel();
       _connectionStateSubscription = null;
 
-      _client?.dispose();
-      _client = SshClient();
+      await _client?.dispose();
+      _client = null;
+      candidate = ref.read(sshClientFactoryProvider)();
 
-      _connectionStateSubscription = _client!.connectionStateStream.listen(
-        _onConnectionStateChanged,
-      );
-
-      await _client!.connect(
+      await candidate.connect(
         host: _lastConnection!.host,
         port: _lastConnection!.port,
         username: _lastConnection!.username,
         options: _lastOptions!,
+      );
+      if (generation != _connectionGeneration || _manuallyDisconnected) {
+        await candidate.dispose();
+        return false;
+      }
+
+      _client = candidate;
+      _connectionStateSubscription = candidate.connectionStateStream.listen(
+        _onConnectionStateChanged,
       );
 
       state = state.copyWith(
@@ -443,17 +515,40 @@ class SshNotifier extends Notifier<SshState> {
         nextRetryAt: null,
       );
 
-      onReconnectSuccess?.call();
+      ref.read(connectionsProvider.notifier).updateLastConnected(_lastConnection!.id);
+      await _foregroundService.startService(
+        connectionId: connectionId,
+        connectionName: _lastConnection!.name,
+        host: _lastConnection!.host,
+      );
+      _markConnectionLive();
+
+      try {
+        await onReconnectSuccess?.call();
+      } catch (_) {
+        // The transport is healthy even if rebuilding the screen-local
+        // terminal backend fails. The screen surfaces that setup error and a
+        // later retry can rebuild it without discarding this socket.
+      }
 
       return true;
     } catch (e) {
+      if (identical(_client, candidate)) _client = null;
+      await candidate?.dispose();
+      if (generation != _connectionGeneration || _manuallyDisconnected) {
+        return false;
+      }
       state = state.copyWith(
         connectionState: SshConnectionState.error,
+        isReconnecting: true,
         error: 'Reconnect failed: $e',
       );
 
       if (_maxReconnectAttempts == 0 || state.reconnectAttempt < _maxReconnectAttempts) {
-        Future.microtask(() => reconnect());
+        // Run after [_startReconnectAttempt]'s whenComplete clears the
+        // single-flight future; a microtask can run too early and accidentally
+        // reuse the just-failed attempt instead of scheduling the next one.
+        Timer.run(reconnect);
       }
 
       return false;
@@ -462,12 +557,24 @@ class SshNotifier extends Notifier<SshState> {
 
   /// Reconnect immediately (user action)
   Future<bool> reconnectNow() async {
-    _reconnectTimer?.cancel();
+    _manuallyDisconnected = false;
+    _cancelReconnectTimer();
     state = state.copyWith(
       reconnectAttempt: 0,
+      isReconnecting: true,
       isPaused: false,
     );
-    return _doReconnect();
+    return _startReconnectAttempt();
+  }
+
+  void _cancelReconnectTimer() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    final completer = _reconnectTimerCompleter;
+    _reconnectTimerCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(false);
+    }
   }
 
   /// Check if connection is active
@@ -477,7 +584,7 @@ class SshNotifier extends Notifier<SshState> {
 
   /// Reset reconnection state
   void resetReconnect() {
-    _reconnectTimer?.cancel();
+    _cancelReconnectTimer();
     state = state.copyWith(
       isReconnecting: false,
       isPaused: false,
@@ -491,7 +598,9 @@ class SshNotifier extends Notifier<SshState> {
   /// auto-dispose once the last listener (typically TerminalScreen) is
   /// gone — which restores the original "no live socket" baseline.
   Future<void> disconnect() async {
-    _reconnectTimer?.cancel();
+    _manuallyDisconnected = true;
+    ++_connectionGeneration;
+    _cancelReconnectTimer();
     await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
 

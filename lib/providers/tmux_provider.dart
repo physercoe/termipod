@@ -94,27 +94,107 @@ class TmuxNotifier extends Notifier<TmuxState> {
 
   /// Update session list
   void updateSessions(List<TmuxSession> sessions) {
-    state = state.copyWith(sessions: sessions, error: null);
+    if (sessions.isEmpty || sessions.any((session) => session.windows.isNotEmpty)) {
+      _replaceSessions(sessions);
+      return;
+    }
+    _updateSessionList(sessions);
   }
 
   /// Parse and update sessions from tmux output
   void parseAndUpdateSessions(String output) {
     try {
       final sessions = TmuxParser.parseSessions(output);
-      state = state.copyWith(sessions: sessions, error: null);
+      // This parser returns a session list without windows or panes. Replacing
+      // the full tree with it would discard the active pane selection.
+      _updateSessionList(sessions);
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
   }
 
-  /// Parse and update full tree from tmux output
-  void parseAndUpdateFullTree(String output) {
+  /// Parse and update a full tree from tmux output. [serverConfirmed] must
+  /// reflect the exit status of the command that produced [output].
+  void parseAndUpdateFullTree(
+    String output, {
+    required bool serverConfirmed,
+  }) {
     try {
-      final sessions = TmuxParser.parseFullTree(output);
-      state = state.copyWith(sessions: sessions, error: null);
+      final sessions = TmuxParser.parseFullTree(
+        output,
+        serverConfirmed: serverConfirmed,
+      );
+      if (sessions.isEmpty &&
+          (serverConfirmed ||
+              (output.trim().isNotEmpty &&
+                  TmuxParser.isServerRunning(output)))) {
+        throw const FormatException('Malformed tmux session tree output');
+      }
+      _replaceSessions(sessions);
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
+  }
+
+  void _updateSessionList(List<TmuxSession> sessions) {
+    state = state.copyWith(sessions: sessions, error: null);
+  }
+
+  /// Replace the tree while keeping the selected pane anchored by tmux's
+  /// stable `%N` pane ID. Window and pane indexes can be renumbered after an
+  /// external tmux change, so preserving only numeric indexes can silently
+  /// redirect input to a different pane.
+  void _replaceSessions(List<TmuxSession> sessions) {
+    if (sessions.isEmpty) {
+      state = TmuxState(sessions: sessions, isLoading: state.isLoading);
+      return;
+    }
+
+    final previousPaneId = state.activePaneId;
+    if (previousPaneId != null) {
+      for (final session in sessions) {
+        for (final window in session.windows) {
+          final pane = window.panes
+              .where((candidate) => candidate.id == previousPaneId)
+              .firstOrNull;
+          if (pane != null) {
+            state = TmuxState(
+              sessions: sessions,
+              activeSessionName: session.name,
+              activeWindowIndex: window.index,
+              activePaneIndex: pane.index,
+              activePaneId: pane.id,
+              isLoading: state.isLoading,
+            );
+            return;
+          }
+        }
+      }
+    }
+
+    final session = sessions
+            .where((candidate) => candidate.name == state.activeSessionName)
+            .firstOrNull ??
+        sessions.first;
+    final window = session.windows
+            .where((candidate) => candidate.index == state.activeWindowIndex)
+            .firstOrNull ??
+        session.windows.where((candidate) => candidate.active).firstOrNull ??
+        session.windows.firstOrNull;
+    final pane = window?.panes
+            .where((candidate) => candidate.index == state.activePaneIndex)
+            .firstOrNull ??
+        window?.panes.where((candidate) => candidate.active).firstOrNull ??
+        window?.panes.firstOrNull;
+
+    state = TmuxState(
+      sessions: sessions,
+      activeSessionName: session.name,
+      activeWindowIndex: window?.index,
+      activePaneIndex: pane?.index,
+      activePaneId: pane?.id,
+      isLoading: state.isLoading,
+    );
   }
 
   /// Set active session
@@ -204,8 +284,11 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// Get the current tmux target string (session:window.pane)
+  /// Get the current tmux target. Prefer the stable pane ID because numeric
+  /// indexes may be renumbered by changes made from another tmux client.
   String? get currentTarget {
+    final paneId = state.activePaneId;
+    if (paneId != null) return paneId;
     final session = state.activeSessionName;
     final window = state.activeWindowIndex;
     final pane = state.activePaneIndex;

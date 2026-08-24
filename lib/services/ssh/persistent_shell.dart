@@ -47,18 +47,19 @@ class PersistentShell {
   PersistentShell(this._sshClient);
 
   /// シェルセッションを開始
-  Future<void> start() async {
+  Future<void> start({Duration? timeout}) async {
     if (_session != null) {
       return; // すでに開始済み
     }
 
-    _session = await _sshClient.shell(
+    final shell = _sshClient.shell(
       pty: SSHPtyConfig(
         type: 'dumb', // 最小限のPTY（エスケープシーケンスを抑制）
         width: 200,
         height: 50,
       ),
     );
+    _session = await (timeout == null ? shell : shell.timeout(timeout));
 
     _isClosed = false;
 

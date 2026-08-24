@@ -236,6 +236,8 @@ class SshClient {
 
     _state = SshConnectionState.connecting;
     _lastError = null;
+    _tmuxPath = null;
+    final deadline = DateTime.now().add(Duration(seconds: options.timeout));
 
     try {
       // Step 1: Create the initial socket (optionally through SOCKS5 proxy)
@@ -281,10 +283,12 @@ class SshClient {
         } else {
           throw SshAuthenticationError('No authentication method for jump host');
         }
-        await _jumpClient!.authenticated;
+        await _jumpClient!.authenticated.timeout(_remaining(deadline));
 
         // Forward through jump host to the actual target
-        _socket = await _jumpClient!.forwardLocal(host, port);
+        _socket = await _jumpClient!
+            .forwardLocal(host, port)
+            .timeout(_remaining(deadline));
       } else {
         _socket = initialSocket;
       }
@@ -311,34 +315,43 @@ class SshClient {
       }
 
       // 認証完了を待機
-      await _client!.authenticated;
-
-      _state = SshConnectionState.connected;
-      _connectionStateController.add(_state);
+      await _client!.authenticated.timeout(_remaining(deadline));
 
       // tmuxパス検出（ユーザー指定があればそれを使用、なければ自動検出）
       if (options.tmuxPath != null && options.tmuxPath!.isNotEmpty) {
         // ユーザー指定パスの存在確認
         final verifyExitCode = await _withExecLock(() async {
-          final session = await _client!.execute('test -x ${options.tmuxPath}');
-          await session.stdout.drain();
-          await session.stderr.drain();
-          final code = session.exitCode;
-          session.close();
-          return code;
-        });
+          final session = await _client!
+              .execute('test -x ${_shellEscape(options.tmuxPath!)}');
+          try {
+            await Future.wait([
+              session.stdout.drain<void>(),
+              session.stderr.drain<void>(),
+            ]);
+            return session.exitCode;
+          } finally {
+            session.close();
+          }
+        }).timeout(_remaining(deadline));
         if (verifyExitCode == 0) {
           _tmuxPath = options.tmuxPath;
           debugPrint('connect: user-specified tmux path verified: $_tmuxPath');
         } else {
-          debugPrint('connect: user-specified tmux path not found: ${options.tmuxPath}');
+          debugPrint(
+            'connect: configured tmux path unavailable; falling back to detection: '
+            '${options.tmuxPath}',
+          );
+          await _detectTmuxPath(deadline: deadline);
         }
       } else {
-        await _detectTmuxPath();
+        await _detectTmuxPath(deadline: deadline);
       }
 
       // 持続的シェルを開始（ポーリング用）
-      await _startPersistentShell();
+      await _startPersistentShell(timeout: _remaining(deadline));
+
+      _state = SshConnectionState.connected;
+      _connectionStateController.add(_state);
 
       // Keep-aliveを開始
       _startKeepAlive();
@@ -347,6 +360,11 @@ class SshClient {
       _lastError = 'Connection failed: ${e.message}';
       await _cleanup();
       throw SshConnectionError(_lastError!, e);
+    } on SshAuthenticationError catch (e) {
+      _state = SshConnectionState.error;
+      _lastError = e.message;
+      await _cleanup();
+      rethrow;
     } on SSHAuthFailError catch (e) {
       _state = SshConnectionState.error;
       _lastError = 'Authentication failed: ${e.message}';
@@ -358,6 +376,18 @@ class SshClient {
       await _cleanup();
       throw SshConnectionError(_lastError!, e);
     }
+  }
+
+  Duration _remaining(DateTime deadline) {
+    final remaining = deadline.difference(DateTime.now());
+    if (remaining <= Duration.zero) {
+      throw TimeoutException('SSH connection timed out');
+    }
+    return remaining;
+  }
+
+  String _shellEscape(String value) {
+    return "'${value.replaceAll("'", "'\\''")}'";
   }
 
   /// 接続パラメータをバリデート
@@ -451,12 +481,12 @@ class SshClient {
   }
 
   /// 持続的シェルを開始
-  Future<void> _startPersistentShell() async {
+  Future<void> _startPersistentShell({Duration? timeout}) async {
     if (_client == null) return;
 
     try {
       _persistentShell = PersistentShell(_client!);
-      await _persistentShell!.start();
+      await _persistentShell!.start(timeout: timeout);
     } catch (e) {
       // 持続的シェルの開始に失敗しても接続自体は継続
       // 従来のexec()メソッドにフォールバック
@@ -496,8 +526,8 @@ class SshClient {
   ///
   /// Step 1: ログインシェル経由で `command -v tmux` を実行
   /// Step 2: 失敗時、既知の候補パスで `test -x` フォールバック
-  Future<void> _detectTmuxPath() async {
-    if (_client == null || !isConnected) return;
+  Future<void> _detectTmuxPath({required DateTime deadline}) async {
+    if (_client == null) return;
 
     // Step 1: ログインシェル経由で検出
     try {
@@ -505,12 +535,17 @@ class SshClient {
         final session = await _client!.execute(
           r"$SHELL -lc 'command -v tmux'",
         );
-        final stdoutBytes = <int>[];
-        await session.stdout.forEach((data) => stdoutBytes.addAll(data));
-        await session.stderr.drain();
-        session.close();
-        return utf8.decode(stdoutBytes, allowMalformed: true).trim();
-      });
+        try {
+          final stdoutBytes = <int>[];
+          await Future.wait([
+            session.stdout.forEach((data) => stdoutBytes.addAll(data)),
+            session.stderr.drain<void>(),
+          ]);
+          return utf8.decode(stdoutBytes, allowMalformed: true).trim();
+        } finally {
+          session.close();
+        }
+      }).timeout(_remaining(deadline));
       if (path.isNotEmpty && path.startsWith('/')) {
         _tmuxPath = path;
         debugPrint('_detectTmuxPath: found via login shell: $path');
@@ -518,6 +553,7 @@ class SshClient {
       }
     } catch (e) {
       debugPrint('_detectTmuxPath: login shell detection failed: $e');
+      if (DateTime.now().isAfter(deadline)) return;
     }
 
     // Step 2: 既知パスのフォールバック
@@ -531,12 +567,16 @@ class SshClient {
       try {
         final exitCode = await _withExecLock(() async {
           final session = await _client!.execute('test -x $candidate');
-          await session.stdout.drain();
-          await session.stderr.drain();
-          final code = session.exitCode;
-          session.close();
-          return code;
-        });
+          try {
+            await Future.wait([
+              session.stdout.drain<void>(),
+              session.stderr.drain<void>(),
+            ]);
+            return session.exitCode;
+          } finally {
+            session.close();
+          }
+        }).timeout(_remaining(deadline));
         if (exitCode == 0) {
           _tmuxPath = candidate;
           debugPrint('_detectTmuxPath: found via fallback: $candidate');
@@ -544,6 +584,7 @@ class SshClient {
         }
       } catch (e) {
         debugPrint('_detectTmuxPath: error checking $candidate: $e');
+        if (DateTime.now().isAfter(deadline)) return;
       }
     }
     debugPrint('_detectTmuxPath: tmux not found');

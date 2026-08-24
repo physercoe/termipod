@@ -1305,7 +1305,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               : combined.trim(),
         );
       }
-      ref.read(tmuxProvider(widget.connectionId).notifier).parseAndUpdateFullTree(result.stdout);
+      ref
+          .read(tmuxProvider(widget.connectionId).notifier)
+          .parseAndUpdateFullTree(
+            result.stdout,
+            serverConfirmed: true,
+          );
     } catch (_) {
       if (surfaceErrors) rethrow;
       // Tree update errors are silently ignored (retried on next poll)

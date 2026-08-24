@@ -261,6 +261,12 @@ cycle's 32 commits landed.
 
 ### Fixed
 
+- **Mobile SSH/tmux recovery no longer stalls behind a secondary “SSH client
+  not available” error or silently loses its active pane.** Reconnect triggers
+  are single-flight, Retry can finish deferred terminal setup, connection
+  preparation is deadline-bounded, and successful tmux tree responses are
+  parsed using their exit status rather than user-controlled window titles.
+
 - **Sending an image to a codex agent never reached the model, and sending a
   PDF silently lost the whole message.** The app-server driver lowered
   attachments to OpenAI *responses-API* content types — `input_image` and

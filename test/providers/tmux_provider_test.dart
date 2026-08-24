@@ -66,11 +66,74 @@ void main() {
       final original = tree(windowIndex: 0, paneIndex: 0, paneId: '%1');
       notifier.updateSessions([original]);
 
-      notifier.parseAndUpdateFullTree('unexpected command output');
+      notifier.parseAndUpdateFullTree(
+        'unexpected command output',
+        serverConfirmed: true,
+      );
 
       final state = container.read(provider);
       expect(state.sessions, [original]);
       expect(state.error, contains('Malformed tmux session tree output'));
+    });
+
+    test('parses confirmed tree when a window name resembles an error', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final provider = tmuxProvider('connection-error-like-name');
+      final subscription = container.listen(provider, (previous, next) {});
+      addTearDown(subscription.close);
+      final notifier = container.read(provider.notifier);
+      final output = [
+        'work',
+        r'$0',
+        '0',
+        '@0',
+        'Permission denied',
+        '1',
+        '0',
+        '%1',
+        '1',
+        '80',
+        '24',
+        '0',
+        '0',
+        'shell',
+        'bash',
+        '0',
+        '0',
+        '*',
+      ].join(TmuxParser.defaultDelimiter);
+
+      notifier.parseAndUpdateFullTree(output, serverConfirmed: true);
+
+      final state = container.read(provider);
+      expect(state.error, isNull);
+      expect(state.sessions, hasLength(1));
+      expect(state.sessions.single.windows.single.name, 'Permission denied');
+      expect(state.activePaneId, '%1');
+      expect(notifier.currentTarget, '%1');
+    });
+
+    test('list-only session updates preserve the active pane target', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final provider = tmuxProvider('connection-session-list');
+      final subscription = container.listen(provider, (previous, next) {});
+      addTearDown(subscription.close);
+      final notifier = container.read(provider.notifier);
+      notifier.updateSessions([
+        tree(windowIndex: 0, paneIndex: 0, paneId: '%1'),
+      ]);
+
+      notifier.parseAndUpdateSessions(
+        ['work', '0', '1', '1', r'$0'].join(TmuxParser.defaultDelimiter),
+      );
+
+      final state = container.read(provider);
+      expect(state.sessions.single.name, 'work');
+      expect(state.sessions.single.windows, isEmpty);
+      expect(state.activePaneId, '%1');
+      expect(notifier.currentTarget, '%1');
     });
 
     test('confirmed empty tree clears stale selection', () {

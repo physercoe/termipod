@@ -246,9 +246,17 @@ class TmuxParser {
   /// セッションツリー全体をパース
   ///
   /// `tmux list-panes -a -F "..."`の出力から完全なツリーを構築
-  static List<TmuxSession> parseFullTree(String output, {String delimiter = defaultDelimiter}) {
+  static List<TmuxSession> parseFullTree(
+    String output, {
+    String delimiter = defaultDelimiter,
+    bool serverConfirmed = false,
+  }) {
     debugPrint('parseFullTree: raw output="${output.trim()}"');
-    if (!isServerRunning(output)) {
+    // A successful `tmux list-panes` exit status is authoritative. Structured
+    // fields below include user-controlled window names and pane titles, so
+    // scanning confirmed output for phrases such as "permission denied" can
+    // mistake valid tmux data for a transport error.
+    if (!serverConfirmed && !isServerRunning(output)) {
       debugPrint('parseFullTree: isServerRunning=false, returning empty');
       return [];
     }

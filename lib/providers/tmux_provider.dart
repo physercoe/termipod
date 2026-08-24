@@ -94,32 +94,50 @@ class TmuxNotifier extends Notifier<TmuxState> {
 
   /// Update session list
   void updateSessions(List<TmuxSession> sessions) {
-    _replaceSessions(sessions);
+    if (sessions.isEmpty || sessions.any((session) => session.windows.isNotEmpty)) {
+      _replaceSessions(sessions);
+      return;
+    }
+    _updateSessionList(sessions);
   }
 
   /// Parse and update sessions from tmux output
   void parseAndUpdateSessions(String output) {
     try {
       final sessions = TmuxParser.parseSessions(output);
-      _replaceSessions(sessions);
+      // This parser returns a session list without windows or panes. Replacing
+      // the full tree with it would discard the active pane selection.
+      _updateSessionList(sessions);
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
   }
 
-  /// Parse and update full tree from tmux output
-  void parseAndUpdateFullTree(String output) {
+  /// Parse and update a full tree from tmux output. [serverConfirmed] must
+  /// reflect the exit status of the command that produced [output].
+  void parseAndUpdateFullTree(
+    String output, {
+    required bool serverConfirmed,
+  }) {
     try {
-      final sessions = TmuxParser.parseFullTree(output);
-      if (output.trim().isNotEmpty &&
-          TmuxParser.isServerRunning(output) &&
-          sessions.isEmpty) {
+      final sessions = TmuxParser.parseFullTree(
+        output,
+        serverConfirmed: serverConfirmed,
+      );
+      if (sessions.isEmpty &&
+          (serverConfirmed ||
+              (output.trim().isNotEmpty &&
+                  TmuxParser.isServerRunning(output)))) {
         throw const FormatException('Malformed tmux session tree output');
       }
       _replaceSessions(sessions);
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
+  }
+
+  void _updateSessionList(List<TmuxSession> sessions) {
+    state = state.copyWith(sessions: sessions, error: null);
   }
 
   /// Replace the tree while keeping the selected pane anchored by tmux's

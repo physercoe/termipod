@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:termipod/models/action_bar_config.dart';
 import 'package:termipod/models/action_bar_presets.dart';
 import 'package:termipod/services/ssh/ssh_client.dart';
 import 'package:termipod/services/terminal/tmux_backend.dart';
@@ -33,6 +34,14 @@ void main() {
 
     expect(values, isNotEmpty);
     expect(values, everyElement(startsWith('termipod:tmux:')));
-    expect(values, isNot(contains(startsWith('C-b '))));
+    expect(values, everyElement(isNot(startsWith('C-b '))));
+    expect(
+      values.map(ActionBarButton.defaultDescriptions.containsKey),
+      everyElement(isTrue),
+    );
+    expect(
+      ActionBarButton.defaultDescriptions.keys,
+      everyElement(isNot(startsWith('C-b '))),
+    );
   });
 }

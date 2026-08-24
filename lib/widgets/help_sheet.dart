@@ -31,44 +31,30 @@ String _describeButton(ActionBarButton button) {
 /// Tmux cheat sheet categories
 const _tmuxCheatSheet = <String, List<_TmuxEntry>>{
   'Windows': [
-    _TmuxEntry('C-b c', 'New window'),
-    _TmuxEntry('C-b n', 'Next window'),
-    _TmuxEntry('C-b p', 'Previous window'),
-    _TmuxEntry('C-b 0-9', 'Select window by number'),
-    _TmuxEntry('C-b w', 'List windows'),
-    _TmuxEntry('C-b ,', 'Rename window'),
-    _TmuxEntry('C-b &', 'Kill window'),
+    _TmuxEntry('New', 'Create a window'),
+    _TmuxEntry('Next', 'Select the next window'),
+    _TmuxEntry('Prev', 'Select the previous window'),
+    _TmuxEntry('List', 'Choose a window'),
+    _TmuxEntry('Rename', 'Rename the current window'),
+    _TmuxEntry('Kill', 'Kill the current window'),
   ],
   'Panes': [
-    _TmuxEntry('C-b %', 'Split vertical'),
-    _TmuxEntry('C-b "', 'Split horizontal'),
-    _TmuxEntry('C-b o', 'Next pane'),
-    _TmuxEntry('C-b ;', 'Last active pane'),
-    _TmuxEntry('C-b arrows', 'Navigate panes'),
-    _TmuxEntry('C-b x', 'Kill pane'),
-    _TmuxEntry('C-b z', 'Toggle zoom'),
-    _TmuxEntry('C-b {', 'Move pane left'),
-    _TmuxEntry('C-b }', 'Move pane right'),
+    _TmuxEntry('VSplit', 'Split the pane left/right'),
+    _TmuxEntry('HSplit', 'Split the pane top/bottom'),
+    _TmuxEntry('NextP', 'Select the next pane'),
+    _TmuxEntry('KillP', 'Kill the current pane'),
+    _TmuxEntry('Zoom', 'Toggle pane zoom'),
   ],
-  'Sessions': [
-    _TmuxEntry('C-b d', 'Detach'),
-    _TmuxEntry('C-b s', 'List sessions'),
-    _TmuxEntry('C-b \$', 'Rename session'),
-    _TmuxEntry('C-b (', 'Previous session'),
-    _TmuxEntry('C-b )', 'Next session'),
+  'Session': [
+    _TmuxEntry('NewSess', 'Create a session'),
+    _TmuxEntry('SessLs', 'Choose a session'),
+    _TmuxEntry('Rename', 'Rename the current session'),
   ],
-  'Copy Mode': [
-    _TmuxEntry('C-b [', 'Enter copy mode'),
+  'Copy': [
+    _TmuxEntry('Copy', 'Enter copy mode'),
     _TmuxEntry('q', 'Exit copy mode'),
     _TmuxEntry('Space', 'Start selection'),
     _TmuxEntry('Enter', 'Copy selection'),
-    _TmuxEntry('C-b ]', 'Paste buffer'),
-  ],
-  'Misc': [
-    _TmuxEntry('C-b :', 'Command prompt'),
-    _TmuxEntry('C-b t', 'Show clock'),
-    _TmuxEntry('C-b ?', 'List key bindings'),
-    _TmuxEntry('C-b i', 'Display info'),
   ],
 };
 

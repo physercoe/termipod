@@ -1295,7 +1295,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (!mounted || _isDisposed) return;
       final combined = '${result.stdout}${result.stderr}';
       if (result.exitCode != 0) {
-        if (combined.toLowerCase().contains('no server running')) {
+        if (!TmuxParser.isServerRunning(combined)) {
           ref.read(tmuxProvider(widget.connectionId).notifier).updateSessions(const []);
           return;
         }

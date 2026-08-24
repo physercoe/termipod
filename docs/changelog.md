@@ -39,6 +39,18 @@ binding). Seed entries prior to that are in
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Mobile SSH/tmux recovery no longer stalls behind a secondary “SSH client
+  not available” error or silently loses its active pane.** Reconnect triggers
+  are single-flight, Retry can finish deferred terminal setup, connection
+  preparation is deadline-bounded, and successful tmux tree responses are
+  parsed using their exit status rather than user-controlled window titles.
+
+---
+
 ## 2026.817.322-alpha — 2026-08-17
 
 **The fleet learns to read a pane, and the hub stops mis-attributing what an
@@ -260,12 +272,6 @@ cycle's 32 commits landed.
   Plan: pane-state-manifests P3.
 
 ### Fixed
-
-- **Mobile SSH/tmux recovery no longer stalls behind a secondary “SSH client
-  not available” error or silently loses its active pane.** Reconnect triggers
-  are single-flight, Retry can finish deferred terminal setup, connection
-  preparation is deadline-bounded, and successful tmux tree responses are
-  parsed using their exit status rather than user-controlled window titles.
 
 - **Sending an image to a codex agent never reached the model, and sending a
   PDF silently lost the whole message.** The app-server driver lowered

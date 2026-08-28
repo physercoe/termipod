@@ -1118,6 +1118,9 @@ button.hero-row:hover {
   min-width: 0;
   min-height: 0;
   padding: var(--spacing-s16);
+  /* The Terminal surface can be split or docked while the app window stays
+     wide, so viewport media queries cannot describe this panel's real width. */
+  container-type: inline-size;
 }
 .web-service-intro {
   display: flex;
@@ -1142,7 +1145,7 @@ button.hero-row:hover {
 }
 .web-service-form {
   display: grid;
-  grid-template-columns: 110px minmax(150px, 1fr) 120px minmax(120px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   align-items: end;
   gap: var(--spacing-s8);
   padding: var(--spacing-s12);
@@ -1160,7 +1163,12 @@ button.hero-row:hover {
 }
 .web-service-form input,
 .web-service-form select { width: 100%; min-width: 0; }
-.web-service-start { white-space: nowrap; }
+.web-service-start {
+  grid-column: 1 / -1;
+  justify-self: end;
+  max-width: 100%;
+  white-space: nowrap;
+}
 .web-service-error { margin-top: var(--spacing-s8); }
 .web-service-active { margin-top: var(--spacing-s16); }
 .web-service-section-head {
@@ -1194,15 +1202,11 @@ button.hero-row:hover {
 }
 .web-service-actions { display: flex; gap: var(--spacing-s8); flex: none; }
 
-@media (max-width: 900px) {
+@container (max-width: 600px) {
   .web-service-intro,
   .web-service-row { align-items: stretch; flex-direction: column; }
   .web-service-host { align-items: flex-start; }
   .web-service-host .mono { max-width: 100%; }
-  .web-service-form { grid-template-columns: 1fr 1fr; }
-  .web-service-remote-host,
-  .web-service-path { grid-column: span 2; }
-  .web-service-start { grid-column: span 2; justify-self: start; }
   .web-service-route { flex-wrap: wrap; }
 }
 

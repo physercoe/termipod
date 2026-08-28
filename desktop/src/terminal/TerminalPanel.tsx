@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useT } from '../i18n';
 import { Icon } from '../ui/Icon';
 import { isShell } from '../platform';
@@ -106,11 +107,21 @@ export function TerminalPanel(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const cfgRef = useRef<HTMLInputElement>(null);
   // Dock size persists across launches (#319) like the nav width + dock side do.
-  const [height, setHeight] = useState(() => loadDockSize('termipod.term.dockH', 340)); // bottom-dock height
-  const [width, setWidth] = useState(() => loadDockSize('termipod.term.dockW', 480)); // right-dock width
+  // Keep the live value in a ref: resizing by mutating the one wrapper avoids
+  // re-rendering every terminal/session card on every pointer event.
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const sizeRef = useRef({
+    h: loadDockSize('termipod.term.dockH', 340),
+    w: loadDockSize('termipod.term.dockW', 480),
+  });
   // Drag state for the dock resize edge — `axis` follows the dock side (top edge
-  // for the bottom dock, left edge for the right dock).
+  // for the bottom dock, left edge for the right dock). The rendered axis also
+  // mounts a window-wide hit shield so an Electron <webview> guest cannot steal
+  // the gesture when the cursor crosses onto the tunneled page.
   const dragRef = useRef<{ axis: 'y' | 'x'; start: number; startSize: number } | null>(null);
+  const dragPointRef = useRef<{ x: number; y: number } | null>(null);
+  const dragFrameRef = useRef(0);
+  const [dragAxis, setDragAxis] = useState<'x' | 'y' | null>(null);
 
   // Surface-mode split layout (local — the panel never unmounts, so it persists
   // across job switches like the sessions do). `panes` is the set of session ids
@@ -542,47 +553,72 @@ export function TerminalPanel(): JSX.Element {
     closeTab(id);
   }
 
-  // Drag the dock's inner edge to resize it (dock mode only; clamped). The bottom
-  // dock resizes its height from the top edge; the right dock its width from the
-  // left edge.
+  // Drag the dock's inner edge to resize it (dock mode only; clamped). Direct
+  // wrapper style writes are coalesced to one per animation frame; committing
+  // through React on every raw mousemove made xterm re-render its full subtree
+  // faster than the browser could paint. The fixed shield rendered below keeps
+  // events in the shell even while the pointer is over an Electron <webview>.
   useEffect(() => {
-    function onMove(e: MouseEvent): void {
+    function applyMove(): void {
       const d = dragRef.current;
-      if (d === null) return;
+      const point = dragPointRef.current;
+      const el = wrapRef.current;
+      if (d === null || point === null || el === null) return;
       if (d.axis === 'y') {
-        const next = d.startSize + (d.start - e.clientY);
-        setHeight(Math.max(140, Math.min(next, window.innerHeight - 160)));
+        const next = Math.max(140, Math.min(d.startSize + (d.start - point.y), window.innerHeight - 160));
+        sizeRef.current.h = next;
+        el.style.height = `${next}px`;
       } else {
-        const next = d.startSize + (d.start - e.clientX);
-        setWidth(Math.max(260, Math.min(next, window.innerWidth - 200)));
+        const next = Math.max(260, Math.min(d.startSize + (d.start - point.x), window.innerWidth - 200));
+        sizeRef.current.w = next;
+        el.style.width = `${next}px`;
       }
     }
-    function onUp(): void {
-      dragRef.current = null;
+    function onMove(e: PointerEvent): void {
+      if (dragRef.current === null) return;
+      dragPointRef.current = { x: e.clientX, y: e.clientY };
+      if (dragFrameRef.current !== 0) return;
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = 0;
+        applyMove();
+      });
     }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    function finish(): void {
+      if (dragRef.current === null) return;
+      if (dragFrameRef.current !== 0) {
+        cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = 0;
+        applyMove();
+      }
+      dragRef.current = null;
+      dragPointRef.current = null;
+      saveDockSize('termipod.term.dockH', sizeRef.current.h);
+      saveDockSize('termipod.term.dockW', sizeRef.current.w);
+      setDragAxis(null);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+    window.addEventListener('blur', finish);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      window.removeEventListener('blur', finish);
+      if (dragFrameRef.current !== 0) cancelAnimationFrame(dragFrameRef.current);
     };
   }, []);
-
-  // Persist the dock size (debounced — the drag updates it on every mousemove).
-  useEffect(() => {
-    const id = setTimeout(() => saveDockSize('termipod.term.dockH', height), 250);
-    return () => clearTimeout(id);
-  }, [height]);
-  useEffect(() => {
-    const id = setTimeout(() => saveDockSize('termipod.term.dockW', width), 250);
-    return () => clearTimeout(id);
-  }, [width]);
 
   const visible = mode === 'surface' || open;
   const panelClass = `term-panel ${mode}${mode === 'dock' ? ` ${dockSide}` : ''}${
     mode === 'surface' && navFold ? ' nav-folded' : ''
   }${visible ? '' : ' hidden'}`;
-  const style = mode === 'dock' ? (dockSide === 'right' ? { width } : { height }) : undefined;
+  const style =
+    mode === 'dock'
+      ? dockSide === 'right'
+        ? { width: sizeRef.current.w }
+        : { height: sizeRef.current.h }
+      : undefined;
   const navStyle = mode === 'surface' && !navFold ? { width: navW } : undefined;
 
   const addMenuEl = (
@@ -646,7 +682,7 @@ export function TerminalPanel(): JSX.Element {
   );
 
   return (
-    <div className={panelClass} style={style}>
+    <div ref={wrapRef} className={panelClass} style={style}>
       {/* Connection-file management lives in the nav context menu. Keep its
           picker mounted here instead of consuming session-header space. */}
       <input ref={cfgRef} type="file" hidden onChange={(e) => void onImportConfig(e)} />
@@ -654,12 +690,16 @@ export function TerminalPanel(): JSX.Element {
       {mode === 'dock' && (
         <div
           className="term-dock-resize"
-          onMouseDown={(e) =>
-            (dragRef.current =
+          onPointerDown={(e) => {
+            e.preventDefault();
+            dragPointRef.current = { x: e.clientX, y: e.clientY };
+            const drag =
               dockSide === 'right'
-                ? { axis: 'x', start: e.clientX, startSize: width }
-                : { axis: 'y', start: e.clientY, startSize: height })
-          }
+                ? ({ axis: 'x', start: e.clientX, startSize: sizeRef.current.w } as const)
+                : ({ axis: 'y', start: e.clientY, startSize: sizeRef.current.h } as const);
+            dragRef.current = drag;
+            setDragAxis(drag.axis);
+          }}
         />
       )}
 
@@ -891,6 +931,11 @@ export function TerminalPanel(): JSX.Element {
       )}
       {promptNode}
       {confirmNode}
+      {dragAxis !== null &&
+        createPortal(
+          <div className={`term-dock-resize-shield ${dragAxis}`} aria-hidden="true" />,
+          document.body,
+        )}
     </div>
   );
 }

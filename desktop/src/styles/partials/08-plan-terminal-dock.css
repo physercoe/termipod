@@ -883,6 +883,19 @@ button.hero-row:hover {
   z-index: 3;
 }
 .term-dock-resize:hover { background: var(--accent-line); }
+/* During a dock resize, keep the gesture in the shell renderer even when the
+   pointer crosses an Electron <webview> guest. The transparent fixed layer is
+   also the stable cursor target; without it the tunneled browser page can eat
+   pointermove/up and make the divider stall or jump. */
+.term-dock-resize-shield {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  user-select: none;
+  touch-action: none;
+}
+.term-dock-resize-shield.x { cursor: ew-resize; }
+.term-dock-resize-shield.y { cursor: ns-resize; }
 .term-dock-head {
   display: flex;
   align-items: center;
@@ -1109,6 +1122,105 @@ button.hero-row:hover {
   min-width: 0;
   min-height: 0;
   display: flex;
+}
+
+/* Remote web-service forwards ride the active SSH connection. The route list
+   stays usable in both the full Terminal surface and the narrow right dock. */
+.web-service-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--spacing-s16);
+  /* The Terminal surface can be split or docked while the app window stays
+     wide, so viewport media queries cannot describe this panel's real width. */
+  container-type: inline-size;
+}
+.web-service-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-s16);
+  margin-bottom: var(--spacing-s16);
+}
+.web-service-intro p { margin: var(--spacing-s4) 0 0; }
+.web-service-host {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+.web-service-host .mono {
+  max-width: min(42vw, 480px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.web-service-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  align-items: end;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+}
+.web-service-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+}
+.web-service-form input,
+.web-service-form select { width: 100%; min-width: 0; }
+.web-service-start {
+  grid-column: 1 / -1;
+  justify-self: end;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.web-service-error { margin-top: var(--spacing-s8); }
+.web-service-active { margin-top: var(--spacing-s16); }
+.web-service-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s8);
+}
+.web-service-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.web-service-row + .web-service-row { margin-top: var(--spacing-s8); }
+.web-service-route {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.web-service-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.web-service-actions { display: flex; gap: var(--spacing-s8); flex: none; }
+
+@container (max-width: 600px) {
+  .web-service-intro,
+  .web-service-row { align-items: stretch; flex-direction: column; }
+  .web-service-host { align-items: flex-start; }
+  .web-service-host .mono { max-width: 100%; }
+  .web-service-route { flex-wrap: wrap; }
 }
 
 /* session web panel (P0: embedded agent web UIs, e.g. kimi web — the third

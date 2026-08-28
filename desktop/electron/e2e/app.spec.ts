@@ -370,6 +370,87 @@ test('terminal UI: opening a local shell mounts an xterm screen', async () => {
   }
 });
 
+test('terminal dock: right-edge resize stays live while crossing a webview guest', async () => {
+  const original = await page.evaluate(() => ({
+    side: localStorage.getItem('termipod.term.dockSide'),
+    width: localStorage.getItem('termipod.term.dockW'),
+  }));
+  const server = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end('<!doctype html><html><body>tunnel stand-in</body></html>');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+
+  try {
+    await page.evaluate(() => {
+      localStorage.setItem('termipod.term.dockSide', 'right');
+      localStorage.setItem('termipod.term.dockW', '420');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="read"]').click();
+
+    // Stand in for the Browser tab opened by a web-service tunnel. A real
+    // Electron guest is important here: its separate renderer is what used to
+    // swallow the terminal divider's move/up events as the cursor crossed it.
+    await page.evaluate(async (url) => {
+      const guest = document.createElement('webview') as HTMLElement;
+      guest.className = 'e2e-tunnel-guest';
+      guest.setAttribute('src', url);
+      guest.setAttribute('partition', 'persist:webtab');
+      Object.assign(guest.style, { position: 'absolute', inset: '0', zIndex: '19' });
+      document.querySelector('.surface-stack')!.appendChild(guest);
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('webview load timeout')), 15_000);
+        guest.addEventListener('did-finish-load', () => {
+          clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+      });
+    }, `http://127.0.0.1:${port}/`);
+
+    await page.getByTitle('Open a terminal').click();
+    const dock = page.locator('.term-panel.dock.right');
+    const handle = page.locator('.term-panel.dock.right .term-dock-resize');
+    await expect(dock).toBeVisible();
+    const before = await dock.evaluate((el) => el.getBoundingClientRect().width);
+    const box = await handle.boundingBox();
+    expect(box).not.toBeNull();
+
+    const startX = box!.x + box!.width / 2;
+    const startY = box!.y + Math.min(100, box!.height / 2);
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await expect(page.locator('.term-dock-resize-shield.x')).toBeVisible();
+
+    // The point is over the guest, but the shell-side shield must win hit
+    // testing so the entire gesture continues to reach the dock.
+    expect(await page.evaluate(({ x, y }) =>
+      document.elementFromPoint(x, y)?.classList.contains('term-dock-resize-shield'), {
+      x: startX - 80,
+      y: startY,
+    })).toBe(true);
+    await page.mouse.move(startX - 120, startY, { steps: 12 });
+    await expect.poll(() => dock.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(before + 100);
+    await page.mouse.up();
+    await expect(page.locator('.term-dock-resize-shield')).toHaveCount(0);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await page.evaluate(({ side, width }) => {
+      const restore = (key: string, value: string | null): void => {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      };
+      restore('termipod.term.dockSide', side);
+      restore('termipod.term.dockW', width);
+    }, original);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+  }
+});
+
 // ── draw.io embed ──────────────────────────────────────────────────────────
 // The offline draw.io webapp (~50 MB) is not bundled, so in CI it is not
 // installed — a full iframe-embed test would need the download + a diagram doc.

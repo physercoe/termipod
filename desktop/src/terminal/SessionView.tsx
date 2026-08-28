@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { useT } from '../i18n';
 import { FileTransferPanel } from '../surfaces/FileTransferPanel';
+import { listConnections } from '../state/connections';
 import { Screen } from './Screen';
 import { useTerminals, type TermTab } from './store';
+import { WebServicePanel } from './WebServicePanel';
 
-/// The session-area sub-view kinds: terminal | files (SSH only).
-type SubView = 'term' | 'files';
+/// The session-area sub-view kinds: terminal | files | web services (SSH only).
+type SubView = 'term' | 'files' | 'web';
 
-/// One terminal tab's content. SSH tabs keep a terminal / files sub-switcher (SFTP
-/// rides the SSH session); local shells show only the terminal. The `<Screen>`
+/// One terminal tab's content. SSH tabs keep terminal / files / web-service
+/// sub-views (SFTP and local forwards ride the SSH session); local shells show
+/// only the terminal. The `<Screen>`
 /// stays mounted across sub-view switches — hiding it (not unmounting) keeps the
 /// session alive. (tmux control was removed on desktop — redundant with native
 /// panes; the director drives shells directly.)
@@ -30,6 +33,8 @@ export function SessionView({
   const [view, setView] = useState<SubView>('term');
   const isSsh = tab.kind === 'ssh';
   const markActivity = useTerminals((s) => s.markActivity);
+  const saved = tab.connId === undefined ? undefined : listConnections().find((connection) => connection.id === tab.connId);
+  const sshHost = saved === undefined ? tab.title : `${saved.username}@${saved.host}:${saved.port}`;
 
   return (
     <div className="session-view">
@@ -40,6 +45,9 @@ export function SessionView({
           </button>
           <button className={view === 'files' ? 'tab active' : 'tab'} onClick={() => setView('files')}>
             {t('term.files')}
+          </button>
+          <button className={view === 'web' ? 'tab active' : 'tab'} onClick={() => setView('web')}>
+            {t('term.webServices')}
           </button>
         </div>
       )}
@@ -54,6 +62,7 @@ export function SessionView({
           />
         </div>
         {isSsh && view === 'files' && <FileTransferPanel sessionId={tab.sessionId} />}
+        {isSsh && view === 'web' && <WebServicePanel sessionId={tab.sessionId} sshHost={sshHost} />}
       </div>
     </div>
   );

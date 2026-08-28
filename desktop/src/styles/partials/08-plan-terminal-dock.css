@@ -1111,6 +1111,101 @@ button.hero-row:hover {
   display: flex;
 }
 
+/* Remote web-service forwards ride the active SSH connection. The route list
+   stays usable in both the full Terminal surface and the narrow right dock. */
+.web-service-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--spacing-s16);
+}
+.web-service-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-s16);
+  margin-bottom: var(--spacing-s16);
+}
+.web-service-intro p { margin: var(--spacing-s4) 0 0; }
+.web-service-host {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+.web-service-host .mono {
+  max-width: min(42vw, 480px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.web-service-form {
+  display: grid;
+  grid-template-columns: 110px minmax(150px, 1fr) 120px minmax(120px, 1fr) auto;
+  align-items: end;
+  gap: var(--spacing-s8);
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+}
+.web-service-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-s4);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+}
+.web-service-form input,
+.web-service-form select { width: 100%; min-width: 0; }
+.web-service-start { white-space: nowrap; }
+.web-service-error { margin-top: var(--spacing-s8); }
+.web-service-active { margin-top: var(--spacing-s16); }
+.web-service-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-s8);
+  margin-bottom: var(--spacing-s8);
+}
+.web-service-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s12);
+  padding: var(--spacing-s12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.web-service-row + .web-service-row { margin-top: var(--spacing-s8); }
+.web-service-route {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-s8);
+}
+.web-service-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.web-service-actions { display: flex; gap: var(--spacing-s8); flex: none; }
+
+@media (max-width: 900px) {
+  .web-service-intro,
+  .web-service-row { align-items: stretch; flex-direction: column; }
+  .web-service-host { align-items: flex-start; }
+  .web-service-host .mono { max-width: 100%; }
+  .web-service-form { grid-template-columns: 1fr 1fr; }
+  .web-service-remote-host,
+  .web-service-path { grid-column: span 2; }
+  .web-service-start { grid-column: span 2; justify-self: start; }
+  .web-service-route { flex-wrap: wrap; }
+}
+
 /* session web panel (P0: embedded agent web UIs, e.g. kimi web — the third
    sub-view next to terminal / files). Token stance: semantic vars + hairlines,
    no shadows — the guest paints its own UI. */

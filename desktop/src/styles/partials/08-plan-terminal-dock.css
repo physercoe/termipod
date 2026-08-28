@@ -883,6 +883,19 @@ button.hero-row:hover {
   z-index: 3;
 }
 .term-dock-resize:hover { background: var(--accent-line); }
+/* During a dock resize, keep the gesture in the shell renderer even when the
+   pointer crosses an Electron <webview> guest. The transparent fixed layer is
+   also the stable cursor target; without it the tunneled browser page can eat
+   pointermove/up and make the divider stall or jump. */
+.term-dock-resize-shield {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  user-select: none;
+  touch-action: none;
+}
+.term-dock-resize-shield.x { cursor: ew-resize; }
+.term-dock-resize-shield.y { cursor: ns-resize; }
 .term-dock-head {
   display: flex;
   align-items: center;

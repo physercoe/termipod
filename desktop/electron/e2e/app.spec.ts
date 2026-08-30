@@ -328,6 +328,8 @@ test('terminal UI: connection editor compacts fields and round-trips host notes'
       const host = rect('.term-field-host');
       const port = rect('.term-field-port');
       const user = rect('.term-field-user');
+      const auth = rect('.term-field-auth .seg');
+      const credential = rect('.term-field-credential input');
       return {
         columns: getComputedStyle(el).gridTemplateColumns.split(' ').length,
         nameY: name.y,
@@ -337,6 +339,10 @@ test('terminal UI: connection editor compacts fields and round-trips host notes'
         userY: user.y,
         hostW: host.width,
         portW: port.width,
+        authY: auth.y,
+        credentialY: credential.y,
+        authH: auth.height,
+        credentialH: credential.height,
         formW: el.getBoundingClientRect().width,
       };
     });
@@ -344,6 +350,8 @@ test('terminal UI: connection editor compacts fields and round-trips host notes'
     expect(Math.abs(boxes.nameY - boxes.groupY)).toBeLessThan(2);
     expect(Math.max(boxes.hostY, boxes.portY, boxes.userY) - Math.min(boxes.hostY, boxes.portY, boxes.userY)).toBeLessThan(2);
     expect(boxes.hostW).toBeGreaterThan(boxes.portW * 2);
+    expect(Math.abs(boxes.authY - boxes.credentialY)).toBeLessThan(1);
+    expect(Math.abs(boxes.authH - boxes.credentialH)).toBeLessThan(1);
     expect(boxes.formW).toBeLessThanOrEqual(1081);
 
     await note.fill('CUDA host; maintenance window Friday 18:00.');

@@ -672,6 +672,15 @@
 .term-form .term-field-user { grid-column: span 4; }
 .term-form .term-field-auth { grid-column: span 5; }
 .term-form .term-field-credential { grid-column: span 7; }
+.term-form .term-field-auth .seg {
+  box-sizing: border-box;
+  height: var(--control-md);
+  min-height: var(--control-md);
+}
+.term-form .term-field-auth .seg-btn {
+  min-height: 0;
+  padding-block: 0;
+}
 /* Section enable-toggles (jump host / SOCKS5 proxy): checkbox and caption on
    one row, unlike the stacked field labels. */
 .term-form .term-toggle {

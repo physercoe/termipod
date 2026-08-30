@@ -54,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       promote:
-        description: 'Version to promote to the electron-latest update feed (e.g. 2026.722.211). Leave empty to just build.'
+        description: 'Version after electron-v, including its channel suffix (e.g. 2026.817.322-alpha). Leave empty to just build.'
         required: false
         default: ''
       channel:
@@ -73,10 +73,7 @@ on:
       - 'electron-v*'
 
 permissions:
-  contents: write # create releases + upload assets with GITHUB_TOKEN
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  contents: read
 
 jobs:
   # The vault crypto WASM is a nodejs-target artifact — identical bytes on every
@@ -86,25 +83,64 @@ jobs:
     name: Build vault WASM
     if: inputs.promote == ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: wasm32-unknown-unknown
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/wasm-pack.tar.gz"
+          curl -fsSL https://github.com/wasm-bindgen/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz -o "$archive"
+          echo "c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          install "$RUNNER_TEMP/wasm-pack-v0.13.1-x86_64-unknown-linux-musl/wasm-pack" "$HOME/.cargo/bin/wasm-pack"
       - name: Build vault-wasm (nodejs target)
         working-directory: desktop/vault-wasm
         run: wasm-pack build --target nodejs --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: vault-wasm-pkg
           path: desktop/vault-wasm/pkg/
           if-no-files-found: error
+          retention-days: 3
+
+  # dist/ is platform-independent. Build it once instead of repeating the same
+  # 80-100 second Vite build on every packaging runner.
+  frontend:
+    name: Build frontend
+    if: inputs.promote == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Build frontend
+        working-directory: desktop
+        run: npm ci && npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+      - name: Stage frontend
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-frontend
+          path: desktop/dist/
+          if-no-files-found: error
+          retention-days: 3
 
   bundle:
     name: Bundle (${{ matrix.label }})
-    needs: wasm
+    needs: [wasm, frontend]
     if: inputs.promote == ''
     strategy:
       fail-fast: false
@@ -135,37 +171,34 @@ jobs:
     # guarded separately by CSC_IDENTITY_AUTO_DISCOVERY.)
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/electron/package-lock.json
 
       # node-gyp (pinned to 10 via package overrides) needs Python for the
       # node-pty Electron-ABI rebuild; pin 3.11 so it has distutils regardless of
       # the runner default (3.12 removed it).
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
 
       # The vault WASM pkg, built once by the wasm job → the extraResource the
       # electron-builder config ships under Resources/vault-wasm/pkg.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: vault-wasm-pkg
           path: desktop/vault-wasm/pkg
 
-      # Frontend build (the app:// payload — extraResource under Resources/dist).
-      # NODE_OPTIONS raises V8's old-space cap: the macos-latest arm64 runner has
-      # only ~7 GB RAM, so Node auto-sizes the heap to ~2 GB and `vite build`
-      # OOMs (exit 134) — the 16 GB Linux runner auto-sizes to ~4 GB and clears
-      # it. Set on the CI step, NOT the repo build script (which stays default so
-      # low-RAM dev hosts opt in explicitly).
-      - name: Build frontend
-        working-directory: desktop
-        run: npm ci && npm run build
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-frontend
+          path: desktop/dist
 
       # Electron shell: install (WITH the electron binary — packaging needs it),
       # esbuild main+preload, then package. electron-builder ABI-rebuilds the
@@ -200,12 +233,12 @@ jobs:
         shell: bash
         timeout-minutes: 12
         run: |
-          npm install -g node-gyp@^10
+          NODE_GYP="$PWD/node_modules/.bin/node-gyp"
           EV=$(node -p "require('electron/package.json').version")
           ARCH=$(node -p "process.arch")
           echo "Rebuilding node-pty for Electron $EV ($ARCH)"
           cd node_modules/node-pty
-          node-gyp rebuild --target="$EV" --arch="$ARCH" --dist-url=https://electronjs.org/headers
+          "$NODE_GYP" rebuild --target="$EV" --arch="$ARCH" --dist-url=https://electronjs.org/headers
           ls -la build/Release/*.node
 
       - name: Build shell bundle (esbuild)
@@ -227,13 +260,14 @@ jobs:
       # default for a bare tag. Exposed as $CHANNEL for the signing step.
       - name: Resolve channel
         shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref_name }}
+          REQUESTED_CHANNEL: ${{ inputs.channel }}
         run: |
-          REF='${{ github.ref_name }}'
-          IN='${{ inputs.channel }}'
-          case "$REF" in
+          case "$RELEASE_REF" in
             *-alpha) CH=alpha ;;
             *-beta)  CH=beta ;;
-            *)       CH="${IN:-beta}" ;;
+            *)       CH="${REQUESTED_CHANNEL:-beta}" ;;
           esac
           echo "CHANNEL=$CH" >> "$GITHUB_ENV"
           echo "channel = $CH"
@@ -314,10 +348,12 @@ jobs:
           # (empty CSC_LINK breaks the mac/win packager).
 
       - name: Upload installers as run artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: termipod-electron-${{ matrix.label }}
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
           path: |
             desktop/electron/release/*.AppImage
             desktop/electron/release/*.deb
@@ -336,9 +372,14 @@ jobs:
     needs: bundle
     if: startsWith(github.ref, 'refs/tags/electron-v')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: termipod-electron-*
           path: assets
@@ -346,11 +387,12 @@ jobs:
       - name: Create/refresh the prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          TAG='${{ github.ref_name }}'
+          TAG="$RELEASE_TAG"
           V=$(node -p "require('./desktop/package.json').version")
           case "$TAG" in
-            *-alpha) CH='alpha'; NOTE='**Alpha — UNSIGNED, device-test only.** Not for distribution: macOS Gatekeeper will quarantine it (right-click→Open, or `xattr -dr com.apple.quarantine <app>`). Signed builds ship on `-beta` tags.' ;;
+            *-alpha) CH='alpha'; NOTE='**Alpha — UNSIGNED, device-test only.** Not for distribution: macOS Gatekeeper will quarantine it (right-click→Open, or use xattr -dr com.apple.quarantine <app>). Signed builds ship on -beta tags.' ;;
             *-beta)  CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
             *)       CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
           esac
@@ -370,27 +412,60 @@ jobs:
 
   # Manual go-live: copy a verified release's assets onto the rolling
   # `electron-latest` feed release that packaged apps poll (the `generic`
-  # publish URL in electron-builder.yml). Old assets are removed first so the
-  # feed only ever holds one version.
+  # publish URL in electron-builder.yml). New payloads and manifests are uploaded
+  # before stale files are removed, so a failed promotion cannot empty the feed.
   promote:
     name: Promote ${{ inputs.promote }} to the update feed
     if: inputs.promote != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: electron-update-feed
+      cancel-in-progress: false
+    permissions:
+      contents: write
     steps:
       - name: Promote to electron-latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          PROMOTE_VERSION: ${{ inputs.promote }}
         run: |
-          P='${{ inputs.promote }}'
+          set -euo pipefail
+          P="$PROMOTE_VERSION"
+          if [[ ! "$P" =~ ^[0-9A-Za-z.-]+$ ]]; then
+            echo "::error::invalid promote version: $P"
+            exit 1
+          fi
           gh release download "electron-v$P" --dir assets
           ls -l assets
           gh release create electron-latest --prerelease \
             --title 'Electron update feed (rolling)' \
             --notes 'Rolling electron-updater feed — assets are replaced by the promote job. Do not delete; packaged apps poll releases/download/electron-latest/.' \
             || true
-          for a in $(gh release view electron-latest --json assets -q '.assets[].name'); do
-            gh release delete-asset electron-latest "$a" -y
+
+          shopt -s nullglob
+          payloads=()
+          manifests=()
+          declare -A keep
+          for file in assets/*; do
+            name=${file##*/}
+            keep["$name"]=1
+            case "$name" in
+              latest*.yml) manifests+=("$file") ;;
+              *) payloads+=("$file") ;;
+            esac
           done
-          gh release upload electron-latest assets/* --clobber
+          if (( ${#payloads[@]} == 0 || ${#manifests[@]} == 0 )); then
+            echo "::error::promotion requires both installers and latest*.yml manifests"
+            exit 1
+          fi
+
+          gh release upload electron-latest "${payloads[@]}" --clobber
+          gh release upload electron-latest "${manifests[@]}" --clobber
+          while IFS= read -r asset; do
+            if [[ -z "${keep[$asset]+present}" ]]; then
+              gh release delete-asset electron-latest "$asset" -y
+            fi
+          done < <(gh release view electron-latest --json assets -q '.assets[].name')
           echo "electron-latest now serves $P"

@@ -69,8 +69,10 @@ mux-pod/
 │   ├── workflows/
 │   │   ├── ci.yml                             ✅
 │   │   ├── codeql.yml                         ✅
-│   │   ├── release.yml                        ✅
-│   │   └── release-ios.yml                    ✅
+│   │   ├── desktop.yml                        ✅
+│   │   ├── desktop-electron-release.yml       ✅
+│   │   ├── release-server.yml                 ✅
+│   │   └── release.yml                        ✅ (Android + iOS)
 │   └── ISSUE_TEMPLATE/                        ❌ (this plan adds)
 ├── CONTRIBUTING.md                            ❌ (this plan adds)
 ├── CODE_OF_CONDUCT.md                         ❌ (this plan adds)

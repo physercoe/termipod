@@ -92,7 +92,7 @@ go run ./cmd/hub-server     # run the hub daemon
 # Desktop (React + Electron)
 cd desktop && npm ci && npm run dev            # vite dev server
 npm run typecheck && npm run build             # tsc + vite build
-node --test src/state/*.test.ts src/ui/*.test.ts src/ssh/*.test.ts src/terminal/*.test.ts  # frontend unit tests (NOT run by CI)
+node --test 'src/**/*.test.ts'                    # frontend unit tests (also run by CI)
 cd electron && npm ci && npm test              # Electron shell unit tests
 bash scripts/lint-desktop-tokens.sh            # token ratchet (from repo root;
                                                # run `npm run sync:tokens` in desktop/ first)

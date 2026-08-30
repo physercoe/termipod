@@ -1,14 +1,8 @@
 # CodeQL static analysis — security + code-quality scanning.
 #
-# Runs on every push to main, every PR, and weekly (so newly-published
-# rules find latent issues even when the codebase isn't churning).
-# Free tier covers public repos; results land in Security tab.
-#
-# Languages: Go (the hub) and Dart (the Flutter app).
-# Dart support is via the standard 'javascript' / 'java' / 'go' /
-# 'python' / 'cpp' / 'csharp' / 'ruby' / 'swift' set; Dart isn't
-# first-class so we run only Go for now and add JavaScript-style
-# scans manually if/when we publish a JS-backed surface.
+# Pull requests and main pushes scan only the languages affected by the diff.
+# The weekly run scans every supported repository surface so newly-published
+# queries still find latent issues when a component is not changing.
 
 name: CodeQL
 
@@ -17,40 +11,134 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:
+    types: [checks_requested]
   schedule:
-    # Weekly Monday 03:00 UTC — covers new rules without nagging.
     - cron: "0 3 * * 1"
 
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  analyze:
-    name: Analyze
+  changes:
+    name: Classify changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      hub: ${{ steps.paths.outputs.hub }}
+      desktop: ${{ steps.paths.outputs.desktop }}
+      actions: ${{ steps.paths.outputs.actions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify changed paths
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+          FULL_SCAN: ${{ github.event_name == 'schedule' }}
+        run: scripts/ci-changed-paths.sh
+
+  analyze-go:
+    name: Analyze (go)
+    needs: changes
+    if: needs.changes.outputs.hub == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
       security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [go]
-
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
-          languages: ${{ matrix.language }}
-          # security-and-quality is the broader query suite (vs just
-          # security). Catches more antipatterns at the cost of more
-          # noise; tradeoff worth it for a small codebase.
+          languages: go
           queries: security-and-quality
-
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
+        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
-          category: "/language:${{ matrix.language }}"
+          category: /language:go
+
+  analyze-javascript:
+    name: Analyze (javascript-typescript)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-and-quality
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: /language:javascript-typescript
+
+  analyze-actions:
+    name: Analyze (actions)
+    needs: changes
+    if: needs.changes.outputs.actions == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: actions
+          build-mode: none
+          queries: security-and-quality
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: /language:actions
+
+  gate:
+    name: CodeQL gate
+    if: always()
+    needs: [changes, analyze-go, analyze-javascript, analyze-actions]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every applicable scan to pass
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          GO_RESULT: ${{ needs.analyze-go.result }}
+          JAVASCRIPT_RESULT: ${{ needs.analyze-javascript.result }}
+          ACTIONS_RESULT: ${{ needs.analyze-actions.result }}
+        run: |
+          set -euo pipefail
+          for result in "$CHANGES_RESULT" "$GO_RESULT" "$JAVASCRIPT_RESULT" "$ACTIONS_RESULT"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::CodeQL dependency finished with result: $result"; exit 1 ;;
+            esac
+          done

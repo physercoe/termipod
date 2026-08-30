@@ -1,62 +1,55 @@
-name: Build & Release Android
+name: Build & Release Mobile
 
-# Mobile lane (split per component 2026-07-24). This builds ONLY the Android
-# APK and attaches it to the `mobile-v<ver>` release (release-ios.yml adds the
-# IPA to the same release). Hub/host server binaries moved to their own lanes
-# (release-server.yml, `hub-v*` / `host-v*`). The mobile release stays
-# NON-prerelease so it owns GitHub's `releases/latest`, which the in-app
-# updater reads (hub/host/desktop lanes are prereleases).
+# A mobile-v* tag builds Android and an unsigned iOS device-test artifact in
+# parallel. One publisher owns the release, eliminating the former two-workflow
+# create/update race. Android is the user-facing lane and must succeed; a flaky
+# optional iOS build is reported but does not withhold the APK from the in-app
+# updater. Mobile releases are deliberately non-prerelease because this lane
+# owns GitHub's releases/latest endpoint read by that updater.
+
 on:
   push:
     tags:
       - 'mobile-v*'
 
 concurrency:
-  group: android-release-${{ github.ref }}
+  group: mobile-release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+permissions:
+  contents: read
 
 jobs:
-  build:
+  android:
+    name: Build Android
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: 'stable'
-          flutter-version: '3.41.9'
+          channel: stable
+          flutter-version: '3.44.9'
           cache: true
 
-      - name: Cache pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pub-cache
-            .dart_tool
-          key: pub-${{ hashFiles('pubspec.lock') }}
-          restore-keys: pub-
-
       - name: Cache Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
-          restore-keys: gradle-
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
 
       - name: Install dependencies
         run: flutter pub get
@@ -64,73 +57,52 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
-      - name: Decode Keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+      - name: Resolve build metadata
+        id: metadata
+        run: scripts/mobile-build-metadata.sh "$GITHUB_REF_NAME" "$GITHUB_SHA"
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
 
       - name: Build arm64-v8a APK
         env:
+          BUILD_NAME: ${{ steps.metadata.outputs.version }}
+          BUILD_NUMBER: ${{ steps.metadata.outputs.build_number }}
+          BUILD_GIT_REF: ${{ steps.metadata.outputs.git_ref }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
-          VERSION="${{ github.ref_name }}"
-          # Strip the lane prefix: tag `mobile-v2026.724.301-alpha` → build-name
-          # `2026.724.301-alpha`.
-          VERSION_NUM="${VERSION#mobile-v}"
-          # CalVer YYYY.MMDD.HHMM (UTC build time). versionCode = minutes since
-          # 2020-01-01 UTC — a monotonic int32 that survives the day boundary
-          # (the old MAJOR*10000+MINOR*100+PATCH would REGRESS at midnight, since
-          # HHMM runs 0..2359 > the 100-wide PATCH slot). Computed with a pure
-          # integer Julian-Day formula, NOT `date -u -d` — that flag is GNU-only
-          # and fails on the macOS iOS runner (`date: illegal option -- d`); the
-          # Android + iOS builds MUST agree, so both use this arithmetic. `10#`
-          # forces base-10 so "08"/"09" is never read as octal. Android caps
-          # versionCode at ~2.1e9; minutes-since-2020 stays ~3.4M for decades.
-          IFS='.' read -r CVY CVMMDD CVHHMM <<< "${VERSION_NUM%%-*}"
-          CVMM=$((10#$CVMMDD / 100)); CVDD=$((10#$CVMMDD % 100))
-          CVHH=$((10#$CVHHMM / 100)); CVMI=$((10#$CVHHMM % 100))
-          CVA=$(( (14 - CVMM) / 12 )); CVYY=$(( CVY + 4800 - CVA )); CVM=$(( CVMM + 12 * CVA - 3 ))
-          CVJDN=$(( CVDD + (153 * CVM + 2) / 5 + 365 * CVYY + CVYY / 4 - CVYY / 100 + CVYY / 400 - 32045 ))
-          BUILD_NUMBER=$(( (CVJDN - 2458850) * 1440 + CVHH * 60 + CVMI ))  # 2458850 = JDN(2020-01-01)
-          if [ "$BUILD_NUMBER" -le 0 ] || [ "$BUILD_NUMBER" -ge 2100000000 ]; then
-            echo "::error::computed versionCode $BUILD_NUMBER out of range for $VERSION_NUM"; exit 1
-          fi
-          GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
-          # Only ship arm64-v8a — covers every modern Android device.
-          # 32-bit armeabi-v7a and x86_64 emulator builds were dropped
-          # 2026-05-07: install share was negligible vs. release-asset
-          # bloat and the post-Play-Store 64-bit-only policy.
+          # Only ship arm64-v8a, which covers modern Android devices. The
+          # 32-bit armeabi-v7a and x86_64 emulator assets were dropped because
+          # their install share did not justify the release size.
           #
-          # --split-per-abi is REQUIRED even with a single target. The
-          # Flutter Gradle plugin adds an ABI offset to versionCode
-          # only when split-per-abi is on (arm64-v8a → +4000). v1.0.381
-          # dropped the flag, which dropped the on-device versionCode
-          # from 14378 back to 10381 — Android refused the install with
-          # "higher version already installed." Keep the flag so the
-          # offset stays consistent with every prior release.
+          # --split-per-abi is REQUIRED even with this single target. Flutter
+          # adds the arm64 versionCode offset only for split builds. Removing it
+          # in v1.0.381 dropped the on-device code from 14378 to 10381, so
+          # Android rejected the update as lower than the installed version.
+          # Keep the flag consistent with every prior arm64 release.
           #
-          # --obfuscate + --split-debug-info strips Dart symbols for a
-          # few more MB; the mapping lives under build/symbols/.
+          # --obfuscate and --split-debug-info reduce the shipped Dart symbols;
+          # the corresponding mapping is retained under build/symbols/.
           #
-          # Retry loop: Gradle plugin-marker resolution
-          # (org.gradle.kotlin.kotlin-dsl, the Flutter Android Gradle
-          # plugin) is one network hop away from us and has flaked at
-          # least once in production (v1.0.370-alpha, 2026-05-06). The
-          # failure mode is "Plugin … was not found in any of the
-          # following sources" which is fatal but transient. Retry up
-          # to 3 times with backoff before failing the build for real.
+          # Gradle plugin-marker resolution failed transiently in production
+          # (v1.0.370-alpha). Retry the identical build with backoff so that
+          # recoverable repository/network failures do not cancel a release.
           for attempt in 1 2 3; do
             if flutter build apk --release --split-per-abi \
                 --target-platform=android-arm64 \
                 --obfuscate --split-debug-info=build/symbols \
-                --build-name="$VERSION_NUM" \
+                --build-name="$BUILD_NAME" \
                 --build-number="$BUILD_NUMBER" \
-                --dart-define=APP_VERSION="$VERSION" \
-                --dart-define=GIT_REF="$GIT_REF"; then
+                --dart-define=APP_VERSION="$GITHUB_REF_NAME" \
+                --dart-define=GIT_REF="$BUILD_GIT_REF"; then
               break
             fi
-            if [ "$attempt" -eq 3 ]; then
+            if [[ "$attempt" -eq 3 ]]; then
               echo "::error::APK build failed after 3 attempts"
               exit 1
             fi
@@ -139,29 +111,162 @@ jobs:
           done
 
       - name: Rename APK
-        id: apk
-        # Drop the `termipod-` prefix; name it for the lane. Uses the bare
-        # version (not the full tag) so the file reads `Mobile-<ver>-...`.
+        env:
+          BUILD_NAME: ${{ steps.metadata.outputs.version }}
+        run: |
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+             "build/app/outputs/flutter-apk/Mobile-${BUILD_NAME}-android-arm64.apk"
+
+      - name: Stage Android artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mobile-android
+          path: build/app/outputs/flutter-apk/Mobile-*-android-arm64.apk
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+  ios:
+    name: Build iOS
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: '3.44.9'
+          cache: true
+
+      - name: Cache CocoaPods
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
         run: |
           set -euo pipefail
-          VERSION_NUM="${GITHUB_REF_NAME#mobile-v}"
-          echo "ver=$VERSION_NUM" >> "$GITHUB_OUTPUT"
-          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-             "build/app/outputs/flutter-apk/Mobile-${VERSION_NUM}-android-arm64.apk"
+          for attempt in 1 2 3; do
+            # Keep the fast local-spec path first. On retry, refresh the spec
+            # repo as well so stale-spec failures can recover; deleting Pods
+            # alone would only retry the same resolution state.
+            pod_args=(install)
+            if [[ "$attempt" -gt 1 ]]; then
+              pod_args+=(--repo-update)
+            fi
+            if pod "${pod_args[@]}"; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "::error::CocoaPods install failed after 3 attempts"
+              exit 1
+            fi
+            rm -rf Pods
+            sleep $((attempt * 10))
+          done
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Resolve build metadata
+        id: metadata
+        run: scripts/mobile-build-metadata.sh "$GITHUB_REF_NAME" "$GITHUB_SHA"
+
+      - name: Build iOS (unsigned)
+        env:
+          BUILD_NAME: ${{ steps.metadata.outputs.version }}
+          BUILD_NUMBER: ${{ steps.metadata.outputs.build_number }}
+          BUILD_GIT_REF: ${{ steps.metadata.outputs.git_ref }}
+        run: |
+          flutter build ios --release --no-codesign \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=APP_VERSION="$GITHUB_REF_NAME" \
+            --dart-define=GIT_REF="$BUILD_GIT_REF"
+
+      - name: Create unsigned IPA
+        env:
+          BUILD_NAME: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r "Mobile-${BUILD_NAME}-ios-unsigned.ipa" Payload
+
+      - name: Stage iOS artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          # Mobile release is NON-prerelease by design — it owns `releases/latest`,
-          # which the in-app updater reads. (hub/host/desktop lanes are prereleases.)
-          files: |
-            build/app/outputs/flutter-apk/Mobile-*-android-arm64.apk
-          name: Mobile ${{ steps.apk.outputs.ver }}
-          body: |
-            **Mobile (Android):**
-            - `Mobile-<ver>-android-arm64.apk` — every modern Android phone/tablet (Android 8+). 32-bit and x86_64 builds are no longer published.
+          name: mobile-ios
+          path: Mobile-*-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
 
-            The iOS `.ipa` is added to this same release by the iOS workflow.
-            Hub and host-runner server binaries ship in their own releases
+  publish:
+    name: Publish mobile release
+    needs: [android, ios]
+    if: always() && needs.android.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: mobile-*
+          path: assets
+          merge-multiple: true
+
+      - name: Resolve release version
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: echo "version=${RELEASE_TAG#mobile-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(assets/Mobile-*-android-arm64.apk)
+          ipas=(assets/Mobile-*-ios-unsigned.ipa)
+          if (( ${#apks[@]} != 1 )); then
+            echo "::error::expected exactly one Android APK, found ${#apks[@]}"
+            exit 1
+          fi
+          if (( ${#ipas[@]} > 1 )); then
+            echo "::error::expected at most one unsigned iOS IPA, found ${#ipas[@]}"
+            exit 1
+          elif (( ${#ipas[@]} == 0 )); then
+            echo "::warning::iOS device-test build failed; publishing the Android release without an IPA"
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          files: |
+            assets/Mobile-*-android-arm64.apk
+            assets/Mobile-*-ios-unsigned.ipa
+          # APK presence is enforced above. The unsigned device-test IPA is
+          # best-effort and may be absent when the macOS lane flakes.
+          fail_on_unmatched_files: false
+          prerelease: false
+          draft: false
+          name: Mobile ${{ steps.metadata.outputs.version }}
+          body: |
+            **Mobile:**
+            - `Mobile-<ver>-android-arm64.apk` — Android 8+ arm64 devices.
+            - `Mobile-<ver>-ios-unsigned.ipa` — unsigned iOS device-test build,
+              included when the optional iOS build succeeds.
+
+            Hub and host-runner binaries ship in their own releases
             (`hub-v*` / `host-v*`).
           generate_release_notes: true

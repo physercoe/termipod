@@ -16,6 +16,11 @@ class Connection {
   final String? tmuxPath;
   final String? terminalMode; // null/'tmux' | 'raw'
   final DateTime createdAt;
+  final DateTime? updatedAt;
+  // Desktop-only metadata is retained on mobile so a round trip does not
+  // silently erase grouping or notes.
+  final String? group;
+  final String? note;
 
   bool get isRawMode => terminalMode == 'raw';
   bool get isTmuxMode => terminalMode != 'raw';
@@ -48,6 +53,9 @@ class Connection {
     this.tmuxPath,
     this.terminalMode,
     required this.createdAt,
+    this.updatedAt,
+    this.group,
+    this.note,
     this.lastConnectedAt,
     this.deepLinkId,
     this.jumpHost,
@@ -73,6 +81,9 @@ class Connection {
     String? terminalMode,
     bool clearTerminalMode = false,
     DateTime? createdAt,
+    DateTime? updatedAt,
+    String? group,
+    String? note,
     DateTime? lastConnectedAt,
     String? deepLinkId,
     bool clearDeepLinkId = false,
@@ -99,6 +110,9 @@ class Connection {
       tmuxPath: tmuxPath ?? this.tmuxPath,
       terminalMode: clearTerminalMode ? null : (terminalMode ?? this.terminalMode),
       createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      group: group ?? this.group,
+      note: note ?? this.note,
       lastConnectedAt: lastConnectedAt ?? this.lastConnectedAt,
       deepLinkId: clearDeepLinkId ? null : (deepLinkId ?? this.deepLinkId),
       jumpHost: clearJumpHost ? null : (jumpHost ?? this.jumpHost),
@@ -125,6 +139,9 @@ class Connection {
       'tmuxPath': tmuxPath,
       if (terminalMode != null) 'terminalMode': terminalMode,
       'createdAt': createdAt.toIso8601String(),
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+      if (group != null) 'group': group,
+      if (note != null) 'note': note,
       'lastConnectedAt': lastConnectedAt?.toIso8601String(),
       'deepLinkId': deepLinkId,
       if (jumpHost != null) 'jumpHost': jumpHost,
@@ -151,6 +168,11 @@ class Connection {
       tmuxPath: json['tmuxPath'] as String?,
       terminalMode: json['terminalMode'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : null,
+      group: json['group'] as String?,
+      note: json['note'] as String?,
       lastConnectedAt: json['lastConnectedAt'] != null
           ? DateTime.parse(json['lastConnectedAt'] as String)
           : null,
@@ -249,7 +271,10 @@ class ConnectionsNotifier extends Notifier<ConnectionsState> {
     developer.log('add() called: ${connection.name} (${connection.id})', name: 'ConnectionsProvider');
     developer.log('Current connections count: ${state.connections.length}', name: 'ConnectionsProvider');
 
-    final connections = [...state.connections, connection];
+    final stamped = connection.copyWith(
+      updatedAt: connection.updatedAt ?? DateTime.now().toUtc(),
+    );
+    final connections = [...state.connections, stamped];
     developer.log('New connections count: ${connections.length}', name: 'ConnectionsProvider');
 
     state = state.copyWith(connections: connections);
@@ -271,8 +296,9 @@ class ConnectionsNotifier extends Notifier<ConnectionsState> {
   /// 接続を更新
   Future<void> update(Connection connection) async {
     developer.log('update() called: ${connection.name} (${connection.id})', name: 'ConnectionsProvider');
+    final stamped = connection.copyWith(updatedAt: DateTime.now().toUtc());
     final connections = state.connections.map((c) {
-      return c.id == connection.id ? connection : c;
+      return c.id == connection.id ? stamped : c;
     }).toList();
     state = state.copyWith(connections: connections);
     await _saveConnections();

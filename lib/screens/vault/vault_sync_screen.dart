@@ -106,10 +106,7 @@ class _VaultSyncScreenState extends ConsumerState<VaultSyncScreen> {
     await _run(() => _service.joinWithRecovery(code));
   }
 
-  Future<void> _syncNow() => _run(() async {
-        await _service.push();
-        await _service.pullAndRestore();
-      });
+  Future<void> _syncNow() => _run(_service.push);
 
   Future<void> _disable() async {
     final l10n = AppLocalizations.of(context)!;

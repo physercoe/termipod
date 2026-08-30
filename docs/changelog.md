@@ -39,6 +39,19 @@ binding). Seed entries prior to that are in
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Mobile vault sync-up now reconciles before it uploads instead of replacing
+  unseen Hub changes.** Each attempt pulls and decrypts the current snapshot,
+  preserves local-only and Hub-only records, merges newer same-ID records, and
+  compare-and-swaps that exact version. A conflict restarts from a fresh pull
+  rather than retrying stale ciphertext. Mobile now round-trips every desktop
+  connection field and preserves unknown future top-level sections; malformed
+  local records and one-sided host keys are not silently discarded, while
+  desktop-authored host-key updates remain authoritative on conflicts.
+
 ## 2026.824.751-alpha — 2026-08-24
 
 **The breakglass terminal stops lying about why it failed.** A transient SSH

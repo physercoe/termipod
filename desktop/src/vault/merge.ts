@@ -14,6 +14,7 @@ export type VaultChangeRelation =
 export type VaultChangeAction = 'keepLocal' | 'useRemote';
 export type VaultResolution = 'local' | 'remote';
 export type VaultResolutions = Readonly<Record<string, VaultResolution>>;
+export type VaultSyncDirection = 'up' | 'down';
 
 /** A secret-free description of one difference shown before sync-down. */
 export interface VaultChange {
@@ -286,6 +287,7 @@ export function mergeVaultBundles(
   local: VaultBundle,
   remote: VaultBundle,
   resolutions: VaultResolutions = {},
+  direction: VaultSyncDirection = 'down',
 ): VaultMergeResult {
   const connections = mergeEntities({
     section: 'connections',
@@ -318,8 +320,8 @@ export function mergeVaultBundles(
     },
   }, resolutions);
 
-  const remoteCarriesItems = Array.isArray(remote.items);
-  const items = remoteCarriesItems
+  const mergeItems = Array.isArray(remote.items) || (direction === 'up' && Array.isArray(local.items));
+  const items = mergeItems
     ? mergeEntities({
         section: 'items',
         local: local.items ?? [],
@@ -335,17 +337,17 @@ export function mergeVaultBundles(
 
   const appChanges: VaultChange[] = [];
   let app = local.app;
-  if (remote.app !== undefined) {
-    const config = mergeRecord('app', 'config', local.app?.config ?? {}, remote.app.config ?? {}, (key) => key, resolutions);
-    const secrets = mergeRecord('app', 'secret', local.app?.secrets ?? {}, remote.app.secrets ?? {}, (key) => `secret:${key}`, resolutions);
+  if (remote.app !== undefined || (direction === 'up' && local.app !== undefined)) {
+    const config = mergeRecord('app', 'config', local.app?.config ?? {}, remote.app?.config ?? {}, (key) => key, resolutions);
+    const secrets = mergeRecord('app', 'secret', local.app?.secrets ?? {}, remote.app?.secrets ?? {}, (key) => `secret:${key}`, resolutions);
     app = { config: config.value, secrets: secrets.value };
     appChanges.push(...config.changes, ...secrets.changes);
   }
 
   const pinChanges: VaultChange[] = [];
   let pinnedHostKeys = local.pinnedHostKeys;
-  if (remote.pinnedHostKeys !== undefined) {
-    const pins = mergeRecord('hostPins', 'pin', local.pinnedHostKeys ?? {}, remote.pinnedHostKeys, (key) => key, resolutions);
+  if (remote.pinnedHostKeys !== undefined || (direction === 'up' && local.pinnedHostKeys !== undefined)) {
+    const pins = mergeRecord('hostPins', 'pin', local.pinnedHostKeys ?? {}, remote.pinnedHostKeys ?? {}, (key) => key, resolutions);
     pinnedHostKeys = pins.value;
     pinChanges.push(...pins.changes);
   }
@@ -361,8 +363,8 @@ export function mergeVaultBundles(
         passphrases: chooseFlatSecrets(local.sshKeys.passphrases, remote.sshKeys.passphrases, keys.winners, (id) => id),
       },
       passwords: chooseFlatSecrets(local.passwords, remote.passwords, connections.winners, connectionIdForPassword),
-      items: remoteCarriesItems ? items.items : local.items,
-      itemSecrets: remoteCarriesItems
+      items: mergeItems ? items.items : local.items,
+      itemSecrets: mergeItems
         ? chooseItemSecrets(local.itemSecrets ?? {}, remote.itemSecrets ?? {}, items.winners)
         : local.itemSecrets,
       app,

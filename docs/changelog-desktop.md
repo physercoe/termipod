@@ -47,6 +47,9 @@ This complements:
   local data.** The review identifies local-only, Hub-only, older, newer, and
   ambiguous entries without exposing secret values. Ambiguous settings,
   secrets, SSH keys, and host-key pins offer an explicit version choice.
+- **Vault sync-up now uses the same review and reconciliation flow.** It merges
+  against the current Hub snapshot, previews changes to both the Hub and local
+  vault, and compare-and-swaps the version it actually reviewed.
 
 ### Fixed
 

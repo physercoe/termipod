@@ -392,7 +392,7 @@ jobs:
           TAG="$RELEASE_TAG"
           V=$(node -p "require('./desktop/package.json').version")
           case "$TAG" in
-            *-alpha) CH='alpha'; NOTE='**Alpha — UNSIGNED, device-test only.** Not for distribution: macOS Gatekeeper will quarantine it (right-click→Open, or `xattr -dr com.apple.quarantine <app>`). Signed builds ship on `-beta` tags.' ;;
+            *-alpha) CH='alpha'; NOTE='**Alpha — UNSIGNED, device-test only.** Not for distribution: macOS Gatekeeper will quarantine it (right-click→Open, or use xattr -dr com.apple.quarantine <app>). Signed builds ship on -beta tags.' ;;
             *-beta)  CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
             *)       CH='beta';  NOTE='**Beta — signed + notarized.**' ;;
           esac

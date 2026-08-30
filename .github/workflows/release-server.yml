@@ -94,7 +94,7 @@ jobs:
           cd ..
           # Single SHA256SUMS over the four tarballs; entries are basenames
           # (glob runs inside OUT_DIR) so `self-update` matches by artifact name.
-          ( cd "$OUT_DIR" && sha256sum ${BIN}-*.tar.gz > SHA256SUMS )
+          ( cd "$OUT_DIR" && sha256sum "${BIN}"-*.tar.gz > SHA256SUMS )
           ls -lh "$OUT_DIR"
           echo "::group::SHA256SUMS"; cat "$OUT_DIR/SHA256SUMS"; echo "::endgroup::"
 

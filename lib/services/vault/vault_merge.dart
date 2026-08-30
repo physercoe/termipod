@@ -72,7 +72,12 @@ _EntityMerge _mergeEntities({
 
   for (final localItem in local) {
     final id = localItem['id'];
-    if (id is! String) continue;
+    // An older or future record without a usable ID cannot participate in
+    // reconciliation, but it is still local user data and must not be lost.
+    if (id is! String) {
+      items.add(localItem);
+      continue;
+    }
     localIds.add(id);
     final remoteItem = remoteById[id];
     if (remoteItem == null) {
@@ -196,9 +201,10 @@ VaultMergeResult mergeMobileVaultBundles(
   final localPins = _stringMap(local['pinnedHostKeys']);
   final remotePins = _stringMap(remote['pinnedHostKeys']);
   if (localPins.isNotEmpty || remotePins.isNotEmpty) {
-    // Mobile cannot edit pins, so a Hub value is authoritative on a conflict;
-    // local-only cached pins still survive.
-    merged['pinnedHostKeys'] = <String, String>{...localPins, ...remotePins};
+    // Never replace a locally trusted host key without an explicit trust
+    // decision. Mobile has no conflict UI, so retain the local pin on a
+    // conflict (matching desktop) while still accepting Hub-only pins.
+    merged['pinnedHostKeys'] = <String, String>{...remotePins, ...localPins};
   }
   return VaultMergeResult(merged);
 }

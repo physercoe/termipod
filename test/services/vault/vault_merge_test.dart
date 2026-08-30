@@ -78,6 +78,36 @@ void main() {
     expect(merged['futureSection'], remote['futureSection']);
   });
 
+  test('merge preserves malformed local records instead of dropping data', () {
+    final malformed = <String, dynamic>{'name': 'legacy host without an id'};
+    final local = _bundle([malformed]);
+
+    final merged = mergeMobileVaultBundles(local, _bundle([])).bundle;
+
+    expect(merged['connections'], [malformed]);
+  });
+
+  test('host pin conflicts retain the locally trusted key', () {
+    final local = _bundle([])
+      ..['pinnedHostKeys'] = {
+        'shared.example:22': 'local-key',
+        'local.example:22': 'local-only-key',
+      };
+    final remote = _bundle([])
+      ..['pinnedHostKeys'] = {
+        'shared.example:22': 'remote-key',
+        'remote.example:22': 'remote-only-key',
+      };
+
+    final merged = mergeMobileVaultBundles(local, remote).bundle;
+
+    expect(merged['pinnedHostKeys'], {
+      'shared.example:22': 'local-key',
+      'local.example:22': 'local-only-key',
+      'remote.example:22': 'remote-only-key',
+    });
+  });
+
   test('409 retry pulls, merges, and seals again instead of retrying stale ciphertext', () async {
     var version = 1;
     var remote = _bundle([

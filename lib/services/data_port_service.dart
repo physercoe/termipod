@@ -248,8 +248,9 @@ class DataPortService {
   }
 
   /// Apply a vault bundle whose conflicts have already been resolved. Unlike
-  /// backup import, vault reconciliation must replace same-ID metadata so the
-  /// selected newer side actually takes effect.
+  /// [importData], vault reconciliation must replace same-ID metadata so the
+  /// selected newer side actually takes effect. Keep this writer aligned with
+  /// the corresponding storage keys used by the backup importer above.
   Future<void> replaceVaultData(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
     final connections = data['connections'] as List? ?? const [];

@@ -8,6 +8,7 @@
     "dev": "npm run sync:tokens && npm run sync:excalidraw && npm run sync:treesitter && npm run sync:modelexplorer && vite",
     "build": "npm run sync:tokens && npm run sync:excalidraw && npm run sync:treesitter && npm run sync:modelexplorer && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --test 'src/**/*.test.ts'",
     "preview": "vite preview",
     "sync:tokens": "node ../design-tokens/build.mjs && cp ../design-tokens/build/tokens.css src/styles/tokens.css",
     "sync:excalidraw": "node scripts/sync-excalidraw-assets.mjs",

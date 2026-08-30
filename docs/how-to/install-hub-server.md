@@ -34,7 +34,7 @@ own tag namespace and produces its own GitHub release:
 
 | Component | Tag | Workflow | Assets |
 |-----------|-----|----------|--------|
-| Mobile  | `mobile-v<ver>` | `release.yml` + `release-ios.yml` | `Mobile-<ver>-android-arm64.apk`, `Mobile-<ver>-ios-unsigned.ipa` |
+| Mobile  | `mobile-v<ver>` | `release.yml` | `Mobile-<ver>-android-arm64.apk`, `Mobile-<ver>-ios-unsigned.ipa` |
 | Hub     | `hub-v<ver>`    | `release-server.yml` | `hub-server-<ver>-<os>-<arch>.tar.gz` ×4 + `SHA256SUMS` |
 | Host    | `host-v<ver>`   | `release-server.yml` | `host-runner-<ver>-<os>-<arch>.tar.gz` ×4 + `SHA256SUMS` |
 | Desktop | `electron-v<ver>` | `desktop-electron-release.yml` | `Desktop-<ver>-*` (dmg/exe/AppImage/deb) |

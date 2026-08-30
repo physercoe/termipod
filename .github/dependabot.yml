@@ -1,13 +1,12 @@
 # Dependabot configuration — auto-PR for outdated dependencies.
 #
-# Three ecosystems: Flutter (pub), Go (modules), and GitHub Actions.
+# Flutter, Go, both npm applications, both Rust crates, and GitHub Actions.
 # Updates run weekly on Monday morning so reviews land at the start
 # of the week. Security updates run separately (always-on, ignores
 # schedule) — see GitHub's Dependabot Security Updates feature.
 #
-# Maintainer note: dependabot opens individual PRs per package. For
-# large pubspec / go.mod updates, prefer rebase-merge to keep the
-# changelog entries clean.
+# Compatible npm, Cargo, and Actions updates are grouped to keep the update
+# queue below Dependabot's per-ecosystem open-PR limit.
 
 version: 2
 updates:
@@ -46,8 +45,85 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 10
+    groups:
+      actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "deps(actions)"
     labels:
       - "dependencies"
       - "ci"
+
+  - package-ecosystem: "npm"
+    directory: "/desktop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    groups:
+      desktop-frontend:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(desktop)"
+    labels:
+      - "dependencies"
+      - "desktop"
+
+  - package-ecosystem: "npm"
+    directory: "/desktop/electron"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    groups:
+      electron-shell:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(electron)"
+    labels:
+      - "dependencies"
+      - "desktop"
+
+  - package-ecosystem: "cargo"
+    directory: "/desktop/vault-core"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    groups:
+      vault-core:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(vault)"
+    labels:
+      - "dependencies"
+      - "desktop"
+
+  - package-ecosystem: "cargo"
+    directory: "/desktop/vault-wasm"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    groups:
+      vault-wasm:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(vault)"
+    labels:
+      - "dependencies"
+      - "desktop"

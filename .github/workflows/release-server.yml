@@ -21,19 +21,23 @@ on:
       - 'host-v*'
 
 permissions:
-  contents: write
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      bin: ${{ steps.lane.outputs.bin }}
+      comp: ${{ steps.lane.outputs.comp }}
+      ver: ${{ steps.lane.outputs.ver }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.23'
           cache-dependency-path: hub/go.sum
@@ -66,10 +70,11 @@ jobs:
         # and carry the bare version (the lane is the release name); they MUST
         # match hub/internal/selfupdate artifactName().
         shell: bash
+        env:
+          BIN: ${{ steps.lane.outputs.bin }}
+          VER: ${{ steps.lane.outputs.ver }}
         run: |
           set -euo pipefail
-          BIN='${{ steps.lane.outputs.bin }}'
-          VER='${{ steps.lane.outputs.ver }}'
           OUT_DIR="dist/server"
           mkdir -p "$OUT_DIR"
           cd hub
@@ -93,24 +98,47 @@ jobs:
           ls -lh "$OUT_DIR"
           echo "::group::SHA256SUMS"; cat "$OUT_DIR/SHA256SUMS"; echo "::endgroup::"
 
+      - name: Stage server artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: server-release
+          path: dist/server/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+  release:
+    name: Publish server prerelease
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download server artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: server-release
+          path: dist/server
       - name: Create prerelease on the tag
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           prerelease: true
-          name: ${{ steps.lane.outputs.comp }} ${{ steps.lane.outputs.ver }}
+          name: ${{ needs.build.outputs.comp }} ${{ needs.build.outputs.ver }}
           files: |
             dist/server/*.tar.gz
             dist/server/SHA256SUMS
+          fail_on_unmatched_files: true
           body: |
-            **${{ steps.lane.outputs.comp }} server binary** (statically linked, no CGO) —
+            **${{ needs.build.outputs.comp }} server binary** (statically linked, no CGO) —
             one tarball per platform (ADR-028). Each expands to a single bare
-            `${{ steps.lane.outputs.bin }}` binary.
+            `${{ needs.build.outputs.bin }}` binary.
 
             Platforms: `linux-amd64` (VPS, x86_64) · `linux-arm64` (ARM servers,
             Raspberry Pi 4/5, Ampere) · `darwin-amd64` (Intel Macs) ·
             `darwin-arm64` (Apple Silicon Macs).
 
-            `SHA256SUMS` covers the four tarballs; `${{ steps.lane.outputs.bin }}
+            `SHA256SUMS` covers the four tarballs; `${{ needs.build.outputs.bin }}
             self-update` verifies its artifact against it. This is a PRERELEASE —
             `self-update --channel alpha` resolves it. Drop the binary on `$PATH`.
           generate_release_notes: true

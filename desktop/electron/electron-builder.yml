@@ -103,6 +103,13 @@ publish:
 mac:
   category: public.app-category.developer-tools
   icon: assets/icon.icns
+  # Direct SSH/SFTP connections to RFC 1918 hosts are local-network access on
+  # macOS. Without this description macOS can reject the GUI-launched app's
+  # first LAN socket with EHOSTUNREACH without registering TermiPod in Privacy
+  # & Security > Local Network, while the same connection still works from a
+  # Terminal-launched child (which macOS exempts from the permission).
+  extendInfo:
+    NSLocalNetworkUsageDescription: TermiPod connects to SSH hosts and other services on your local network.
   # Deterministic, space-free names so the updater feed URLs are predictable
   # (M3.4). Single-arch per OS; macOS is arm64-only BY DECISION (2026-07-21):
   # the Intel-Mac population is zero, so plan §5's universal dmg was dropped

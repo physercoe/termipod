@@ -44,6 +44,9 @@ export interface VaultBundle {
   pinnedHostKeys?: HostPins;
 }
 
+/** A parsed bundle may carry top-level fields introduced by a newer client. */
+export type ParsedVaultBundle = VaultBundle & Record<string, unknown>;
+
 export async function assembleBundle(): Promise<VaultBundle> {
   const connections = listConnections();
   const meta = listKeys();
@@ -72,9 +75,9 @@ export async function assembleBundle(): Promise<VaultBundle> {
   return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets, app, pinnedHostKeys };
 }
 
-/** Merge a decrypted bundle into local storage + the keychain (restore/sync
- * down). Overwrites the connection and key lists wholesale — the vault is the
- * source of truth on a pull. */
+/** Apply an already-resolved decrypted bundle to local storage + the keychain.
+ * Callers performing sync must merge first; recovery restore intentionally
+ * applies its recovered snapshot as-is. */
 export async function importBundle(bundle: VaultBundle): Promise<void> {
   if (Array.isArray(bundle.connections)) saveJson('connections', bundle.connections);
   // Gather EVERY secret this bundle restores into one map and write it in a
@@ -122,9 +125,13 @@ export function readBundleJson(): Promise<string> {
   return assembleBundle().then((b) => JSON.stringify(b));
 }
 
-export function parseBundle(json: string): VaultBundle {
-  const b = JSON.parse(json) as Partial<VaultBundle>;
+export function parseBundle(json: string): ParsedVaultBundle {
+  const parsed = JSON.parse(json) as unknown;
+  const b = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Partial<VaultBundle> & Record<string, unknown>
+    : {};
   return {
+    ...b,
     connections: Array.isArray(b.connections) ? b.connections : [],
     sshKeys: {
       meta: Array.isArray(b.sshKeys?.meta) ? b.sshKeys!.meta : [],
@@ -141,7 +148,7 @@ export function parseBundle(json: string): VaultBundle {
     // importBundle can tell "no pins field" from "an empty pin map".
     pinnedHostKeys:
       typeof b.pinnedHostKeys === 'object' && b.pinnedHostKeys !== null ? b.pinnedHostKeys : undefined,
-  };
+  } as ParsedVaultBundle;
 }
 
 /** Non-secret local state that reflects vault identity/version (kept in

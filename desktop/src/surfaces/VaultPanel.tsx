@@ -11,12 +11,16 @@ import {
   createVault,
   forgetLocalVault,
   restoreWithRecovery,
+  previewSyncDown,
   syncDown,
   syncUp,
   VaultError,
+  type VaultSyncPreview,
   vaultStatus,
   vaultStatusKey,
 } from '../vault/service';
+import { VaultSyncPreviewModal } from '../vault/VaultSyncPreviewModal';
+import type { VaultResolution, VaultResolutions } from '../vault/merge';
 
 /// Error → display text: the vault service throws coded VaultErrors (the
 /// service layer has no t()), so the codes resolve to localized copy here at
@@ -75,6 +79,8 @@ export function VaultPanel(): JSX.Element | null {
   const [restore, setRestore] = useState('');
   const [showRestore, setShowRestore] = useState(false);
   const [hint, setHint] = useState(''); // optional recovery hint, asked at create time
+  const [syncPreview, setSyncPreview] = useState<VaultSyncPreview | null>(null);
+  const [syncResolutions, setSyncResolutions] = useState<Record<string, VaultResolution>>({});
 
   // Cached + prefetched (AppShell primes this on connect) so the status is
   // already resolved when Settings opens — no keychain-latency "splash".
@@ -102,18 +108,50 @@ export function VaultPanel(): JSX.Element | null {
 
   if (!isShell()) return null;
 
-  async function run(fn: () => Promise<void>): Promise<void> {
+  async function run(fn: () => Promise<void>): Promise<boolean> {
     setBusy(true);
     setErr(null);
     setNote(null);
     try {
       await fn();
       await qc.invalidateQueries({ queryKey: vaultStatusKey(client) });
+      return true;
+    } catch (e) {
+      setErr(msg(e, t));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewSyncDown(): Promise<void> {
+    if (client === null) return;
+    setBusy(true);
+    setErr(null);
+    setNote(null);
+    try {
+      setSyncPreview(await previewSyncDown(client));
+      setSyncResolutions({});
     } catch (e) {
       setErr(msg(e, t));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function applySyncDown(): Promise<void> {
+    if (client === null || syncPreview === null) return;
+    const review = syncPreview;
+    const ok = await run(async () => {
+      await syncDown(client, {
+        expectedVersion: review.version,
+        expectedLocalFingerprint: review.localFingerprint,
+        resolutions: syncResolutions satisfies VaultResolutions,
+      });
+      setNote(t('vault.previewApplied'));
+    });
+    setSyncPreview(null);
+    if (!ok) setNote(null);
   }
 
   return (
@@ -225,12 +263,7 @@ export function VaultPanel(): JSX.Element | null {
                   disabled={busy}
                   onConfirm={() => void run(async () => { await syncUp(client); })}
                 />
-                <ConfirmButton
-                  label={t('vault.syncDown')}
-                  danger
-                  disabled={busy}
-                  onConfirm={() => void run(async () => { await syncDown(client); })}
-                />
+                <button disabled={busy} onClick={() => void reviewSyncDown()}>{t('vault.syncDown')}</button>
               </>
             )}
             {st !== null && st.exists && !st.hasLocalKey && (
@@ -281,6 +314,18 @@ export function VaultPanel(): JSX.Element | null {
           {note !== null && <div className="setting-row"><span className="muted">{note}</span></div>}
           {err !== null && <div className="setting-row"><span className="error">{err}</span></div>}
         </div>
+      )}
+      {syncPreview !== null && (
+        <VaultSyncPreviewModal
+          preview={syncPreview}
+          resolutions={syncResolutions}
+          busy={busy}
+          onClose={() => setSyncPreview(null)}
+          onResolutionChange={(key, value) => {
+            setSyncResolutions((current) => ({ ...current, [key]: value }));
+          }}
+          onConfirm={() => void applySyncDown()}
+        />
       )}
     </section>
   );

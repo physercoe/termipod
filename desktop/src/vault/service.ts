@@ -6,6 +6,13 @@ import { isShell } from '../platform';
 import { secretDeleteMany, secretGet, secretSet } from '../state/persist';
 import { assembleBundle, importBundle, loadVaultState, parseBundle, saveVaultState } from './bundle';
 import {
+  canonicalVaultValue,
+  mergeVaultBundles,
+  vaultReviewProjection,
+  type VaultChange,
+  type VaultResolutions,
+} from './merge';
+import {
   vaultGenerateDevice,
   vaultGenerateKey,
   vaultGenerateRecoveryCode,
@@ -28,7 +35,7 @@ const KEY_SEED = 'vault_device_seed';
 /// Stable error codes for the sync flows — the service layer has no t(), so it
 /// throws coded errors and the UI maps code → localized message at the catch
 /// site (#320). Keep the codes stable: they are the i18n key suffixes.
-export type VaultErrorCode = 'noKey' | 'conflict' | 'empty' | 'noRecovery';
+export type VaultErrorCode = 'noKey' | 'conflict' | 'empty' | 'noRecovery' | 'stalePreview';
 
 export class VaultError extends Error {
   constructor(readonly code: VaultErrorCode) {
@@ -162,19 +169,96 @@ export async function syncUp(client: HubClient): Promise<number> {
   }
 }
 
-/** Pull the hub vault and merge it locally using the locally-held vault key. */
-export async function syncDown(client: HubClient): Promise<number> {
-  const vaultKey = await secretGet(KEY_VAULT);
-  if (vaultKey === null) throw new VaultError('noKey');
+export interface VaultSyncPreview {
+  version: number;
+  localFingerprint: string;
+  updatedAt: string | null;
+  lastDevice: string | null;
+  changes: VaultChange[];
+}
+
+async function localBundleFingerprint(
+  bundle: Awaited<ReturnType<typeof assembleBundle>>,
+  vaultKey: string,
+): Promise<string> {
+  const hmacKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(vaultKey),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const digest = await crypto.subtle.sign(
+    'HMAC',
+    hmacKey,
+    new TextEncoder().encode(canonicalVaultValue(vaultReviewProjection(bundle))),
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function openRemoteBundle(client: HubClient, vaultKey: string): Promise<{
+  version: number;
+  updatedAt: string | null;
+  lastDevice: string | null;
+  bundle: ReturnType<typeof parseBundle>;
+}> {
   const v = await client.getVault();
   const ciphertext = str(v, 'ciphertext');
   if (ciphertext === undefined) throw new VaultError('empty');
-  const bundle = await vaultOpen(vaultKey, ciphertext);
-  await importBundle(parseBundle(bundle));
-  const version = num(v, 'version') ?? 0;
+  const plaintext = await vaultOpen(vaultKey, ciphertext);
+  return {
+    version: num(v, 'version') ?? 0,
+    updatedAt: str(v, 'updated_at') ?? null,
+    lastDevice: str(v, 'last_device') ?? null,
+    bundle: parseBundle(plaintext),
+  };
+}
+
+/** Decrypt and compare the hub vault without mutating local state. The result
+ * is secret-free and safe to hold in React state for the review dialog. */
+export async function previewSyncDown(client: HubClient): Promise<VaultSyncPreview> {
+  const vaultKey = await secretGet(KEY_VAULT);
+  if (vaultKey === null) throw new VaultError('noKey');
+  const remote = await openRemoteBundle(client, vaultKey);
+  const local = await assembleBundle();
+  const { changes } = mergeVaultBundles(local, remote.bundle);
+  return {
+    version: remote.version,
+    localFingerprint: await localBundleFingerprint(local, vaultKey),
+    updatedAt: remote.updatedAt,
+    lastDevice: remote.lastDevice,
+    changes,
+  };
+}
+
+/** Pull and non-destructively merge the hub vault. Local-only records survive;
+ * remote-only records are added; same-ID conflicts use trustworthy record
+ * timestamps and otherwise use the reviewer's explicit choice. Both snapshots
+ * are pinned so apply cannot act on data that was not reviewed. */
+export async function syncDown(
+  client: HubClient,
+  review?: {
+    expectedVersion: number;
+    expectedLocalFingerprint: string;
+    resolutions: VaultResolutions;
+  },
+): Promise<number> {
+  const vaultKey = await secretGet(KEY_VAULT);
+  if (vaultKey === null) throw new VaultError('noKey');
+  const remote = await openRemoteBundle(client, vaultKey);
+  if (review !== undefined && remote.version !== review.expectedVersion) throw new VaultError('stalePreview');
+  const local = await assembleBundle();
+  if (
+    review !== undefined
+    && await localBundleFingerprint(local, vaultKey) !== review.expectedLocalFingerprint
+  ) {
+    throw new VaultError('stalePreview');
+  }
+  const merged = mergeVaultBundles(local, remote.bundle, review?.resolutions);
+  await importBundle(merged.bundle);
   const state = loadVaultState();
-  saveVaultState({ ...state, version });
-  return version;
+  saveVaultState({ ...state, version: remote.version });
+  return remote.version;
 }
 
 /** Restore a vault onto this device from a recovery code: unwrap the vault key,

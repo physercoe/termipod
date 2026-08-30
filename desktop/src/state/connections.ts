@@ -24,6 +24,9 @@ export interface Connection {
   // mobile-authored vault bundles continue to load unchanged.
   note?: string | null;
   createdAt: string; // ISO-8601
+  // Last metadata edit. Optional for bundles written by older desktop/mobile
+  // clients; vault preview treats a missing clock as unknown and keeps local.
+  updatedAt?: string;
   lastConnectedAt: string | null;
   deepLinkId: string | null;
   // Jump host (ProxyJump) + SOCKS5 proxy — mobile-parity fields, driven by the
@@ -154,6 +157,7 @@ export function upsertConnection(input: Partial<Connection> & { name: string; ho
   const list = listConnections();
   const id = input.id ?? newId();
   const existing = list.find((c) => c.id === id);
+  const now = new Date().toISOString();
   const conn: Connection = {
     id,
     name: input.name,
@@ -166,7 +170,8 @@ export function upsertConnection(input: Partial<Connection> & { name: string; ho
     terminalMode: input.terminalMode ?? existing?.terminalMode ?? null,
     group: (input.group ?? existing?.group ?? '').trim() || DEFAULT_GROUP,
     note: pickField(input, existing, 'note'),
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
     lastConnectedAt: input.lastConnectedAt ?? existing?.lastConnectedAt ?? null,
     deepLinkId: existing?.deepLinkId ?? null,
     // The jump/proxy cluster carries over by KEY PRESENCE, not nullishness: a

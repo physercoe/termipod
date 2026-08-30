@@ -72,9 +72,9 @@ export async function assembleBundle(): Promise<VaultBundle> {
   return { connections, sshKeys: { meta, privateKeys, passphrases }, passwords, items, itemSecrets, app, pinnedHostKeys };
 }
 
-/** Merge a decrypted bundle into local storage + the keychain (restore/sync
- * down). Overwrites the connection and key lists wholesale — the vault is the
- * source of truth on a pull. */
+/** Apply an already-resolved decrypted bundle to local storage + the keychain.
+ * Callers performing sync must merge first; recovery restore intentionally
+ * applies its recovered snapshot as-is. */
 export async function importBundle(bundle: VaultBundle): Promise<void> {
   if (Array.isArray(bundle.connections)) saveJson('connections', bundle.connections);
   // Gather EVERY secret this bundle restores into one map and write it in a

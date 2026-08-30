@@ -1,9 +1,11 @@
 name: Build & Release Mobile
 
-# A mobile-v* tag builds Android and unsigned iOS artifacts in parallel, then
-# publishes one complete release only after both platform builds pass. Keeping
-# publication in a single job prevents the two former workflows from racing to
-# create or update the same GitHub release.
+# A mobile-v* tag builds Android and an unsigned iOS device-test artifact in
+# parallel. One publisher owns the release, eliminating the former two-workflow
+# create/update race. Android is the user-facing lane and must succeed; a flaky
+# optional iOS build is reported but does not withhold the APK from the in-app
+# updater. Mobile releases are deliberately non-prerelease because this lane
+# owns GitHub's releases/latest endpoint read by that updater.
 
 on:
   push:
@@ -74,6 +76,22 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
+          # Only ship arm64-v8a, which covers modern Android devices. The
+          # 32-bit armeabi-v7a and x86_64 emulator assets were dropped because
+          # their install share did not justify the release size.
+          #
+          # --split-per-abi is REQUIRED even with this single target. Flutter
+          # adds the arm64 versionCode offset only for split builds. Removing it
+          # in v1.0.381 dropped the on-device code from 14378 to 10381, so
+          # Android rejected the update as lower than the installed version.
+          # Keep the flag consistent with every prior arm64 release.
+          #
+          # --obfuscate and --split-debug-info reduce the shipped Dart symbols;
+          # the corresponding mapping is retained under build/symbols/.
+          #
+          # Gradle plugin-marker resolution failed transiently in production
+          # (v1.0.370-alpha). Retry the identical build with backoff so that
+          # recoverable repository/network failures do not cancel a release.
           for attempt in 1 2 3; do
             if flutter build apk --release --split-per-abi \
                 --target-platform=android-arm64 \
@@ -139,8 +157,16 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if pod install; then
-              exit 0
+            # Keep the fast local-spec path first. On retry, refresh the spec
+            # repo as well so stale-spec failures can recover; deleting Pods
+            # alone would only retry the same resolution state.
+            if [[ "$attempt" -eq 1 ]]; then
+              pod_args=()
+            else
+              pod_args=(--repo-update)
+            fi
+            if pod install "${pod_args[@]}"; then
+              break
             fi
             if [[ "$attempt" -eq 3 ]]; then
               echo "::error::CocoaPods install failed after 3 attempts"
@@ -187,6 +213,7 @@ jobs:
   publish:
     name: Publish mobile release
     needs: [android, ios]
+    if: always() && needs.android.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -205,18 +232,41 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: echo "version=${RELEASE_TAG#mobile-v}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(assets/Mobile-*-android-arm64.apk)
+          ipas=(assets/Mobile-*-ios-unsigned.ipa)
+          if (( ${#apks[@]} != 1 )); then
+            echo "::error::expected exactly one Android APK, found ${#apks[@]}"
+            exit 1
+          fi
+          if (( ${#ipas[@]} > 1 )); then
+            echo "::error::expected at most one unsigned iOS IPA, found ${#ipas[@]}"
+            exit 1
+          elif (( ${#ipas[@]} == 0 )); then
+            echo "::warning::iOS device-test build failed; publishing the Android release without an IPA"
+          fi
+
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           files: |
             assets/Mobile-*-android-arm64.apk
             assets/Mobile-*-ios-unsigned.ipa
-          fail_on_unmatched_files: true
+          # APK presence is enforced above. The unsigned device-test IPA is
+          # best-effort and may be absent when the macOS lane flakes.
+          fail_on_unmatched_files: false
+          prerelease: false
+          draft: false
           name: Mobile ${{ steps.metadata.outputs.version }}
           body: |
             **Mobile:**
             - `Mobile-<ver>-android-arm64.apk` — Android 8+ arm64 devices.
-            - `Mobile-<ver>-ios-unsigned.ipa` — unsigned iOS device-test build.
+            - `Mobile-<ver>-ios-unsigned.ipa` — unsigned iOS device-test build,
+              included when the optional iOS build succeeds.
 
             Hub and host-runner binaries ship in their own releases
             (`hub-v*` / `host-v*`).

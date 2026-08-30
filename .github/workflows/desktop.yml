@@ -12,12 +12,16 @@ on:
     paths:
       - 'desktop/**'
       - 'design-tokens/**'
+      - 'scripts/lint-desktop-tokens.sh'
+      - 'scripts/desktop-token-baseline.txt'
       - '.github/workflows/desktop.yml'
   pull_request:
     branches: [main]
     paths:
       - 'desktop/**'
       - 'design-tokens/**'
+      - 'scripts/lint-desktop-tokens.sh'
+      - 'scripts/desktop-token-baseline.txt'
       - '.github/workflows/desktop.yml'
 
 concurrency:

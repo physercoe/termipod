@@ -54,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       promote:
-        description: 'Version to promote to the electron-latest update feed (e.g. 2026.722.211). Leave empty to just build.'
+        description: 'Version after electron-v, including its channel suffix (e.g. 2026.817.322-alpha). Leave empty to just build.'
         required: false
         default: ''
       channel:

@@ -31,6 +31,9 @@ fi
 
 # Minutes since 2020-01-01 UTC, computed with portable integer Julian-Day
 # arithmetic so Linux and macOS produce the same Android/iOS build number.
+# This replaced MAJOR*10000+MINOR*100+PATCH, which regressed at midnight when
+# the HHMM component wrapped from 2359 to 0. Minutes remain monotonic and stay
+# below Android's signed-int versionCode ceiling for decades.
 a=$(( (14 - month) / 12 ))
 y=$(( 10#$cv_year + 4800 - a ))
 m=$(( month + 12 * a - 3 ))

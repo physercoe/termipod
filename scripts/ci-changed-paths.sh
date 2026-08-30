@@ -27,7 +27,10 @@ else
   base_sha="${BASE_SHA:-}"
 
   if [[ -n "$base_sha" && ! "$base_sha" =~ ^0+$ ]] && git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
-    changed_files=$(git diff --name-only "$base_sha" "$head_sha")
+    # A PR base SHA can advance after the branch forked. Diff from the merge
+    # base so unrelated commits newly landed on main do not over-trigger lanes.
+    merge_base=$(git merge-base "$base_sha" "$head_sha")
+    changed_files=$(git diff --name-only "$merge_base" "$head_sha")
   else
     changed_files=$(git diff-tree --root --no-commit-id --name-only -r "$head_sha")
   fi
@@ -47,6 +50,14 @@ else
         ;;
       design-tokens/*)
         mobile=true
+        desktop=true
+        ;;
+      Makefile)
+        # make bump updates both the Flutter version and Hub build metadata.
+        hub=true
+        mobile=true
+        ;;
+      scripts/lint-desktop-tokens.sh|scripts/desktop-token-baseline.txt)
         desktop=true
         ;;
     esac

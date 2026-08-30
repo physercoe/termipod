@@ -188,16 +188,9 @@ jobs:
           flutter-version: '3.44.9'
           cache: true
 
-      - name: Cache pub dependencies
-        if: needs.changes.outputs.mobile == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.pub-cache
-          key: ${{ runner.os }}-flutter-3.44.9-pub-${{ hashFiles('pubspec.lock') }}
-
       - name: Install dependencies
         if: needs.changes.outputs.mobile == 'true'
-        run: flutter pub get --enforce-lockfile
+        run: flutter pub get
 
       - name: Analyze
         if: needs.changes.outputs.mobile == 'true'

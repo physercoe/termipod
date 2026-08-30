@@ -40,12 +40,6 @@ jobs:
           flutter-version: '3.44.9'
           cache: true
 
-      - name: Cache pub dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.pub-cache
-          key: ${{ runner.os }}-flutter-3.44.9-pub-${{ hashFiles('pubspec.lock') }}
-
       - name: Cache Gradle
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -56,7 +50,7 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
 
       - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
+        run: flutter pub get
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos
@@ -130,12 +124,6 @@ jobs:
           flutter-version: '3.44.9'
           cache: true
 
-      - name: Cache pub dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.pub-cache
-          key: ${{ runner.os }}-flutter-3.44.9-pub-${{ hashFiles('pubspec.lock') }}
-
       - name: Cache CocoaPods
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -144,7 +132,7 @@ jobs:
           restore-keys: ${{ runner.os }}-pods-
 
       - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
+        run: flutter pub get
 
       - name: Install CocoaPods dependencies
         working-directory: ios

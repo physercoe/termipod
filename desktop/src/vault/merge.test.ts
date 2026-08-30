@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Connection } from '../state/connections.ts';
 import type { VaultBundle } from './bundle.ts';
-import { mergeVaultBundles } from './merge.ts';
+import { canonicalVaultValue, mergeVaultBundles, vaultReviewProjection } from './merge.ts';
 
 function connection(id: string, overrides: Partial<Connection> = {}): Connection {
   return {
@@ -114,6 +114,25 @@ test('equal edit clocks are explicit conflicts and runtime connection activity i
   assert.deepEqual(mergeVaultBundles(local, remote).changes, []);
 });
 
+test('review projection ignores connection activity but pins merge-relevant clocks', () => {
+  const reviewed = bundle([
+    connection('1', { lastConnectedAt: '2026-08-02T00:00:00.000Z' }),
+  ]);
+  const active = structuredClone(reviewed);
+  active.connections[0]!.lastConnectedAt = '2026-08-03T00:00:00.000Z';
+
+  assert.equal(
+    canonicalVaultValue(vaultReviewProjection(active)),
+    canonicalVaultValue(vaultReviewProjection(reviewed)),
+  );
+
+  active.connections[0]!.updatedAt = '2026-08-04T00:00:00.000Z';
+  assert.notEqual(
+    canonicalVaultValue(vaultReviewProjection(active)),
+    canonicalVaultValue(vaultReviewProjection(reviewed)),
+  );
+});
+
 test('preview never exposes changed key or app secret values', () => {
   const local = bundle();
   local.sshKeys = {
@@ -160,11 +179,18 @@ test('timestamp-less app settings and host pins merge additively with local conf
   assert.equal(reviewed.bundle.pinnedHostKeys?.shared, 'remote-pin');
 });
 
-test('unknown Hub sections survive merge for future clients', () => {
-  const remote = bundle();
+test('unknown sections from both sides survive merge and Hub wins a collision', () => {
+  const local = bundle() as VaultBundle & Record<string, unknown>;
+  local.localFutureSection = { version: 1 };
+  local.sharedFutureSection = { source: 'local' };
+  const remote = bundle() as VaultBundle & Record<string, unknown>;
   remote.futureSection = { version: 2 };
+  remote.sharedFutureSection = { source: 'hub' };
 
-  const result = mergeVaultBundles(bundle(), remote);
+  const result = mergeVaultBundles(local, remote);
+  const merged = result.bundle as VaultBundle & Record<string, unknown>;
 
-  assert.deepEqual(result.bundle.futureSection, { version: 2 });
+  assert.deepEqual(merged.localFutureSection, { version: 1 });
+  assert.deepEqual(merged.futureSection, { version: 2 });
+  assert.deepEqual(merged.sharedFutureSection, { source: 'hub' });
 });

@@ -45,6 +45,21 @@ export function canonicalVaultValue(value: unknown): string {
   return JSON.stringify(value) ?? 'undefined';
 }
 
+/**
+ * The local snapshot pinned by a review, minus runtime-only activity that does
+ * not affect either the displayed changes or the merge result. Edit clocks
+ * stay in this projection because they determine which side wins.
+ */
+export function vaultReviewProjection(bundle: VaultBundle): unknown {
+  return {
+    ...bundle,
+    connections: bundle.connections.map((connection) => {
+      const { lastConnectedAt: _lastConnectedAt, ...reviewed } = connection;
+      return reviewed;
+    }),
+  };
+}
+
 function validIso(value: string | null | undefined): string | null {
   if (value === null || value === undefined || Number.isNaN(Date.parse(value))) return null;
   return value;
@@ -116,6 +131,8 @@ function mergeEntities<T extends { id: string }>(
     const remoteUpdatedAt = opts.updatedAt(remote);
     const changed = changedRelation(localUpdatedAt, remoteUpdatedAt);
     const key = `${opts.section}:${local.id}`;
+    // Unequal valid clocks are authoritative. A reviewed resolution can only
+    // decide equal-clock or clockless conflicts where ordering is ambiguous.
     const winner = changed.relation === 'sameTime' || changed.relation === 'ageUnknown'
       ? resolutions[key] ?? changed.winner
       : changed.winner;
@@ -335,6 +352,7 @@ export function mergeVaultBundles(
 
   return {
     bundle: {
+      ...local,
       ...remote,
       connections: connections.items,
       sshKeys: {

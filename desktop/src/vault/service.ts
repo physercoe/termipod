@@ -8,6 +8,7 @@ import { assembleBundle, importBundle, loadVaultState, parseBundle, saveVaultSta
 import {
   canonicalVaultValue,
   mergeVaultBundles,
+  vaultReviewProjection,
   type VaultChange,
   type VaultResolutions,
 } from './merge';
@@ -190,7 +191,7 @@ async function localBundleFingerprint(
   const digest = await crypto.subtle.sign(
     'HMAC',
     hmacKey,
-    new TextEncoder().encode(canonicalVaultValue(bundle)),
+    new TextEncoder().encode(canonicalVaultValue(vaultReviewProjection(bundle))),
   );
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }

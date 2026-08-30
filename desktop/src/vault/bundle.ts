@@ -23,9 +23,6 @@ import { loadJson, saveJson, secretGet, secretSetMany } from '../state/persist';
 /// mobile-authored bundle never wipes a desktop's items.
 
 export interface VaultBundle {
-  // Preserve fields introduced by newer clients when an older desktop parses,
-  // merges, and uploads the bundle again.
-  [key: string]: unknown;
   connections: Connection[];
   sshKeys: {
     meta: SshKeyMeta[];
@@ -46,6 +43,9 @@ export interface VaultBundle {
   // never drops a desktop's pins.
   pinnedHostKeys?: HostPins;
 }
+
+/** A parsed bundle may carry top-level fields introduced by a newer client. */
+export type ParsedVaultBundle = VaultBundle & Record<string, unknown>;
 
 export async function assembleBundle(): Promise<VaultBundle> {
   const connections = listConnections();
@@ -125,10 +125,10 @@ export function readBundleJson(): Promise<string> {
   return assembleBundle().then((b) => JSON.stringify(b));
 }
 
-export function parseBundle(json: string): VaultBundle {
+export function parseBundle(json: string): ParsedVaultBundle {
   const parsed = JSON.parse(json) as unknown;
   const b = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-    ? parsed as Partial<VaultBundle>
+    ? parsed as Partial<VaultBundle> & Record<string, unknown>
     : {};
   return {
     ...b,
@@ -148,7 +148,7 @@ export function parseBundle(json: string): VaultBundle {
     // importBundle can tell "no pins field" from "an empty pin map".
     pinnedHostKeys:
       typeof b.pinnedHostKeys === 'object' && b.pinnedHostKeys !== null ? b.pinnedHostKeys : undefined,
-  };
+  } as ParsedVaultBundle;
 }
 
 /** Non-secret local state that reflects vault identity/version (kept in

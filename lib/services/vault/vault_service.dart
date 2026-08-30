@@ -13,6 +13,7 @@ import '../keychain/secure_storage.dart';
 import '../hub/hub_transport.dart' show HubApiError;
 import '../hub/vault_api.dart';
 import 'vault_crypto.dart';
+import 'vault_merge.dart';
 
 /// A snapshot of the vault's local + remote state for the sync UI.
 class VaultStatus {
@@ -116,7 +117,11 @@ class VaultService {
 
     final bundle = await _assembleBundle();
     final sealed = await _crypto.sealBundle(bundle, vaultKey);
-    await api.pushVault(sealed, baseVersion: 0);
+    await api.pushVault(
+      sealed,
+      baseVersion: 0,
+      deviceName: _defaultDeviceName(),
+    );
 
     final recoveryEnvelope = await _crypto.wrapForRecovery(vaultKey, recoveryCode);
     await api.setRecovery(recoveryEnvelope);
@@ -127,20 +132,40 @@ class VaultService {
 
   // ---- sync -----------------------------------------------------------------
 
-  /// Seal the current connection+key data and push it, resolving a stale-version
-  /// conflict by re-reading and retrying once.
+  /// Reconcile local data with the current Hub snapshot and push the merged
+  /// result. A conflict retries from a fresh decrypt+merge, never by attaching a
+  /// newer version number to stale ciphertext.
   Future<void> push() async {
     final api = _requireApi();
     final vaultKey = await _requireVaultKey();
-    final sealed = await _crypto.sealBundle(await _assembleBundle(), vaultKey);
-    final base = (await api.pullVault())?['version'] as int? ?? 0;
-    try {
-      await api.pushVault(sealed, baseVersion: base);
-    } on HubApiError catch (e) {
-      if (e.status != 409) rethrow;
-      final current = (await api.pullVault())?['version'] as int? ?? 0;
-      await api.pushVault(sealed, baseVersion: current);
-    }
+    final merged = await pushMergedMobileVault(
+      pull: () async {
+        final remote = await api.pullVault();
+        if (remote == null) return null;
+        return VaultRemoteSnapshot(
+          ciphertext: remote['ciphertext'] as String,
+          version: remote['version'] as int? ?? 0,
+        );
+      },
+      open: (ciphertext) => _crypto.openBundle(ciphertext, vaultKey),
+      readLocal: _assembleBundle,
+      seal: (bundle) => _crypto.sealBundle(bundle, vaultKey),
+      push: (ciphertext, baseVersion) async {
+        await api.pushVault(
+          ciphertext,
+          baseVersion: baseVersion,
+          deviceName: _defaultDeviceName(),
+        );
+      },
+      isConflict: (error) => error is HubApiError && error.status == 409,
+    );
+    // A local edit may have landed while network/crypto work was in flight.
+    // Reconcile once more before replacing local storage so that edit remains
+    // local (and will upload on the next sync) instead of being rolled back.
+    final latestLocal = await _assembleBundle();
+    final localResolved =
+        mergeMobileVaultBundles(latestLocal, merged.bundle);
+    await _restoreBundle(localResolved.bundle);
   }
 
   /// Pull the sealed bundle and merge it into local connections/keys.
@@ -149,9 +174,10 @@ class VaultService {
     final vaultKey = await _requireVaultKey();
     final remote = await api.pullVault();
     if (remote == null) return;
-    final bundle =
+    final remoteBundle =
         await _crypto.openBundle(remote['ciphertext'] as String, vaultKey);
-    await _restoreBundle(bundle);
+    final merged = mergeMobileVaultBundles(await _assembleBundle(), remoteBundle);
+    await _restoreBundle(merged.bundle);
   }
 
   // ---- join / recover -------------------------------------------------------
@@ -241,12 +267,9 @@ class VaultService {
   }
 
   Future<void> _restoreBundle(Map<String, dynamic> bundle) async {
-    // importData writes prefs + secure storage directly, so refresh the
-    // in-memory providers afterward (the settings import flow doesn't).
-    await _dataPort.importData(
-      {'format': 'termipod-backup', 'version': 1, 'data': bundle},
-      categories: const {ImportCategory.connections, ImportCategory.sshKeys},
-    );
+    // The bundle has already been reconciled, so apply the resolved known
+    // sections exactly instead of the backup importer's add-only semantics.
+    await _dataPort.replaceVaultData(bundle);
     // Stash pinned host env-keys (ADR-056 D-2) when the bundle carries a
     // non-empty map, so a later assemble re-emits them (preservation only — see
     // _assembleBundle). Absent/empty leaves any local map untouched.

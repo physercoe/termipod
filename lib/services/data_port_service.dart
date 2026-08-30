@@ -247,6 +247,33 @@ class DataPortService {
     return result;
   }
 
+  /// Apply a vault bundle whose conflicts have already been resolved. Unlike
+  /// backup import, vault reconciliation must replace same-ID metadata so the
+  /// selected newer side actually takes effect.
+  Future<void> replaceVaultData(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    final connections = data['connections'] as List? ?? const [];
+    await prefs.setString('connections', jsonEncode(connections));
+
+    final sshKeys = data['sshKeys'] is Map
+        ? (data['sshKeys'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    await prefs.setString('ssh_keys_meta', jsonEncode(sshKeys['meta'] as List? ?? const []));
+
+    final passwords = (data['passwords'] as Map<String, dynamic>? ?? {}).cast<String, String>();
+    for (final entry in passwords.entries) {
+      await _secureStorage.savePassword(entry.key, entry.value);
+    }
+    final privateKeys = (sshKeys['privateKeys'] as Map<String, dynamic>? ?? {}).cast<String, String>();
+    for (final entry in privateKeys.entries) {
+      await _secureStorage.savePrivateKey(entry.key, entry.value);
+    }
+    final passphrases = (sshKeys['passphrases'] as Map<String, dynamic>? ?? {}).cast<String, String>();
+    for (final entry in passphrases.entries) {
+      await _secureStorage.savePassphrase(entry.key, entry.value);
+    }
+  }
+
   Future<ImportResult> _importConnections(
     Map<String, dynamic> data,
     SharedPreferences prefs,

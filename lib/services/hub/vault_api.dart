@@ -39,11 +39,16 @@ class VaultApi {
   Future<Map<String, dynamic>> pushVault(
     String ciphertext, {
     required int baseVersion,
+    String? deviceName,
   }) async {
-    final out = await _t.put(_base, {
+    final body = <String, dynamic>{
       'ciphertext': ciphertext,
       'base_version': baseVersion,
-    });
+    };
+    if (deviceName != null && deviceName.isNotEmpty) {
+      body['device_name'] = deviceName;
+    }
+    final out = await _t.put(_base, body);
     return (out as Map).cast<String, dynamic>();
   }
 

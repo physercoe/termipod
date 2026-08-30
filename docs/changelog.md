@@ -49,7 +49,8 @@ binding). Seed entries prior to that are in
   compare-and-swaps that exact version. A conflict restarts from a fresh pull
   rather than retrying stale ciphertext. Mobile now round-trips every desktop
   connection field and preserves unknown future top-level sections; malformed
-  local records and locally trusted host keys are not silently discarded.
+  local records and one-sided host keys are not silently discarded, while
+  desktop-authored host-key updates remain authoritative on conflicts.
 
 ## 2026.824.751-alpha — 2026-08-24
 

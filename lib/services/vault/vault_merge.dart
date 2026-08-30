@@ -201,10 +201,10 @@ VaultMergeResult mergeMobileVaultBundles(
   final localPins = _stringMap(local['pinnedHostKeys']);
   final remotePins = _stringMap(remote['pinnedHostKeys']);
   if (localPins.isNotEmpty || remotePins.isNotEmpty) {
-    // Never replace a locally trusted host key without an explicit trust
-    // decision. Mobile has no conflict UI, so retain the local pin on a
-    // conflict (matching desktop) while still accepting Hub-only pins.
-    merged['pinnedHostKeys'] = <String, String>{...remotePins, ...localPins};
+    // Desktop originates explicit host-key trust decisions. Mobile only
+    // carries the Hub-authored map, so a newer Hub value wins a conflict while
+    // one-sided pins still survive the merge.
+    merged['pinnedHostKeys'] = <String, String>{...localPins, ...remotePins};
   }
   return VaultMergeResult(merged);
 }

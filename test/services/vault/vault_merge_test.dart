@@ -87,7 +87,7 @@ void main() {
     expect(merged['connections'], [malformed]);
   });
 
-  test('host pin conflicts retain the locally trusted key', () {
+  test('host pin conflicts use the Hub-authored key', () {
     final local = _bundle([])
       ..['pinnedHostKeys'] = {
         'shared.example:22': 'local-key',
@@ -102,7 +102,7 @@ void main() {
     final merged = mergeMobileVaultBundles(local, remote).bundle;
 
     expect(merged['pinnedHostKeys'], {
-      'shared.example:22': 'local-key',
+      'shared.example:22': 'remote-key',
       'local.example:22': 'local-only-key',
       'remote.example:22': 'remote-only-key',
     });

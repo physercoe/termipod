@@ -12,6 +12,7 @@ import {
   forgetLocalVault,
   restoreWithRecovery,
   previewSyncDown,
+  previewSyncUp,
   syncDown,
   syncUp,
   VaultError,
@@ -124,13 +125,13 @@ export function VaultPanel(): JSX.Element | null {
     }
   }
 
-  async function reviewSyncDown(): Promise<void> {
+  async function reviewSync(direction: 'up' | 'down'): Promise<void> {
     if (client === null) return;
     setBusy(true);
     setErr(null);
     setNote(null);
     try {
-      setSyncPreview(await previewSyncDown(client));
+      setSyncPreview(await (direction === 'up' ? previewSyncUp(client) : previewSyncDown(client)));
       setSyncResolutions({});
     } catch (e) {
       setErr(msg(e, t));
@@ -139,16 +140,22 @@ export function VaultPanel(): JSX.Element | null {
     }
   }
 
-  async function applySyncDown(): Promise<void> {
+  async function applySync(): Promise<void> {
     if (client === null || syncPreview === null) return;
     const review = syncPreview;
+    const reviewedInputs = {
+      expectedVersion: review.version,
+      expectedLocalFingerprint: review.localFingerprint,
+      resolutions: syncResolutions satisfies VaultResolutions,
+    };
     const ok = await run(async () => {
-      await syncDown(client, {
-        expectedVersion: review.version,
-        expectedLocalFingerprint: review.localFingerprint,
-        resolutions: syncResolutions satisfies VaultResolutions,
-      });
-      setNote(t('vault.previewApplied'));
+      if (review.direction === 'up') {
+        await syncUp(client, reviewedInputs);
+        setNote(t('vault.previewAppliedUp'));
+      } else {
+        await syncDown(client, reviewedInputs);
+        setNote(t('vault.previewApplied'));
+      }
     });
     setSyncPreview(null);
     if (!ok) setNote(null);
@@ -257,13 +264,8 @@ export function VaultPanel(): JSX.Element | null {
             )}
             {st !== null && st.exists && st.hasLocalKey && (
               <>
-                <ConfirmButton
-                  label={t('vault.syncUp')}
-                  danger
-                  disabled={busy}
-                  onConfirm={() => void run(async () => { await syncUp(client); })}
-                />
-                <button disabled={busy} onClick={() => void reviewSyncDown()}>{t('vault.syncDown')}</button>
+                <button disabled={busy} onClick={() => void reviewSync('up')}>{t('vault.syncUp')}</button>
+                <button disabled={busy} onClick={() => void reviewSync('down')}>{t('vault.syncDown')}</button>
               </>
             )}
             {st !== null && st.exists && !st.hasLocalKey && (
@@ -324,7 +326,7 @@ export function VaultPanel(): JSX.Element | null {
           onResolutionChange={(key, value) => {
             setSyncResolutions((current) => ({ ...current, [key]: value }));
           }}
-          onConfirm={() => void applySyncDown()}
+          onConfirm={() => void applySync()}
         />
       )}
     </section>

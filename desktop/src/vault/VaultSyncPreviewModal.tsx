@@ -35,6 +35,11 @@ export function VaultSyncPreviewModal({
   const selected = (change: VaultChange): VaultResolution =>
     resolutions[change.key] ?? (change.action === 'useRemote' ? 'remote' : 'local');
   const action = (change: VaultChange): string => {
+    if (preview.direction === 'up') {
+      if (change.relation === 'localOnly') return t('vault.preview.action.addLocalToHub');
+      if (change.relation === 'remoteOnly') return t('vault.preview.action.keepRemote');
+      return change.action === 'useRemote' ? t('vault.preview.action.useRemote') : t('vault.preview.action.useLocal');
+    }
     if (change.relation === 'remoteOnly') return t('vault.preview.action.addRemote');
     return selected(change) === 'remote' ? t('vault.preview.action.useRemote') : t('vault.preview.action.keepLocal');
   };
@@ -43,6 +48,8 @@ export function VaultSyncPreviewModal({
       ? `${t('vault.preview.secret')}: ${change.label.slice('secret:'.length)}`
       : change.label;
 
+  const title = t(preview.direction === 'up' ? 'vault.previewTitleUp' : 'vault.previewTitle');
+  const intro = t(preview.direction === 'up' ? 'vault.previewIntroUp' : 'vault.previewIntro');
   const snapshotTime = displayTime(preview.updatedAt, t('vault.previewUnknown'));
   const snapshotDevice = preview.lastDevice !== null && preview.lastDevice !== '' ? ` · ${preview.lastDevice}` : '';
   return (
@@ -50,12 +57,12 @@ export function VaultSyncPreviewModal({
       onClose={() => { if (!busy) onClose(); }}
       closeOnBackdrop={!busy}
       className="vault-sync-preview"
-      ariaLabel={t('vault.previewTitle')}
+      ariaLabel={title}
     >
       <div className="vault-sync-preview-head">
         <div>
-          <h3>{t('vault.previewTitle')}</h3>
-          <p className="muted small">{t('vault.previewIntro')}</p>
+          <h3>{title}</h3>
+          <p className="muted small">{intro}</p>
         </div>
         <button type="button" aria-label={t('vault.previewCancel')} disabled={busy} onClick={onClose}>
           ×
@@ -101,7 +108,11 @@ export function VaultSyncPreviewModal({
                                   onResolutionChange(change.key, event.target.value as VaultResolution)
                                 }
                               >
-                                <option value="local">{t('vault.preview.action.keepLocal')}</option>
+                                <option value="local">
+                                  {t(preview.direction === 'up'
+                                    ? 'vault.preview.action.useLocal'
+                                    : 'vault.preview.action.keepLocal')}
+                                </option>
                                 <option value="remote">{t('vault.preview.action.useRemote')}</option>
                               </select>
                             ) : (

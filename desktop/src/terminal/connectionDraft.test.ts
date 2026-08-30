@@ -8,6 +8,7 @@ function draft(over: Partial<ConnectionDraft> = {}): ConnectionDraft {
     id: null,
     name: '',
     group: 'default',
+    note: '',
     host: ' host.example.com ',
     port: '2222',
     user: ' wb ',
@@ -62,6 +63,7 @@ test('Connect persistence creates a reusable row and stores passwords through se
       proxyPort: '1081',
       proxyUser: ' proxy-user ',
       proxyPassword: 'proxy-secret',
+      note: ' GPU node; CUDA 13 and maintenance on Fridays. ',
     }),
     {
       defaultGroup: 'default',
@@ -85,6 +87,7 @@ test('Connect persistence creates a reusable row and stores passwords through se
     id: undefined,
     name: 'host.example.com',
     group: 'default',
+    note: 'GPU node; CUDA 13 and maintenance on Fridays.',
     host: 'host.example.com',
     port: 2222,
     username: 'wb',
@@ -125,6 +128,7 @@ test('updating key auth keeps the row id and clears disabled hop fields and pass
   assert.ok(input !== undefined);
   assert.equal(input?.id, 'existing');
   assert.equal(input?.keyId, 'key-1');
+  assert.equal(input?.note, null);
   assert.equal(input?.jumpHost, null);
   assert.equal(input?.proxyHost, null);
   assert.deepEqual(secrets, ['existing:']);

@@ -20,6 +20,9 @@ export interface Connection {
   // Nav grouping (desktop). Absent on older records and on the mobile bundle →
   // treated as the DEFAULT_GROUP by `connectionGroup`.
   group?: string | null;
+  // Free-form desktop metadata about the host. Optional so older records and
+  // mobile-authored vault bundles continue to load unchanged.
+  note?: string | null;
   createdAt: string; // ISO-8601
   lastConnectedAt: string | null;
   deepLinkId: string | null;
@@ -162,6 +165,7 @@ export function upsertConnection(input: Partial<Connection> & { name: string; ho
     tmuxPath: input.tmuxPath ?? existing?.tmuxPath ?? null,
     terminalMode: input.terminalMode ?? existing?.terminalMode ?? null,
     group: (input.group ?? existing?.group ?? '').trim() || DEFAULT_GROUP,
+    note: pickField(input, existing, 'note'),
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     lastConnectedAt: input.lastConnectedAt ?? existing?.lastConnectedAt ?? null,
     deepLinkId: existing?.deepLinkId ?? null,

@@ -194,3 +194,40 @@ test('unknown sections from both sides survive merge and Hub wins a collision', 
   assert.deepEqual(merged.futureSection, { version: 2 });
   assert.deepEqual(merged.sharedFutureSection, { source: 'hub' });
 });
+
+test('mobile-authored snapshot previews omitted desktop sections as local-only additions', () => {
+  const local = bundle();
+  local.items = [{
+    id: 'item-1', title: 'Registry', type: 'login', favorite: false,
+    username: '', url: '', endpoint: '', format: '', interpreter: '', secretSlots: ['password'],
+    createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z',
+  }];
+  local.itemSecrets = { 'item-1': { password: 'LOCAL-ITEM-SECRET' } };
+  local.app = { config: { sync_provider: 'webdav' }, secrets: { sync_password: 'LOCAL-APP-SECRET' } };
+  local.pinnedHostKeys = { 'host-1': 'LOCAL-PIN' };
+
+  const remote = bundle();
+  remote.items = undefined;
+  remote.itemSecrets = undefined;
+  remote.app = undefined;
+  remote.pinnedHostKeys = undefined;
+
+  const down = mergeVaultBundles(local, remote);
+  assert.deepEqual(down.changes, [], 'sync-down must not list local sections an older Hub bundle cannot change');
+
+  const result = mergeVaultBundles(local, remote, {}, 'up');
+  assert.equal(result.bundle.items?.length, 1);
+  assert.deepEqual(result.bundle.itemSecrets, local.itemSecrets);
+  assert.deepEqual(result.bundle.app, local.app);
+  assert.deepEqual(result.bundle.pinnedHostKeys, local.pinnedHostKeys);
+  assert.deepEqual(
+    result.changes.map((change) => [change.section, change.id, change.relation, change.action]),
+    [
+      ['items', 'item-1', 'localOnly', 'keepLocal'],
+      ['app', 'sync_provider', 'localOnly', 'keepLocal'],
+      ['app', 'sync_password', 'localOnly', 'keepLocal'],
+      ['hostPins', 'host-1', 'localOnly', 'keepLocal'],
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(result.changes), /LOCAL-(?:ITEM|APP)-SECRET|LOCAL-PIN/);
+});

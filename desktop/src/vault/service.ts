@@ -11,6 +11,7 @@ import {
   vaultReviewProjection,
   type VaultChange,
   type VaultResolutions,
+  type VaultSyncDirection,
 } from './merge';
 import {
   vaultGenerateDevice,
@@ -148,17 +149,38 @@ export async function createVault(client: HubClient, hint?: string): Promise<str
   return code;
 }
 
-/** Seal the current local data and push it up (optimistic-locked on the known
- * version). Throws a coded VaultError on a missing key or 409 version conflict. */
-export async function syncUp(client: HubClient): Promise<number> {
+export interface VaultSyncReview {
+  expectedVersion: number;
+  expectedLocalFingerprint: string;
+  resolutions: VaultResolutions;
+}
+
+/** Merge the current Hub snapshot with local data, then seal and push the
+ * resolved bundle. Both reviewed inputs are checked before the atomic PUT, so
+ * no stale or unreviewed ciphertext is submitted. */
+export async function syncUp(client: HubClient, review?: VaultSyncReview): Promise<number> {
   const vaultKey = await secretGet(KEY_VAULT);
   if (vaultKey === null) throw new VaultError('noKey');
-  const bundle = JSON.stringify(await assembleBundle());
-  const ciphertext = await vaultSeal(vaultKey, bundle);
+  const remote = await openRemoteBundle(client, vaultKey);
+  if (review !== undefined && remote.version !== review.expectedVersion) throw new VaultError('stalePreview');
+  const local = await assembleBundle();
+  if (
+    review !== undefined
+    && await localBundleFingerprint(local, vaultKey) !== review.expectedLocalFingerprint
+  ) {
+    throw new VaultError('stalePreview');
+  }
+  const merged = mergeVaultBundles(local, remote.bundle, review?.resolutions, 'up');
+  const ciphertext = await vaultSeal(vaultKey, JSON.stringify(merged.bundle));
   const state = loadVaultState();
   try {
-    const res = await client.putVault(ciphertext, state.version, await machineName());
-    const version = num(res, 'version') ?? state.version + 1;
+    const res = await client.putVault(ciphertext, remote.version, await machineName());
+    const version = num(res, 'version') ?? remote.version + 1;
+    // The upload is also a bidirectional reconciliation: retain the exact
+    // merged snapshot locally so Hub-only entries become immediately usable.
+    await importBundle(merged.bundle);
+    // Advance local version state only after the merged data was imported. If
+    // that write fails, the device must not claim it fully applied this version.
     saveVaultState({ ...state, version });
     return version;
   } catch (e) {
@@ -170,6 +192,7 @@ export async function syncUp(client: HubClient): Promise<number> {
 }
 
 export interface VaultSyncPreview {
+  direction: VaultSyncDirection;
   version: number;
   localFingerprint: string;
   updatedAt: string | null;
@@ -216,13 +239,14 @@ async function openRemoteBundle(client: HubClient, vaultKey: string): Promise<{
 
 /** Decrypt and compare the hub vault without mutating local state. The result
  * is secret-free and safe to hold in React state for the review dialog. */
-export async function previewSyncDown(client: HubClient): Promise<VaultSyncPreview> {
+async function previewSync(client: HubClient, direction: VaultSyncDirection): Promise<VaultSyncPreview> {
   const vaultKey = await secretGet(KEY_VAULT);
   if (vaultKey === null) throw new VaultError('noKey');
   const remote = await openRemoteBundle(client, vaultKey);
   const local = await assembleBundle();
-  const { changes } = mergeVaultBundles(local, remote.bundle);
+  const { changes } = mergeVaultBundles(local, remote.bundle, {}, direction);
   return {
+    direction,
     version: remote.version,
     localFingerprint: await localBundleFingerprint(local, vaultKey),
     updatedAt: remote.updatedAt,
@@ -231,17 +255,23 @@ export async function previewSyncDown(client: HubClient): Promise<VaultSyncPrevi
   };
 }
 
+/** Compare local and Hub data without mutating either side before sync-up. */
+export function previewSyncUp(client: HubClient): Promise<VaultSyncPreview> {
+  return previewSync(client, 'up');
+}
+
+/** Compare local and Hub data without mutating either side before sync-down. */
+export function previewSyncDown(client: HubClient): Promise<VaultSyncPreview> {
+  return previewSync(client, 'down');
+}
+
 /** Pull and non-destructively merge the hub vault. Local-only records survive;
  * remote-only records are added; same-ID conflicts use trustworthy record
  * timestamps and otherwise use the reviewer's explicit choice. Both snapshots
  * are pinned so apply cannot act on data that was not reviewed. */
 export async function syncDown(
   client: HubClient,
-  review?: {
-    expectedVersion: number;
-    expectedLocalFingerprint: string;
-    resolutions: VaultResolutions;
-  },
+  review?: VaultSyncReview,
 ): Promise<number> {
   const vaultKey = await secretGet(KEY_VAULT);
   if (vaultKey === null) throw new VaultError('noKey');
@@ -254,7 +284,7 @@ export async function syncDown(
   ) {
     throw new VaultError('stalePreview');
   }
-  const merged = mergeVaultBundles(local, remote.bundle, review?.resolutions);
+  const merged = mergeVaultBundles(local, remote.bundle, review?.resolutions, 'down');
   await importBundle(merged.bundle);
   const state = loadVaultState();
   saveVaultState({ ...state, version: remote.version });

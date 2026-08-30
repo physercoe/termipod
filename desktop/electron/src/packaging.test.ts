@@ -6,19 +6,27 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ELECTRON_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILDER_CONFIG = readFileSync(join(ELECTRON_DIR, 'electron-builder.yml'), 'utf8');
-const AFTER_PACK = readFileSync(join(ELECTRON_DIR, 'scripts', 'after-pack.cjs'), 'utf8');
 const require = createRequire(import.meta.url);
 const { rewriteMachOUuids } = require('../scripts/macho-uuid.cjs') as {
   rewriteMachOUuids: (
     buffer: Buffer,
     seed: string,
   ) => { buffer: Buffer; rewritten: Array<{ original: Buffer; replacement: Buffer }> };
+};
+const { rewriteExecutableUuid } = require('../scripts/after-pack.cjs') as {
+  rewriteExecutableUuid: (
+    executable: string,
+    seed: string,
+    signer?: (executable: string) => void,
+  ) => Promise<{ buffer: Buffer }>;
 };
 
 function electronLikeMachO(): Buffer {
@@ -58,10 +66,22 @@ test('macOS packaging replaces Electron shared executable UUID deterministically
   assert.equal(first.rewritten[0].replacement[8] >> 6, 2, 'replacement must use the RFC UUID variant');
 });
 
-test('macOS packaging restores an ad-hoc signature after rewriting LC_UUID', () => {
-  assert.match(
-    AFTER_PACK,
-    /execFileSync\('\/usr\/bin\/codesign', \['--force', '--sign', '-', executable\]\)/,
-    'the rewritten executable must remain launchable in unsigned alpha packages',
-  );
+test('macOS packaging signs the executable after rewriting LC_UUID', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'termipod-after-pack-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const executable = join(directory, 'TermiPod');
+  const original = electronLikeMachO();
+  await writeFile(executable, original);
+
+  let signedPath: string | undefined;
+  let bytesAtSigning: Buffer | undefined;
+  const patched = await rewriteExecutableUuid(executable, 'app.termipod.desktop\0test', (path) => {
+    signedPath = path;
+    bytesAtSigning = readFileSync(path);
+  });
+
+  assert.equal(signedPath, executable);
+  assert.deepEqual(bytesAtSigning, patched.buffer, 'the signer must observe the rewritten bytes');
+  assert.deepEqual(await readFile(executable), patched.buffer);
+  assert.notDeepEqual(patched.buffer, original);
 });

@@ -3,6 +3,21 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { rewriteMachOUuids } = require('./macho-uuid.cjs');
 
+function adHocSign(executable) {
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', executable]);
+}
+
+async function rewriteExecutableUuid(executable, seed, signer = adHocSign) {
+  const originalExecutable = await fs.readFile(executable);
+  const patched = rewriteMachOUuids(originalExecutable, seed);
+  await fs.writeFile(executable, patched.buffer);
+  // Electron's executable arrives ad-hoc signed. Mutating LC_UUID invalidates
+  // that CodeDirectory, and alpha packages deliberately skip Developer ID
+  // signing, so restore a valid ad-hoc signature before packaging continues.
+  signer(executable);
+  return patched;
+}
+
 /**
  * Apply the two macOS mutations that must happen before code signing:
  * give the app executable its own LC_UUID for Local Network attribution, and
@@ -16,14 +31,8 @@ exports.default = async function afterPack(context) {
   // mutation deliberately scoped to that executable; helper UUIDs do not
   // participate in direct host connections.
   const executable = path.join(appBundle, 'Contents', 'MacOS', context.packager.appInfo.productFilename);
-  const originalExecutable = await fs.readFile(executable);
   const seed = `${context.packager.appInfo.id}\0${context.packager.appInfo.version}`;
-  const patched = rewriteMachOUuids(originalExecutable, seed);
-  await fs.writeFile(executable, patched.buffer);
-  // Electron's executable arrives ad-hoc signed. Mutating LC_UUID invalidates
-  // that CodeDirectory, and alpha packages deliberately skip Developer ID
-  // signing, so restore a valid ad-hoc signature before packaging continues.
-  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', executable]);
+  await rewriteExecutableUuid(executable, seed);
 
   const resources = path.join(
     appBundle,
@@ -50,3 +59,5 @@ exports.default = async function afterPack(context) {
     throw new Error(`node-pty spawn-helper not found under ${resources}`);
   }
 };
+
+exports.rewriteExecutableUuid = rewriteExecutableUuid;

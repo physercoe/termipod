@@ -160,12 +160,11 @@ jobs:
             # Keep the fast local-spec path first. On retry, refresh the spec
             # repo as well so stale-spec failures can recover; deleting Pods
             # alone would only retry the same resolution state.
-            if [[ "$attempt" -eq 1 ]]; then
-              pod_args=()
-            else
-              pod_args=(--repo-update)
+            pod_args=(install)
+            if [[ "$attempt" -gt 1 ]]; then
+              pod_args+=(--repo-update)
             fi
-            if pod install "${pod_args[@]}"; then
+            if pod "${pod_args[@]}"; then
               break
             fi
             if [[ "$attempt" -eq 3 ]]; then

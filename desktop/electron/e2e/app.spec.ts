@@ -292,6 +292,86 @@ test('terminal UI: saved hosts expose quick connect without crowding session chr
   }
 });
 
+test('terminal UI: connection editor compacts fields and round-trips host notes', async () => {
+  const original = await page.evaluate(() => localStorage.getItem('connections'));
+  try {
+    await page.evaluate(() => {
+      localStorage.setItem('connections', JSON.stringify([{
+        id: 'e2e-connection-note',
+        name: 'GPU node',
+        group: 'work',
+        note: 'CUDA host in the upstairs rack.',
+        host: '10.0.0.8',
+        port: 2222,
+        username: 'operator',
+        authMethod: 'password',
+        keyId: null,
+        tmuxPath: null,
+        createdAt: '2026-08-29T00:00:00.000Z',
+        lastConnectedAt: null,
+        deepLinkId: null,
+      }]));
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+    await page.locator('[data-job="terminal"]').click();
+    await page.locator('.term-nav-conn', { hasText: 'GPU node' }).locator('.term-nav-pick').click();
+
+    const form = page.locator('.term-form');
+    const note = form.locator('.term-field-note textarea');
+    await expect(note).toHaveValue('CUDA host in the upstairs rack.');
+
+    const boxes = await form.evaluate((el) => {
+      const rect = (selector: string): DOMRect => el.querySelector(selector)!.getBoundingClientRect();
+      const name = rect('.term-field-name');
+      const group = rect('.term-field-group');
+      const host = rect('.term-field-host');
+      const port = rect('.term-field-port');
+      const user = rect('.term-field-user');
+      return {
+        columns: getComputedStyle(el).gridTemplateColumns.split(' ').length,
+        nameY: name.y,
+        groupY: group.y,
+        hostY: host.y,
+        portY: port.y,
+        userY: user.y,
+        hostW: host.width,
+        portW: port.width,
+        formW: el.getBoundingClientRect().width,
+      };
+    });
+    expect(boxes.columns).toBe(12);
+    expect(Math.abs(boxes.nameY - boxes.groupY)).toBeLessThan(2);
+    expect(Math.max(boxes.hostY, boxes.portY, boxes.userY) - Math.min(boxes.hostY, boxes.portY, boxes.userY)).toBeLessThan(2);
+    expect(boxes.hostW).toBeGreaterThan(boxes.portW * 2);
+    expect(boxes.formW).toBeLessThanOrEqual(1081);
+
+    await note.fill('CUDA host; maintenance window Friday 18:00.');
+    await form.getByRole('button', { name: 'Update', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => {
+      const rows = JSON.parse(localStorage.getItem('connections') ?? '[]') as Array<{ note?: string }>;
+      return rows[0]?.note;
+    })).toBe('CUDA host; maintenance window Friday 18:00.');
+
+    // The form responds to the pane width, not the outer window: a right dock
+    // can be narrow even on a large display. Force that container width and
+    // prove every field collapses to one track without horizontal overflow.
+    await page.locator('.term-connect').evaluate((el) => {
+      (el as HTMLElement).style.width = '500px';
+      (el as HTMLElement).style.flex = '0 0 500px';
+    });
+    await expect.poll(() => form.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(1);
+    expect(await form.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  } finally {
+    await page.evaluate((value) => {
+      if (value === null) localStorage.removeItem('connections');
+      else localStorage.setItem('connections', value);
+    }, original);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissConnectModal();
+  }
+});
+
 test('terminal UI: opening a local shell mounts an xterm screen', async () => {
   // On boot with no hub configured the "Add a hub" connect modal is open; its
   // backdrop intercepts clicks, so dismiss it before touching anything else

@@ -55,6 +55,7 @@ let connectSeq = 0;
 interface FormSnapshot {
   name: string;
   group: string;
+  note: string;
   host: string;
   port: string;
   user: string;
@@ -79,6 +80,7 @@ interface FormSnapshot {
 const BLANK_FORM: FormSnapshot = {
   name: '',
   group: DEFAULT_GROUP,
+  note: '',
   host: '',
   port: '22',
   user: '',
@@ -126,6 +128,7 @@ export function ConnectForm({
   const [id, setId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [group, setGroup] = useState(DEFAULT_GROUP);
+  const [note, setNote] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [user, setUser] = useState('');
@@ -171,6 +174,7 @@ export function ConnectForm({
     setId(null);
     setName('');
     setGroup(DEFAULT_GROUP);
+    setNote('');
     setHost('');
     setPort('22');
     setUser('');
@@ -205,6 +209,7 @@ export function ConnectForm({
     setId(c.id);
     setName(c.name);
     setGroup(grp);
+    setNote(c.note ?? '');
     setHost(c.host);
     setPort(String(c.port));
     setUser(c.username);
@@ -229,6 +234,7 @@ export function ConnectForm({
     setBase({
       name: c.name,
       group: grp,
+      note: c.note ?? '',
       host: c.host,
       port: String(c.port),
       user: c.username,
@@ -256,6 +262,7 @@ export function ConnectForm({
     return {
       name,
       group,
+      note,
       host,
       port,
       user,
@@ -438,6 +445,7 @@ export function ConnectForm({
   const dirty =
     name !== base.name ||
     group !== base.group ||
+    note !== base.note ||
     host !== base.host ||
     port !== base.port ||
     user !== base.user ||
@@ -471,11 +479,11 @@ export function ConnectForm({
             <button onClick={resetForm}>{t('term.newConnection')}</button>
           )}
         </div>
-        <label className="wide">
+        <label className="term-field-name">
           {t('term.name')}
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('term.namePlaceholder')} />
         </label>
-        <label className="wide">
+        <label className="term-field-group">
           {t('term.group')}
           {/* Free-text with a datalist of existing groups: pick one or type a new
               name (it materialises on save). */}
@@ -491,19 +499,28 @@ export function ConnectForm({
             ))}
           </datalist>
         </label>
-        <label className="wide">
+        <label className="wide term-field-note">
+          {t('term.hostNote')}
+          <textarea
+            rows={2}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={t('term.hostNotePlaceholder')}
+          />
+        </label>
+        <label className="term-field-host">
           {t('term.host')}
           <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="host.example.com" />
         </label>
-        <label>
+        <label className="term-field-port">
           {t('term.port')}
           <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
         </label>
-        <label>
+        <label className="term-field-user">
           {t('term.user')}
           <input value={user} onChange={(e) => setUser(e.target.value)} />
         </label>
-        <label className="wide">
+        <label className="term-field-auth">
           {t('term.auth')}
           <div className="seg">
             <button className={auth === 'password' ? 'seg-btn active' : 'seg-btn'} onClick={() => setAuth('password')}>
@@ -515,13 +532,13 @@ export function ConnectForm({
           </div>
         </label>
         {auth === 'password' ? (
-          <label className="wide">
+          <label className="term-field-credential">
             {t('term.password')}
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
         ) : (
           <>
-            <label className="wide">
+            <label className="term-field-credential">
               {t('term.useKey')}
               <select value={keyId} onChange={(e) => setKeyId(e.target.value)}>
                 <option value="">{t('term.pasteKey')}</option>
@@ -543,7 +560,7 @@ export function ConnectForm({
                     onChange={(e) => setPrivateKey(e.target.value)}
                   />
                 </label>
-                <label className="wide">
+                <label className="term-field-credential">
                   {t('term.passphrase')}
                   <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
                 </label>
@@ -559,19 +576,19 @@ export function ConnectForm({
         </label>
         {useJump && (
           <>
-            <label className="wide">
+            <label className="term-field-host">
               {t('term.jumpHost')}
               <input value={jumpHost} onChange={(e) => setJumpHost(e.target.value)} placeholder="bastion.example.com" />
             </label>
-            <label>
+            <label className="term-field-port">
               {t('term.jumpPort')}
               <input value={jumpPort} onChange={(e) => setJumpPort(e.target.value)} inputMode="numeric" />
             </label>
-            <label>
+            <label className="term-field-user">
               {t('term.jumpUser')}
               <input value={jumpUser} onChange={(e) => setJumpUser(e.target.value)} placeholder={user.trim()} />
             </label>
-            <label className="wide">
+            <label className="term-field-auth">
               {t('term.jumpAuth')}
               <div className="seg">
                 <button
@@ -586,7 +603,7 @@ export function ConnectForm({
               </div>
             </label>
             {jumpAuth === 'password' ? (
-              <label className="wide">
+              <label className="term-field-credential">
                 {t('term.jumpPassword')}
                 <input
                   type="password"
@@ -596,7 +613,7 @@ export function ConnectForm({
                 />
               </label>
             ) : (
-              <label className="wide">
+              <label className="term-field-credential">
                 {t('term.useKey')}
                 <select value={jumpKeyId} onChange={(e) => setJumpKeyId(e.target.value)}>
                   <option value="">{t('term.jumpPickKey')}</option>
@@ -619,19 +636,19 @@ export function ConnectForm({
         </label>
         {useProxy && (
           <>
-            <label className="wide">
+            <label className="term-field-host">
               {t('term.proxyHost')}
               <input value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
             </label>
-            <label>
+            <label className="term-field-port">
               {t('term.proxyPort')}
               <input value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} inputMode="numeric" />
             </label>
-            <label>
+            <label className="term-field-user">
               {t('term.proxyUser')}
               <input value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} />
             </label>
-            <label className="wide">
+            <label className="term-field-credential">
               {t('term.proxyPassword')}
               <input type="password" value={proxyPassword} onChange={(e) => setProxyPassword(e.target.value)} />
             </label>

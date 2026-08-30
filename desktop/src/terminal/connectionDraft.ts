@@ -6,6 +6,7 @@ export interface ConnectionDraft {
   id: string | null;
   name: string;
   group: string;
+  note: string;
   host: string;
   port: string;
   user: string;
@@ -47,6 +48,7 @@ export async function rememberConnection(draft: ConnectionDraft, io: ConnectionD
     id: draft.id ?? undefined,
     name: draft.name.trim() || draft.host.trim(),
     group: draft.group.trim() || io.defaultGroup,
+    note: draft.note.trim() || null,
     host: draft.host.trim(),
     port: Number(draft.port) || 22,
     username: draft.user.trim(),

@@ -540,6 +540,7 @@
   flex-direction: row;
   gap: var(--spacing-s12);
   align-items: stretch;
+  container-type: inline-size;
 }
 /* ConnectForm header — the saved-connection list moved to the terminal nav, so
    the form fills the pane; this titles it (New / Edit) and offers a reset. */
@@ -637,10 +638,14 @@
 }
 .term-form {
   flex: 1;
+  width: 100%;
+  max-width: 1080px;
   min-width: 0;
+  margin-inline: auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-s12);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--spacing-s12);
+  row-gap: var(--spacing-s8);
   align-content: start;
 }
 .term-form select {
@@ -660,6 +665,13 @@
 .term-form .wide {
   grid-column: 1 / -1;
 }
+.term-form .term-field-name { grid-column: span 7; }
+.term-form .term-field-group { grid-column: span 5; }
+.term-form .term-field-host { grid-column: span 6; }
+.term-form .term-field-port { grid-column: span 2; }
+.term-form .term-field-user { grid-column: span 4; }
+.term-form .term-field-auth { grid-column: span 5; }
+.term-form .term-field-credential { grid-column: span 7; }
 /* Section enable-toggles (jump host / SOCKS5 proxy): checkbox and caption on
    one row, unlike the stacked field labels. */
 .term-form .term-toggle {
@@ -678,6 +690,39 @@
   padding: var(--spacing-s8);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--font-size-label);
+}
+.term-form .term-field-note textarea {
+  min-height: 60px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+@container (max-width: 760px) {
+  .term-form {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .term-form .term-field-name,
+  .term-form .term-field-group,
+  .term-form .term-field-auth,
+  .term-form .term-field-credential {
+    grid-column: span 3;
+  }
+  .term-form .term-field-host { grid-column: span 6; }
+  .term-form .term-field-port { grid-column: span 2; }
+  .term-form .term-field-user { grid-column: span 4; }
+}
+@container (max-width: 520px) {
+  .term-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .term-form .term-field-name,
+  .term-form .term-field-group,
+  .term-form .term-field-host,
+  .term-form .term-field-port,
+  .term-form .term-field-user,
+  .term-form .term-field-auth,
+  .term-form .term-field-credential {
+    grid-column: 1;
+  }
 }
 .term-screen {
   flex: 1;

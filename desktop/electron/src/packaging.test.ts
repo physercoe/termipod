@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const ELECTRON_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILDER_CONFIG = readFileSync(join(ELECTRON_DIR, 'electron-builder.yml'), 'utf8');
+const AFTER_PACK = readFileSync(join(ELECTRON_DIR, 'scripts', 'after-pack.cjs'), 'utf8');
 const require = createRequire(import.meta.url);
 const { rewriteMachOUuids } = require('../scripts/macho-uuid.cjs') as {
   rewriteMachOUuids: (
@@ -55,4 +56,12 @@ test('macOS packaging replaces Electron shared executable UUID deterministically
   assert.notDeepEqual(first.buffer, nextVersion.buffer);
   assert.equal(first.rewritten[0].replacement[6] >> 4, 8, 'replacement must be an RFC 9562 UUIDv8');
   assert.equal(first.rewritten[0].replacement[8] >> 6, 2, 'replacement must use the RFC UUID variant');
+});
+
+test('macOS packaging restores an ad-hoc signature after rewriting LC_UUID', () => {
+  assert.match(
+    AFTER_PACK,
+    /execFileSync\('\/usr\/bin\/codesign', \['--force', '--sign', '-', executable\]\)/,
+    'the rewritten executable must remain launchable in unsigned alpha packages',
+  );
 });

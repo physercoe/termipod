@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { rewriteMachOUuids } = require('./macho-uuid.cjs');
 
 /**
@@ -11,11 +12,18 @@ exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return;
 
   const appBundle = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+  // SSH and SFTP sockets are opened by the Electron main process. Keep this
+  // mutation deliberately scoped to that executable; helper UUIDs do not
+  // participate in direct host connections.
   const executable = path.join(appBundle, 'Contents', 'MacOS', context.packager.appInfo.productFilename);
   const originalExecutable = await fs.readFile(executable);
   const seed = `${context.packager.appInfo.id}\0${context.packager.appInfo.version}`;
   const patched = rewriteMachOUuids(originalExecutable, seed);
   await fs.writeFile(executable, patched.buffer);
+  // Electron's executable arrives ad-hoc signed. Mutating LC_UUID invalidates
+  // that CodeDirectory, and alpha packages deliberately skip Developer ID
+  // signing, so restore a valid ad-hoc signature before packaging continues.
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', executable]);
 
   const resources = path.join(
     appBundle,

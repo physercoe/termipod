@@ -20,6 +20,7 @@ import {
   vaultStatusKey,
 } from '../vault/service';
 import { VaultSyncPreviewModal } from '../vault/VaultSyncPreviewModal';
+import type { VaultResolution, VaultResolutions } from '../vault/merge';
 
 /// Error → display text: the vault service throws coded VaultErrors (the
 /// service layer has no t()), so the codes resolve to localized copy here at
@@ -79,6 +80,7 @@ export function VaultPanel(): JSX.Element | null {
   const [showRestore, setShowRestore] = useState(false);
   const [hint, setHint] = useState(''); // optional recovery hint, asked at create time
   const [syncPreview, setSyncPreview] = useState<VaultSyncPreview | null>(null);
+  const [syncResolutions, setSyncResolutions] = useState<Record<string, VaultResolution>>({});
 
   // Cached + prefetched (AppShell primes this on connect) so the status is
   // already resolved when Settings opens — no keychain-latency "splash".
@@ -129,6 +131,7 @@ export function VaultPanel(): JSX.Element | null {
     setNote(null);
     try {
       setSyncPreview(await previewSyncDown(client));
+      setSyncResolutions({});
     } catch (e) {
       setErr(msg(e, t));
     } finally {
@@ -138,9 +141,13 @@ export function VaultPanel(): JSX.Element | null {
 
   async function applySyncDown(): Promise<void> {
     if (client === null || syncPreview === null) return;
-    const version = syncPreview.version;
+    const review = syncPreview;
     const ok = await run(async () => {
-      await syncDown(client, version);
+      await syncDown(client, {
+        expectedVersion: review.version,
+        expectedLocalFingerprint: review.localFingerprint,
+        resolutions: syncResolutions satisfies VaultResolutions,
+      });
       setNote(t('vault.previewApplied'));
     });
     setSyncPreview(null);
@@ -311,8 +318,12 @@ export function VaultPanel(): JSX.Element | null {
       {syncPreview !== null && (
         <VaultSyncPreviewModal
           preview={syncPreview}
+          resolutions={syncResolutions}
           busy={busy}
           onClose={() => setSyncPreview(null)}
+          onResolutionChange={(key, value) => {
+            setSyncResolutions((current) => ({ ...current, [key]: value }));
+          }}
           onConfirm={() => void applySyncDown()}
         />
       )}

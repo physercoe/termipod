@@ -23,6 +23,9 @@ import { loadJson, saveJson, secretGet, secretSetMany } from '../state/persist';
 /// mobile-authored bundle never wipes a desktop's items.
 
 export interface VaultBundle {
+  // Preserve fields introduced by newer clients when an older desktop parses,
+  // merges, and uploads the bundle again.
+  [key: string]: unknown;
   connections: Connection[];
   sshKeys: {
     meta: SshKeyMeta[];
@@ -123,8 +126,12 @@ export function readBundleJson(): Promise<string> {
 }
 
 export function parseBundle(json: string): VaultBundle {
-  const b = JSON.parse(json) as Partial<VaultBundle>;
+  const parsed = JSON.parse(json) as unknown;
+  const b = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Partial<VaultBundle>
+    : {};
   return {
+    ...b,
     connections: Array.isArray(b.connections) ? b.connections : [],
     sshKeys: {
       meta: Array.isArray(b.sshKeys?.meta) ? b.sshKeys!.meta : [],

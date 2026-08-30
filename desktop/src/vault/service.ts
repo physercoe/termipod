@@ -5,7 +5,12 @@ import { num, str } from '../hub/types';
 import { isShell } from '../platform';
 import { secretDeleteMany, secretGet, secretSet } from '../state/persist';
 import { assembleBundle, importBundle, loadVaultState, parseBundle, saveVaultState } from './bundle';
-import { mergeVaultBundles, type VaultChange } from './merge';
+import {
+  canonicalVaultValue,
+  mergeVaultBundles,
+  type VaultChange,
+  type VaultResolutions,
+} from './merge';
 import {
   vaultGenerateDevice,
   vaultGenerateKey,
@@ -29,7 +34,7 @@ const KEY_SEED = 'vault_device_seed';
 /// Stable error codes for the sync flows — the service layer has no t(), so it
 /// throws coded errors and the UI maps code → localized message at the catch
 /// site (#320). Keep the codes stable: they are the i18n key suffixes.
-export type VaultErrorCode = 'noKey' | 'conflict' | 'empty' | 'noRecovery';
+export type VaultErrorCode = 'noKey' | 'conflict' | 'empty' | 'noRecovery' | 'stalePreview';
 
 export class VaultError extends Error {
   constructor(readonly code: VaultErrorCode) {
@@ -165,9 +170,29 @@ export async function syncUp(client: HubClient): Promise<number> {
 
 export interface VaultSyncPreview {
   version: number;
+  localFingerprint: string;
   updatedAt: string | null;
   lastDevice: string | null;
   changes: VaultChange[];
+}
+
+async function localBundleFingerprint(
+  bundle: Awaited<ReturnType<typeof assembleBundle>>,
+  vaultKey: string,
+): Promise<string> {
+  const hmacKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(vaultKey),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const digest = await crypto.subtle.sign(
+    'HMAC',
+    hmacKey,
+    new TextEncoder().encode(canonicalVaultValue(bundle)),
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function openRemoteBundle(client: HubClient, vaultKey: string): Promise<{
@@ -196,20 +221,39 @@ export async function previewSyncDown(client: HubClient): Promise<VaultSyncPrevi
   const remote = await openRemoteBundle(client, vaultKey);
   const local = await assembleBundle();
   const { changes } = mergeVaultBundles(local, remote.bundle);
-  return { version: remote.version, updatedAt: remote.updatedAt, lastDevice: remote.lastDevice, changes };
+  return {
+    version: remote.version,
+    localFingerprint: await localBundleFingerprint(local, vaultKey),
+    updatedAt: remote.updatedAt,
+    lastDevice: remote.lastDevice,
+    changes,
+  };
 }
 
 /** Pull and non-destructively merge the hub vault. Local-only records survive;
  * remote-only records are added; same-ID conflicts use trustworthy record
- * timestamps and otherwise keep local. When `expectedVersion` is supplied by
- * the preview dialog, a changed hub snapshot forces a fresh review. */
-export async function syncDown(client: HubClient, expectedVersion?: number): Promise<number> {
+ * timestamps and otherwise use the reviewer's explicit choice. Both snapshots
+ * are pinned so apply cannot act on data that was not reviewed. */
+export async function syncDown(
+  client: HubClient,
+  review?: {
+    expectedVersion: number;
+    expectedLocalFingerprint: string;
+    resolutions: VaultResolutions;
+  },
+): Promise<number> {
   const vaultKey = await secretGet(KEY_VAULT);
   if (vaultKey === null) throw new VaultError('noKey');
   const remote = await openRemoteBundle(client, vaultKey);
-  if (expectedVersion !== undefined && remote.version !== expectedVersion) throw new VaultError('conflict');
+  if (review !== undefined && remote.version !== review.expectedVersion) throw new VaultError('stalePreview');
   const local = await assembleBundle();
-  const merged = mergeVaultBundles(local, remote.bundle);
+  if (
+    review !== undefined
+    && await localBundleFingerprint(local, vaultKey) !== review.expectedLocalFingerprint
+  ) {
+    throw new VaultError('stalePreview');
+  }
+  const merged = mergeVaultBundles(local, remote.bundle, review?.resolutions);
   await importBundle(merged.bundle);
   const state = loadVaultState();
   saveVaultState({ ...state, version: remote.version });

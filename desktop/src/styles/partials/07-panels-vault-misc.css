@@ -954,7 +954,7 @@ button.search-result-link:hover {
 .vault-sync-preview-head > button {
   flex: 0 0 auto;
   padding: 2px 9px;
-  font-size: var(--font-size-body-large, 18px);
+  font-size: var(--font-size-body-large);
 }
 .vault-sync-snapshot {
   padding: var(--spacing-s8) var(--spacing-s16);
@@ -1025,16 +1025,17 @@ button.search-result-link:hover {
   color: var(--text-secondary);
   background: var(--hover);
 }
-.vault-sync-relation.localNewer,
-.vault-sync-relation.localOnly {
-  color: var(--warning, var(--text-secondary));
-}
-.vault-sync-relation.remoteNewer,
-.vault-sync-relation.remoteOnly {
-  color: var(--success, var(--accent));
+.vault-sync-relation.ageUnknown,
+.vault-sync-relation.sameTime {
+  color: var(--warning);
 }
 .vault-sync-action {
   color: var(--text-muted);
+}
+.vault-sync-choice {
+  min-width: 132px;
+  padding: 3px var(--spacing-s6);
+  font-size: var(--font-size-caption);
 }
 .vault-sync-times {
   display: flex;

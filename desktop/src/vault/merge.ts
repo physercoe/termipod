@@ -4,11 +4,20 @@ import type { VaultItemMeta } from '../state/vaultItems';
 import type { VaultBundle } from './bundle';
 
 export type VaultChangeSection = 'connections' | 'sshKeys' | 'items' | 'app' | 'hostPins';
-export type VaultChangeRelation = 'localOnly' | 'remoteOnly' | 'localNewer' | 'remoteNewer' | 'ageUnknown';
+export type VaultChangeRelation =
+  | 'localOnly'
+  | 'remoteOnly'
+  | 'localNewer'
+  | 'remoteNewer'
+  | 'sameTime'
+  | 'ageUnknown';
 export type VaultChangeAction = 'keepLocal' | 'useRemote';
+export type VaultResolution = 'local' | 'remote';
+export type VaultResolutions = Readonly<Record<string, VaultResolution>>;
 
 /** A secret-free description of one difference shown before sync-down. */
 export interface VaultChange {
+  key: string;
   section: VaultChangeSection;
   id: string;
   label: string;
@@ -25,12 +34,12 @@ export interface VaultMergeResult {
 
 type Side = 'local' | 'remote';
 
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+export function canonicalVaultValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalVaultValue).join(',')}]`;
   if (value !== null && typeof value === 'object') {
     return `{${Object.entries(value as Record<string, unknown>)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalVaultValue(item)}`)
       .join(',')}}`;
   }
   return JSON.stringify(value) ?? 'undefined';
@@ -50,6 +59,7 @@ function changedRelation(
     const remoteMs = Date.parse(remoteUpdatedAt);
     if (remoteMs > localMs) return { relation: 'remoteNewer', winner: 'remote' };
     if (localMs > remoteMs) return { relation: 'localNewer', winner: 'local' };
+    return { relation: 'sameTime', winner: 'local' };
   }
   // Legacy records and non-record maps have no trustworthy edit clock. Keeping
   // local is the only non-destructive answer; the preview calls the uncertainty
@@ -72,7 +82,10 @@ interface EntityMerge<T> {
   changes: VaultChange[];
 }
 
-function mergeEntities<T extends { id: string }>(opts: MergeEntitiesOptions<T>): EntityMerge<T> {
+function mergeEntities<T extends { id: string }>(
+  opts: MergeEntitiesOptions<T>,
+  resolutions: VaultResolutions,
+): EntityMerge<T> {
   const remoteById = new Map(opts.remote.map((item) => [item.id, item] as const));
   const localIds = new Set(opts.local.map((item) => item.id));
   const winners = new Map<string, Side>();
@@ -81,8 +94,10 @@ function mergeEntities<T extends { id: string }>(opts: MergeEntitiesOptions<T>):
   const items = opts.local.map((local) => {
     const remote = remoteById.get(local.id);
     if (remote === undefined) {
+      const key = `${opts.section}:${local.id}`;
       winners.set(local.id, 'local');
       changes.push({
+        key,
         section: opts.section,
         id: local.id,
         label: opts.label(local),
@@ -93,21 +108,26 @@ function mergeEntities<T extends { id: string }>(opts: MergeEntitiesOptions<T>):
       });
       return local;
     }
-    if (canonical(opts.compare(local, 'local')) === canonical(opts.compare(remote, 'remote'))) {
+    if (canonicalVaultValue(opts.compare(local, 'local')) === canonicalVaultValue(opts.compare(remote, 'remote'))) {
       winners.set(local.id, 'local');
       return local;
     }
     const localUpdatedAt = opts.updatedAt(local);
     const remoteUpdatedAt = opts.updatedAt(remote);
-    const { relation, winner } = changedRelation(localUpdatedAt, remoteUpdatedAt);
+    const changed = changedRelation(localUpdatedAt, remoteUpdatedAt);
+    const key = `${opts.section}:${local.id}`;
+    const winner = changed.relation === 'sameTime' || changed.relation === 'ageUnknown'
+      ? resolutions[key] ?? changed.winner
+      : changed.winner;
     winners.set(local.id, winner);
     const localLabel = opts.label(local);
     const remoteLabel = opts.label(remote);
     changes.push({
       section: opts.section,
+      key,
       id: local.id,
       label: localLabel === remoteLabel ? localLabel : `${localLabel} → ${remoteLabel}`,
-      relation,
+      relation: changed.relation,
       action: winner === 'remote' ? 'useRemote' : 'keepLocal',
       localUpdatedAt,
       remoteUpdatedAt,
@@ -120,6 +140,7 @@ function mergeEntities<T extends { id: string }>(opts: MergeEntitiesOptions<T>):
     winners.set(remote.id, 'remote');
     items.push(remote);
     changes.push({
+      key: `${opts.section}:${remote.id}`,
       section: opts.section,
       id: remote.id,
       label: opts.label(remote),
@@ -146,6 +167,35 @@ function itemUpdatedAt(item: VaultItemMeta): string | null {
 
 function connectionLabel(connection: Connection): string {
   return `${connection.name} (${connection.host}:${connection.port})`;
+}
+
+function connectionIdForPassword(key: string): string {
+  // Jump-host passwords use `${connectionId}_jump`. This suffix mapping relies
+  // on connection IDs being UUIDs (mobile) or base36 newId() values (desktop),
+  // neither of which can contain an underscore.
+  return key.replace(/_jump$/, '');
+}
+
+function comparableConnection(
+  connection: Connection,
+): Omit<Connection, 'createdAt' | 'lastConnectedAt' | 'updatedAt'> {
+  const {
+    createdAt: _createdAt,
+    lastConnectedAt: _lastConnectedAt,
+    updatedAt: _updatedAt,
+    ...comparable
+  } = connection;
+  return comparable;
+}
+
+function comparableKey(key: SshKeyMeta): Omit<SshKeyMeta, 'createdAt'> {
+  const { createdAt: _createdAt, ...comparable } = key;
+  return comparable;
+}
+
+function comparableItem(item: VaultItemMeta): Omit<VaultItemMeta, 'createdAt' | 'updatedAt'> {
+  const { createdAt: _createdAt, updatedAt: _updatedAt, ...comparable } = item;
+  return comparable;
 }
 
 function chooseFlatSecrets(
@@ -182,19 +232,28 @@ function chooseItemSecrets(
 
 function mergeRecord(
   section: VaultChangeSection,
+  kind: string,
   local: Record<string, string>,
   remote: Record<string, string>,
   label: (key: string) => string,
+  resolutions: VaultResolutions,
 ): { value: Record<string, string>; changes: VaultChange[] } {
-  const value: Record<string, string> = { ...remote, ...local };
+  const value: Record<string, string> = {};
   const changes: VaultChange[] = [];
   for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const changeKey = `${section}:${kind}:${key}`;
     if (!(key in remote)) {
-      changes.push({ section, id: key, label: label(key), relation: 'localOnly', action: 'keepLocal', localUpdatedAt: null, remoteUpdatedAt: null });
+      value[key] = local[key]!;
+      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'localOnly', action: 'keepLocal', localUpdatedAt: null, remoteUpdatedAt: null });
     } else if (!(key in local)) {
-      changes.push({ section, id: key, label: label(key), relation: 'remoteOnly', action: 'useRemote', localUpdatedAt: null, remoteUpdatedAt: null });
+      value[key] = remote[key]!;
+      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'remoteOnly', action: 'useRemote', localUpdatedAt: null, remoteUpdatedAt: null });
     } else if (local[key] !== remote[key]) {
-      changes.push({ section, id: key, label: label(key), relation: 'ageUnknown', action: 'keepLocal', localUpdatedAt: null, remoteUpdatedAt: null });
+      const winner = resolutions[changeKey] ?? 'local';
+      value[key] = winner === 'remote' ? remote[key]! : local[key]!;
+      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'ageUnknown', action: winner === 'remote' ? 'useRemote' : 'keepLocal', localUpdatedAt: null, remoteUpdatedAt: null });
+    } else {
+      value[key] = local[key]!;
     }
   }
   return { value, changes };
@@ -206,7 +265,11 @@ function mergeRecord(
  * change uses the newer record only when both sides carry trustworthy clocks.
  * The returned change list contains labels and dates only, never secret values.
  */
-export function mergeVaultBundles(local: VaultBundle, remote: VaultBundle): VaultMergeResult {
+export function mergeVaultBundles(
+  local: VaultBundle,
+  remote: VaultBundle,
+  resolutions: VaultResolutions = {},
+): VaultMergeResult {
   const connections = mergeEntities({
     section: 'connections',
     local: local.connections,
@@ -214,11 +277,14 @@ export function mergeVaultBundles(local: VaultBundle, remote: VaultBundle): Vaul
     label: connectionLabel,
     updatedAt: connectionUpdatedAt,
     compare: (connection, side) => ({
-      meta: connection,
+      // updatedAt is the edit clock, not content. lastConnectedAt is runtime
+      // activity and must not turn every successful SSH session into a sync
+      // conflict.
+      meta: comparableConnection(connection),
       password: (side === 'local' ? local.passwords : remote.passwords)[connection.id],
       jumpPassword: (side === 'local' ? local.passwords : remote.passwords)[`${connection.id}_jump`],
     }),
-  });
+  }, resolutions);
   const keys = mergeEntities({
     section: 'sshKeys',
     local: local.sshKeys.meta,
@@ -227,9 +293,13 @@ export function mergeVaultBundles(local: VaultBundle, remote: VaultBundle): Vaul
     updatedAt: keyUpdatedAt,
     compare: (key, side) => {
       const source = side === 'local' ? local.sshKeys : remote.sshKeys;
-      return { meta: key, privateKey: source.privateKeys[key.id], passphrase: source.passphrases[key.id] };
+      return {
+        meta: comparableKey(key),
+        privateKey: source.privateKeys[key.id],
+        passphrase: source.passphrases[key.id],
+      };
     },
-  });
+  }, resolutions);
 
   const remoteCarriesItems = Array.isArray(remote.items);
   const items = remoteCarriesItems
@@ -239,15 +309,18 @@ export function mergeVaultBundles(local: VaultBundle, remote: VaultBundle): Vaul
         remote: remote.items ?? [],
         label: (item) => item.title,
         updatedAt: itemUpdatedAt,
-        compare: (item, side) => ({ meta: item, secrets: (side === 'local' ? local.itemSecrets : remote.itemSecrets)?.[item.id] }),
-      })
+        compare: (item, side) => ({
+          meta: comparableItem(item),
+          secrets: (side === 'local' ? local.itemSecrets : remote.itemSecrets)?.[item.id],
+        }),
+      }, resolutions)
     : { items: local.items ?? [], winners: new Map<string, Side>(), changes: [] };
 
   const appChanges: VaultChange[] = [];
   let app = local.app;
   if (remote.app !== undefined) {
-    const config = mergeRecord('app', local.app?.config ?? {}, remote.app.config ?? {}, (key) => key);
-    const secrets = mergeRecord('app', local.app?.secrets ?? {}, remote.app.secrets ?? {}, (key) => `secret:${key}`);
+    const config = mergeRecord('app', 'config', local.app?.config ?? {}, remote.app.config ?? {}, (key) => key, resolutions);
+    const secrets = mergeRecord('app', 'secret', local.app?.secrets ?? {}, remote.app.secrets ?? {}, (key) => `secret:${key}`, resolutions);
     app = { config: config.value, secrets: secrets.value };
     appChanges.push(...config.changes, ...secrets.changes);
   }
@@ -255,20 +328,21 @@ export function mergeVaultBundles(local: VaultBundle, remote: VaultBundle): Vaul
   const pinChanges: VaultChange[] = [];
   let pinnedHostKeys = local.pinnedHostKeys;
   if (remote.pinnedHostKeys !== undefined) {
-    const pins = mergeRecord('hostPins', local.pinnedHostKeys ?? {}, remote.pinnedHostKeys, (key) => key);
+    const pins = mergeRecord('hostPins', 'pin', local.pinnedHostKeys ?? {}, remote.pinnedHostKeys, (key) => key, resolutions);
     pinnedHostKeys = pins.value;
     pinChanges.push(...pins.changes);
   }
 
   return {
     bundle: {
+      ...remote,
       connections: connections.items,
       sshKeys: {
         meta: keys.items,
         privateKeys: chooseFlatSecrets(local.sshKeys.privateKeys, remote.sshKeys.privateKeys, keys.winners, (id) => id),
         passphrases: chooseFlatSecrets(local.sshKeys.passphrases, remote.sshKeys.passphrases, keys.winners, (id) => id),
       },
-      passwords: chooseFlatSecrets(local.passwords, remote.passwords, connections.winners, (id) => id.replace(/_jump$/, '')),
+      passwords: chooseFlatSecrets(local.passwords, remote.passwords, connections.winners, connectionIdForPassword),
       items: remoteCarriesItems ? items.items : local.items,
       itemSecrets: remoteCarriesItems
         ? chooseItemSecrets(local.itemSecrets ?? {}, remote.itemSecrets ?? {}, items.winners)

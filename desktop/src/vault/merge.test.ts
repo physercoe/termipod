@@ -56,6 +56,7 @@ test('hub-only connection is previewed and added', () => {
 
   assert.deepEqual(result.bundle.connections.map((item) => item.id), ['1', '2']);
   assert.deepEqual(result.changes[0], {
+    key: 'connections:2',
     section: 'connections',
     id: '2',
     label: 'host-2 (192.0.2.2:22)',
@@ -87,14 +88,30 @@ test('same-ID connection and password use the side with the newer edit clock', (
   ]);
 });
 
-test('legacy same-ID conflict reports unknown age and keeps local', () => {
-  const local = bundle([connection('1', { name: 'local', updatedAt: undefined })]);
-  const remote = bundle([connection('1', { name: 'remote', updatedAt: undefined })]);
+test('legacy same-ID conflict reports unknown age and can use the reviewed Hub choice', () => {
+  const local = bundle([connection('1', { name: 'local', updatedAt: undefined, createdAt: '' })]);
+  const remote = bundle([connection('1', { name: 'remote', updatedAt: undefined, createdAt: '' })]);
   const result = mergeVaultBundles(local, remote);
 
   assert.equal(result.bundle.connections[0]?.name, 'local');
   assert.equal(result.changes[0]?.relation, 'ageUnknown');
   assert.equal(result.changes[0]?.action, 'keepLocal');
+
+  const reviewed = mergeVaultBundles(local, remote, { 'connections:1': 'remote' });
+  assert.equal(reviewed.bundle.connections[0]?.name, 'remote');
+  assert.equal(reviewed.changes[0]?.action, 'useRemote');
+});
+
+test('equal edit clocks are explicit conflicts and runtime connection activity is ignored', () => {
+  const local = bundle([connection('1', { name: 'local', lastConnectedAt: '2026-08-02T00:00:00.000Z' })]);
+  const remote = bundle([connection('1', { name: 'remote', lastConnectedAt: '2026-08-03T00:00:00.000Z' })]);
+
+  const conflict = mergeVaultBundles(local, remote);
+  assert.equal(conflict.changes[0]?.relation, 'sameTime');
+
+  remote.connections[0] = connection('1', { name: 'host-1', lastConnectedAt: '2026-08-03T00:00:00.000Z' });
+  local.connections[0] = connection('1', { name: 'host-1', lastConnectedAt: '2026-08-02T00:00:00.000Z' });
+  assert.deepEqual(mergeVaultBundles(local, remote).changes, []);
 });
 
 test('preview never exposes changed key or app secret values', () => {
@@ -134,4 +151,20 @@ test('timestamp-less app settings and host pins merge additively with local conf
     'ageUnknown',
     'ageUnknown',
   ]);
+
+  const reviewed = mergeVaultBundles(local, remote, {
+    'app:config:shared': 'remote',
+    'hostPins:pin:shared': 'remote',
+  });
+  assert.equal(reviewed.bundle.app?.config.shared, 'remote');
+  assert.equal(reviewed.bundle.pinnedHostKeys?.shared, 'remote-pin');
+});
+
+test('unknown Hub sections survive merge for future clients', () => {
+  const remote = bundle();
+  remote.futureSection = { version: 2 };
+
+  const result = mergeVaultBundles(bundle(), remote);
+
+  assert.deepEqual(result.bundle.futureSection, { version: 2 });
 });

@@ -39,6 +39,22 @@ This complements:
 
 ---
 
+## Unreleased
+
+### Added
+
+- **Vault sync-down now previews every local/Hub difference before it writes
+  local data.** The review identifies local-only, Hub-only, older, newer, and
+  ambiguous entries without exposing secret values. Ambiguous settings,
+  secrets, SSH keys, and host-key pins offer an explicit version choice.
+
+### Fixed
+
+- **Sync-down no longer replaces a larger local vault with an older Hub
+  snapshot.** Local-only records survive, future bundle sections round-trip,
+  volatile connection activity does not manufacture conflicts, and apply is
+  rejected if either the reviewed Hub version or local snapshot has changed.
+
 ## 2026.817.322 — 2026-08-17
 
 **The Companion becomes somewhere you can actually run an agent, and Read

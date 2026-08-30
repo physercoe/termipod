@@ -227,11 +227,10 @@ YAML file, not Go code.
   retiring a feature must sweep every offer surface (pickers,
   palettes, menus, context menus, both dicts). Mobile strings live in
   `lib/l10n/*.arb` instead.
-- **CI does not run the desktop frontend unit tests.** Only the
-  Electron shell suite runs in CI; run
-  `node --test src/state/*.test.ts src/ui/*.test.ts src/ssh/*.test.ts
-  src/terminal/*.test.ts` manually before
-  claiming desktop state/ssh changes are green.
+- **Desktop has two unit-test suites.** CI runs both the frontend suite
+  (`cd desktop && npm test`) and the Electron shell suite
+  (`cd desktop/electron && npm test`). Run the affected suite locally before
+  claiming desktop changes are green.
 - **Env-profile secrets ride real process env only** (child `Env`
   slice / `tmux -e`) — never the command string's `export` prefix,
   the spawn spec, temp files, or logs (ADR-056 D-5). The `export`

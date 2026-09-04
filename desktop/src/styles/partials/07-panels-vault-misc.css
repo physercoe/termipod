@@ -1033,7 +1033,7 @@ button.search-result-link:hover {
   color: var(--text-muted);
 }
 .vault-sync-choice {
-  min-width: 132px;
+  min-width: 172px;
   padding: 3px var(--spacing-s6);
   font-size: var(--font-size-caption);
 }

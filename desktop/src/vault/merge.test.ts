@@ -42,10 +42,10 @@ test('sync-down keeps 11 local connections when the hub snapshot has only 9', ()
   assert.equal(result.bundle.connections.length, 11);
   assert.deepEqual(result.bundle.connections.map((item) => item.id), localConnections.map((item) => item.id));
   assert.deepEqual(
-    result.changes.map((change) => ({ id: change.id, relation: change.relation, action: change.action })),
+    result.changes.map((change) => ({ id: change.id, relation: change.relation, defaultResolution: change.defaultResolution })),
     [
-      { id: '10', relation: 'localOnly', action: 'keepLocal' },
-      { id: '11', relation: 'localOnly', action: 'keepLocal' },
+      { id: '10', relation: 'localOnly', defaultResolution: 'local' },
+      { id: '11', relation: 'localOnly', defaultResolution: 'local' },
     ],
   );
 });
@@ -61,7 +61,7 @@ test('hub-only connection is previewed and added', () => {
     id: '2',
     label: 'host-2 (192.0.2.2:22)',
     relation: 'remoteOnly',
-    action: 'useRemote',
+    defaultResolution: 'remote',
     localUpdatedAt: null,
     remoteUpdatedAt: '2026-08-01T00:00:00.000Z',
   });
@@ -82,9 +82,9 @@ test('same-ID connection and password use the side with the newer edit clock', (
   const result = mergeVaultBundles(local, remote);
   assert.deepEqual(result.bundle.connections.map((item) => item.name), ['remote-newer', 'local-newer']);
   assert.deepEqual(result.bundle.passwords, { '1': 'remote-secret-1', '2': 'local-secret-2' });
-  assert.deepEqual(result.changes.map((change) => [change.id, change.relation, change.action]), [
-    ['1', 'remoteNewer', 'useRemote'],
-    ['2', 'localNewer', 'keepLocal'],
+  assert.deepEqual(result.changes.map((change) => [change.id, change.relation, change.defaultResolution]), [
+    ['1', 'remoteNewer', 'remote'],
+    ['2', 'localNewer', 'local'],
   ]);
 });
 
@@ -95,11 +95,11 @@ test('legacy same-ID conflict reports unknown age and can use the reviewed Hub c
 
   assert.equal(result.bundle.connections[0]?.name, 'local');
   assert.equal(result.changes[0]?.relation, 'ageUnknown');
-  assert.equal(result.changes[0]?.action, 'keepLocal');
+  assert.equal(result.changes[0]?.defaultResolution, 'local');
 
   const reviewed = mergeVaultBundles(local, remote, { 'connections:1': 'remote' });
   assert.equal(reviewed.bundle.connections[0]?.name, 'remote');
-  assert.equal(reviewed.changes[0]?.action, 'useRemote');
+  assert.equal(reviewed.changes[0]?.defaultResolution, 'local');
 });
 
 test('equal edit clocks are explicit conflicts and runtime connection activity is ignored', () => {
@@ -112,6 +112,65 @@ test('equal edit clocks are explicit conflicts and runtime connection activity i
   remote.connections[0] = connection('1', { name: 'host-1', lastConnectedAt: '2026-08-03T00:00:00.000Z' });
   local.connections[0] = connection('1', { name: 'host-1', lastConnectedAt: '2026-08-02T00:00:00.000Z' });
   assert.deepEqual(mergeVaultBundles(local, remote).changes, []);
+});
+
+test('review can override a newer Hub record and keeps the exact local secret state', () => {
+  const local = bundle([connection('1', {
+    name: 'local-with-password-removed',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+  })]);
+  const remote = bundle([connection('1', {
+    name: 'newer-hub',
+    updatedAt: '2026-08-02T00:00:00.000Z',
+  })]);
+  remote.passwords = { '1': 'REMOTE-PASSWORD' };
+
+  const result = mergeVaultBundles(local, remote, { 'connections:1': 'local' }, 'up');
+
+  assert.equal(result.bundle.connections[0]?.name, 'local-with-password-removed');
+  assert.deepEqual(result.bundle.passwords, {}, 'a rejected Hub password must not be resurrected as fallback data');
+  assert.equal(result.changes[0]?.defaultResolution, 'remote');
+});
+
+test('automatic newer-wins resolution retains a missing secret conservatively', () => {
+  const local = bundle([connection('1', {
+    name: 'older-local',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+  })]);
+  local.passwords = { '1': 'LOCAL-PASSWORD' };
+  const remote = bundle([connection('1', {
+    name: 'newer-hub-without-password',
+    updatedAt: '2026-08-02T00:00:00.000Z',
+  })]);
+
+  const result = mergeVaultBundles(local, remote);
+
+  assert.equal(result.bundle.connections[0]?.name, 'newer-hub-without-password');
+  assert.deepEqual(result.bundle.passwords, { '1': 'LOCAL-PASSWORD' });
+});
+
+test('sync-up can propagate a local connection deletion to the Hub', () => {
+  const local = bundle();
+  const remote = bundle([connection('1')]);
+  remote.passwords = { '1': 'REMOTE-PASSWORD', '1_jump': 'REMOTE-JUMP-PASSWORD' };
+
+  const preview = mergeVaultBundles(local, remote, {}, 'up');
+  assert.equal(preview.changes[0]?.relation, 'remoteOnly');
+  assert.equal(preview.changes[0]?.defaultResolution, 'remote');
+
+  const result = mergeVaultBundles(local, remote, { 'connections:1': 'local' }, 'up');
+  assert.deepEqual(result.bundle.connections, []);
+  assert.deepEqual(result.bundle.passwords, {});
+});
+
+test('sync-down can accept Hub absence and delete a local-only connection', () => {
+  const local = bundle([connection('1')]);
+  local.passwords = { '1': 'LOCAL-PASSWORD' };
+
+  const result = mergeVaultBundles(local, bundle(), { 'connections:1': 'remote' }, 'down');
+
+  assert.deepEqual(result.bundle.connections, []);
+  assert.deepEqual(result.bundle.passwords, {});
 });
 
 test('review projection ignores connection activity but pins merge-relevant clocks', () => {
@@ -179,6 +238,21 @@ test('timestamp-less app settings and host pins merge additively with local conf
   assert.equal(reviewed.bundle.pinnedHostKeys?.shared, 'remote-pin');
 });
 
+test('one-sided app settings and host pins can be explicitly deleted', () => {
+  const local = bundle();
+  local.app = { config: { localOnly: 'yes' }, secrets: {} };
+  const remote = bundle();
+  remote.pinnedHostKeys = { remoteOnly: 'hub-pin' };
+
+  const result = mergeVaultBundles(local, remote, {
+    'app:config:localOnly': 'remote',
+    'hostPins:pin:remoteOnly': 'local',
+  }, 'up');
+
+  assert.deepEqual(result.bundle.app?.config, {});
+  assert.deepEqual(result.bundle.pinnedHostKeys, {});
+});
+
 test('unknown sections from both sides survive merge and Hub wins a collision', () => {
   const local = bundle() as VaultBundle & Record<string, unknown>;
   local.localFutureSection = { version: 1 };
@@ -221,12 +295,12 @@ test('mobile-authored snapshot previews omitted desktop sections as local-only a
   assert.deepEqual(result.bundle.app, local.app);
   assert.deepEqual(result.bundle.pinnedHostKeys, local.pinnedHostKeys);
   assert.deepEqual(
-    result.changes.map((change) => [change.section, change.id, change.relation, change.action]),
+    result.changes.map((change) => [change.section, change.id, change.relation, change.defaultResolution]),
     [
-      ['items', 'item-1', 'localOnly', 'keepLocal'],
-      ['app', 'sync_provider', 'localOnly', 'keepLocal'],
-      ['app', 'sync_password', 'localOnly', 'keepLocal'],
-      ['hostPins', 'host-1', 'localOnly', 'keepLocal'],
+      ['items', 'item-1', 'localOnly', 'local'],
+      ['app', 'sync_provider', 'localOnly', 'local'],
+      ['app', 'sync_password', 'localOnly', 'local'],
+      ['hostPins', 'host-1', 'localOnly', 'local'],
     ],
   );
   assert.doesNotMatch(JSON.stringify(result.changes), /LOCAL-(?:ITEM|APP)-SECRET|LOCAL-PIN/);

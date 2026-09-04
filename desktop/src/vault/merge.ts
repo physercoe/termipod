@@ -11,7 +11,6 @@ export type VaultChangeRelation =
   | 'remoteNewer'
   | 'sameTime'
   | 'ageUnknown';
-export type VaultChangeAction = 'keepLocal' | 'useRemote';
 export type VaultResolution = 'local' | 'remote';
 export type VaultResolutions = Readonly<Record<string, VaultResolution>>;
 export type VaultSyncDirection = 'up' | 'down';
@@ -23,7 +22,7 @@ export interface VaultChange {
   id: string;
   label: string;
   relation: VaultChangeRelation;
-  action: VaultChangeAction;
+  defaultResolution: VaultResolution;
   localUpdatedAt: string | null;
   remoteUpdatedAt: string | null;
 }
@@ -95,6 +94,7 @@ interface MergeEntitiesOptions<T extends { id: string }> {
 interface EntityMerge<T> {
   items: T[];
   winners: Map<string, Side>;
+  explicit: Set<string>;
   changes: VaultChange[];
 }
 
@@ -105,38 +105,41 @@ function mergeEntities<T extends { id: string }>(
   const remoteById = new Map(opts.remote.map((item) => [item.id, item] as const));
   const localIds = new Set(opts.local.map((item) => item.id));
   const winners = new Map<string, Side>();
+  const explicit = new Set<string>();
   const changes: VaultChange[] = [];
 
-  const items = opts.local.map((local) => {
+  const items: T[] = [];
+  for (const local of opts.local) {
     const remote = remoteById.get(local.id);
     if (remote === undefined) {
       const key = `${opts.section}:${local.id}`;
-      winners.set(local.id, 'local');
+      const resolution = resolutions[key] ?? 'local';
+      if (resolutions[key] !== undefined) explicit.add(local.id);
+      winners.set(local.id, resolution);
       changes.push({
         key,
         section: opts.section,
         id: local.id,
         label: opts.label(local),
         relation: 'localOnly',
-        action: 'keepLocal',
+        defaultResolution: 'local',
         localUpdatedAt: opts.updatedAt(local),
         remoteUpdatedAt: null,
       });
-      return local;
+      if (resolution === 'local') items.push(local);
+      continue;
     }
     if (canonicalVaultValue(opts.compare(local, 'local')) === canonicalVaultValue(opts.compare(remote, 'remote'))) {
       winners.set(local.id, 'local');
-      return local;
+      items.push(local);
+      continue;
     }
     const localUpdatedAt = opts.updatedAt(local);
     const remoteUpdatedAt = opts.updatedAt(remote);
     const changed = changedRelation(localUpdatedAt, remoteUpdatedAt);
     const key = `${opts.section}:${local.id}`;
-    // Unequal valid clocks are authoritative. A reviewed resolution can only
-    // decide equal-clock or clockless conflicts where ordering is ambiguous.
-    const winner = changed.relation === 'sameTime' || changed.relation === 'ageUnknown'
-      ? resolutions[key] ?? changed.winner
-      : changed.winner;
+    const winner = resolutions[key] ?? changed.winner;
+    if (resolutions[key] !== undefined) explicit.add(local.id);
     winners.set(local.id, winner);
     const localLabel = opts.label(local);
     const remoteLabel = opts.label(remote);
@@ -146,29 +149,32 @@ function mergeEntities<T extends { id: string }>(
       id: local.id,
       label: localLabel === remoteLabel ? localLabel : `${localLabel} → ${remoteLabel}`,
       relation: changed.relation,
-      action: winner === 'remote' ? 'useRemote' : 'keepLocal',
+      defaultResolution: changed.winner,
       localUpdatedAt,
       remoteUpdatedAt,
     });
-    return winner === 'remote' ? remote : local;
-  });
+    items.push(winner === 'remote' ? remote : local);
+  }
 
   for (const remote of opts.remote) {
     if (localIds.has(remote.id)) continue;
-    winners.set(remote.id, 'remote');
-    items.push(remote);
+    const key = `${opts.section}:${remote.id}`;
+    const resolution = resolutions[key] ?? 'remote';
+    if (resolutions[key] !== undefined) explicit.add(remote.id);
+    winners.set(remote.id, resolution);
+    if (resolution === 'remote') items.push(remote);
     changes.push({
-      key: `${opts.section}:${remote.id}`,
+      key,
       section: opts.section,
       id: remote.id,
       label: opts.label(remote),
       relation: 'remoteOnly',
-      action: 'useRemote',
+      defaultResolution: 'remote',
       localUpdatedAt: null,
       remoteUpdatedAt: opts.updatedAt(remote),
     });
   }
-  return { items, winners, changes };
+  return { items, winners, explicit, changes };
 }
 
 function connectionUpdatedAt(connection: Connection): string | null {
@@ -221,13 +227,17 @@ function chooseFlatSecrets(
   remote: Record<string, string>,
   winners: Map<string, Side>,
   owner: (key: string) => string,
+  keptIds: ReadonlySet<string>,
+  explicitIds: ReadonlySet<string>,
 ): Record<string, string> {
   const merged: Record<string, string> = {};
   for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
-    const winner = winners.get(owner(key)) ?? 'local';
+    const id = owner(key);
+    if (!keptIds.has(id)) continue;
+    const winner = winners.get(id) ?? 'local';
     const preferred = winner === 'remote' ? remote[key] : local[key];
     const fallback = winner === 'remote' ? local[key] : remote[key];
-    const value = preferred ?? fallback;
+    const value = explicitIds.has(id) ? preferred : preferred ?? fallback;
     if (value !== undefined) merged[key] = value;
   }
   return merged;
@@ -237,13 +247,17 @@ function chooseItemSecrets(
   local: Record<string, Record<string, string>>,
   remote: Record<string, Record<string, string>>,
   winners: Map<string, Side>,
+  keptIds: ReadonlySet<string>,
+  explicitIds: ReadonlySet<string>,
 ): Record<string, Record<string, string>> {
   const merged: Record<string, Record<string, string>> = {};
   for (const id of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    if (!keptIds.has(id)) continue;
     const winner = winners.get(id) ?? 'local';
     const preferred = winner === 'remote' ? remote[id] : local[id];
     const fallback = winner === 'remote' ? local[id] : remote[id];
-    merged[id] = { ...(fallback ?? {}), ...(preferred ?? {}) };
+    const value = explicitIds.has(id) ? preferred : preferred ?? fallback;
+    if (value !== undefined) merged[id] = { ...value };
   }
   return merged;
 }
@@ -261,15 +275,15 @@ function mergeRecord(
   for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
     const changeKey = `${section}:${kind}:${key}`;
     if (!(key in remote)) {
-      value[key] = local[key]!;
-      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'localOnly', action: 'keepLocal', localUpdatedAt: null, remoteUpdatedAt: null });
+      if ((resolutions[changeKey] ?? 'local') === 'local') value[key] = local[key]!;
+      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'localOnly', defaultResolution: 'local', localUpdatedAt: null, remoteUpdatedAt: null });
     } else if (!(key in local)) {
-      value[key] = remote[key]!;
-      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'remoteOnly', action: 'useRemote', localUpdatedAt: null, remoteUpdatedAt: null });
+      if ((resolutions[changeKey] ?? 'remote') === 'remote') value[key] = remote[key]!;
+      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'remoteOnly', defaultResolution: 'remote', localUpdatedAt: null, remoteUpdatedAt: null });
     } else if (local[key] !== remote[key]) {
       const winner = resolutions[changeKey] ?? 'local';
       value[key] = winner === 'remote' ? remote[key]! : local[key]!;
-      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'ageUnknown', action: winner === 'remote' ? 'useRemote' : 'keepLocal', localUpdatedAt: null, remoteUpdatedAt: null });
+      changes.push({ key: changeKey, section, id: key, label: label(key), relation: 'ageUnknown', defaultResolution: 'local', localUpdatedAt: null, remoteUpdatedAt: null });
     } else {
       value[key] = local[key]!;
     }
@@ -278,9 +292,11 @@ function mergeRecord(
 }
 
 /**
- * Non-destructively merge a decrypted hub bundle into the device bundle.
- * Remote-only records are added, local-only records survive, and a same-ID
- * change uses the newer record only when both sides carry trustworthy clocks.
+ * Merge a decrypted hub bundle into the device bundle. By default remote-only
+ * records are added, local-only records survive, and a same-ID change uses the
+ * newer record when both sides carry trustworthy clocks. Reviewed resolutions
+ * can override every difference, including choosing an absent side to delete a
+ * one-sided record.
  * The returned change list contains labels and dates only, never secret values.
  */
 export function mergeVaultBundles(
@@ -333,7 +349,7 @@ export function mergeVaultBundles(
           secrets: (side === 'local' ? local.itemSecrets : remote.itemSecrets)?.[item.id],
         }),
       }, resolutions)
-    : { items: local.items ?? [], winners: new Map<string, Side>(), changes: [] };
+    : { items: local.items ?? [], winners: new Map<string, Side>(), explicit: new Set<string>(), changes: [] };
 
   const appChanges: VaultChange[] = [];
   let app = local.app;
@@ -352,6 +368,10 @@ export function mergeVaultBundles(
     pinChanges.push(...pins.changes);
   }
 
+  const connectionIds = new Set(connections.items.map((connection) => connection.id));
+  const keyIds = new Set(keys.items.map((key) => key.id));
+  const itemIds = new Set(items.items.map((item) => item.id));
+
   return {
     bundle: {
       ...local,
@@ -359,13 +379,13 @@ export function mergeVaultBundles(
       connections: connections.items,
       sshKeys: {
         meta: keys.items,
-        privateKeys: chooseFlatSecrets(local.sshKeys.privateKeys, remote.sshKeys.privateKeys, keys.winners, (id) => id),
-        passphrases: chooseFlatSecrets(local.sshKeys.passphrases, remote.sshKeys.passphrases, keys.winners, (id) => id),
+        privateKeys: chooseFlatSecrets(local.sshKeys.privateKeys, remote.sshKeys.privateKeys, keys.winners, (id) => id, keyIds, keys.explicit),
+        passphrases: chooseFlatSecrets(local.sshKeys.passphrases, remote.sshKeys.passphrases, keys.winners, (id) => id, keyIds, keys.explicit),
       },
-      passwords: chooseFlatSecrets(local.passwords, remote.passwords, connections.winners, connectionIdForPassword),
+      passwords: chooseFlatSecrets(local.passwords, remote.passwords, connections.winners, connectionIdForPassword, connectionIds, connections.explicit),
       items: mergeItems ? items.items : local.items,
       itemSecrets: mergeItems
-        ? chooseItemSecrets(local.itemSecrets ?? {}, remote.itemSecrets ?? {}, items.winners)
+        ? chooseItemSecrets(local.itemSecrets ?? {}, remote.itemSecrets ?? {}, items.winners, itemIds, items.explicit)
         : local.itemSecrets,
       app,
       pinnedHostKeys,

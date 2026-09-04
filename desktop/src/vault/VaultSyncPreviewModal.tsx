@@ -33,15 +33,27 @@ export function VaultSyncPreviewModal({
 
   const relation = (change: VaultChange): string => t(`vault.preview.relation.${change.relation}`);
   const selected = (change: VaultChange): VaultResolution =>
-    resolutions[change.key] ?? (change.action === 'useRemote' ? 'remote' : 'local');
-  const action = (change: VaultChange): string => {
-    if (preview.direction === 'up') {
-      if (change.relation === 'localOnly') return t('vault.preview.action.addLocalToHub');
-      if (change.relation === 'remoteOnly') return t('vault.preview.action.keepRemote');
-      return change.action === 'useRemote' ? t('vault.preview.action.useRemote') : t('vault.preview.action.useLocal');
+    resolutions[change.key] ?? change.defaultResolution;
+  const choiceLabel = (change: VaultChange, resolution: VaultResolution): string => {
+    if (change.relation === 'localOnly') {
+      if (resolution === 'remote') return t('vault.preview.action.deleteLocal');
+      return t(preview.direction === 'up'
+        ? 'vault.preview.action.addLocalToHub'
+        : 'vault.preview.action.keepLocal');
     }
-    if (change.relation === 'remoteOnly') return t('vault.preview.action.addRemote');
-    return selected(change) === 'remote' ? t('vault.preview.action.useRemote') : t('vault.preview.action.keepLocal');
+    if (change.relation === 'remoteOnly') {
+      if (resolution === 'local') {
+        return t(preview.direction === 'up'
+          ? 'vault.preview.action.deleteRemote'
+          : 'vault.preview.action.leaveRemoteOnly');
+      }
+      return t(preview.direction === 'up'
+        ? 'vault.preview.action.keepRemote'
+        : 'vault.preview.action.addRemote');
+    }
+    return t(resolution === 'local'
+      ? 'vault.preview.action.useLocal'
+      : 'vault.preview.action.useRemote');
   };
   const label = (change: VaultChange): string =>
     change.section === 'app' && change.label.startsWith('secret:')
@@ -92,32 +104,23 @@ export function VaultSyncPreviewModal({
                   <h4>{t(`vault.preview.section.${section}`)} <span>{changes.length}</span></h4>
                   <div className="vault-sync-list">
                     {changes.map((change) => {
-                      const needsChoice = change.relation === 'ageUnknown' || change.relation === 'sameTime';
                       return (
                         <div className="vault-sync-row" key={change.key}>
                           <div className="vault-sync-row-main">
                             <span className="vault-sync-label">{label(change)}</span>
                             <span className={`vault-sync-relation ${change.relation}`}>{relation(change)}</span>
-                            {needsChoice ? (
-                              <select
-                                className="vault-sync-choice"
-                                aria-label={t('vault.preview.choose').replace('{item}', label(change))}
-                                value={selected(change)}
-                                disabled={busy}
-                                onChange={(event) =>
-                                  onResolutionChange(change.key, event.target.value as VaultResolution)
-                                }
-                              >
-                                <option value="local">
-                                  {t(preview.direction === 'up'
-                                    ? 'vault.preview.action.useLocal'
-                                    : 'vault.preview.action.keepLocal')}
-                                </option>
-                                <option value="remote">{t('vault.preview.action.useRemote')}</option>
-                              </select>
-                            ) : (
-                              <span className="vault-sync-action">{action(change)}</span>
-                            )}
+                            <select
+                              className="vault-sync-choice"
+                              aria-label={t('vault.preview.choose').replace('{item}', label(change))}
+                              value={selected(change)}
+                              disabled={busy}
+                              onChange={(event) =>
+                                onResolutionChange(change.key, event.target.value as VaultResolution)
+                              }
+                            >
+                              <option value="local">{choiceLabel(change, 'local')}</option>
+                              <option value="remote">{choiceLabel(change, 'remote')}</option>
+                            </select>
                           </div>
                           <div className="vault-sync-times muted">
                             <span>{t('vault.previewLocal')}: {displayTime(change.localUpdatedAt, '—')}</span>

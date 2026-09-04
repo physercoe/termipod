@@ -265,10 +265,10 @@ export function previewSyncDown(client: HubClient): Promise<VaultSyncPreview> {
   return previewSync(client, 'down');
 }
 
-/** Pull and non-destructively merge the hub vault. Local-only records survive;
- * remote-only records are added; same-ID conflicts use trustworthy record
- * timestamps and otherwise use the reviewer's explicit choice. Both snapshots
- * are pinned so apply cannot act on data that was not reviewed. */
+/** Pull and merge the hub vault. The conservative defaults preserve one-sided
+ * records and use trustworthy edit clocks, while reviewed resolutions can
+ * explicitly choose either side (including an absent side to delete locally).
+ * Both snapshots are pinned so apply cannot act on unreviewed data. */
 export async function syncDown(
   client: HubClient,
   review?: VaultSyncReview,

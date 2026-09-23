@@ -9,6 +9,28 @@ import 'package:dartssh2/dartssh2.dart';
 import 'persistent_shell.dart';
 import 'command_executor.dart';
 import 'socks5_socket.dart';
+import 'identification_socket.dart';
+
+// dartssh2's toString uses runtimeType, which becomes an opaque symbol in an
+// obfuscated APK. Read its public message fields instead, retaining causes
+// for diagnostics without repeating them in the user-visible text.
+String _sshErrorMessage(Object error) {
+  if (error is SSHMessageError) return error.message;
+  if (error is SSHSocketError) return _sshErrorMessage(error.error);
+  if (error is SSHChannelOpenError) {
+    return '${error.description} (SSH channel code ${error.code})';
+  }
+  if (error is SocketException) return error.message;
+  if (error is SshConnectionError) return error.message;
+  if (error is SshAuthenticationError) return error.message;
+  return error.toString();
+}
+
+String _withCause(String message, Object? cause) {
+  if (cause == null) return message;
+  final detail = _sshErrorMessage(cause);
+  return message.contains(detail) ? message : '$message ($detail)';
+}
 
 /// SSH接続エラー
 class SshConnectionError implements Exception {
@@ -18,8 +40,7 @@ class SshConnectionError implements Exception {
   SshConnectionError(this.message, [this.cause]);
 
   @override
-  String toString() =>
-      'SshConnectionError: $message${cause != null ? ' ($cause)' : ''}';
+  String toString() => 'SshConnectionError: ${_withCause(message, cause)}';
 }
 
 /// SSH認証エラー
@@ -30,8 +51,7 @@ class SshAuthenticationError implements Exception {
   SshAuthenticationError(this.message, [this.cause]);
 
   @override
-  String toString() =>
-      'SshAuthenticationError: $message${cause != null ? ' ($cause)' : ''}';
+  String toString() => 'SshAuthenticationError: ${_withCause(message, cause)}';
 }
 
 /// SSH接続オプション
@@ -170,7 +190,7 @@ class SshClient {
     String username,
     SshConnectOptions options,
   ) => SSHClient(
-    socket,
+    SshIdentificationSocket(socket),
     username: username,
     keepAliveInterval: null,
     identities: options.privateKey == null
@@ -401,9 +421,7 @@ class SshClient {
             password: options.jumpPassword,
           ),
         );
-        await attempt
-            .wait(_jumpClient!.authenticated)
-            .timeout(_remaining(deadline));
+        await _authenticate(_jumpClient!, attempt, deadline);
         if (attempt.isCancelled) {
           throw SshConnectionError('SSH connection cancelled');
         }
@@ -430,7 +448,7 @@ class SshClient {
       _client = _transportFactory(_socket!, username, options);
 
       // 認証完了を待機
-      await attempt.wait(_client!.authenticated).timeout(_remaining(deadline));
+      await _authenticate(_client!, attempt, deadline);
 
       if (attempt.isCancelled) {
         throw SshConnectionError('SSH connection cancelled');
@@ -459,7 +477,7 @@ class SshClient {
         throw SshConnectionError('SSH connection cancelled');
       }
       _state = SshConnectionState.error;
-      final detail = e is SocketException ? e.message : e.toString();
+      final detail = _sshErrorMessage(e);
       final message = 'Connection failed during $phase: $detail';
       _lastError = message;
       await _cleanup();
@@ -470,11 +488,27 @@ class SshClient {
     }
   }
 
+  Future<void> _authenticate(
+    SSHClient transport,
+    _ConnectionAttempt attempt,
+    DateTime deadline,
+  ) async {
+    try {
+      await attempt.wait(transport.authenticated).timeout(_remaining(deadline));
+    } on SSHAuthAbortError {
+      // dartssh2 replaces handshake/socket errors with a generic auth abort.
+      // Its completed transport future still has the actual cause. Only read
+      // it once closed, so error reporting cannot introduce an unbounded wait.
+      if (transport.isClosed) await transport.done;
+      rethrow;
+    }
+  }
+
   void _transportClosed(SSHClient transport, [Object? error]) {
     if (_closing || !identical(_client, transport)) return;
     _lastError = error == null
         ? 'SSH transport closed'
-        : 'SSH transport closed: $error';
+        : 'SSH transport closed: ${_sshErrorMessage(error)}';
     _updateState(SshConnectionState.error);
     _events.onError?.call(SshConnectionError(_lastError!));
   }

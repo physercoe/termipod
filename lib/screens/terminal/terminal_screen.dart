@@ -460,10 +460,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
 
     try {
-      await client.execPersistent(
-        'echo 1',
-        timeout: const Duration(milliseconds: 1500),
-      );
+      await client.probeTransport();
     } catch (_) {
       if (_isDisposed) return;
       // A delayed probe must not replace a client another route just restored.
@@ -659,6 +656,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // terminal content stays frozen across a reconnect.
     if (newClient != null && backend != null && !rebuiltBackend) {
       try {
+        if (backend.supportsNavigation) await newClient.prepareTerminal();
         await backend.rebindSshClient(newClient);
       } catch (e) {
         debugPrint('[Terminal] Backend rebind failed: $e');
@@ -864,6 +862,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Future<void> _setupTmuxBackend(Connection connection, SshNotifier sshNotifier) async {
     final sshClient = sshNotifier.client;
     if (sshClient == null) throw Exception('SSH client not available');
+    await sshClient.prepareTerminal();
+    if (!mounted || _isDisposed || _isDisconnecting) return;
 
     // tmux version check. Bound the probe explicitly — although the
     // pre-flight in [_connectAndSetup] should already have caught a

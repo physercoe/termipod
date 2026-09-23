@@ -352,9 +352,7 @@ class SshNotifier extends Notifier<SshState> {
     if (state.isConnected && _client != null) {
       final client = _client!;
       try {
-        await client
-            .exec('echo p', timeout: const Duration(seconds: 3))
-            .timeout(const Duration(seconds: 3));
+        await client.probeTransport();
         if (generation != _connectionGeneration)
           throw SshConnectionError('Connection interrupted');
         return;
@@ -419,6 +417,7 @@ class SshNotifier extends Notifier<SshState> {
         username: connection.username,
         options: options,
       );
+      if (!client.isConnected) throw SshConnectionError('SSH closed during connection setup');
       if (generation != _connectionGeneration || _manuallyDisconnected) {
         await client.dispose();
         throw SshConnectionError('Connection interrupted');
@@ -589,6 +588,7 @@ class SshNotifier extends Notifier<SshState> {
         username: _lastConnection!.username,
         options: _lastOptions!,
       );
+      if (!candidate.isConnected) throw SshConnectionError('SSH closed during recovery');
       if (generation != _connectionGeneration || _manuallyDisconnected) {
         await candidate.dispose();
         return false;
@@ -655,6 +655,8 @@ class SshNotifier extends Notifier<SshState> {
   Future<bool> reconnectNow() async {
     final opening = _connectInFlight;
     if (opening != null) return _joinConnection(opening);
+    final reconnecting = _reconnectInFlight;
+    if (reconnecting != null) return reconnecting;
     _manuallyDisconnected = false;
     _cancelReconnectTimer();
     state = state.copyWith(

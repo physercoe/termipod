@@ -433,7 +433,7 @@ class TmuxBackend implements TerminalBackend {
       // instead of counting lines from the end.
       final combinedCommand =
           '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: effectiveScrollback > 0 ? -effectiveScrollback : null)}; '
-          "printf '\\x01META\\x01\\n'; "
+          "printf '\\001META\\001\\n'; "
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 

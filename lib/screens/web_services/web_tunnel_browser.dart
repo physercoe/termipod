@@ -28,6 +28,11 @@ class _WebTunnelBrowserState extends ConsumerState<WebTunnelBrowser>
   bool _back = false, _forward = false;
   String? _message;
   bool _needsReload = false;
+  bool _compat = false;
+  bool _compatOpening = false;
+  String? _providerDetails;
+  static const _browserChannel = MethodChannel('termipod/web_browser');
+  static const _compatChannel = MethodChannel('termipod/web_browser_compat');
 
   @override
   void initState() {
@@ -42,17 +47,64 @@ class _WebTunnelBrowserState extends ConsumerState<WebTunnelBrowser>
   Future<void> _checkSupport() async {
     var supported = false;
     try {
-      supported =
-          await const MethodChannel(
-            'termipod/web_browser',
-          ).invokeMethod<bool>('supported') ??
-          false;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final capability = await _browserChannel
+            .invokeMapMethod<String, dynamic>('capabilities');
+        _compat = capability?['mode'] == 'process';
+        supported = capability?['mode'] == 'profile' || _compat;
+        _providerDetails = [
+          capability?['provider'],
+          capability?['version'],
+        ].whereType<String>().join(' ');
+      } else {
+        supported =
+            await _browserChannel.invokeMethod<bool>('supported') ?? false;
+      }
+      _message = null;
     } on PlatformException {
-      /* Unsupported native runtime. */
+      _message = 'browserInitFailed';
     } on MissingPluginException {
-      /* Widget tests and non-mobile builds. */
+      _message = 'browserInitFailed';
     }
     if (mounted) setState(() => _supported = supported);
+    if (mounted && supported && _compat) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openCompat();
+      });
+    }
+  }
+
+  Future<void> _openCompat() async {
+    if (_compatOpening) return;
+    _compatOpening = true;
+    _compatChannel.setMethodCallHandler((call) async {
+      if (mounted && call.method == 'resume') await _restore();
+    });
+    try {
+      await _restore();
+      if (!mounted) return;
+      if (!ref
+          .read(webTunnelProvider(widget.connectionId))
+          .any((t) => t.id == widget.tunnel.id))
+        return;
+      final l10n = AppLocalizations.of(context)!;
+      await _browserChannel.invokeMethod<void>('openCompat', {
+        'url': widget.tunnel.uri.toString(),
+        'close': l10n.buttonClose,
+        'back': l10n.webBack,
+        'forward': l10n.webForward,
+        'reload': l10n.buttonRefresh,
+        'loadFailed': l10n.webLoadFailed,
+        'navigationBlocked': l10n.webNavigationBlocked,
+      });
+      if (mounted) Navigator.of(context).pop();
+    } on PlatformException {
+      if (mounted) setState(() => _message = 'browserInitFailed');
+    } on MissingPluginException {
+      if (mounted) setState(() => _message = 'browserInitFailed');
+    } finally {
+      _compatOpening = false;
+    }
   }
 
   @override
@@ -108,6 +160,7 @@ class _WebTunnelBrowserState extends ConsumerState<WebTunnelBrowser>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _channel?.setMethodCallHandler(null);
+    if (_compat) _compatChannel.setMethodCallHandler(null);
     super.dispose();
   }
 
@@ -184,6 +237,8 @@ class _WebTunnelBrowserState extends ConsumerState<WebTunnelBrowser>
               child: Text(
                 _message == 'navigationBlocked'
                     ? l10n.webNavigationBlocked
+                    : _message == 'browserInitFailed'
+                    ? l10n.webBrowserInitializationFailed
                     : l10n.webLoadFailed,
               ),
             ),
@@ -192,11 +247,23 @@ class _WebTunnelBrowserState extends ConsumerState<WebTunnelBrowser>
                 ? const SizedBox.shrink()
                 : _supported == null
                 ? const Center(child: CircularProgressIndicator())
-                : _supported == false
+                : _supported == false || _compat
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text(l10n.webBrowserUnsupported),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!_compat && _message == null)
+                            Text(l10n.webBrowserUnsupported),
+                          if (_providerDetails?.isNotEmpty == true)
+                            Text(_providerDetails!),
+                          TextButton(
+                            onPressed: _checkSupport,
+                            child: Text(l10n.buttonRetry),
+                          ),
+                        ],
+                      ),
                     ),
                   )
                 : AbsorbPointer(

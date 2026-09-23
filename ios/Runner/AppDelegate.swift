@@ -11,6 +11,9 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = registrar(forPlugin: "TunnelBrowser") {
+      TunnelBrowserFactory.register(with: registrar)
+    }
 
     let controller = window?.rootViewController as! FlutterViewController
     deepLinkChannel = FlutterMethodChannel(

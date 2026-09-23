@@ -57,6 +57,7 @@ import 'package:share_plus/share_plus.dart';
 import '../settings/settings_screen.dart';
 import '../web_services/web_services_screen.dart';
 import 'widgets/ansi_text_view.dart';
+import 'widgets/connection_failure_notice.dart';
 import 'widgets/new_window_dialog.dart';
 import 'widgets/new_session_dialog.dart';
 import 'widgets/pane_layout_painters.dart';
@@ -1678,6 +1679,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 )
               else
                 _buildRawModeHeader(),
+              if (sshState.isReconnecting && sshState.error != null)
+                ConnectionFailureNotice(error: sshState.error!),
               Expanded(
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
@@ -1929,7 +1932,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               },
             ),
           // ローディングオーバーレイ
-          if (_isConnecting || sshState.isConnecting)
+          if (_isConnecting || (sshState.isConnecting && !sshState.isReconnecting))
             Container(
               color: isDark ? Colors.black54 : Colors.white70,
               child: const Center(

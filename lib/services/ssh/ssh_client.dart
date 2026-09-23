@@ -147,12 +147,17 @@ class SshClient {
   SshClient({
     Future<SSHSocket> Function(String, int, Duration)? socketConnector,
     SSHClient Function(SSHSocket, String, SshConnectOptions)? transportFactory,
+    SSHClient Function(SSHSocket, String, SshConnectOptions)?
+    jumpTransportFactory,
   }) : _socketConnector = socketConnector ?? _connectSocket,
-       _transportFactory = transportFactory ?? _createTransport;
+       _transportFactory = transportFactory ?? _createTransport,
+       _jumpTransportFactory = jumpTransportFactory ?? _createTransport;
 
   final Future<SSHSocket> Function(String, int, Duration) _socketConnector;
   final SSHClient Function(SSHSocket, String, SshConnectOptions)
   _transportFactory;
+  final SSHClient Function(SSHSocket, String, SshConnectOptions)
+  _jumpTransportFactory;
 
   static Future<SSHSocket> _connectSocket(
     String host,
@@ -209,6 +214,8 @@ class SshClient {
   Future<void>? _probeInFlight;
   bool _closing = false;
   bool _disposed = false;
+  _ConnectionAttempt? _connectionAttempt;
+  Future<void>? _disposeFuture;
 
   /// A protocol request, independent of shell startup, polling and exec locks.
   /// All callers join the same probe; a late reply gets a second grace window
@@ -324,6 +331,11 @@ class SshClient {
     // バリデーション
     if (_disposed) throw SshConnectionError('SSH client disposed');
     _validateConnectionParams(host, port, username, options);
+    if (_connectionAttempt != null || _client != null) {
+      throw SshConnectionError('SSH client already connecting or connected');
+    }
+    final attempt = _ConnectionAttempt();
+    _connectionAttempt = attempt;
     _options = options;
     _closing = false;
 
@@ -331,7 +343,10 @@ class SshClient {
     _lastError = null;
     _tmuxPath = null;
     final deadline = DateTime.now().add(Duration(seconds: options.timeout));
-    var phase = 'socket connection';
+    final hasJumpHost = options.jumpHost?.isNotEmpty == true;
+    var phase = hasJumpHost
+        ? 'jump-host socket connection'
+        : 'socket connection';
 
     try {
       // Step 1: Create the initial socket (optionally through SOCKS5 proxy)
@@ -340,73 +355,86 @@ class SshClient {
         // Connect through SOCKS5 proxy
         final proxyTarget = options.jumpHost ?? host;
         final proxyTargetPort = options.jumpPort ?? port;
-        initialSocket = await Socks5Socket.connect(
-          proxyHost: options.proxyHost!,
-          proxyPort: options.proxyPort ?? 1080,
-          targetHost: proxyTarget,
-          targetPort: proxyTargetPort,
-          username: options.proxyUsername,
-          password: options.proxyPassword,
-          timeout: Duration(seconds: options.timeout),
+        initialSocket = await attempt.wait(
+          Socks5Socket.connect(
+            proxyHost: options.proxyHost!,
+            proxyPort: options.proxyPort ?? 1080,
+            targetHost: proxyTarget,
+            targetPort: proxyTargetPort,
+            username: options.proxyUsername,
+            password: options.proxyPassword,
+            timeout: Duration(seconds: options.timeout),
+          ),
+          onCancelledResult: (socket) => socket.destroy(),
         );
       } else {
         final directHost = options.jumpHost ?? host;
         final directPort = options.jumpPort ?? port;
-        initialSocket = await _socketConnector(
-          directHost,
-          directPort,
-          _remaining(deadline),
+        initialSocket = await attempt.wait(
+          _socketConnector(directHost, directPort, _remaining(deadline)),
+          onCancelledResult: (socket) => socket.destroy(),
         );
       }
 
       // Retain ownership even if parsing credentials or jump setup fails.
+      if (attempt.isCancelled) {
+        initialSocket.destroy();
+        throw SshConnectionError('SSH connection cancelled');
+      }
       _socket = initialSocket;
       if (_disposed) throw SshConnectionError('SSH connection cancelled');
       // Step 2: If jump host is configured, establish jump connection first
-      if (options.jumpHost != null && options.jumpHost!.isNotEmpty) {
+      if (hasJumpHost) {
         phase = 'jump-host authentication';
         final jumpUsername = options.jumpUsername ?? username;
-        if (options.jumpPrivateKey != null) {
-          _jumpClient = SSHClient(
-            initialSocket,
-            keepAliveInterval: null,
-            username: jumpUsername,
-            identities: _parsePrivateKey(
-              options.jumpPrivateKey!,
-              options.jumpPassphrase,
-            ),
-          );
-        } else if (options.jumpPassword != null) {
-          _jumpClient = SSHClient(
-            initialSocket,
-            keepAliveInterval: null,
-            username: jumpUsername,
-            onPasswordRequest: () => options.jumpPassword!,
-          );
-        } else {
+        if (options.jumpPrivateKey == null && options.jumpPassword == null) {
           throw SshAuthenticationError(
             'No authentication method for jump host',
           );
         }
-        await _jumpClient!.authenticated.timeout(_remaining(deadline));
+        _jumpClient = _jumpTransportFactory(
+          initialSocket,
+          jumpUsername,
+          SshConnectOptions(
+            privateKey: options.jumpPrivateKey,
+            passphrase: options.jumpPassphrase,
+            password: options.jumpPassword,
+          ),
+        );
+        await attempt
+            .wait(_jumpClient!.authenticated)
+            .timeout(_remaining(deadline));
+        if (attempt.isCancelled) {
+          throw SshConnectionError('SSH connection cancelled');
+        }
 
         // Forward through jump host to the actual target
         phase = 'jump-host forwarding';
-        _socket = await _jumpClient!
-            .forwardLocal(host, port)
+        final forwarded = await attempt
+            .wait<SSHSocket>(
+              _jumpClient!.forwardLocal(host, port),
+              onCancelledResult: (socket) => socket.destroy(),
+            )
             .timeout(_remaining(deadline));
+        if (attempt.isCancelled) {
+          forwarded.destroy();
+          throw SshConnectionError('SSH connection cancelled');
+        }
+        _socket = forwarded;
       } else {
         _socket = initialSocket;
       }
 
       if (_disposed) throw SshConnectionError('SSH connection cancelled');
-      phase = 'SSH authentication';
+      phase = hasJumpHost ? 'target SSH authentication' : 'SSH authentication';
       _client = _transportFactory(_socket!, username, options);
 
       // 認証完了を待機
-      await _client!.authenticated.timeout(_remaining(deadline));
+      await attempt.wait(_client!.authenticated).timeout(_remaining(deadline));
 
-      if (_disposed) throw SshConnectionError('SSH connection cancelled');
+      if (attempt.isCancelled) {
+        throw SshConnectionError('SSH connection cancelled');
+      }
       final transport = _client!;
       if (transport.isClosed)
         throw SshConnectionError('SSH closed after authentication');
@@ -424,26 +452,21 @@ class SshClient {
 
       // Keep-aliveを開始
       _startKeepAlive();
-    } on SocketException catch (e) {
-      _state = SshConnectionState.error;
-      _lastError = 'Connection failed during $phase: ${e.message}';
-      await _cleanup();
-      throw SshConnectionError(_lastError!, e);
-    } on SshAuthenticationError catch (e) {
-      _state = SshConnectionState.error;
-      _lastError = e.message;
-      await _cleanup();
-      rethrow;
-    } on SSHAuthFailError catch (e) {
-      _state = SshConnectionState.error;
-      _lastError = 'Authentication failed: ${e.message}';
-      await _cleanup();
-      throw SshAuthenticationError(_lastError!, e);
     } catch (e) {
+      // Cancellation owns its cleanup and must not turn an intentional close
+      // into an error (or clear resources belonging to a later open).
+      if (attempt.isCancelled) {
+        throw SshConnectionError('SSH connection cancelled');
+      }
       _state = SshConnectionState.error;
-      _lastError = 'Connection failed during $phase: $e';
+      final detail = e is SocketException ? e.message : e.toString();
+      final message = 'Connection failed during $phase: $detail';
+      _lastError = message;
       await _cleanup();
-      throw SshConnectionError(_lastError!, e);
+      if (e is SSHAuthFailError || e is SshAuthenticationError) {
+        throw SshAuthenticationError(message, e);
+      }
+      throw SshConnectionError(message, e);
     }
   }
 
@@ -534,30 +557,46 @@ class SshClient {
   /// リソースをクリーンアップ
   Future<void> _cleanup() async {
     _closing = true;
+    _connectionAttempt?.cancel();
+    _connectionAttempt = null;
     _commands = null;
     // Keep-aliveを停止
     _stopKeepAlive();
 
-    // 持続的シェルを解放
-    await _persistentShell?.dispose();
+    // Detach ownership before the first await. Authentication may fail as a
+    // consequence of closing the transport; its catch must not close twice.
+    final persistentShell = _persistentShell;
     _persistentShell = null;
-
-    await _stdoutSubscription?.cancel();
-    await _stderrSubscription?.cancel();
+    final stdoutSubscription = _stdoutSubscription;
+    final stderrSubscription = _stderrSubscription;
     _stdoutSubscription = null;
     _stderrSubscription = null;
-
-    _session?.close();
+    final session = _session;
     _session = null;
-
-    _client?.close();
+    final client = _client;
     _client = null;
-
-    _socket?.close();
+    final socket = _socket;
     _socket = null;
-
-    _jumpClient?.close();
+    final jumpClient = _jumpClient;
     _jumpClient = null;
+    _terminalSetup = null;
+
+    // Close both hops immediately, before awaiting terminal subscriptions.
+    // A socket that has not yet acquired an SSH transport needs destruction
+    // too; graceful close alone can leave its receive side alive.
+    try {
+      session?.close();
+      client?.close();
+    } finally {
+      try {
+        jumpClient?.close();
+      } finally {
+        socket?.destroy();
+      }
+    }
+    await persistentShell?.dispose();
+    await stdoutSubscription?.cancel();
+    await stderrSubscription?.cancel();
   }
 
   /// 持続的シェルを開始
@@ -746,6 +785,7 @@ class SshClient {
 
   /// 完了ハンドラ
   void _handleDone() {
+    if (_closing) return;
     _state = SshConnectionState.disconnected;
     // Fire the dedicated shell-end signal first so consumers (raw PTY
     // backend → terminal screen) can route a clean disconnect *before*
@@ -884,10 +924,42 @@ class SshClient {
   }
 
   /// リソースを解放する
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
     _disposed = true;
     await disconnect();
     await _connectionStateController.close();
+  }
+}
+
+/// Interrupts waits promptly without dropping late sockets/channels or errors.
+/// Dart futures are not cancellable: a dial already handed to the OS can still
+/// finish after Disconnect, so its eventual resource must be destroyed too.
+class _ConnectionAttempt {
+  final _cancelled = Completer<void>();
+  bool get isCancelled => _cancelled.isCompleted;
+
+  void cancel() {
+    if (!isCancelled) _cancelled.complete();
+  }
+
+  Future<T> wait<T>(
+    Future<T> operation, {
+    void Function(T)? onCancelledResult,
+  }) {
+    return Future.any([
+      operation.then((value) {
+        if (isCancelled) {
+          onCancelledResult?.call(value);
+          throw SshConnectionError('SSH connection cancelled');
+        }
+        return value;
+      }),
+      _cancelled.future.then<T>(
+        (_) => throw SshConnectionError('SSH connection cancelled'),
+      ),
+    ]);
   }
 }
 

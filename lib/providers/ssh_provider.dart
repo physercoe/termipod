@@ -22,6 +22,7 @@ final sshClientFactoryProvider = Provider<SshClient Function()>((ref) {
 
 /// SSH connection state
 class SshState {
+  static const _unchanged = Object();
   final SshConnectionState connectionState;
   final String? error;
   final String? sessionTitle;
@@ -52,7 +53,7 @@ class SshState {
 
   SshState copyWith({
     SshConnectionState? connectionState,
-    String? error,
+    Object? error = _unchanged,
     String? sessionTitle,
     bool? isReconnecting,
     int? reconnectAttempt,
@@ -63,7 +64,7 @@ class SshState {
   }) {
     return SshState(
       connectionState: connectionState ?? this.connectionState,
-      error: error,
+      error: identical(error, _unchanged) ? this.error : error as String?,
       sessionTitle: sessionTitle ?? this.sessionTitle,
       isReconnecting: isReconnecting ?? this.isReconnecting,
       reconnectAttempt: reconnectAttempt ?? this.reconnectAttempt,
@@ -272,7 +273,10 @@ class SshNotifier extends Notifier<SshState> {
 
       await _client!.startShell();
 
-      state = state.copyWith(connectionState: SshConnectionState.connected);
+      state = state.copyWith(
+        connectionState: SshConnectionState.connected,
+        error: null,
+      );
 
       ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
 
@@ -417,7 +421,8 @@ class SshNotifier extends Notifier<SshState> {
         username: connection.username,
         options: options,
       );
-      if (!client.isConnected) throw SshConnectionError('SSH closed during connection setup');
+      if (!client.isConnected)
+        throw SshConnectionError('SSH closed during connection setup');
       if (generation != _connectionGeneration || _manuallyDisconnected) {
         await client.dispose();
         throw SshConnectionError('Connection interrupted');
@@ -425,6 +430,7 @@ class SshNotifier extends Notifier<SshState> {
 
       state = state.copyWith(
         connectionState: SshConnectionState.connected,
+        error: null,
         isReconnecting: false,
         reconnectAttempt: 0,
       );
@@ -466,7 +472,7 @@ class SshNotifier extends Notifier<SshState> {
       state = state.copyWith(
         connectionState: newState,
         isReconnecting: !_manuallyDisconnected,
-        error: newState == SshConnectionState.error ? 'Connection lost' : null,
+        error: _client?.lastError ?? 'SSH transport closed',
       );
 
       onDisconnectDetected?.call();
@@ -493,7 +499,7 @@ class SshNotifier extends Notifier<SshState> {
       state = state.copyWith(
         isReconnecting: true,
         isPaused: true,
-        error: 'Waiting for network...',
+        error: state.error ?? 'Waiting for network...',
       );
       return false;
     }
@@ -569,7 +575,6 @@ class SshNotifier extends Notifier<SshState> {
         connectionState: SshConnectionState.connecting,
         isReconnecting: true,
         isPaused: false,
-        error: null,
       );
 
       final subscription = _connectionStateSubscription;
@@ -581,6 +586,10 @@ class SshNotifier extends Notifier<SshState> {
       if (generation != _connectionGeneration || _manuallyDisconnected)
         return false;
       candidate = ref.read(sshClientFactoryProvider)();
+      // Disconnect must own the candidate during authentication too. Keeping
+      // it only in this stack frame allowed a closed screen's jump-host login
+      // to continue alongside the next screen's connection.
+      _client = candidate;
 
       await candidate.connect(
         host: _lastConnection!.host,
@@ -588,7 +597,8 @@ class SshNotifier extends Notifier<SshState> {
         username: _lastConnection!.username,
         options: _lastOptions!,
       );
-      if (!candidate.isConnected) throw SshConnectionError('SSH closed during recovery');
+      if (!candidate.isConnected)
+        throw SshConnectionError('SSH closed during recovery');
       if (generation != _connectionGeneration || _manuallyDisconnected) {
         await candidate.dispose();
         return false;

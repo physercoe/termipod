@@ -108,6 +108,88 @@ void main() {
     return container;
   }
 
+  test('healthy close then reopen uses one fresh dial', () async {
+    final old = _ControlledSshClient();
+    final next = _ControlledSshClient();
+    final container = fixture([old, next]);
+    final notifier = container.read(sshProvider('race').notifier);
+    await notifier.connectWithoutShell(connection, options);
+    await notifier.disconnect();
+    expect(old.disposeCalls, 1);
+    await notifier.connectWithoutShell(connection, options);
+    expect(next.connectCalls, 1);
+    final state = container.read(sshProvider('race'));
+    expect(state.isConnected, isTrue);
+    expect(state.isReconnecting, isFalse);
+    expect(state.reconnectAttempt, 0);
+    expect(state.error, isNull);
+  });
+
+  test(
+    'manual close disposes an authenticating reconnect before reopening',
+    () async {
+      final pendingGate = Completer<void>();
+      final pending = _ControlledSshClient(connectGate: pendingGate.future);
+      final next = _ControlledSshClient();
+      final container = fixture([_ControlledSshClient(), pending, next]);
+      final notifier = container.read(sshProvider('race').notifier);
+      await notifier.connectWithoutShell(connection, options);
+      final recovery = notifier.reconnectNow();
+      await Future<void>.delayed(Duration.zero);
+      expect(pending.connectCalls, 1);
+      await notifier.disconnect();
+      expect(pending.disposeCalls, 1);
+      await notifier.connectWithoutShell(connection, options);
+      expect(next.connectCalls, 1);
+      pendingGate.complete();
+      expect(await recovery, isFalse);
+      expect(notifier.client, same(next));
+      expect(next.disposeCalls, 0);
+      expect(container.read(sshProvider('race')).reconnectAttempt, 0);
+    },
+  );
+
+  test('auto-disposal also closes an authenticating reconnect', () async {
+    final gate = Completer<void>();
+    final pending = _ControlledSshClient(connectGate: gate.future);
+    final container = fixture([_ControlledSshClient(), pending]);
+    final notifier = container.read(sshProvider('race').notifier);
+    await notifier.connectWithoutShell(connection, options);
+    final recovery = notifier.reconnectNow();
+    await Future<void>.delayed(Duration.zero);
+    container.invalidate(sshProvider('race'));
+    expect(pending.disposeCalls, 1);
+    gate.complete();
+    expect(await recovery, isFalse);
+  });
+
+  test('retry retains the last failure until recovery succeeds', () async {
+    final gate = Completer<void>();
+    final next = _ControlledSshClient(connectGate: gate.future);
+    final container = fixture([
+      _ControlledSshClient(
+        connectError: SshConnectionError('jump-host forwarding: refused'),
+      ),
+      next,
+    ]);
+    final notifier = container.read(sshProvider('race').notifier);
+    await expectLater(
+      notifier.connectWithoutShell(connection, options),
+      throwsA(isA<SshConnectionError>()),
+    );
+    await Future<void>.delayed(Duration.zero);
+    final waiting = container.read(sshProvider('race'));
+    expect(waiting.nextRetryAt, isNotNull);
+    expect(waiting.error, contains('jump-host forwarding'));
+    expect(waiting.copyWith(isNetworkAvailable: false).error, waiting.error);
+    final recovery = notifier.reconnectNow();
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(sshProvider('race')).error, waiting.error);
+    gate.complete();
+    expect(await recovery, isTrue);
+    expect(container.read(sshProvider('race')).error, isNull);
+  });
+
   test(
     'a stale transport replaced by another screen notifies the terminal',
     () async {

@@ -35,6 +35,9 @@ jobs:
       - run: flutter pub get
       - run: flutter gen-l10n
       - run: flutter build apk --debug
+      - name: Test browser navigation policy
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
       # Debug assembly does not run release-only fatal checks. Exercise the
       # same validation that gates a tagged APK, without release signing keys.
       - name: Validate Android release configuration

@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 
 import 'persistent_shell.dart';
+import 'command_executor.dart';
 import 'socks5_socket.dart';
 
 /// SSH接続エラー
@@ -17,7 +18,8 @@ class SshConnectionError implements Exception {
   SshConnectionError(this.message, [this.cause]);
 
   @override
-  String toString() => 'SshConnectionError: $message${cause != null ? ' ($cause)' : ''}';
+  String toString() =>
+      'SshConnectionError: $message${cause != null ? ' ($cause)' : ''}';
 }
 
 /// SSH認証エラー
@@ -28,7 +30,8 @@ class SshAuthenticationError implements Exception {
   SshAuthenticationError(this.message, [this.cause]);
 
   @override
-  String toString() => 'SshAuthenticationError: $message${cause != null ? ' ($cause)' : ''}';
+  String toString() =>
+      'SshAuthenticationError: $message${cause != null ? ' ($cause)' : ''}';
 }
 
 /// SSH接続オプション
@@ -117,12 +120,7 @@ class SshEvents {
   /// network drop and trigger a reconnect into a brand-new shell.
   final void Function()? onShellEnd;
 
-  const SshEvents({
-    this.onData,
-    this.onClose,
-    this.onError,
-    this.onShellEnd,
-  });
+  const SshEvents({this.onData, this.onClose, this.onError, this.onShellEnd});
 
   SshEvents copyWith({
     void Function(Uint8List data)? onData,
@@ -140,22 +138,50 @@ class SshEvents {
 }
 
 /// SSH接続状態
-enum SshConnectionState {
-  disconnected,
-  connecting,
-  connected,
-  error,
-}
+enum SshConnectionState { disconnected, connecting, connected, error }
 
 /// SSHクライアント
 ///
 /// dartssh2をラップし、SSH接続を管理する。
 class SshClient {
+  SshClient({
+    Future<SSHSocket> Function(String, int, Duration)? socketConnector,
+    SSHClient Function(SSHSocket, String, SshConnectOptions)? transportFactory,
+  }) : _socketConnector = socketConnector ?? _connectSocket,
+       _transportFactory = transportFactory ?? _createTransport;
+
+  final Future<SSHSocket> Function(String, int, Duration) _socketConnector;
+  final SSHClient Function(SSHSocket, String, SshConnectOptions)
+  _transportFactory;
+
+  static Future<SSHSocket> _connectSocket(
+    String host,
+    int port,
+    Duration timeout,
+  ) => SSHSocket.connect(host, port, timeout: timeout);
+
+  static SSHClient _createTransport(
+    SSHSocket socket,
+    String username,
+    SshConnectOptions options,
+  ) => SSHClient(
+    socket,
+    username: username,
+    keepAliveInterval: null,
+    identities: options.privateKey == null
+        ? null
+        : _parsePrivateKey(options.privateKey!, options.passphrase),
+    onPasswordRequest: options.password == null
+        ? null
+        : () => options.password!,
+  );
+
   /// Open a byte stream using the authenticated transport (including jumps).
   /// This does not execute a command or acquire the terminal exec lock.
   Future<SSHSocket> openForward(String host, int port) async {
     final client = _client;
-    if (client == null || !isConnected) throw SshConnectionError('SSH connection unavailable');
+    if (client == null || !isConnected)
+      throw SshConnectionError('SSH connection unavailable');
     return client.forwardLocal(host, port);
   }
 
@@ -177,8 +203,65 @@ class SshClient {
   /// 検出されたtmuxバイナリの絶対パス
   String? _tmuxPath;
 
-  /// execチャネル排他制御用ロック
-  Completer<void>? _execLock;
+  CommandExecutor? _commands;
+  SshConnectOptions? _options;
+  Future<void>? _terminalSetup;
+  Future<void>? _probeInFlight;
+  bool _closing = false;
+  bool _disposed = false;
+
+  /// A protocol request, independent of shell startup, polling and exec locks.
+  /// All callers join the same probe; a late reply gets a second grace window
+  /// without sending a second request or mis-associating SSH global replies.
+  Future<void> probeTransport() {
+    final existing = _probeInFlight;
+    if (existing != null) return existing;
+    late final Future<void> operation;
+    operation = _probeTransport().whenComplete(() {
+      if (identical(_probeInFlight, operation)) _probeInFlight = null;
+    });
+    _probeInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _probeTransport() async {
+    final transport = _client;
+    if (!isConnected || transport == null || transport.isClosed) {
+      throw SshConnectionError('SSH transport closed');
+    }
+    final reply = transport.ping();
+    try {
+      await reply.timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      await reply.timeout(const Duration(seconds: 5));
+    }
+    if (_closing || !identical(_client, transport) || transport.isClosed) {
+      throw SshConnectionError('SSH transport changed during probe');
+    }
+  }
+
+  /// Terminal-only work has its own budget and cannot fail SSH authentication.
+  Future<void> prepareTerminal() {
+    return _terminalSetup ??= _prepareTerminal();
+  }
+
+  Future<void> _prepareTerminal() async {
+    if (!isConnected) throw SshConnectionError('Not connected');
+    final configured = _options?.tmuxPath;
+    if (configured != null && configured.isNotEmpty) {
+      try {
+        final result = await execWithExitCode(
+          'test -x ${_shellEscape(configured)}',
+          timeout: const Duration(seconds: 3),
+        );
+        if (result.exitCode == 0) _tmuxPath = configured;
+      } catch (_) {
+        /* Fall through to bounded discovery. */
+      }
+    }
+    if (_tmuxPath == null) await _detectTmuxPath();
+    await _startPersistentShell(timeout: const Duration(seconds: 3));
+  }
 
   /// tmuxの絶対パス（未検出なら null）
   String? get tmuxPath => _tmuxPath;
@@ -187,19 +270,18 @@ class SshClient {
   Timer? _keepAliveTimer;
 
   /// 接続監視用のStreamController
-  final _connectionStateController = StreamController<SshConnectionState>.broadcast();
+  final _connectionStateController =
+      StreamController<SshConnectionState>.broadcast();
 
   /// 接続状態のストリーム（外部から監視用）
-  Stream<SshConnectionState> get connectionStateStream => _connectionStateController.stream;
+  Stream<SshConnectionState> get connectionStateStream =>
+      _connectionStateController.stream;
 
   /// Keep-alive最小間隔（秒）
   static const int _minKeepAliveIntervalSeconds = 5;
 
   /// Keep-alive最大間隔（秒）
   static const int _maxKeepAliveIntervalSeconds = 30;
-
-  /// Keep-aliveタイムアウト（秒）- 高速検知のため3秒に短縮
-  static const int _keepAliveTimeoutSeconds = 3;
 
   /// 現在のKeep-alive間隔（動的に調整）
   int _currentKeepAliveIntervalSeconds = 10;
@@ -240,12 +322,16 @@ class SshClient {
     required SshConnectOptions options,
   }) async {
     // バリデーション
+    if (_disposed) throw SshConnectionError('SSH client disposed');
     _validateConnectionParams(host, port, username, options);
+    _options = options;
+    _closing = false;
 
     _state = SshConnectionState.connecting;
     _lastError = null;
     _tmuxPath = null;
     final deadline = DateTime.now().add(Duration(seconds: options.timeout));
+    var phase = 'socket connection';
 
     try {
       // Step 1: Create the initial socket (optionally through SOCKS5 proxy)
@@ -266,34 +352,46 @@ class SshClient {
       } else {
         final directHost = options.jumpHost ?? host;
         final directPort = options.jumpPort ?? port;
-        initialSocket = await SSHSocket.connect(
+        initialSocket = await _socketConnector(
           directHost,
           directPort,
-          timeout: Duration(seconds: options.timeout),
+          _remaining(deadline),
         );
       }
 
+      // Retain ownership even if parsing credentials or jump setup fails.
+      _socket = initialSocket;
+      if (_disposed) throw SshConnectionError('SSH connection cancelled');
       // Step 2: If jump host is configured, establish jump connection first
       if (options.jumpHost != null && options.jumpHost!.isNotEmpty) {
+        phase = 'jump-host authentication';
         final jumpUsername = options.jumpUsername ?? username;
         if (options.jumpPrivateKey != null) {
           _jumpClient = SSHClient(
             initialSocket,
+            keepAliveInterval: null,
             username: jumpUsername,
-            identities: _parsePrivateKey(options.jumpPrivateKey!, options.jumpPassphrase),
+            identities: _parsePrivateKey(
+              options.jumpPrivateKey!,
+              options.jumpPassphrase,
+            ),
           );
         } else if (options.jumpPassword != null) {
           _jumpClient = SSHClient(
             initialSocket,
+            keepAliveInterval: null,
             username: jumpUsername,
             onPasswordRequest: () => options.jumpPassword!,
           );
         } else {
-          throw SshAuthenticationError('No authentication method for jump host');
+          throw SshAuthenticationError(
+            'No authentication method for jump host',
+          );
         }
         await _jumpClient!.authenticated.timeout(_remaining(deadline));
 
         // Forward through jump host to the actual target
+        phase = 'jump-host forwarding';
         _socket = await _jumpClient!
             .forwardLocal(host, port)
             .timeout(_remaining(deadline));
@@ -301,62 +399,25 @@ class SshClient {
         _socket = initialSocket;
       }
 
-      // Step 3: Create the main SSH client on the (possibly forwarded) socket
-      if (options.privateKey != null) {
-        // 鍵認証
-        _client = SSHClient(
-          _socket!,
-          username: username,
-          identities: _parsePrivateKey(options.privateKey!, options.passphrase),
-          onAuthenticated: _onAuthenticated,
-        );
-      } else if (options.password != null) {
-        // パスワード認証
-        _client = SSHClient(
-          _socket!,
-          username: username,
-          onPasswordRequest: () => options.password!,
-          onAuthenticated: _onAuthenticated,
-        );
-      } else {
-        throw SshAuthenticationError('No authentication method provided');
-      }
+      if (_disposed) throw SshConnectionError('SSH connection cancelled');
+      phase = 'SSH authentication';
+      _client = _transportFactory(_socket!, username, options);
 
       // 認証完了を待機
       await _client!.authenticated.timeout(_remaining(deadline));
 
-      // tmuxパス検出（ユーザー指定があればそれを使用、なければ自動検出）
-      if (options.tmuxPath != null && options.tmuxPath!.isNotEmpty) {
-        // ユーザー指定パスの存在確認
-        final verifyExitCode = await _withExecLock(() async {
-          final session = await _client!
-              .execute('test -x ${_shellEscape(options.tmuxPath!)}');
-          try {
-            await Future.wait([
-              session.stdout.drain<void>(),
-              session.stderr.drain<void>(),
-            ]);
-            return session.exitCode;
-          } finally {
-            session.close();
-          }
-        }).timeout(_remaining(deadline));
-        if (verifyExitCode == 0) {
-          _tmuxPath = options.tmuxPath;
-          debugPrint('connect: user-specified tmux path verified: $_tmuxPath');
-        } else {
-          debugPrint(
-            'connect: configured tmux path unavailable; falling back to detection: '
-            '${options.tmuxPath}',
-          );
-          await _detectTmuxPath(deadline: deadline);
-        }
-      } else {
-        await _detectTmuxPath(deadline: deadline);
-      }
-
-      // 持続的シェルを開始（ポーリング用）
-      await _startPersistentShell(timeout: _remaining(deadline));
+      if (_disposed) throw SshConnectionError('SSH connection cancelled');
+      final transport = _client!;
+      if (transport.isClosed)
+        throw SshConnectionError('SSH closed after authentication');
+      _commands = CommandExecutor(transport.execute);
+      // Observe real EOF directly, not only a later shell-command failure.
+      unawaited(
+        transport.done.then(
+          (_) => _transportClosed(transport),
+          onError: (Object error) => _transportClosed(transport, error),
+        ),
+      );
 
       _state = SshConnectionState.connected;
       _connectionStateController.add(_state);
@@ -365,7 +426,7 @@ class SshClient {
       _startKeepAlive();
     } on SocketException catch (e) {
       _state = SshConnectionState.error;
-      _lastError = 'Connection failed: ${e.message}';
+      _lastError = 'Connection failed during $phase: ${e.message}';
       await _cleanup();
       throw SshConnectionError(_lastError!, e);
     } on SshAuthenticationError catch (e) {
@@ -380,10 +441,19 @@ class SshClient {
       throw SshAuthenticationError(_lastError!, e);
     } catch (e) {
       _state = SshConnectionState.error;
-      _lastError = 'Connection failed: $e';
+      _lastError = 'Connection failed during $phase: $e';
       await _cleanup();
       throw SshConnectionError(_lastError!, e);
     }
+  }
+
+  void _transportClosed(SSHClient transport, [Object? error]) {
+    if (_closing || !identical(_client, transport)) return;
+    _lastError = error == null
+        ? 'SSH transport closed'
+        : 'SSH transport closed: $error';
+    _updateState(SshConnectionState.error);
+    _events.onError?.call(SshConnectionError(_lastError!));
   }
 
   Duration _remaining(DateTime deadline) {
@@ -422,7 +492,10 @@ class SshClient {
   }
 
   /// 秘密鍵をパース
-  List<SSHKeyPair> _parsePrivateKey(String privateKey, String? passphrase) {
+  static List<SSHKeyPair> _parsePrivateKey(
+    String privateKey,
+    String? passphrase,
+  ) {
     try {
       // SSHKeyPair.fromPem は List<SSHKeyPair> を返す
       final keyPairs = SSHKeyPair.fromPem(privateKey, passphrase);
@@ -435,15 +508,12 @@ class SshClient {
     } catch (e) {
       if (e is SshAuthenticationError) rethrow;
       if (passphrase == null && privateKey.contains('ENCRYPTED')) {
-        throw SshAuthenticationError('Private key is encrypted, passphrase required');
+        throw SshAuthenticationError(
+          'Private key is encrypted, passphrase required',
+        );
       }
       throw SshAuthenticationError('Failed to parse private key: $e');
     }
-  }
-
-  /// 認証完了コールバック
-  void _onAuthenticated() {
-    // 認証成功
   }
 
   /// 接続を切断する
@@ -463,6 +533,8 @@ class SshClient {
 
   /// リソースをクリーンアップ
   Future<void> _cleanup() async {
+    _closing = true;
+    _commands = null;
     // Keep-aliveを停止
     _stopKeepAlive();
 
@@ -498,6 +570,7 @@ class SshClient {
     } catch (e) {
       // 持続的シェルの開始に失敗しても接続自体は継続
       // 従来のexec()メソッドにフォールバック
+      await _persistentShell?.dispose();
       _persistentShell = null;
     }
   }
@@ -515,87 +588,28 @@ class SshClient {
     }
   }
 
-  /// execチャネルを排他的に使用する
-  Future<T> _withExecLock<T>(Future<T> Function() fn) async {
-    while (_execLock != null) {
-      await _execLock!.future;
-    }
-    final completer = Completer<void>();
-    _execLock = completer;
-    try {
-      return await fn();
-    } finally {
-      _execLock = null;
-      completer.complete();
-    }
-  }
-
-  /// execチャネル経由でtmuxの絶対パスを検出
-  ///
-  /// Step 1: ログインシェル経由で `command -v tmux` を実行
-  /// Step 2: 失敗時、既知の候補パスで `test -x` フォールバック
-  Future<void> _detectTmuxPath({required DateTime deadline}) async {
-    if (_client == null) return;
-
-    // Step 1: ログインシェル経由で検出
-    try {
-      final path = await _withExecLock(() async {
-        final session = await _client!.execute(
-          r"$SHELL -lc 'command -v tmux'",
-        );
-        try {
-          final stdoutBytes = <int>[];
-          await Future.wait([
-            session.stdout.forEach((data) => stdoutBytes.addAll(data)),
-            session.stderr.drain<void>(),
-          ]);
-          return utf8.decode(stdoutBytes, allowMalformed: true).trim();
-        } finally {
-          session.close();
-        }
-      }).timeout(_remaining(deadline));
-      if (path.isNotEmpty && path.startsWith('/')) {
-        _tmuxPath = path;
-        debugPrint('_detectTmuxPath: found via login shell: $path');
-        return;
-      }
-    } catch (e) {
-      debugPrint('_detectTmuxPath: login shell detection failed: $e');
-      if (DateTime.now().isAfter(deadline)) return;
-    }
-
-    // Step 2: 既知パスのフォールバック
-    const candidates = [
-      '/opt/homebrew/bin/tmux',
-      '/usr/local/bin/tmux',
-      '/usr/bin/tmux',
-    ];
-
-    for (final candidate in candidates) {
+  Future<void> _detectTmuxPath() async {
+    // Common paths first: no interactive/login shell hooks on the fast path.
+    for (final command in [
+      r'''for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if test -x "$p"; then printf '%s\n' "$p"; exit; fi; done; command -v tmux''',
+      r"$SHELL -lc 'command -v tmux'",
+    ]) {
       try {
-        final exitCode = await _withExecLock(() async {
-          final session = await _client!.execute('test -x $candidate');
-          try {
-            await Future.wait([
-              session.stdout.drain<void>(),
-              session.stderr.drain<void>(),
-            ]);
-            return session.exitCode;
-          } finally {
-            session.close();
-          }
-        }).timeout(_remaining(deadline));
-        if (exitCode == 0) {
-          _tmuxPath = candidate;
-          debugPrint('_detectTmuxPath: found via fallback: $candidate');
+        final result = await execWithExitCode(
+          command,
+          timeout: const Duration(seconds: 3),
+        );
+        final path = result.stdout.trim();
+        if (result.exitCode == 0 &&
+            path.startsWith('/') &&
+            !path.contains('\n')) {
+          _tmuxPath = path;
           return;
         }
-      } catch (e) {
-        debugPrint('_detectTmuxPath: error checking $candidate: $e');
-        if (DateTime.now().isAfter(deadline)) return;
+      } catch (_) {
+        /* Detection failure belongs to terminal setup, not SSH. */
       }
     }
-    debugPrint('_detectTmuxPath: tmux not found');
   }
 
   /// コマンド内の `tmux` を検出済み絶対パスに置換
@@ -652,8 +666,11 @@ class SshClient {
       _keepAliveSuccessCount++;
       // 3回連続成功で間隔を延長
       if (_keepAliveSuccessCount >= 3) {
-        _currentKeepAliveIntervalSeconds = (_currentKeepAliveIntervalSeconds + 5)
-            .clamp(_minKeepAliveIntervalSeconds, _maxKeepAliveIntervalSeconds);
+        _currentKeepAliveIntervalSeconds =
+            (_currentKeepAliveIntervalSeconds + 5).clamp(
+              _minKeepAliveIntervalSeconds,
+              _maxKeepAliveIntervalSeconds,
+            );
         _keepAliveSuccessCount = 0;
       }
     } else {
@@ -670,13 +687,10 @@ class SshClient {
     }
 
     try {
-      // 持続的シェル経由でkeep-alive（高速）
-      await execPersistent(
-        'echo ping',
-        timeout: Duration(seconds: _keepAliveTimeoutSeconds),
-      );
+      await probeTransport();
       _adjustKeepAliveInterval(success: true);
     } catch (e) {
+      if (_closing || !isConnected) return;
       _adjustKeepAliveInterval(success: false);
       // Keep-alive失敗 = 接続切断
       _lastError = 'Connection lost: $e';
@@ -788,66 +802,8 @@ class SshClient {
       throw SshConnectionError('Not connected');
     }
 
-    try {
-      final resolvedCommand = _resolveTmuxCommand(command);
-      return await _withExecLock(() async {
-        final session = await _client!.execute(resolvedCommand);
-
-        // 出力を収集（バイト列として収集し、最後にデコード）
-        final stdoutBytes = <int>[];
-        final stderrBytes = <int>[];
-
-        final stdoutCompleter = Completer<void>();
-        final stderrCompleter = Completer<void>();
-
-        session.stdout.listen(
-          (data) => stdoutBytes.addAll(data),
-          onDone: () => stdoutCompleter.complete(),
-          onError: (e) => stdoutCompleter.completeError(e),
-        );
-
-        session.stderr.listen(
-          (data) => stderrBytes.addAll(data),
-          onDone: () => stderrCompleter.complete(),
-          onError: (e) => stderrCompleter.completeError(e),
-        );
-
-        // タイムアウト付きで完了を待機
-        if (timeout != null) {
-          await Future.wait([
-            stdoutCompleter.future,
-            stderrCompleter.future,
-          ]).timeout(timeout);
-        } else {
-          await Future.wait([
-            stdoutCompleter.future,
-            stderrCompleter.future,
-          ]);
-        }
-
-        session.close();
-
-        // バイト列をUTF-8デコード（不正なバイトは置換文字に）
-        final stdout = utf8.decode(stdoutBytes, allowMalformed: true);
-        final stderr = utf8.decode(stderrBytes, allowMalformed: true);
-
-        // stderrがあればエラーとして扱う（オプション）
-        if (stderr.isNotEmpty) {
-          // stderrも結果に含める（tmuxコマンドなどはstderrに出力することがある）
-          debugPrint('exec: stdout="${stdout.trim()}", stderr="${stderr.trim()}"');
-          return stdout + stderr;
-        }
-
-        debugPrint('exec: stdout="${stdout.trim()}"');
-        return stdout;
-      });
-    } on TimeoutException {
-      debugPrint('exec: timed out');
-      throw SshConnectionError('Command execution timed out');
-    } catch (e) {
-      debugPrint('exec: error=$e');
-      throw SshConnectionError('Failed to execute command: $e', e);
-    }
+    final result = await execWithExitCode(command, timeout: timeout);
+    return result.stdout + result.stderr;
   }
 
   /// 持続的シェル経由でコマンドを実行（高速）
@@ -873,17 +829,10 @@ class SshClient {
     try {
       return await _persistentShell!.exec(resolvedCommand, timeout: timeout);
     } on PersistentShellError catch (e) {
-      // シェルセッションが切断された場合は再起動を試みる
-      if (e.message.contains('closed') || e.message.contains('disposed')) {
-        try {
-          await restartPersistentShell();
-          return await _persistentShell!.exec(resolvedCommand, timeout: timeout);
-        } catch (_) {
-          // 再起動も失敗した場合は従来のexec()にフォールバック
-          return exec(resolvedCommand, timeout: timeout);
-        }
-      }
-      // その他のエラーは従来のexec()にフォールバック
+      // Retrying after a timeout/EOF could execute a mutation twice. Only a
+      // command rejected before it was sent (for example a busy shell) may
+      // use the ordinary channel fallback.
+      if (e.mayHaveExecuted) rethrow;
       return exec(resolvedCommand, timeout: timeout);
     }
   }
@@ -900,53 +849,15 @@ class SshClient {
       throw SshConnectionError('Not connected');
     }
 
+    final commands = _commands;
+    if (commands == null) throw SshConnectionError('Not connected');
     try {
-      final resolvedCommand = _resolveTmuxCommand(command);
-      return await _withExecLock(() async {
-        final session = await _client!.execute(resolvedCommand);
-
-        // バイト列として蓄積（チャンク単位デコードによるUTF-8境界分割を防止）
-        final stdoutBytes = <int>[];
-        final stderrBytes = <int>[];
-
-        final stdoutCompleter = Completer<void>();
-        final stderrCompleter = Completer<void>();
-
-        session.stdout.listen(
-          (data) => stdoutBytes.addAll(data),
-          onDone: () => stdoutCompleter.complete(),
-          onError: (e) => stdoutCompleter.completeError(e),
-        );
-
-        session.stderr.listen(
-          (data) => stderrBytes.addAll(data),
-          onDone: () => stderrCompleter.complete(),
-          onError: (e) => stderrCompleter.completeError(e),
-        );
-
-        if (timeout != null) {
-          await Future.wait([
-            stdoutCompleter.future,
-            stderrCompleter.future,
-          ]).timeout(timeout);
-        } else {
-          await Future.wait([
-            stdoutCompleter.future,
-            stderrCompleter.future,
-          ]);
-        }
-
-        final exitCode = session.exitCode;
-        session.close();
-
-        return (
-          stdout: utf8.decode(stdoutBytes, allowMalformed: true),
-          stderr: utf8.decode(stderrBytes, allowMalformed: true),
-          exitCode: exitCode,
-        );
-      });
-    } on TimeoutException {
-      throw SshConnectionError('Command execution timed out');
+      return await commands.run(
+        _resolveTmuxCommand(command),
+        timeout: timeout ?? const Duration(seconds: 15),
+      );
+    } on TimeoutException catch (e) {
+      throw SshConnectionError('Command execution timed out', e);
     } catch (e) {
       throw SshConnectionError('Failed to execute command: $e', e);
     }
@@ -974,6 +885,7 @@ class SshClient {
 
   /// リソースを解放する
   Future<void> dispose() async {
+    _disposed = true;
     await disconnect();
     await _connectionStateController.close();
   }

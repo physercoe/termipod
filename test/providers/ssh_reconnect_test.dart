@@ -30,6 +30,8 @@ class _ControlledSshClient extends SshClient {
   int connectCalls = 0;
   int disposeCalls = 0;
   Object? probeError;
+  Completer<void>? probeGate;
+  int probeCalls = 0;
   final _states = StreamController<SshConnectionState>.broadcast();
 
   @override
@@ -38,6 +40,13 @@ class _ControlledSshClient extends SshClient {
   void loseTransport() {
     _connected = false;
     _states.add(SshConnectionState.disconnected);
+  }
+
+  @override
+  Future<void> probeTransport() async {
+    probeCalls++;
+    await probeGate?.future;
+    if (probeError != null) throw probeError!;
   }
 
   @override
@@ -131,6 +140,54 @@ void main() {
       expect(await notifier.reconnectNow(), isTrue);
       expect(await scheduled, isFalse);
       expect(notifier.client, same(next));
+    },
+  );
+
+  test(
+    'reopen and retry preserve a slow but live backgrounded transport',
+    () async {
+      final initial = _ControlledSshClient()..probeGate = Completer<void>();
+      final container = fixture([initial]);
+      final notifier = container.read(sshProvider('race').notifier);
+      await notifier.connectWithoutShell(connection, options);
+      final first = notifier.ensureConnected(
+        connection,
+        () => throw StateError('cached'),
+      );
+      final second = notifier.ensureConnected(
+        connection,
+        () => throw StateError('cached'),
+      );
+      final retry = notifier.reconnectNow();
+      initial.probeGate!.complete();
+      await Future.wait([first, second]);
+      expect(await retry, isTrue);
+      expect(initial.probeCalls, 1);
+      expect(initial.connectCalls, 1);
+      expect(initial.disposeCalls, 0);
+      expect(container.read(sshProvider('race')).reconnectAttempt, 0);
+    },
+  );
+
+  test(
+    'retry during backend restoration does not put healthy SSH back into reconnecting',
+    () async {
+      final container = fixture([
+        _ControlledSshClient(),
+        _ControlledSshClient(),
+      ]);
+      final notifier = container.read(sshProvider('race').notifier);
+      await notifier.connectWithoutShell(connection, options);
+      final restoring = Completer<void>();
+      notifier.onReconnectSuccess = () => restoring.future;
+      final first = notifier.reconnectNow();
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(sshProvider('race')).isConnected, isTrue);
+      final retry = notifier.reconnectNow();
+      expect(container.read(sshProvider('race')).isReconnecting, isFalse);
+      restoring.complete();
+      expect(await first, isTrue);
+      expect(await retry, isTrue);
     },
   );
 

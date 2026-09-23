@@ -19,7 +19,8 @@
   "webReloadAfterRecovery": "连接已恢复。请刷新以重新加载网站。不会自动重新提交表单。",
   "webNavigationBlocked": "此链接离开转发的服务，已被阻止。暂不支持外部导航。",
   "webLoadFailed": "无法加载网站。请检查远程服务和端口，然后刷新。",
-  "webBrowserUnsupported": "隔离浏览器不可用。在 Android 上，请更新 Android System WebView 后重试。隧道仍会显示在 Web 服务列表中。",
+  "webBrowserUnsupported": "此设备无法创建隔离浏览器。Android 需要 Android 9 或更高版本，或支持独立配置文件的 WebView。隧道仍保留在 Web 服务列表中。",
+  "webBrowserInitializationFailed": "浏览器无法启动。请重试，或检查 Android WebView 是否已安装并启用。这不是 SSH 连接错误。",
   "@@locale": "zh",
 
   "appName": "TermiPod",

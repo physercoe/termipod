@@ -19,7 +19,8 @@
   "webReloadAfterRecovery": "Connection restored. Refresh to reload the website. Form submissions are not replayed.",
   "webNavigationBlocked": "This link leaves the forwarded service and was blocked. External navigation is not supported yet.",
   "webLoadFailed": "Could not load the website. Check the remote service and port, then refresh.",
-  "webBrowserUnsupported": "An isolated browser is unavailable. On Android, update Android System WebView and try again. The tunnel is still listed under Web services.",
+  "webBrowserUnsupported": "This device cannot create an isolated browser. On Android, use Android 9 or newer, or a WebView provider with separate-profile support. The tunnel is still listed under Web services.",
+  "webBrowserInitializationFailed": "The browser could not start. Retry or check that an Android WebView provider is installed and enabled. This is not an SSH connection error.",
   "@@locale": "en",
 
   "appName": "TermiPod",

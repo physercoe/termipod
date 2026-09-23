@@ -2,6 +2,7 @@ package com.remoteagent.termipod
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.view.View
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -16,6 +17,7 @@ import androidx.webkit.WebViewFeature
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
@@ -25,19 +27,30 @@ import java.io.ByteArrayInputStream
 private const val viewType = "termipod/web_browser"
 private const val profilePrefix = "termipod-tunnel-"
 
-fun registerTunnelBrowser(engine: FlutterEngine) {
+fun registerTunnelBrowser(engine: FlutterEngine, context: Context, openCompat: (MethodCall, MethodChannel.Result) -> Unit) {
     val messenger = engine.dartExecutor.binaryMessenger
     // Remove only our abandoned profiles after process death, never the shared
     // canvas/default profile. Live profiles are created after registration.
-    if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+    runCatching { if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
         val store = ProfileStore.getInstance()
         store.allProfileNames.filter { it.startsWith(profilePrefix) }.forEach {
             runCatching { store.deleteProfile(it) }
         }
-    }
+    } }
     MethodChannel(messenger, viewType).setMethodCallHandler { call, result ->
         if (call.method == "supported") {
             result.success(WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE))
+        } else if (call.method == "capabilities") {
+            try {
+                val mode = if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) "profile"
+                    else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) "process" else "unsupported"
+                val provider = WebViewCompat.getCurrentWebViewPackage(context)
+                result.success(mapOf("mode" to mode, "provider" to provider?.packageName, "version" to provider?.versionName))
+            } catch (error: Exception) {
+                result.error("browserInitFailed", error.message, null)
+            }
+        } else if (call.method == "openCompat") {
+            openCompat(call, result)
         } else result.notImplemented()
     }
     engine.platformViewsController.registry.registerViewFactory(viewType,
@@ -52,12 +65,12 @@ private class TunnelBrowser(context: Context, messenger: BinaryMessenger, id: In
     private val root = FrameLayout(context)
     private val channel = MethodChannel(messenger, "$viewType/$id")
     private val profile = profilePrefix + UUID.randomUUID().toString()
-    private val origin = Uri.parse(initialUrl)
+    private val origin = TunnelOrigin(initialUrl)
     private var web: WebView? = null
 
     init {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE) &&
-            origin.scheme == "http" && origin.host == "127.0.0.1" && origin.port in 1..65535) {
+            origin.valid) {
             val browser = WebView(context)
             // Must precede all other WebView operations. Cookies, caches,
             // service workers and local storage cannot cross tunnel profiles.
@@ -123,7 +136,7 @@ private class TunnelBrowser(context: Context, messenger: BinaryMessenger, id: In
     }
 
     private fun allows(url: Uri): Boolean =
-        url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port
+        origin.allows(url.toString())
 
     override fun getView(): View = root
 

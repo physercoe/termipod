@@ -26,8 +26,14 @@ class PersistentShell {
   static const String _endMarker = '\x01###END_$_markerId###\x01';
 
   /// printf用のマーカー文字列（シェルコマンド内で使用）
-  static const String _printfStartMarker = r'\x01###START_' '$_markerId' r'###\x01';
-  static const String _printfEndMarker = r'\x01###END_' '$_markerId' r'###\x01';
+  static const String _printfStartMarker =
+      r'\001###START_'
+      '$_markerId'
+      r'###\001';
+  static const String _printfEndMarker =
+      r'\001###END_'
+      '$_markerId'
+      r'###\001';
 
   /// 出力バッファ（バイト列として蓄積し、UTF-8マルチバイト境界分割を防ぐ）
   final _rawBuffer = <int>[];
@@ -36,13 +42,14 @@ class PersistentShell {
   Completer<String>? _pendingCommand;
 
   /// シェルが開始されているかどうか
-  bool get isStarted => _session != null;
+  bool get isStarted => _session != null && !_isClosed;
 
   /// セッション切断検知用
   bool _isClosed = false;
 
   /// stdoutサブスクリプション
   StreamSubscription<Uint8List>? _stdoutSubscription;
+  StreamSubscription<Uint8List>? _stderrSubscription;
 
   PersistentShell(this._sshClient);
 
@@ -52,44 +59,26 @@ class PersistentShell {
       return; // すでに開始済み
     }
 
-    final shell = _sshClient.shell(
-      pty: SSHPtyConfig(
-        type: 'dumb', // 最小限のPTY（エスケープシーケンスを抑制）
-        width: 200,
-        height: 50,
-      ),
+    final opening = _sshClient.execute('/bin/sh');
+    _session = await opening.timeout(
+      timeout ?? const Duration(seconds: 3),
+      onTimeout: () {
+        unawaited(opening.then((late) => late.close(), onError: (Object _) {}));
+        throw PersistentShellError('Shell start timed out');
+      },
     );
-    _session = await (timeout == null ? shell : shell.timeout(timeout));
-
-    _isClosed = false;
-
-    // stdout監視を開始
+    if (_isClosed) {
+      _session!.close();
+      _session = null;
+      throw PersistentShellError('Shell disposed');
+    }
     _stdoutSubscription = _session!.stdout.listen(
       _onData,
       onDone: _onDone,
       onError: _onError,
     );
-
-    // シェル初期化を待つ（プロンプトが出力されるまで少し待機）
-    await Future.delayed(const Duration(milliseconds: 100));
-
-    // ヒストリー記録を無効化（Bash/Zsh/fish対応）し、プロンプトを抑制
-    // - export HISTFILE=... : Bash/Zsh用（スタートアップファイル後に上書き）
-    // - set fish_history ... : fish用（exportはfishで構文エラーになるため別途）
-    // - 2>/dev/null で未対応シェルのエラーを抑制
-    _session!.write(utf8.encode(
-      'export HISTFILE=/dev/null HISTSIZE=0 HISTFILESIZE=0 SAVEHIST=0 2>/dev/null;'
-      ' set fish_history "" 2>/dev/null; true;'
-      ' export PS1="" PS2="" 2>/dev/null;'
-      // Disable shell hooks that inject output between commands.
-      ' unset PROMPT_COMMAND 2>/dev/null;'
-      ' precmd_functions=() 2>/dev/null; precmd() { true; } 2>/dev/null;'
-      ' stty -echo\n',
-    ));
-    await Future.delayed(const Duration(milliseconds: 100));
-
-    // バッファをクリア（初期化出力を破棄）
-    _rawBuffer.clear();
+    _stderrSubscription = _session!.stderr.listen((_) {}, onError: _onError);
+    // No interactive/login startup files, sleeps, prompts or PTY echo.
   }
 
   /// コマンドを実行して結果を取得
@@ -127,7 +116,11 @@ class PersistentShell {
       return await _pendingCommand!.future.timeout(effectiveTimeout);
     } on TimeoutException {
       _pendingCommand = null;
-      throw PersistentShellError('Command execution timed out');
+      await dispose();
+      throw PersistentShellError(
+        'Command execution timed out',
+        mayHaveExecuted: true,
+      );
     }
   }
 
@@ -149,7 +142,7 @@ class PersistentShell {
         debugPrint(
           '[PersistentShell] UTF-8 boundary split detected!'
           ' chunk_size=${data.length}'
-          ' last_bytes=${lastBytes.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}'
+          ' last_bytes=${lastBytes.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}',
         );
       }
       return true;
@@ -193,7 +186,9 @@ class PersistentShell {
   void _onDone() {
     _isClosed = true;
     if (_pendingCommand != null && !_pendingCommand!.isCompleted) {
-      _pendingCommand!.completeError(PersistentShellError('Shell session closed'));
+      _pendingCommand!.completeError(
+        PersistentShellError('Shell session closed', mayHaveExecuted: true),
+      );
     }
   }
 
@@ -201,7 +196,9 @@ class PersistentShell {
   void _onError(Object error) {
     _isClosed = true;
     if (_pendingCommand != null && !_pendingCommand!.isCompleted) {
-      _pendingCommand!.completeError(PersistentShellError('Shell error: $error'));
+      _pendingCommand!.completeError(
+        PersistentShellError('Shell error: $error', mayHaveExecuted: true),
+      );
     }
   }
 
@@ -210,6 +207,7 @@ class PersistentShell {
   /// セッションが切断された場合に呼び出す
   Future<void> restart() async {
     await dispose();
+    _isClosed = false;
     await start();
   }
 
@@ -218,12 +216,16 @@ class PersistentShell {
     _isClosed = true;
 
     if (_pendingCommand != null && !_pendingCommand!.isCompleted) {
-      _pendingCommand!.completeError(PersistentShellError('Shell disposed'));
+      _pendingCommand!.completeError(
+        PersistentShellError('Shell disposed', mayHaveExecuted: true),
+      );
     }
     _pendingCommand = null;
 
     await _stdoutSubscription?.cancel();
     _stdoutSubscription = null;
+    await _stderrSubscription?.cancel();
+    _stderrSubscription = null;
 
     _session?.close();
     _session = null;
@@ -236,7 +238,9 @@ class PersistentShell {
 class PersistentShellError implements Exception {
   final String message;
 
-  PersistentShellError(this.message);
+  final bool mayHaveExecuted;
+
+  PersistentShellError(this.message, {this.mayHaveExecuted = false});
 
   @override
   String toString() => 'PersistentShellError: $message';

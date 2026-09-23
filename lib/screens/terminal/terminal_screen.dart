@@ -4194,24 +4194,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isDisposed) return;
     HapticFeedback.mediumImpact();
     final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-    final sshState = ref.read(sshProvider(widget.connectionId));
-    // Already reconnecting — don't stack another attempt, but give the
-    // user visible confirmation the tap registered.
-    if (sshState.isReconnecting) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Reconnect already in progress…'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Reconnecting…'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    // The notifier coalesces active dials and skips a scheduled backoff delay.
+    // Its status indicator provides feedback without stacking snackbars.
     sshNotifier.reconnectNow();
   }
 

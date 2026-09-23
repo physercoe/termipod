@@ -119,6 +119,21 @@ void main() {
     },
   );
 
+  test(
+    'manual retry skips backoff instead of ignoring the user action',
+    () async {
+      final next = _ControlledSshClient();
+      final container = fixture([_ControlledSshClient(), next]);
+      final notifier = container.read(sshProvider('race').notifier);
+      await notifier.connectWithoutShell(connection, options);
+      final scheduled = notifier.reconnect();
+      expect(container.read(sshProvider('race')).nextRetryAt, isNotNull);
+      expect(await notifier.reconnectNow(), isTrue);
+      expect(await scheduled, isFalse);
+      expect(notifier.client, same(next));
+    },
+  );
+
   test('transient transport EOF does not stop web tunnels', () async {
     final initial = _ControlledSshClient();
     final container = fixture([initial]);

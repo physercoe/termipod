@@ -151,6 +151,14 @@ enum SshConnectionState {
 ///
 /// dartssh2をラップし、SSH接続を管理する。
 class SshClient {
+  /// Open a byte stream using the authenticated transport (including jumps).
+  /// This does not execute a command or acquire the terminal exec lock.
+  Future<SSHSocket> openForward(String host, int port) async {
+    final client = _client;
+    if (client == null || !isConnected) throw SshConnectionError('SSH connection unavailable');
+    return client.forwardLocal(host, port);
+  }
+
   SSHClient? _client;
   SSHClient? _jumpClient;
   SSHSession? _session;

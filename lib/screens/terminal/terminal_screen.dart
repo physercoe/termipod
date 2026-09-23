@@ -14,10 +14,10 @@ import '../../providers/connection_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/ssh_provider.dart';
 import '../../providers/tmux_provider.dart';
-import '../../services/keychain/secure_storage.dart';
+import '../../services/ssh/connection_options.dart';
+import '../../services/ssh/ssh_client.dart' show SshClient;
 import '../../services/network/network_monitor.dart';
 import '../../services/ssh/input_queue.dart';
-import '../../services/ssh/ssh_client.dart' show SshConnectOptions;
 import '../../services/terminal/terminal_backend.dart';
 import '../../services/terminal/tmux_backend.dart';
 import '../../services/terminal/raw_pty_backend.dart';
@@ -55,6 +55,7 @@ import '../../widgets/remote_file_browser_dialog.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../settings/settings_screen.dart';
+import '../web_services/web_services_screen.dart';
 import 'widgets/ansi_text_view.dart';
 import 'widgets/new_window_dialog.dart';
 import 'widgets/new_session_dialog.dart';
@@ -170,7 +171,6 @@ class TerminalScreen extends ConsumerStatefulWidget {
 
 class _TerminalScreenState extends ConsumerState<TerminalScreen>
     with WidgetsBindingObserver {
-  final _secureStorage = SecureStorageService();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _ansiTextViewKey = GlobalKey<AnsiTextViewState>();
   final _scrollToBottomKey = GlobalKey<ScrollToBottomButtonState>();
@@ -178,6 +178,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   // 接続状態（ローカルで管理）
   bool _isConnecting = false;
+  Future<void>? _setupInFlight;
+  SshClient? _backendClient;
+  bool _recoveryPending = false;
   String? _connectionError;
   SshState _sshState = const SshState();
 
@@ -442,7 +445,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// [SshNotifier.reconnectNow] instead of waiting for the adaptive
   /// polling loop to discover the dead socket.
   Future<void> _probeConnectionOnResume() async {
-    if (_isDisposed) return;
+    if (_isDisposed || _setupInFlight != null || _isDisconnecting) return;
 
     final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
     final sshState = ref.read(sshProvider(widget.connectionId));
@@ -589,6 +592,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// 再接続成功時の処理
   Future<void> _onReconnectSuccess() async {
+    // The opening screen will build its backend after the shared dial resolves.
+    // Awaiting that setup here would deadlock the provider's reconnect callback.
+    if (_setupInFlight != null) { _recoveryPending = true; return; }
+    await _runSetup(_restoreBackend);
+  }
+
+  Future<void> _restoreBackend() async {
     // Guard philosophy: check `!mounted || _isDisposed` after every
     // await. `mounted` catches Navigator.pop; `_isDisposed` catches the
     // small window inside our own `dispose()` where the widget is
@@ -635,7 +645,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           _isConnecting = false;
           _connectionError = e.toString();
         });
-        _showErrorSnackBar(e.toString());
         return;
       }
     }
@@ -651,9 +660,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         await backend.rebindSshClient(newClient);
       } catch (e) {
         debugPrint('[Terminal] Backend rebind failed: $e');
+        await _disposeBackend();
+        if (!mounted || _isDisposed) return;
+        setState(() => _connectionError = e.toString());
+        return;
       }
     }
-    if (!mounted || _isDisposed) return;
+    if (!mounted || _isDisposed || _isDisconnecting) return;
+    _backendClient = newClient;
 
     _lastSuccessfulPoll = DateTime.now();
     // Transport is back and, when present, the backend is rebound — so clear
@@ -709,6 +723,27 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// SSH接続してtmuxセッションをセットアップ
   Future<void> _connectAndSetup() async {
+    await _runSetup(_openConnection);
+  }
+
+  Future<void> _runSetup(Future<void> Function() action) {
+    final existing = _setupInFlight;
+    if (existing != null) return existing;
+    late final Future<void> operation;
+    operation = action().whenComplete(() {
+      if (identical(_setupInFlight, operation)) _setupInFlight = null;
+      if (!mounted || _isDisposed || _isDisconnecting) return;
+      if (_recoveryPending) {
+        _recoveryPending = false;
+        final client = ref.read(sshProvider(widget.connectionId).notifier).client;
+        if (client != null && !identical(client, _backendClient)) _onReconnectSuccess();
+      }
+    });
+    _setupInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _openConnection() async {
     if (!mounted) {
       return;
     }
@@ -724,65 +759,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         throw Exception('Connection not found');
       }
 
-      // 2. 認証情報を取得
-      final options = await _getAuthOptions(connection);
-      if (!mounted || _isDisposed) {
-        return;
-      }
-
-      // 3. SSH接続（シェルは起動しない - execのみ使用）
-      //
-      // Reuse the live socket when one already exists for this
-      // connectionId — the keep-alive link held by `SshNotifier` (see
-      // `ssh_provider.dart`) survives navigation, so a return visit
-      // skips the dial + auth round-trip and just rebuilds the local
-      // backend. We still rebuild the backend below: it owns terminal
-      // cells, scrollback, and tmux poll timers that don't survive
-      // widget dispose.
       final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-      // Read the state through the public provider rather than
-      // `notifier.state` — the latter is `@protected` /
-      // `@visibleForTesting` in Riverpod 3.x, and `flutter analyze`
-      // promotes the access to a warning that CI treats as fatal.
-      var alreadyLive =
-          ref.read(sshProvider(widget.connectionId)).isConnected &&
-              sshNotifier.client != null;
-      // Pre-flight the cached SSH transport before trusting it. A
-      // network switch (wifi↔cellular, captive-portal handoff, suspend/
-      // resume) can leave us with a half-open TCP socket that
-      // [SshClient]'s 5–30s keep-alive watchdog hasn't detected yet.
-      // Without this probe the first real `exec()` inside
-      // [_setupTmuxBackend] is unbounded (no `timeout:` arg) and parks
-      // forever on `Future.wait([stdoutCompleter, stderrCompleter])`,
-      // which also wedges every subsequent exec call queued behind
-      // `_withExecLock` — the canonical "stuck spinner until force-
-      // kill" failure mode. A 3s `echo p` round-trip is the cheapest
-      // honest liveness probe; failure → dispose + dial fresh.
-      //
-      // We wrap with `.timeout(...)` at the call site in addition to
-      // passing `timeout:` to `exec` itself: the latter only bounds
-      // the inner `Future.wait` on stdout/stderr completers, not the
-      // `_withExecLock` queue-acquire phase. If a prior caller left
-      // the exec lock held (rare, but possible across screen revisits
-      // when the previous exec hung), the outer `.timeout` is what
-      // unblocks us. The fresh-dial path disposes the entire
-      // `SshClient`, taking the leaked lock with it.
-      if (alreadyLive) {
-        try {
-          await sshNotifier.client!
-              .exec('echo p', timeout: const Duration(seconds: 3))
-              .timeout(const Duration(seconds: 3));
-        } catch (_) {
-          alreadyLive = false;
-        }
-        if (!mounted || _isDisposed) return;
-      }
-      if (!alreadyLive) {
-        await sshNotifier.connectWithoutShell(connection, options);
-        if (!mounted || _isDisposed) {
-          return;
-        }
-      }
+      await sshNotifier.ensureConnected(connection, () => loadSshOptions(connection));
+      if (!mounted || _isDisposed || _isDisconnecting) return;
+      final setupClient = sshNotifier.client;
 
       // [forceRawMode] from the Servers page lets a tmux-configured
       // connection be opened as a plain shell without persisting a
@@ -795,9 +775,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         await _setupTmuxBackend(connection, sshNotifier);
       }
 
-      if (!mounted) return;
+      if (!mounted || _isDisposed || _isDisconnecting) return;
+      _backendClient = setupClient;
       setState(() {
         _isConnecting = false;
+        _connectionError = null;
       });
     } catch (e) {
       await _disposeBackend();
@@ -806,19 +788,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _isConnecting = false;
         _connectionError = e.toString();
       });
-      _showErrorSnackBar(e.toString());
     }
   }
 
   Future<void> _disposeBackend() async {
-    await _backendContentSub?.cancel();
+    final contentSub = _backendContentSub;
     _backendContentSub = null;
-    await _backendHeartbeatSub?.cancel();
+    final heartbeatSub = _backendHeartbeatSub;
     _backendHeartbeatSub = null;
-    await _shellExitedSub?.cancel();
+    final shellSub = _shellExitedSub;
     _shellExitedSub = null;
-    _backend?.dispose();
+    final backend = _backend;
     _backend = null;
+    _backendClient = null;
+    await contentSub?.cancel();
+    await heartbeatSub?.cancel();
+    await shellSub?.cancel();
+    backend?.dispose();
   }
 
   /// Raw PTY backend setup — start shell, subscribe to content stream.
@@ -839,6 +825,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
     _backend = rawBackend;
     await _backend!.initialize(cols: cols, rows: rows);
+    if (!mounted || _isDisposed || _isDisconnecting) return;
 
     _viewNotifier.value = _viewNotifier.value.copyWith(
       paneWidth: cols,
@@ -1488,50 +1475,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// 認証オプションを取得
-  Future<SshConnectOptions> _getAuthOptions(Connection connection) async {
-    String? password;
-    String? privateKey;
-    String? passphrase;
-
-    if (connection.authMethod == 'key' && connection.keyId != null) {
-      privateKey = await _secureStorage.getPrivateKey(connection.keyId!);
-      passphrase = await _secureStorage.getPassphrase(connection.keyId!);
-    } else {
-      password = await _secureStorage.getPassword(connection.id);
-    }
-
-    // Jump host auth
-    String? jumpPassword;
-    String? jumpPrivateKey;
-    String? jumpPassphrase;
-    if (connection.jumpHost != null) {
-      if (connection.jumpAuthMethod == 'key' && connection.jumpKeyId != null) {
-        jumpPrivateKey = await _secureStorage.getPrivateKey(connection.jumpKeyId!);
-        jumpPassphrase = await _secureStorage.getPassphrase(connection.jumpKeyId!);
-      } else {
-        // Reuse main password for jump host password auth
-        jumpPassword = password ?? await _secureStorage.getPassword(connection.id);
-      }
-    }
-
-    return SshConnectOptions(
-      password: password,
-      privateKey: privateKey,
-      passphrase: passphrase,
-      jumpHost: connection.jumpHost,
-      jumpPort: connection.jumpPort,
-      jumpUsername: connection.jumpUsername,
-      jumpPassword: jumpPassword,
-      jumpPrivateKey: jumpPrivateKey,
-      jumpPassphrase: jumpPassphrase,
-      proxyHost: connection.proxyHost,
-      proxyPort: connection.proxyPort,
-      proxyUsername: connection.proxyUsername,
-      proxyPassword: connection.proxyPassword,
-      tmuxPath: connection.tmuxPath,
-    );
-  }
 
   Future<void> _retryConnection() async {
     if (_isDisposed) return;
@@ -1550,28 +1493,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     await sshNotifier.reconnectNow();
   }
 
-  /// Show an error SnackBar with a Retry action.
-  void _showErrorSnackBar(String message) {
-    final messenger = ScaffoldMessenger.of(context);
-    // Replace any queued/visible error so repeated connection failures don't
-    // stack up behind each other.
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: DesignColors.error,
-        // Let the user swipe the banner away in either direction rather than
-        // wait out the timeout — a persistent connection error otherwise reads
-        // as "stuck". (Default is a less-discoverable downward swipe only.)
-        dismissDirection: DismissDirection.horizontal,
-        action: SnackBarAction(
-          label: AppLocalizations.of(context)!.buttonRetry,
-          textColor: Colors.white,
-          onPressed: _retryConnection,
-        ),
-      ),
-    );
-  }
 
   /// スクロール時にスクロールボタンを表示
   void _onTerminalScroll() {
@@ -2012,7 +1933,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               ),
             ),
           // エラーオーバーレイ
-          if (_connectionError != null || sshState.hasError)
+          if (!_isConnecting && !sshState.isConnecting && !sshState.isReconnecting &&
+              (_connectionError != null || sshState.hasError))
             _buildErrorOverlay(sshState.error ?? _connectionError),
         ],
       ),
@@ -3862,6 +3784,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               ),
               Divider(height: 1, color: isDark ? DesignColors.borderDark : DesignColors.borderLight),
               // Downloads
+              ListTile(
+                leading: const Icon(Icons.language),
+                title: Text(AppLocalizations.of(context)!.webServices),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(this.context).push(MaterialPageRoute<void>(builder: (_) =>
+                    WebServicesScreen(connectionId: widget.connectionId)));
+                },
+              ),
               Consumer(
                 builder: (context, menuRef, _) {
                   final dmState = menuRef.watch(downloadManagerProvider);

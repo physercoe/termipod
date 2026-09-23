@@ -20,6 +20,7 @@ import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../projects/projects_screen.dart' show openHostDetail;
 import '../terminal/terminal_screen.dart';
+import '../web_services/web_services_screen.dart';
 import '../vault/vault_screen.dart';
 import 'hub_detail_screen.dart';
 
@@ -574,6 +575,16 @@ class _HostTile extends ConsumerWidget {
                   onTap: () {
                     Navigator.pop(ctx);
                     openHostDetail(context, row.hubHost!);
+                  },
+                ),
+              if (row.connection != null)
+                ListTile(
+                  leading: const Icon(Icons.language),
+                  title: Text(l10n.webServices),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                      WebServicesScreen(connectionId: row.connection!.id)));
                   },
                 ),
               if (row.connection != null)

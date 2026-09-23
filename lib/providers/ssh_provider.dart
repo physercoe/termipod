@@ -345,7 +345,7 @@ class SshNotifier extends Notifier<SshState> {
       final connected = await reconnecting;
       if (generation != _connectionGeneration || _manuallyDisconnected)
         throw SshConnectionError('Connection interrupted');
-      if (!connected)
+      if (!connected || !state.isConnected || _client == null)
         throw SshConnectionError(state.error ?? 'Connection interrupted');
       return;
     }
@@ -365,11 +365,12 @@ class SshNotifier extends Notifier<SshState> {
     final options = await loadOptions();
     if (generation != _connectionGeneration)
       throw SshConnectionError('Connection interrupted');
+    final replacingConnection = _lastConnection != null;
     await _connectWithoutShell(connection, options);
     // A web-service screen can replace a stale socket while a terminal route
     // still owns a backend. Notify it just as the timer-driven path does.
     try {
-      await onReconnectSuccess?.call();
+      if (replacingConnection) await onReconnectSuccess?.call();
     } catch (_) {
       // Terminal setup errors belong to the terminal, not the transport.
     }

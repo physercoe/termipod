@@ -466,6 +466,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       );
     } catch (_) {
       if (_isDisposed) return;
+      // A delayed probe must not replace a client another route just restored.
+      if (_setupInFlight != null || !identical(sshNotifier.client, client)) return;
       final latest = ref.read(sshProvider(widget.connectionId));
       if (!latest.isReconnecting) {
         sshNotifier.reconnectNow();
@@ -886,7 +888,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // `else { sessionName = 'termipod-...' }` branch below and
     // attempt to create a brand-new session on a possibly-dead
     // socket. Throwing here is correct: `_connectAndSetup`'s catch
-    // resets `_isConnecting` and shows an error snackbar.
+    // resets `_isConnecting` and presents the current connection error.
     await _refreshSessionTree(
       timeout: const Duration(seconds: 10),
       surfaceErrors: true,
@@ -1478,6 +1480,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   Future<void> _retryConnection() async {
     if (_isDisposed) return;
+    final setup = _setupInFlight;
+    if (setup != null) return setup;
     final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
     final sshState = ref.read(sshProvider(widget.connectionId));
 

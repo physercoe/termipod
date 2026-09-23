@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termipod/providers/connection_provider.dart';
 import 'package:termipod/providers/ssh_provider.dart';
+import 'package:termipod/providers/web_tunnel_provider.dart';
 import 'package:termipod/services/network/network_monitor.dart';
 import 'package:termipod/services/ssh/ssh_client.dart';
 
@@ -28,9 +29,22 @@ class _ControlledSshClient extends SshClient {
   bool _connected = false;
   int connectCalls = 0;
   int disposeCalls = 0;
+  Object? probeError;
+  final _states = StreamController<SshConnectionState>.broadcast();
 
   @override
-  Future<String> exec(String command, {Duration? timeout}) async => 'p';
+  Stream<SshConnectionState> get connectionStateStream => _states.stream;
+
+  void loseTransport() {
+    _connected = false;
+    _states.add(SshConnectionState.disconnected);
+  }
+
+  @override
+  Future<String> exec(String command, {Duration? timeout}) async {
+    if (probeError != null) throw probeError!;
+    return 'p';
+  }
 
   @override
   bool get isConnected => _connected;
@@ -52,6 +66,7 @@ class _ControlledSshClient extends SshClient {
   Future<void> dispose() async {
     disposeCalls++;
     _connected = false;
+    if (!_states.isClosed) await _states.close();
   }
 }
 
@@ -83,6 +98,42 @@ void main() {
     });
     return container;
   }
+
+  test(
+    'a stale transport replaced by another screen notifies the terminal',
+    () async {
+      final initial = _ControlledSshClient();
+      final next = _ControlledSshClient();
+      final container = fixture([initial, next]);
+      final notifier = container.read(sshProvider('race').notifier);
+      var callbacks = 0;
+      notifier.onReconnectSuccess = () async {
+        callbacks++;
+      };
+      await notifier.connectWithoutShell(connection, options);
+      expect(callbacks, 0);
+      initial.probeError = SshConnectionError('stale');
+      await notifier.ensureConnected(connection, () async => options);
+      expect(callbacks, 1);
+      expect(notifier.client, same(next));
+    },
+  );
+
+  test('transient transport EOF does not stop web tunnels', () async {
+    final initial = _ControlledSshClient();
+    final container = fixture([initial]);
+    final notifier = container.read(sshProvider('race').notifier);
+    await notifier.connectWithoutShell(connection, options);
+    final tunnel = await container
+        .read(webTunnelProvider('race').notifier)
+        .start(remoteHost: '127.0.0.1', remotePort: 8080);
+    initial.loseTransport();
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(sshProvider('race')).isReconnecting, isTrue);
+    expect(container.read(webTunnelProvider('race')), [same(tunnel)]);
+    await notifier.disconnect();
+    expect(container.read(webTunnelProvider('race')), isEmpty);
+  });
 
   test(
     'reopen joins a reconnect without loading credentials or a third dial',

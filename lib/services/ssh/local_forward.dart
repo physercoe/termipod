@@ -43,7 +43,7 @@ class LocalForward {
   }
 
   Future<void> _accept(Socket socket) async {
-    if (_closed || !_available) {
+    if (_closed || !_available || _pairs.length >= 128) {
       socket.destroy();
       return;
     }

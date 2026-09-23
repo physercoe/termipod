@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 import '../services/ssh/local_forward.dart';
 import '../services/ssh/ssh_client.dart';
 import 'ssh_provider.dart';
@@ -31,6 +32,7 @@ class WebTunnelNotifier extends Notifier<List<WebTunnel>> {
   int _nextId = 0;
   bool _disposed = false;
   final Set<LocalForward> _forwards = {};
+  KeepAliveLink? _keepAlive;
 
   @override
   List<WebTunnel> build() {
@@ -92,6 +94,7 @@ class WebTunnelNotifier extends Notifier<List<WebTunnel>> {
     }
     forward.setAvailable(ref.read(sshProvider(connectionId)).isConnected);
     _forwards.add(forward);
+    _keepAlive ??= ref.keepAlive();
     final tunnel = WebTunnel(
       id: '${_nextId++}',
       remoteHost: remoteHost,
@@ -111,6 +114,10 @@ class WebTunnelNotifier extends Notifier<List<WebTunnel>> {
       _forwards.remove(tunnel.forward);
       unawaited(tunnel.forward.close());
     }
+    if (state.isEmpty) {
+      _keepAlive?.close();
+      _keepAlive = null;
+    }
   }
 
   void stopAll() {
@@ -118,13 +125,13 @@ class WebTunnelNotifier extends Notifier<List<WebTunnel>> {
     final old = state;
     state = [];
     _forwards.clear();
+    _keepAlive?.close();
+    _keepAlive = null;
     for (final tunnel in old) {
       unawaited(tunnel.forward.close());
     }
   }
 }
 
-final webTunnelProvider =
-    NotifierProvider.family<WebTunnelNotifier, List<WebTunnel>, String>(
-      WebTunnelNotifier.new,
-    );
+final webTunnelProvider = NotifierProvider.autoDispose
+    .family<WebTunnelNotifier, List<WebTunnel>, String>(WebTunnelNotifier.new);

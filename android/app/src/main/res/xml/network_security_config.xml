@@ -3,6 +3,6 @@
     <base-config cleartextTrafficPermitted="false" />
     <!-- Only the in-process SSH listener is allowed to serve plain HTTP. -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain>127.0.0.1</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
     </domain-config>
 </network-security-config>

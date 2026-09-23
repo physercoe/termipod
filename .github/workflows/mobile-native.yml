@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   android:
-    name: Android debug build
+    name: Android build and release lint
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -35,6 +35,11 @@ jobs:
       - run: flutter pub get
       - run: flutter gen-l10n
       - run: flutter build apk --debug
+      # Debug assembly does not run release-only fatal checks. Exercise the
+      # same validation that gates a tagged APK, without release signing keys.
+      - name: Validate Android release configuration
+        working-directory: android
+        run: ./gradlew :app:lintVitalRelease --no-daemon
   ios:
     name: iOS unsigned build
     runs-on: macos-latest

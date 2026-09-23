@@ -584,19 +584,25 @@ class SshClient {
     // Close both hops immediately, before awaiting terminal subscriptions.
     // A socket that has not yet acquired an SSH transport needs destruction
     // too; graceful close alone can leave its receive side alive.
+    await Future.wait([
+      _finishCleanup(() => session?.close()),
+      _finishCleanup(() => client?.close()),
+      _finishCleanup(() => jumpClient?.close()),
+      _finishCleanup(() => socket?.destroy()),
+      _finishCleanup(() => persistentShell?.dispose()),
+      _finishCleanup(() => stdoutSubscription?.cancel()),
+      _finishCleanup(() => stderrSubscription?.cancel()),
+    ]);
+  }
+
+  Future<void> _finishCleanup(FutureOr<void> Function() release) async {
     try {
-      session?.close();
-      client?.close();
-    } finally {
-      try {
-        jumpClient?.close();
-      } finally {
-        socket?.destroy();
-      }
+      await release();
+    } catch (error) {
+      // A channel close may try to write to an already-closed transport.
+      // Still release every other resource and preserve the original failure.
+      debugPrint('SSH cleanup: $error');
     }
-    await persistentShell?.dispose();
-    await stdoutSubscription?.cancel();
-    await stderrSubscription?.cancel();
   }
 
   /// 持続的シェルを開始

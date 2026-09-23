@@ -23,6 +23,7 @@ class _Transport implements SSHClient {
   int pings = 0;
   int commands = 0;
   int closes = 0;
+  Object? closeError;
   Completer<void>? auth;
   Completer<SSHForwardChannel>? forwarding;
   final forwarded = _ForwardSocket();
@@ -68,6 +69,7 @@ class _Transport implements SSHClient {
     closes++;
     isClosed = true;
     if (!ended.isCompleted) ended.complete();
+    if (closeError != null) throw closeError!;
   }
 
   @override
@@ -91,6 +93,36 @@ Future<SshClient> connect(_Transport transport) async {
 }
 
 void main() {
+  test(
+    'a channel-close error cannot prevent releasing the other SSH hop',
+    () async {
+      final jump = _Transport()
+        ..closeError = StateError('jump transport closed');
+      final target = _Transport()
+        ..closeError = StateError('target transport closed');
+      final client = SshClient(
+        socketConnector: (_, _, _) async => _Socket(),
+        jumpTransportFactory: (_, _, _) => jump,
+        transportFactory: (_, _, _) => target,
+      );
+      await client.connect(
+        host: 'target',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(
+          password: 'secret',
+          jumpHost: 'jump',
+          jumpPassword: 'secret',
+        ),
+      );
+      await client.dispose();
+      expect(target.closes, 1);
+      expect(jump.closes, 1);
+      expect(jump.forwarded.destroys, 1);
+      expect(client.state, SshConnectionState.disconnected);
+    },
+  );
+
   test('jump-host authentication rejection remains non-retryable', () async {
     final jump = _Transport()..auth = Completer<void>();
     final client = SshClient(

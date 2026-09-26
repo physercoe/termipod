@@ -78,6 +78,18 @@ class _Transport implements SSHClient {
 
 class _ForwardSocket extends _Socket implements SSHForwardChannel {}
 
+class _TestStopwatch extends Fake implements Stopwatch {
+  _TestStopwatch(this.now);
+  final DateTime Function() now;
+  late DateTime started;
+  @override
+  void start() => started = now();
+  @override
+  void stop() {}
+  @override
+  Duration get elapsed => now().difference(started);
+}
+
 Future<SshClient> connect(_Transport transport) async {
   final client = SshClient(
     socketConnector: (_, _, _) async => _Socket(),
@@ -93,6 +105,242 @@ Future<SshClient> connect(_Transport transport) async {
 }
 
 void main() {
+  testWidgets('jump key and target password get independent login budgets', (
+    tester,
+  ) async {
+    final jump = _Transport()..auth = Completer<void>();
+    final target = _Transport()..auth = Completer<void>();
+    final client = SshClient(
+      stopwatchFactory: () => _TestStopwatch(tester.binding.clock.now),
+      socketConnector: (_, _, _) async => _Socket(),
+      jumpTransportFactory: (_, _, options) {
+        expectSync(options.privateKey, 'jump-key-fixture');
+        expectSync(options.password, isNull);
+        return jump;
+      },
+      transportFactory: (_, _, options) {
+        expectSync(options.password, 'target-password');
+        expectSync(options.privateKey, isNull);
+        return target;
+      },
+    );
+    var connected = false;
+    final opening = client
+        .connect(
+          host: 'target',
+          port: 22,
+          username: 'user',
+          options: const SshConnectOptions(
+            password: 'target-password',
+            jumpHost: 'jump',
+            jumpPrivateKey: 'jump-key-fixture',
+          ),
+        )
+        .then((_) => connected = true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 22));
+    jump.auth!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 11));
+    expect(connected, isFalse);
+    expect(target.closes, 0);
+    target.auth!.complete();
+    await tester.pump();
+    await opening;
+    expect(client.isConnected, isTrue);
+    await client.dispose();
+  });
+
+  for (final phase in ['socket', 'jump auth', 'forwarding', 'target auth']) {
+    testWidgets('$phase timeout is bounded and releases late resources', (
+      tester,
+    ) async {
+      final socket = _Socket();
+      final dial = Completer<SSHSocket>();
+      final jump = _Transport()..auth = Completer<void>();
+      final target = _Transport()..auth = Completer<void>();
+      jump.forwarding = Completer<SSHForwardChannel>();
+      final client = SshClient(
+        stopwatchFactory: () => _TestStopwatch(tester.binding.clock.now),
+        socketConnector: (_, _, _) => dial.future,
+        jumpTransportFactory: (_, _, _) => jump,
+        transportFactory: (_, _, _) => target,
+      );
+      final opening = client.connect(
+        host: 'target',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(
+          password: 'private-password',
+          jumpHost: 'jump',
+          jumpPassword: 'jump-secret',
+        ),
+      );
+      final failure = expectLater(
+        opening,
+        throwsA(
+          isA<SshConnectionError>().having(
+            (e) => e.cause,
+            'cause',
+            isA<TimeoutException>(),
+          ),
+        ),
+      );
+      if (phase != 'socket') dial.complete(socket);
+      await tester.pump();
+      if (phase == 'forwarding' || phase == 'target auth') {
+        await tester.pump(const Duration(seconds: 22));
+        jump.auth!.complete();
+        await tester.pump();
+      }
+      if (phase == 'target auth') {
+        await tester.pump(const Duration(seconds: 9));
+        jump.forwarding!.complete(jump.forwarded);
+        await tester.pump();
+      }
+      await tester.pump(Duration(seconds: phase == 'forwarding' ? 10 : 30));
+      await failure;
+      expect(client.isConnected, isFalse);
+      expect(client.lastError, contains('SSH wait timed out'));
+      expect(client.lastError, contains('overall limit 70.0s'));
+      expect(client.lastError, isNot(contains('Future not completed')));
+      expect(client.lastError, isNot(contains('private-password')));
+      expect(client.lastError, isNot(contains('jump-secret')));
+      if (phase == 'target auth') {
+        expect(client.lastError, contains('phase 30.0s, total 61.0s'));
+        expect(client.lastError, contains('jump-host authentication 22.0s'));
+        expect(target.closes, 1);
+      }
+      if (phase == 'socket') dial.complete(socket);
+      if (!jump.auth!.isCompleted) jump.auth!.complete();
+      if (!jump.forwarding!.isCompleted) {
+        jump.forwarding!.complete(jump.forwarded);
+      }
+      target.auth!.complete();
+      await tester.pump();
+      expect(socket.destroys, phase == 'target auth' ? 0 : 1);
+      if (phase == 'forwarding' || phase == 'target auth') {
+        expect(jump.forwarded.destroys, 1);
+      }
+      await client.dispose();
+    });
+  }
+
+  testWidgets('cancel target login after the old 30-second deadline', (
+    tester,
+  ) async {
+    final jump = _Transport()..auth = Completer<void>();
+    final target = _Transport()..auth = Completer<void>();
+    final client = SshClient(
+      stopwatchFactory: () => _TestStopwatch(tester.binding.clock.now),
+      socketConnector: (_, _, _) async => _Socket(),
+      jumpTransportFactory: (_, _, _) => jump,
+      transportFactory: (_, _, _) => target,
+    );
+    final completion = expectLater(
+      client.connect(
+        host: 'target',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(
+          password: 'test',
+          jumpHost: 'jump',
+          jumpPassword: 'test',
+        ),
+      ),
+      throwsA(
+        isA<SshConnectionError>().having(
+          (e) => e.message,
+          'reason',
+          contains('cancelled'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 22));
+    jump.auth!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 11));
+    await client.dispose();
+    await completion;
+    expect(target.closes, 1);
+    expect(jump.closes, 1);
+    expect(jump.forwarded.destroys, 1);
+    target.auth!.complete();
+    await tester.pump();
+    expect(client.state, SshConnectionState.disconnected);
+  });
+
+  testWidgets('custom hop budgets also bound forwarding and the entire chain', (
+    tester,
+  ) async {
+    final jump = _Transport()..auth = Completer<void>();
+    jump.forwarding = Completer<SSHForwardChannel>();
+    final client = SshClient(
+      stopwatchFactory: () => _TestStopwatch(tester.binding.clock.now),
+      socketConnector: (_, _, _) async => _Socket(),
+      jumpTransportFactory: (_, _, _) => jump,
+      transportFactory: (_, _, _) => throw StateError('must not reach target'),
+    );
+    final failure = expectLater(
+      client.connect(
+        host: 'target',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(
+          password: 'test',
+          jumpHost: 'jump',
+          jumpPassword: 'test',
+          timeout: 2,
+        ),
+      ),
+      throwsA(isA<SshConnectionError>()),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    jump.auth!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await failure;
+    expect(client.lastError, contains('jump-host forwarding'));
+    expect(client.lastError, contains('overall limit 6.0s'));
+    jump.forwarding!.complete(jump.forwarded);
+    await tester.pump();
+    expect(jump.forwarded.destroys, 1);
+    await client.dispose();
+  });
+
+  testWidgets('direct socket and authentication still share 30 seconds', (
+    tester,
+  ) async {
+    final dial = Completer<SSHSocket>();
+    final transport = _Transport()..auth = Completer<void>();
+    final client = SshClient(
+      stopwatchFactory: () => _TestStopwatch(tester.binding.clock.now),
+      socketConnector: (_, _, _) => dial.future,
+      transportFactory: (_, _, _) => transport,
+    );
+    final failure = expectLater(
+      client.connect(
+        host: 'host',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(password: 'test'),
+      ),
+      throwsA(isA<SshConnectionError>()),
+    );
+    await tester.pump(const Duration(seconds: 22));
+    dial.complete(_Socket());
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 8));
+    await failure;
+    expect(client.lastError, contains('phase 8.0s, total 30.0s'));
+    expect(transport.closes, 1);
+    transport.auth!.complete();
+    await tester.pump();
+    await client.dispose();
+  });
+
   test(
     'a channel-close error cannot prevent releasing the other SSH hop',
     () async {

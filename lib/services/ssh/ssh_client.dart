@@ -68,7 +68,9 @@ class SshConnectOptions {
   /// ユーザー指定のtmuxパス（nullなら自動検出）
   final String? tmuxPath;
 
-  /// 接続タイムアウト（秒）
+  /// Per-hop connection budget in seconds. Direct connections share this
+  /// budget across dialing and authentication. A jump adds a fresh target
+  /// budget and a forwarding budget of at most 10 seconds.
   final int timeout;
 
   // Jump host (ProxyJump) fields
@@ -169,9 +171,13 @@ class SshClient {
     SSHClient Function(SSHSocket, String, SshConnectOptions)? transportFactory,
     SSHClient Function(SSHSocket, String, SshConnectOptions)?
     jumpTransportFactory,
+    Stopwatch Function()? stopwatchFactory,
   }) : _socketConnector = socketConnector ?? _connectSocket,
        _transportFactory = transportFactory ?? _createTransport,
-       _jumpTransportFactory = jumpTransportFactory ?? _createTransport;
+       _jumpTransportFactory = jumpTransportFactory ?? _createTransport,
+       _stopwatchFactory = stopwatchFactory ?? Stopwatch.new;
+
+  final Stopwatch Function() _stopwatchFactory;
 
   final Future<SSHSocket> Function(String, int, Duration) _socketConnector;
   final SSHClient Function(SSHSocket, String, SshConnectOptions)
@@ -362,11 +368,16 @@ class SshClient {
     _state = SshConnectionState.connecting;
     _lastError = null;
     _tmuxPath = null;
-    final deadline = DateTime.now().add(Duration(seconds: options.timeout));
     final hasJumpHost = options.jumpHost?.isNotEmpty == true;
     var phase = hasJumpHost
         ? 'jump-host socket connection'
         : 'socket connection';
+    final budget = _ConnectionBudget(
+      Duration(seconds: options.timeout),
+      hasJumpHost,
+      _stopwatchFactory(),
+      phase,
+    );
 
     try {
       // Step 1: Create the initial socket (optionally through SOCKS5 proxy)
@@ -375,25 +386,29 @@ class SshClient {
         // Connect through SOCKS5 proxy
         final proxyTarget = options.jumpHost ?? host;
         final proxyTargetPort = options.jumpPort ?? port;
-        initialSocket = await attempt.wait(
-          Socks5Socket.connect(
-            proxyHost: options.proxyHost!,
-            proxyPort: options.proxyPort ?? 1080,
-            targetHost: proxyTarget,
-            targetPort: proxyTargetPort,
-            username: options.proxyUsername,
-            password: options.proxyPassword,
-            timeout: Duration(seconds: options.timeout),
-          ),
-          onCancelledResult: (socket) => socket.destroy(),
-        );
+        initialSocket = await attempt
+            .wait(
+              Socks5Socket.connect(
+                proxyHost: options.proxyHost!,
+                proxyPort: options.proxyPort ?? 1080,
+                targetHost: proxyTarget,
+                targetPort: proxyTargetPort,
+                username: options.proxyUsername,
+                password: options.proxyPassword,
+                timeout: budget.remaining,
+              ),
+              onCancelledResult: (socket) => socket.destroy(),
+            )
+            .timeout(budget.remaining);
       } else {
         final directHost = options.jumpHost ?? host;
         final directPort = options.jumpPort ?? port;
-        initialSocket = await attempt.wait(
-          _socketConnector(directHost, directPort, _remaining(deadline)),
-          onCancelledResult: (socket) => socket.destroy(),
-        );
+        initialSocket = await attempt
+            .wait(
+              _socketConnector(directHost, directPort, budget.remaining),
+              onCancelledResult: (socket) => socket.destroy(),
+            )
+            .timeout(budget.remaining);
       }
 
       // Retain ownership even if parsing credentials or jump setup fails.
@@ -406,6 +421,7 @@ class SshClient {
       // Step 2: If jump host is configured, establish jump connection first
       if (hasJumpHost) {
         phase = 'jump-host authentication';
+        budget.enter(phase);
         final jumpUsername = options.jumpUsername ?? username;
         if (options.jumpPrivateKey == null && options.jumpPassword == null) {
           throw SshAuthenticationError(
@@ -421,19 +437,20 @@ class SshClient {
             password: options.jumpPassword,
           ),
         );
-        await _authenticate(_jumpClient!, attempt, deadline);
+        await _authenticate(_jumpClient!, attempt, budget);
         if (attempt.isCancelled) {
           throw SshConnectionError('SSH connection cancelled');
         }
 
         // Forward through jump host to the actual target
         phase = 'jump-host forwarding';
+        budget.enter(phase, allowance: budget.forwardTimeout);
         final forwarded = await attempt
             .wait<SSHSocket>(
               _jumpClient!.forwardLocal(host, port),
               onCancelledResult: (socket) => socket.destroy(),
             )
-            .timeout(_remaining(deadline));
+            .timeout(budget.remaining);
         if (attempt.isCancelled) {
           forwarded.destroy();
           throw SshConnectionError('SSH connection cancelled');
@@ -445,10 +462,11 @@ class SshClient {
 
       if (_disposed) throw SshConnectionError('SSH connection cancelled');
       phase = hasJumpHost ? 'target SSH authentication' : 'SSH authentication';
+      budget.enter(phase, allowance: hasJumpHost ? budget.hopTimeout : null);
       _client = _transportFactory(_socket!, username, options);
 
       // 認証完了を待機
-      await _authenticate(_client!, attempt, deadline);
+      await _authenticate(_client!, attempt, budget);
 
       if (attempt.isCancelled) {
         throw SshConnectionError('SSH connection cancelled');
@@ -477,24 +495,31 @@ class SshClient {
         throw SshConnectionError('SSH connection cancelled');
       }
       _state = SshConnectionState.error;
-      final detail = _sshErrorMessage(e);
+      // Authentication also waits for the server greeting and key exchange.
+      // Do not present Dart's generic "Future not completed" as a diagnosis.
+      final cause = e is TimeoutException ? budget.timeoutError() : e;
+      final detail = _sshErrorMessage(cause);
       final message = 'Connection failed during $phase: $detail';
       _lastError = message;
       await _cleanup();
       if (e is SSHAuthFailError || e is SshAuthenticationError) {
         throw SshAuthenticationError(message, e);
       }
-      throw SshConnectionError(message, e);
+      throw SshConnectionError(message, cause);
+    } finally {
+      budget.stop();
     }
   }
 
   Future<void> _authenticate(
     SSHClient transport,
     _ConnectionAttempt attempt,
-    DateTime deadline,
+    _ConnectionBudget budget,
   ) async {
     try {
-      await attempt.wait(transport.authenticated).timeout(_remaining(deadline));
+      final remaining = budget.remaining;
+      await attempt.wait(transport.authenticated).timeout(remaining);
+      budget.remaining;
     } on SSHAuthAbortError {
       // dartssh2 replaces handshake/socket errors with a generic auth abort.
       // Its completed transport future still has the actual cause. Only read
@@ -511,14 +536,6 @@ class SshClient {
         : 'SSH transport closed: ${_sshErrorMessage(error)}';
     _updateState(SshConnectionState.error);
     _events.onError?.call(SshConnectionError(_lastError!));
-  }
-
-  Duration _remaining(DateTime deadline) {
-    final remaining = deadline.difference(DateTime.now());
-    if (remaining <= Duration.zero) {
-      throw TimeoutException('SSH connection timed out');
-    }
-    return remaining;
   }
 
   String _shellEscape(String value) {
@@ -540,6 +557,9 @@ class SshClient {
     }
     if (port < 1 || port > 65535) {
       throw SshConnectionError('Invalid port number: $port');
+    }
+    if (options.timeout <= 0) {
+      throw SshConnectionError('SSH timeout must be positive');
     }
     if (options.password == null && options.privateKey == null) {
       throw SshAuthenticationError(
@@ -971,6 +991,60 @@ class SshClient {
     await disconnect();
     await _connectionStateController.close();
   }
+}
+
+/// Monotonic, bounded budgets: dial + first SSH hop, forwarding, target SSH.
+/// Only hop boundaries reset a deadline; progress within a hop never does.
+class _ConnectionBudget {
+  _ConnectionBudget(this.hopTimeout, bool jump, this._watch, this._phase)
+    : forwardTimeout = hopTimeout < const Duration(seconds: 10)
+          ? hopTimeout
+          : const Duration(seconds: 10) {
+    _overallLimit = jump ? hopTimeout * 2 + forwardTimeout : hopTimeout;
+    _deadline = hopTimeout;
+    _watch.start();
+  }
+
+  final Duration hopTimeout;
+  final Duration forwardTimeout;
+  final Stopwatch _watch;
+  late final Duration _overallLimit;
+  late Duration _deadline;
+  String _phase;
+  Duration _phaseStart = Duration.zero;
+  final List<String> _completed = [];
+
+  void enter(String phase, {Duration? allowance}) {
+    // A late completion must not buy another hop after its budget expired.
+    remaining;
+    final elapsed = _watch.elapsed;
+    _completed.add('$_phase ${_seconds(elapsed - _phaseStart)}s');
+    _phase = phase;
+    _phaseStart = elapsed;
+    if (allowance != null) _deadline = elapsed + allowance;
+  }
+
+  Duration get remaining {
+    final limit = _deadline < _overallLimit ? _deadline : _overallLimit;
+    final left = limit - _watch.elapsed;
+    if (left <= Duration.zero) throw timeoutError();
+    return left;
+  }
+
+  TimeoutException timeoutError() => TimeoutException(
+    'SSH wait timed out: $_phase; '
+    'phase ${_seconds(_watch.elapsed - _phaseStart)}s, '
+    'total ${_seconds(_watch.elapsed)}s '
+    '(overall limit ${_seconds(_overallLimit)}s). '
+    'SSH authentication includes server greeting, key exchange and login.'
+    '${_completed.isEmpty ? '' : ' Completed: ${_completed.join(', ')}.'}',
+  );
+
+  static String _seconds(Duration duration) =>
+      (duration.inMicroseconds / Duration.microsecondsPerSecond)
+          .toStringAsFixed(1);
+
+  void stop() => _watch.stop();
 }
 
 /// Interrupts waits promptly without dropping late sockets/channels or errors.

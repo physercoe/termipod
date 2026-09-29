@@ -11,6 +11,7 @@ import '../../../services/terminal/terminal_diff.dart';
 import '../../../services/terminal/terminal_font_styles.dart';
 import '../../../services/tmux/pane_navigator.dart';
 import '../../../theme/design_colors.dart';
+import 'transcript_paging_scroll.dart';
 
 /// キー入力イベント
 class KeyInputEvent {
@@ -93,6 +94,9 @@ class AnsiTextView extends ConsumerStatefulWidget {
   /// when the underlying buffer has trailing blank rows.
   final bool isFullscreen;
 
+  /// Page application-owned history when pulling beyond the visible screen.
+  final void Function(bool older)? onTranscriptPage;
+
   /// ホールド+スワイプで矢印キー入力時のコールバック
   /// direction: 'Up', 'Down', 'Left', 'Right'
   final void Function(String direction)? onArrowSwipe;
@@ -125,6 +129,7 @@ class AnsiTextView extends ConsumerStatefulWidget {
     this.cursorY = 0,
     this.scrollbackSize = 0,
     this.isFullscreen = false,
+    this.onTranscriptPage,
     this.onArrowSwipe,
     this.onTwoFingerSwipe,
     this.navigableDirections,
@@ -825,7 +830,9 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         Widget listWidget = ListView.builder(
           controller: _verticalScrollController,
           padding: EdgeInsets.zero,
-          physics: const ClampingScrollPhysics(),
+          physics: widget.onTranscriptPage != null && !isScrollMode
+              ? const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics())
+              : const ClampingScrollPhysics(),
           itemCount: effectiveItemCount,
           // 固定の行高さを使用してスクロール計算を高速化
           itemExtent: _lineHeight,
@@ -970,6 +977,11 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
             ),
           );
         }
+
+        listWidget = TranscriptPagingScroll(
+          onPage: isScrollMode ? null : widget.onTranscriptPage,
+          child: listWidget,
+        );
 
         // ピンチズーム + 2本指スワイプ
         if (widget.zoomEnabled) {

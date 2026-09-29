@@ -97,6 +97,7 @@ class _TerminalViewData {
   // to the transition — neither backend has a Riverpod channel of its
   // own, so we proxy through _viewNotifier.
   final bool isFullscreen;
+  final bool supportsTranscriptPaging;
 
   const _TerminalViewData({
     this.content = '',
@@ -107,6 +108,7 @@ class _TerminalViewData {
     this.rawCursorX,
     this.rawCursorY,
     this.isFullscreen = false,
+    this.supportsTranscriptPaging = false,
   });
 
   _TerminalViewData copyWith({
@@ -118,6 +120,7 @@ class _TerminalViewData {
     int? rawCursorX,
     int? rawCursorY,
     bool? isFullscreen,
+    bool? supportsTranscriptPaging,
   }) =>
       _TerminalViewData(
         content: content ?? this.content,
@@ -128,6 +131,8 @@ class _TerminalViewData {
         rawCursorX: rawCursorX ?? this.rawCursorX,
         rawCursorY: rawCursorY ?? this.rawCursorY,
         isFullscreen: isFullscreen ?? this.isFullscreen,
+        supportsTranscriptPaging:
+            supportsTranscriptPaging ?? this.supportsTranscriptPaging,
       );
 }
 
@@ -1184,6 +1189,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // and detect the fullscreen⇄shell transition so the viewport can
     // re-anchor (top for shell→vi, bottom for vi→shell).
     final backendFullscreen = backend.isFullscreen;
+    final canPageTranscript =
+        backend is TmuxBackend && backend.supportsTranscriptPaging;
+    if (mounted && !_isDisposed &&
+        canPageTranscript != _viewNotifier.value.supportsTranscriptPaging) {
+      _viewNotifier.value = _viewNotifier.value.copyWith(
+        supportsTranscriptPaging: canPageTranscript,
+      );
+    }
     final wasFullscreen = _pollIsFullscreen;
     if (backendFullscreen != _pollIsFullscreen) {
       _pollIsFullscreen = backendFullscreen;
@@ -1499,6 +1512,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
 
+  void _pageTranscript(bool older) {
+    if (_isDisposed) return;
+    final backend = _backend;
+    if (backend is! TmuxBackend || !backend.supportsTranscriptPaging) return;
+    // A remote-history gesture wins over entry/resize auto-anchoring too,
+    // including when the captured pane exactly fits and never scrolls locally.
+    _pendingScrollToTop = false;
+    _pendingScrollToBottom = false;
+    _pendingScrollbackCompensation = false;
+    backend.pageTranscript(older: older);
+    _scrollToBottomKey.currentState?.show();
+  }
+
   /// スクロール時にスクロールボタンを表示
   void _onTerminalScroll() {
     _scrollToBottomKey.currentState?.show();
@@ -1535,6 +1561,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isDisposed) return;
     final backend = _backend;
     if (backend is! TmuxBackend) return;
+    if (backend.isFullscreen) return;
     if (!_terminalScrollController.hasClients) return;
 
     final position = _terminalScrollController.position;
@@ -1570,6 +1597,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isDisposed) return;
     final backend = _backend;
     if (backend is! TmuxBackend) return;
+    if (backend.isFullscreen) return;
     if (!_terminalScrollController.hasClients) return;
 
     final position = _terminalScrollController.position;
@@ -1741,6 +1769,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                                   cursorY: cursor.y,
                                   scrollbackSize: viewData.scrollbackSize,
                                   isFullscreen: viewData.isFullscreen,
+                                  onTranscriptPage: viewData.supportsTranscriptPaging
+                                      ? _pageTranscript : null,
                                   onArrowSwipe: _dispatchSpecialKey,
                                   onTwoFingerSwipe: _handleTwoFingerSwipe,
                                   navigableDirections: _getNavigableDirections(),
@@ -1779,6 +1809,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                             // it on jump-to-bottom avoids paying the ongoing
                             // capture cost after the user is done browsing.
                             _pendingScrollbackCompensation = false;
+                            final backend = _backend;
+                            if (backend is TmuxBackend &&
+                                backend.supportsTranscriptPaging) {
+                              backend.jumpToLatestTranscript();
+                            }
                             _backend?.resetScrollback();
                             _ansiTextViewKey.currentState?.scrollToBottom();
                             // Hide after scroll completes (cursor end != maxScrollExtent)

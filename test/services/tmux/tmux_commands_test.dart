@@ -3,6 +3,23 @@ import 'package:termipod/services/tmux/tmux_commands.dart';
 
 void main() {
   group('TmuxCommands', () {
+    group('pageCodexTranscript', () {
+      test('rechecks fullscreen Codex and excludes copy-mode on the server', () {
+        expect(TmuxCommands.pageCodexTranscript('%42', 'PPage'),
+            'tmux if-shell -F -t %42 '
+            '"#{&&:#{alternate_on},#{&&:#{==:#{pane_current_command},codex},'
+            '#{==:#{pane_in_mode},0}}}" "send-keys -t %42 PPage"');
+      });
+
+      test('only history navigation keys may be sent by a scroll gesture', () {
+        for (final key in ['NPage', 'C-End']) {
+          expect(TmuxCommands.pageCodexTranscript('%1', key),
+              endsWith('"send-keys -t %1 $key"'));
+        }
+        expect(() => TmuxCommands.pageCodexTranscript('%1', 'Enter'),
+            throwsArgumentError);
+      });
+    });
     group('killPane', () {
       test('generates correct kill-pane command for standard pane ID', () {
         expect(TmuxCommands.killPane('%0'), 'tmux kill-pane -t %0');

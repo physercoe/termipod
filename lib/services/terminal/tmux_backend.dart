@@ -92,6 +92,9 @@ class TmuxBackend implements TerminalBackend {
   /// hint that scrollback should be suppressed.
   bool _isFullscreenCommand = false;
   bool _isInCopyMode = false;
+  String? _capturedTarget;
+  String? _paneCommand;
+  bool _pagingTranscript = false;
   int _latency = 0;
 
   /// Exact command names treated as fullscreen TUIs. Matched
@@ -248,6 +251,45 @@ class TmuxBackend implements TerminalBackend {
   @override
   bool get isFullscreen => _isAlternateScreen || _isFullscreenCommand;
 
+  /// Codex's fullscreen transcript owns its history inside the application,
+  /// not in tmux's history buffer. Only enable remote paging for this known
+  /// application in alternate-screen mode, never for a shell or tmux copy-mode.
+  bool get supportsTranscriptPaging =>
+      !_disposed &&
+      _capturedTarget != null &&
+      _capturedTarget == _getCurrentTarget() &&
+      _isAlternateScreen &&
+      _paneCommand == 'codex' &&
+      !_isInCopyMode;
+
+  /// One page per gesture; do not queue old gestures behind a slow SSH link.
+  Future<void> pageTranscript({required bool older}) =>
+      _sendTranscriptKey(older ? 'PPage' : 'NPage');
+
+  Future<void> jumpToLatestTranscript() => _sendTranscriptKey('C-End');
+
+  Future<void> _sendTranscriptKey(String key) async {
+    final target = _capturedTarget;
+    if (!supportsTranscriptPaging ||
+        target == null ||
+        !_sshClient.isConnected ||
+        _pagingTranscript) {
+      return;
+    }
+    _pagingTranscript = true;
+    try {
+      await _sshClient.exec(
+        TmuxCommands.pageCodexTranscript(target, key),
+      );
+      if (!_disposed) boostRefresh();
+    } catch (_) {
+      // The connection lifecycle owns SSH errors; a swipe must not queue
+      // retries that could reach a different application after reconnect.
+    } finally {
+      _pagingTranscript = false;
+    }
+  }
+
   @override
   int get scrollbackSize {
     if (_isAlternateScreen || _isFullscreenCommand) return 0;
@@ -299,6 +341,7 @@ class TmuxBackend implements TerminalBackend {
     _pollTimer = null;
     _isPolling = false;
     _sshClient = newClient;
+    _capturedTarget = null;
     _currentPollingInterval = _minPollingInterval;
     if (!_disposed) {
       _scheduleNextPoll();
@@ -365,7 +408,7 @@ class TmuxBackend implements TerminalBackend {
 
   @override
   Future<int> extendScrollback(int extraLines) async {
-    if (extraLines <= 0 || _disposed) return 0;
+    if (extraLines <= 0 || _disposed || isFullscreen) return 0;
     if (_scrollbackLines >= _maxScrollbackLines) return 0;
     final newTotal = (_scrollbackLines + extraLines).clamp(
       _defaultScrollbackLines,
@@ -437,12 +480,17 @@ class TmuxBackend implements TerminalBackend {
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
-      final combinedOutput = await _sshClient.execPersistent(
+      final pollingClient = _sshClient;
+      final combinedOutput = await pollingClient.execPersistent(
         combinedCommand,
         timeout: const Duration(seconds: 2),
       );
 
-      if (_disposed) return;
+      if (_disposed ||
+          pollingClient != _sshClient ||
+          target != _getCurrentTarget()) {
+        return;
+      }
 
       // Split on the META delimiter. Returning null here is a deliberate
       // *skip* signal: the previous frame stays on screen and the next
@@ -463,12 +511,14 @@ class TmuxBackend implements TerminalBackend {
         return;
       }
       final contentRaw = parsed.content;
+      final couldPageTranscript = supportsTranscriptPaging;
       final cursorOutput = parsed.cursorLine;
       final paneModeOutput = parsed.paneModeLine;
 
       // Parse cursor position, pane size, alternate_on flag, and the
       // current command name (used as fullscreen-app fallback).
       int? historySize;
+      _paneCommand = null;
       if (cursorOutput.isNotEmpty) {
         // Only split the *first* line — pane_current_command is the
         // last field and is well-formed (single token, no commas), but
@@ -484,6 +534,7 @@ class TmuxBackend implements TerminalBackend {
           _isAlternateScreen =
               parts.length >= 6 && parts[5].trim() == '1';
           final currentCommand = parts.length >= 7 ? parts[6].trim() : null;
+          _paneCommand = currentCommand;
           _isFullscreenCommand = isFullscreenCommandName(currentCommand);
 
           if (x != null) _cursorX = x;
@@ -561,8 +612,10 @@ class TmuxBackend implements TerminalBackend {
         return;
       }
 
-      // Update content only when it actually changed.
-      if (processedOutput != _currentContent) {
+      // Input capability changes must reach the view even on identical text.
+      _capturedTarget = target;
+      if (processedOutput != _currentContent ||
+          couldPageTranscript != supportsTranscriptPaging) {
         _currentContent = processedOutput;
         _contentController.add(null);
       }

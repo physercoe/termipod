@@ -56,6 +56,7 @@ class RawPtyBackend implements TerminalBackend {
     'Escape': '\x1b',
     'Tab': '\t',
     'BTab': '\x1b[Z',
+    'S-Tab': '\x1b[Z',
     'BSpace': '\x7f',
     'Up': '\x1b[A',
     'Down': '\x1b[B',
@@ -428,6 +429,38 @@ class RawPtyBackend implements TerminalBackend {
     if (seq != null) {
       _sshClient.write(seq);
       return;
+    }
+
+    // xterm navigation/function keys encode Shift/Alt/Ctrl in a modifier
+    // parameter (1 + Shift + 2*Alt + 4*Ctrl). Keep chords intact in raw
+    // mode too, rather than dropping names such as S-Left or C-S-Right.
+    var baseKey = tmuxKey;
+    var modifiers = 0;
+    while (baseKey.length > 2 &&
+        baseKey[1] == '-' &&
+        'CMS'.contains(baseKey[0])) {
+      modifiers |= switch (baseKey[0]) {
+        'C' => 4,
+        'M' => 2,
+        _ => 1,
+      };
+      baseKey = baseKey.substring(2);
+    }
+    if (modifiers != 0) {
+      final baseSequence = _keyToEscape[baseKey];
+      if (baseSequence != null) {
+        final parameter = modifiers + 1;
+        if (RegExp(r'^\x1b\[[ABCDHF]$').hasMatch(baseSequence) ||
+            RegExp(r'^\x1bO[PQRS]$').hasMatch(baseSequence)) {
+          _sshClient.write('\x1b[1;$parameter${baseSequence[2]}');
+          return;
+        }
+        if (RegExp(r'^\x1b\[\d+~$').hasMatch(baseSequence)) {
+          final prefix = baseSequence.substring(0, baseSequence.length - 1);
+          _sshClient.write('$prefix;$parameter~');
+          return;
+        }
+      }
     }
 
     // Handle dynamic C-<letter> patterns not in the static map

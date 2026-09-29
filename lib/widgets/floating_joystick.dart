@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/action_bar_provider.dart';
 import '../theme/design_colors.dart';
 
 /// Floating draggable D-pad overlay for terminal navigation.
@@ -11,7 +13,7 @@ import '../theme/design_colors.dart';
 /// Tap outer quadrants for arrow keys, tap center for the configured center
 /// key (default Enter). Long-press for auto-repeat. Drag to reposition.
 /// Designed for large screens (foldable/tablet) and Claude Code approve flow.
-class FloatingJoystick extends StatefulWidget {
+class FloatingJoystick extends ConsumerStatefulWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final bool haptic;
   final int repeatRate;
@@ -33,10 +35,10 @@ class FloatingJoystick extends StatefulWidget {
   });
 
   @override
-  State<FloatingJoystick> createState() => _FloatingJoystickState();
+  ConsumerState<FloatingJoystick> createState() => _FloatingJoystickState();
 }
 
-class _FloatingJoystickState extends State<FloatingJoystick> {
+class _FloatingJoystickState extends ConsumerState<FloatingJoystick> {
   double _right = 16;
   // Vertical position is computed lazily on first build (MediaQuery isn't
   // available in initState). The default sits just above the action bar
@@ -96,7 +98,8 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     // Fire the key for the last highlighted zone
     final zone = _activeZone;
     if (zone != null) {
-      widget.onSpecialKeyPressed(zone);
+      final combined = ref.read(actionBarProvider.notifier).applyModifiers(zone);
+      widget.onSpecialKeyPressed(combined ?? zone);
       // Stronger haptic so the confirmation is unmistakable.
       if (widget.haptic) HapticFeedback.mediumImpact();
 
@@ -177,14 +180,16 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
 
     // Fire immediately + start repeat
     _hasFired = true;
-    widget.onSpecialKeyPressed(zone);
+    final combined =
+        ref.read(actionBarProvider.notifier).applyModifiers(zone) ?? zone;
+    widget.onSpecialKeyPressed(combined);
     if (widget.haptic) HapticFeedback.lightImpact();
 
     _repeatTimer = Timer.periodic(
       Duration(milliseconds: widget.repeatRate),
       (_) {
         if (widget.haptic) HapticFeedback.selectionClick();
-        widget.onSpecialKeyPressed(zone);
+        widget.onSpecialKeyPressed(combined);
       },
     );
   }

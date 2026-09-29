@@ -39,6 +39,10 @@ class ActionBarState {
   /// Whether ALT modifier is locked (double-tap)
   final bool altLocked;
 
+  /// Shift is shared by the keyboard, palette, and navigation controls.
+  final bool shiftArmed;
+  final bool shiftLocked;
+
   /// Input mode: true = compose (default), false = direct input
   final bool composeMode;
 
@@ -51,6 +55,8 @@ class ActionBarState {
     this.altArmed = false,
     this.ctrlLocked = false,
     this.altLocked = false,
+    this.shiftArmed = false,
+    this.shiftLocked = false,
     this.composeMode = true,
   });
 
@@ -94,6 +100,8 @@ class ActionBarState {
     bool? altArmed,
     bool? ctrlLocked,
     bool? altLocked,
+    bool? shiftArmed,
+    bool? shiftLocked,
     bool? composeMode,
   }) {
     return ActionBarState(
@@ -106,6 +114,8 @@ class ActionBarState {
       altArmed: altArmed ?? this.altArmed,
       ctrlLocked: ctrlLocked ?? this.ctrlLocked,
       altLocked: altLocked ?? this.altLocked,
+      shiftArmed: shiftArmed ?? this.shiftArmed,
+      shiftLocked: shiftLocked ?? this.shiftLocked,
       composeMode: composeMode ?? this.composeMode,
     );
   }
@@ -420,12 +430,25 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
     }
   }
 
+  /// Toggle SHIFT modifier through one-shot, locked, and off.
+  bool toggleShift() {
+    if (state.shiftLocked) {
+      state = state.copyWith(shiftArmed: false, shiftLocked: false);
+    } else if (state.shiftArmed) {
+      state = state.copyWith(shiftLocked: true);
+    } else {
+      state = state.copyWith(shiftArmed: true);
+    }
+    return state.shiftArmed;
+  }
+
   /// Consume armed modifiers (after sending a combined key).
   /// Locked modifiers stay active.
   void consumeModifiers() {
     state = state.copyWith(
       ctrlArmed: state.ctrlLocked,
       altArmed: state.altLocked,
+      shiftArmed: state.shiftLocked,
     );
   }
 
@@ -436,18 +459,51 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       altArmed: false,
       ctrlLocked: false,
       altLocked: false,
+      shiftArmed: false,
+      shiftLocked: false,
     );
   }
 
   /// Build tmux key string with current modifiers applied
   /// Returns null if no modifiers are armed, or the combined key string.
-  String? applyModifiers(String baseKey) {
-    if (!state.ctrlArmed && !state.altArmed) return null;
+  String? applyModifiers(
+    String baseKey, {
+    bool ctrl = false,
+    bool alt = false,
+    bool shift = false,
+  }) {
+    // Native tmux actions and multi-key macros are not single key chords.
+    if (baseKey.startsWith('termipod:') ||
+        (baseKey.length > 1 && baseKey.contains(RegExp(r'\s')))) {
+      return null;
+    }
+    ctrl = ctrl || state.ctrlArmed;
+    alt = alt || state.altArmed;
+    shift = shift || state.shiftArmed;
+    if (!ctrl && !alt && !shift) return null;
+    // Normalize existing prefixes too (e.g. Ctrl + the Shift-Left chip).
+    while (baseKey.length > 2 && baseKey[1] == '-' && 'CMS'.contains(baseKey[0])) {
+      ctrl = ctrl || baseKey[0] == 'C';
+      alt = alt || baseKey[0] == 'M';
+      shift = shift || baseKey[0] == 'S';
+      baseKey = baseKey.substring(2);
+    }
+    // Space has no shifted glyph; a Shift lock must still allow spaces.
+    if (shift && (baseKey == ' ' || baseKey == 'Space')) shift = false;
+    if (shift && baseKey.length == 1) {
+      const unshifted = '`1234567890-=[]\\;,./\'';
+      const shifted = '~!@#\$%^&*()_+{}|:<>?"';
+      final index = unshifted.indexOf(baseKey);
+      baseKey = index < 0 ? baseKey.toUpperCase() : shifted[index];
+      shift = false; // Printable Shift is represented by the resulting glyph.
+    }
+    if (baseKey == ' ') baseKey = 'Space';
     final mods = <String>[];
-    if (state.ctrlArmed) mods.add('C');
-    if (state.altArmed) mods.add('M');
+    if (ctrl) mods.add('C');
+    if (alt) mods.add('M');
+    if (shift) mods.add('S');
     consumeModifiers();
-    return '${mods.join('-')}-$baseKey';
+    return mods.isEmpty ? baseKey : '${mods.join('-')}-$baseKey';
   }
 
   // ---------------------------------------------------------------------------

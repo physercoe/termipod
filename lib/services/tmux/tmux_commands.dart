@@ -237,6 +237,20 @@ class TmuxCommands {
     return 'tmux send-keys -t ${_escapeArg(paneId)} $escapedKeys';
   }
 
+  /// Recheck the application at delivery time: it may have exited since the
+  /// mobile capture, especially over a slow SSH link. -F evaluates a tmux
+  /// format, not a shell command. The nested command is quoted for both parsers.
+  static String pageCodexTranscript(String paneId, String key) {
+    if (!const {'PPage', 'NPage', 'C-End'}.contains(key)) {
+      throw ArgumentError.value(key, 'key', 'Not a transcript navigation key');
+    }
+    const condition = '#{&&:#{alternate_on},'
+        '#{&&:#{==:#{pane_current_command},codex},#{==:#{pane_in_mode},0}}}';
+    final command = 'send-keys -t ${_escapeArg(paneId)} $key';
+    return 'tmux if-shell -F -t ${_escapeArg(paneId)} '
+        '${_escapeArg(condition)} ${_escapeArg(command)}';
+  }
+
   /// Send a whitespace-separated sequence of tmux key names as separate
   /// positional arguments to `tmux send-keys`.
   ///

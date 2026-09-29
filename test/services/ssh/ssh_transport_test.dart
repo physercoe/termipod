@@ -218,7 +218,7 @@ void main() {
       }
       target.auth!.complete();
       await tester.pump();
-      expect(socket.destroys, phase == 'target auth' ? 0 : 1);
+      expect(socket.destroys, 1);
       if (phase == 'forwarding' || phase == 'target auth') {
         expect(jump.forwarded.destroys, 1);
       }
@@ -344,12 +344,13 @@ void main() {
   test(
     'a channel-close error cannot prevent releasing the other SSH hop',
     () async {
+      final initialSocket = _Socket();
       final jump = _Transport()
         ..closeError = StateError('jump transport closed');
       final target = _Transport()
         ..closeError = StateError('target transport closed');
       final client = SshClient(
-        socketConnector: (_, _, _) async => _Socket(),
+        socketConnector: (_, _, _) async => initialSocket,
         jumpTransportFactory: (_, _, _) => jump,
         transportFactory: (_, _, _) => target,
       );
@@ -367,6 +368,10 @@ void main() {
       expect(target.closes, 1);
       expect(jump.closes, 1);
       expect(jump.forwarded.destroys, 1);
+      expect(initialSocket.destroys, 1);
+      await client.dispose();
+      expect(initialSocket.destroys, 1,
+          reason: 'outer socket ownership is detached');
       expect(client.state, SshConnectionState.disconnected);
     },
   );

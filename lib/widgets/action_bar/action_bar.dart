@@ -103,8 +103,8 @@ class _ActionBarState extends ConsumerState<ActionBar> {
       case ActionBarButtonType.ctrlCombo:
       case ActionBarButtonType.altCombo:
       case ActionBarButtonType.shiftCombo:
-        widget.onSpecialKeyPressed(button.value);
-        notifier.resetModifiers();
+        widget.onSpecialKeyPressed(
+            notifier.applyModifiers(button.value) ?? button.value);
         break;
     }
   }

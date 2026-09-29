@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/action_bar_config.dart';
+import '../providers/action_bar_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/design_colors.dart';
 import '../theme/tokens.dart';
@@ -321,7 +322,7 @@ class _DpadFull extends StatelessWidget {
 // Joystick (full mode) — circular drag zone
 // ---------------------------------------------------------------------------
 
-class _JoystickFull extends StatefulWidget {
+class _JoystickFull extends ConsumerStatefulWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final int repeatRate;
   final bool haptic;
@@ -335,10 +336,10 @@ class _JoystickFull extends StatefulWidget {
   });
 
   @override
-  State<_JoystickFull> createState() => _JoystickFullState();
+  ConsumerState<_JoystickFull> createState() => _JoystickFullState();
 }
 
-class _JoystickFullState extends State<_JoystickFull> {
+class _JoystickFullState extends ConsumerState<_JoystickFull> {
   static const _size = 56.0;
   static const _deadZone = 8.0;
 
@@ -379,13 +380,16 @@ class _JoystickFullState extends State<_JoystickFull> {
       _activeDirection = direction;
       _stopRepeat();
       // Send immediately + start repeat
-      widget.onSpecialKeyPressed(direction);
+      final combined =
+          ref.read(actionBarProvider.notifier).applyModifiers(direction) ??
+              direction;
+      widget.onSpecialKeyPressed(combined);
       if (widget.haptic) HapticFeedback.lightImpact();
       _repeatTimer = Timer.periodic(
         Duration(milliseconds: widget.repeatRate),
         (_) {
           if (widget.haptic) HapticFeedback.selectionClick();
-          widget.onSpecialKeyPressed(direction);
+          widget.onSpecialKeyPressed(combined);
         },
       );
     }
@@ -673,7 +677,7 @@ class _ChevronToggle extends StatelessWidget {
 // Single nav button — reusable for D-pad arrows and action buttons
 // ---------------------------------------------------------------------------
 
-class _NavButton extends StatefulWidget {
+class _NavButton extends ConsumerStatefulWidget {
   final IconData? icon;
   final String? label;
   final String tmuxKey;
@@ -701,10 +705,10 @@ class _NavButton extends StatefulWidget {
                 tmuxKey == 'Right');
 
   @override
-  State<_NavButton> createState() => _NavButtonState();
+  ConsumerState<_NavButton> createState() => _NavButtonState();
 }
 
-class _NavButtonState extends State<_NavButton> {
+class _NavButtonState extends ConsumerState<_NavButton> {
   Timer? _repeatTimer;
   // Post-tap flash: hold the highlight for ~220ms so the user sees an
   // unmistakable confirmation that their tap registered. See
@@ -736,7 +740,9 @@ class _NavButtonState extends State<_NavButton> {
   }
 
   void _handleTap() {
-    widget.onSpecialKeyPressed(widget.tmuxKey);
+    final combined =
+        ref.read(actionBarProvider.notifier).applyModifiers(widget.tmuxKey);
+    widget.onSpecialKeyPressed(combined ?? widget.tmuxKey);
     if (widget.haptic) {
       HapticFeedback.mediumImpact();
     }
@@ -753,13 +759,16 @@ class _NavButtonState extends State<_NavButton> {
 
   void _handleLongPress() {
     if (widget.supportsRepeat) {
+      final combined =
+          ref.read(actionBarProvider.notifier).applyModifiers(widget.tmuxKey) ??
+              widget.tmuxKey;
       _repeatTimer = Timer.periodic(
         Duration(milliseconds: widget.repeatRate),
         (_) {
           if (widget.haptic) {
             HapticFeedback.selectionClick();
           }
-          widget.onSpecialKeyPressed(widget.tmuxKey);
+          widget.onSpecialKeyPressed(combined);
         },
       );
     }

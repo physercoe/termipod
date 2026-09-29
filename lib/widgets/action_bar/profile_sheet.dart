@@ -456,6 +456,8 @@ class ProfileSheet extends ConsumerWidget {
   }
 
   void _handlePaletteTap(BuildContext context, ActionBarButton btn) {
+    final notifier = ProviderScope.containerOf(context, listen: false)
+        .read(actionBarProvider.notifier);
     HapticFeedback.selectionClick();
     // Close the sheet before firing the key so the resulting character
     // lands in the visible terminal rather than being obscured.
@@ -465,15 +467,21 @@ class ProfileSheet extends ConsumerWidget {
       case ActionBarButtonType.ctrlCombo:
       case ActionBarButtonType.altCombo:
       case ActionBarButtonType.shiftCombo:
-        onSpecialKeyTap?.call(btn.value);
+        onSpecialKeyTap?.call(notifier.applyModifiers(btn.value) ?? btn.value);
       case ActionBarButtonType.literal:
-        onKeyTap?.call(btn.value);
+        final combined = notifier.applyModifiers(btn.value);
+        if (combined != null) {
+          onSpecialKeyTap?.call(combined);
+        } else {
+          onKeyTap?.call(btn.value);
+        }
       case ActionBarButtonType.modifier:
         onModifierTap?.call(btn.value);
       case ActionBarButtonType.confirm:
         // Palette simplifies confirm semantics to "send literal + Enter".
         onKeyTap?.call(btn.value);
         onSpecialKeyTap?.call('Enter');
+        notifier.resetModifiers();
       case ActionBarButtonType.action:
         onActionTap?.call(btn.value);
     }

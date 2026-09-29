@@ -21,7 +21,7 @@ import '../theme/tokens.dart';
 /// system keyboard consumes, and terminal keys (Ctrl/Alt/Esc/Tab/arrows)
 /// are integrated so users don't need to swap pages for them.
 ///
-/// Ctrl/Alt modifier state is shared with the action bar via
+/// Ctrl/Alt/Shift modifier state is shared with the action bar via
 /// [actionBarProvider] — tapping Ctrl here arms the same modifier that the
 /// action bar's Ctrl button toggles.
 ///
@@ -45,10 +45,8 @@ class CustomKeyboard extends ConsumerStatefulWidget {
 }
 
 class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
-  // Shift / caps state is local to the keyboard — it only affects what
-  // character we send for the next letter tap, not any global modifier.
-  bool _shiftOn = false;
-  bool _shiftLocked = false;
+  bool get _shiftOn => ref.read(actionBarProvider).shiftArmed;
+  bool get _shiftLocked => ref.read(actionBarProvider).shiftLocked;
 
   // Symbols page toggles rows 1-3 between QWERTY and number/symbols.
   // 0 = letters (QWERTY), 1 = symbols page 1, 2 = symbols page 2
@@ -87,63 +85,25 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   // ---------------------------------------------------------------------------
 
   void _onLetterKey(String char) {
-    final display = (_shiftOn || _shiftLocked) ? char.toUpperCase() : char;
-    final state = ref.read(actionBarProvider);
-
-    if (state.ctrlArmed || state.altArmed) {
-      // applyModifiers consumes armed (non-locked) modifiers internally.
-      final combined = ref
-          .read(actionBarProvider.notifier)
-          .applyModifiers(display.toLowerCase());
-      if (combined != null) {
-        widget.onSpecialKeyPressed(combined);
-      }
-    } else {
-      widget.onKeyPressed(display);
-    }
-
-    // Shift un-sticks after one key unless locked.
-    if (_shiftOn && !_shiftLocked) {
-      setState(() => _shiftOn = false);
-    }
-
-    _triggerFlash(char);
-  }
-
-  void _onSymbolKey(String char) {
-    // Symbols/digits bypass the shift state — they send literally.
-    final state = ref.read(actionBarProvider);
-    if (state.ctrlArmed || state.altArmed) {
-      final combined =
-          ref.read(actionBarProvider.notifier).applyModifiers(char);
-      if (combined != null) {
-        widget.onSpecialKeyPressed(combined);
-      }
+    final combined = ref.read(actionBarProvider.notifier).applyModifiers(char);
+    if (combined != null) {
+      widget.onSpecialKeyPressed(combined);
     } else {
       widget.onKeyPressed(char);
     }
     _triggerFlash(char);
   }
 
+  void _onSymbolKey(String char) => _onLetterKey(char);
+
   void _onSpecialKey(String tmuxKey) {
-    widget.onSpecialKeyPressed(tmuxKey);
+    final combined = ref.read(actionBarProvider.notifier).applyModifiers(tmuxKey);
+    widget.onSpecialKeyPressed(combined ?? tmuxKey);
     _triggerFlash(tmuxKey);
   }
 
   void _onShiftTap() {
-    setState(() {
-      if (_shiftLocked) {
-        // Locked → off
-        _shiftLocked = false;
-        _shiftOn = false;
-      } else if (_shiftOn) {
-        // Single-shot armed → lock (double-tap)
-        _shiftLocked = true;
-      } else {
-        // Off → armed for one key
-        _shiftOn = true;
-      }
-    });
+    ref.read(actionBarProvider.notifier).toggleShift();
     _triggerFlash('shift');
   }
 
@@ -183,8 +143,10 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
 
   void _startRepeat(String tmuxKey) {
     _repeatTimer?.cancel();
+    // A hold repeats one chord, even after its one-shot modifiers are consumed.
+    final combined = ref.read(actionBarProvider.notifier).applyModifiers(tmuxKey);
     _repeatTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
-      widget.onSpecialKeyPressed(tmuxKey);
+      widget.onSpecialKeyPressed(combined ?? tmuxKey);
       if (widget.haptic) HapticFeedback.selectionClick();
     });
   }
@@ -199,6 +161,8 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   // ---------------------------------------------------------------------------
 
   static final _hwSpecialKeyMap = <LogicalKeyboardKey, String>{
+    LogicalKeyboardKey.enter: 'Enter',
+    LogicalKeyboardKey.numpadEnter: 'Enter',
     LogicalKeyboardKey.escape: 'Escape',
     LogicalKeyboardKey.tab: 'Tab',
     LogicalKeyboardKey.arrowUp: 'Up',
@@ -232,35 +196,45 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
 
     final key = event.logicalKey;
 
-    // Ctrl/Meta + letter
+    final notifier = ref.read(actionBarProvider.notifier);
     final isCtrl = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
+    final isAlt = HardwareKeyboard.instance.isAltPressed;
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+
+    String? compose(String value) => notifier.applyModifiers(
+          value,
+          ctrl: isCtrl,
+          alt: isAlt,
+          shift: isShift,
+        );
+
+    // Mapped special keys retain physical and on-screen modifiers.
+    final tmuxKey = _hwSpecialKeyMap[key];
+    if (tmuxKey != null) {
+      widget.onSpecialKeyPressed(compose(tmuxKey) ?? tmuxKey);
+      return KeyEventResult.handled;
+    }
+
+    // Ctrl/Meta + letter may not have a printable event.character.
     if (isCtrl) {
       final label = key.keyLabel;
       if (label.length == 1 && RegExp(r'^[A-Za-z]$').hasMatch(label)) {
-        widget.onSpecialKeyPressed('C-${label.toLowerCase()}');
+        widget.onSpecialKeyPressed(compose(label.toLowerCase())!);
         return KeyEventResult.handled;
       }
-    }
-
-    // Enter
-    if (key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.numpadEnter) {
-      widget.onSpecialKeyPressed('Enter');
-      return KeyEventResult.handled;
-    }
-
-    // Mapped special keys
-    final tmuxKey = _hwSpecialKeyMap[key];
-    if (tmuxKey != null) {
-      widget.onSpecialKeyPressed(tmuxKey);
-      return KeyEventResult.handled;
     }
 
     // Regular character input from the hardware keyboard
     final char = event.character;
     if (char != null && char.isNotEmpty) {
-      widget.onKeyPressed(char);
+      // The hardware layout has already applied physical Shift to text.
+      final combined = notifier.applyModifiers(char, ctrl: isCtrl, alt: isAlt);
+      if (combined != null) {
+        widget.onSpecialKeyPressed(combined);
+      } else {
+        widget.onKeyPressed(char);
+      }
       return KeyEventResult.handled;
     }
 

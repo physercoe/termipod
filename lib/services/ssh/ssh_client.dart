@@ -220,6 +220,9 @@ class SshClient {
   SSHClient? _jumpClient;
   SSHSession? _session;
   SSHSocket? _socket;
+  // Keep the outer transport independently of the forwarded target channel.
+  // SSHClient.close can throw while closing channels, before destroying it.
+  SSHSocket? _initialSocket;
 
   SshConnectionState _state = SshConnectionState.disconnected;
   SshEvents _events = const SshEvents();
@@ -417,6 +420,7 @@ class SshClient {
         throw SshConnectionError('SSH connection cancelled');
       }
       _socket = initialSocket;
+      _initialSocket = initialSocket;
       if (_disposed) throw SshConnectionError('SSH connection cancelled');
       // Step 2: If jump host is configured, establish jump connection first
       if (hasJumpHost) {
@@ -631,6 +635,8 @@ class SshClient {
     _client = null;
     final socket = _socket;
     _socket = null;
+    final initialSocket = _initialSocket;
+    _initialSocket = null;
     final jumpClient = _jumpClient;
     _jumpClient = null;
     _terminalSetup = null;
@@ -643,6 +649,8 @@ class SshClient {
       _finishCleanup(() => client?.close()),
       _finishCleanup(() => jumpClient?.close()),
       _finishCleanup(() => socket?.destroy()),
+      if (!identical(initialSocket, socket))
+        _finishCleanup(() => initialSocket?.destroy()),
       _finishCleanup(() => persistentShell?.dispose()),
       _finishCleanup(() => stdoutSubscription?.cancel()),
       _finishCleanup(() => stderrSubscription?.cancel()),

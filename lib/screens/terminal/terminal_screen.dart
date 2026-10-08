@@ -878,7 +878,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // catch (which resets `_isConnecting` and surfaces a snackbar)
     // instead of stranding the spinner.
     try {
-      final versionOutput = await sshClient.exec(
+      final versionOutput = await sshClient.execTerminal(
         TmuxCommands.version(),
         timeout: const Duration(seconds: 10),
       );
@@ -923,7 +923,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (existingIndex >= 0) {
         sessionName = sessions[existingIndex].name;
       } else {
-        await sshClient.exec(TmuxCommands.newSession(
+        await sshClient.execTerminal(TmuxCommands.newSession(
           name: widget.sessionName!,
           detached: true,
         ));
@@ -951,7 +951,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       sessionName = lastSeen?.sessionName ?? sessions.first.name;
     } else {
       sessionName = 'termipod-${DateTime.now().millisecondsSinceEpoch}';
-      await sshClient.exec(TmuxCommands.newSession(name: sessionName, detached: true));
+      await sshClient.execTerminal(TmuxCommands.newSession(name: sessionName, detached: true));
       if (!mounted || _isDisposed) return;
       await _refreshSessionTree();
       if (!mounted || _isDisposed) return;
@@ -1294,7 +1294,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     try {
       final cmd = TmuxCommands.listAllPanes();
-      final result = await sshClient.execWithExitCode(cmd, timeout: timeout);
+      final result = await sshClient.execTerminalWithExitCode(cmd, timeout: timeout);
       if (!mounted || _isDisposed) return;
       final combined = '${result.stdout}${result.stderr}';
       if (result.exitCode != 0) {
@@ -2111,7 +2111,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     try {
       // tmux select-windowを実行
-      await sshClient.exec(TmuxCommands.selectWindow(sessionName, windowIndex));
+      await sshClient.execTerminal(TmuxCommands.selectWindow(sessionName, windowIndex));
     } catch (e) {
       // SSH接続が閉じている場合は無視
       debugPrint('[Terminal] Failed to select window: $e');
@@ -2141,7 +2141,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     try {
       // tmux select-paneを実行
-      await sshClient.exec(TmuxCommands.selectPane(paneId));
+      await sshClient.execTerminal(TmuxCommands.selectPane(paneId));
 
       // Note: Focus events (\x1b[I / \x1b[O) are NOT sent here.
       // These are terminal-to-application signals (DECSET 1004) that cannot
@@ -2885,7 +2885,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       return;
     }
     try {
-      final result = await sshClient.exec(TmuxCommands.newSession(
+      final result = await sshClient.execTerminal(TmuxCommands.newSession(
         name: sessionName,
         detached: true,
       ));
@@ -2927,7 +2927,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       final session = ref.read(tmuxProvider(widget.connectionId)).activeSession;
       if (session == null) return;
 
-      final result = await sshClient.exec(TmuxCommands.newWindow(
+      final result = await sshClient.execTerminal(TmuxCommands.newWindow(
         sessionName: session.name,
         windowName: windowName,
       ));
@@ -2986,7 +2986,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       final command = direction == SplitDirection.horizontal
           ? TmuxCommands.splitWindowHorizontal(target: paneId)
           : TmuxCommands.splitWindowVertical(target: paneId);
-      await sshClient.exec(command);
+      await sshClient.execTerminal(command);
       await _refreshSessionTree();
     } catch (e) {
       if (mounted) {
@@ -3156,7 +3156,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null || !sshClient.isConnected) return;
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.resizePaneToSize(pane.id, cols: targetCols, rows: targetRows),
       );
       await _refreshSessionTree();
@@ -3211,7 +3211,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null) return;
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.resizePaneToSize(pane.id, cols: result.cols, rows: result.rows),
       );
       await _refreshSessionTree();
@@ -3272,7 +3272,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (sshClient == null) return;
       final tmuxState = ref.read(tmuxProvider(widget.connectionId));
       final target = '${tmuxState.activeSessionName}:${window.index}';
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.resizeWindow(target, cols: result.cols, rows: result.rows),
       );
       await _refreshSessionTree();
@@ -3312,14 +3312,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _backend?.pausePolling();
 
     try {
-      await sshClient.exec(TmuxCommands.killPane(paneId));
+      await sshClient.execTerminal(TmuxCommands.killPane(paneId));
       await _refreshSessionTree();
       if (!mounted || _isDisposed) return;
 
       // セッション消滅確認（最後のウィンドウの最後のペインだった場合）
       if (isLastPane && isLastWindow) {
         final sessionsOutput =
-            await sshClient.exec('tmux list-sessions 2>/dev/null || true');
+            await sshClient.execTerminal('tmux list-sessions 2>/dev/null || true');
         if (!mounted || _isDisposed) return;
         if (sessionsOutput.trim().isEmpty) {
           await _disconnect();
@@ -3998,7 +3998,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       return;
     }
     try {
-      await sshClient.exec(TmuxCommands.renameSession(currentName, next));
+      await sshClient.execTerminal(TmuxCommands.renameSession(currentName, next));
       await _refreshSessionTree();
     } catch (e) {
       debugPrint('[Terminal] rename-session failed: $e');
@@ -4033,7 +4033,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
     try {
       await sshClient
-          .exec(TmuxCommands.renameWindow(sessionName, windowIndex, next));
+          .execTerminal(TmuxCommands.renameWindow(sessionName, windowIndex, next));
       await _refreshSessionTree();
     } catch (e) {
       debugPrint('[Terminal] rename-window failed: $e');
@@ -4096,13 +4096,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     try {
       debugPrint('[Terminal] Killing window: $sessionName:$windowIndex');
-      await sshClient.exec(TmuxCommands.killWindow(sessionName, windowIndex));
+      await sshClient.execTerminal(TmuxCommands.killWindow(sessionName, windowIndex));
       await _refreshSessionTree();
 
       if (!mounted || _isDisposed) return;
 
       // セッション消滅判定: list-sessionsで直接確認
-      final sessionsOutput = await sshClient.exec('tmux list-sessions 2>/dev/null || true');
+      final sessionsOutput = await sshClient.execTerminal('tmux list-sessions 2>/dev/null || true');
       if (sessionsOutput.trim().isEmpty) {
         debugPrint('[Terminal] Last window closed, session terminated. Disconnecting...');
         await _disconnect();
@@ -4489,7 +4489,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         if (pane == null) return;
         final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
         if (sshClient == null || !sshClient.isConnected) return;
-        await sshClient.exec(TmuxCommands.resizePane(pane.id));
+        await sshClient.execTerminal(TmuxCommands.resizePane(pane.id));
         _backend?.boostRefresh();
         return;
       case 'termipod:tmux:new-session':
@@ -4666,13 +4666,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (options.bracketedPaste) {
       sshClient.write('\x1b[200~$formattedPath\x1b[201~');
     } else {
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.sendKeys(activePaneId, formattedPath, literal: true),
       );
     }
 
     if (options.autoEnter) {
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.sendKeys(activePaneId, 'Enter'),
       );
     }
@@ -4762,13 +4762,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (options.bracketedPaste) {
       sshClient.write('\x1b[200~$joinedPaths\x1b[201~');
     } else {
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.sendKeys(activePaneId, joinedPaths, literal: true),
       );
     }
 
     if (options.autoEnter) {
-      await sshClient.exec(
+      await sshClient.execTerminal(
         TmuxCommands.sendKeys(activePaneId, 'Enter'),
       );
     }

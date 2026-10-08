@@ -648,6 +648,7 @@ class _HostTile extends ConsumerWidget {
     );
     if (ok != true) return;
     await SecureStorageService().deletePassword(c.id);
+    await SecureStorageService().deletePassword('${c.id}_su');
     await ref.read(connectionsProvider.notifier).remove(c.id);
   }
 }

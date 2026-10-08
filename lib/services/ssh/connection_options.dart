@@ -48,5 +48,9 @@ Future<SshConnectOptions> loadSshOptions(
     proxyUsername: connection.proxyUsername,
     proxyPassword: connection.proxyPassword,
     tmuxPath: connection.tmuxPath,
+    workUsername: connection.isTmuxMode ? connection.workUsername : null,
+    workPassword: connection.isTmuxMode && connection.workUsername != null
+        ? await storage.getPassword('${connection.id}_su')
+        : null,
   );
 }

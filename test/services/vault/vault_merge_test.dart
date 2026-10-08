@@ -78,6 +78,18 @@ void main() {
     expect(merged['futureSection'], remote['futureSection']);
   });
 
+  test('working-user password follows its connection metadata winner', () {
+    final local = _bundle([
+      _connection('1', '2026-08-01T00:00:00.000Z')..['workUsername'] = 'old-worker',
+    ])..['passwords'] = {'1_su': 'old-password'};
+    final remote = _bundle([
+      _connection('1', '2026-08-02T00:00:00.000Z')..['workUsername'] = 'new-worker',
+    ])..['passwords'] = {'1_su': 'new-password'};
+    final merged = mergeMobileVaultBundles(local, remote).bundle;
+    expect(((merged['connections'] as List).single as Map)['workUsername'], 'new-worker');
+    expect((merged['passwords'] as Map)['1_su'], 'new-password');
+  });
+
   test('merge preserves malformed local records instead of dropping data', () {
     final malformed = <String, dynamic>{'name': 'legacy host without an id'};
     final local = _bundle([malformed]);

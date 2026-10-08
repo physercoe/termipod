@@ -2953,5 +2953,12 @@
   "sessionDockKindTodos": "Todos",
   "sessionDockTasksEmpty": "No shell tasks yet",
   "sessionDockSubagentsEmpty": "No sub-agents yet",
-  "sessionDockTodosEmpty": "No todos yet"
+  "sessionDockTodosEmpty": "No todos yet",
+  "workUsernameLabel": "Working user (optional)",
+  "workUsernameHint": "User to switch to with su",
+  "workUsernameDescription": "Log in over SSH with the username above, then run native tmux as this user. Leave blank to use the SSH login user.",
+  "workUsernameInvalid": "Enter a valid working username",
+  "workPasswordLabel": "Working-user password",
+  "workPasswordHint": "Password for su",
+  "workPasswordSavedHint": "Leave blank to keep the saved password"
 }

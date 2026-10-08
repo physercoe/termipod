@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../providers/active_session_provider.dart';
 import '../providers/connection_provider.dart';
-import '../services/keychain/secure_storage.dart';
+import '../services/ssh/connection_options.dart';
 import '../services/ssh/ssh_client.dart';
 import '../services/tmux/tmux_commands.dart';
 import '../services/tmux/tmux_parser.dart';
@@ -367,54 +367,17 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
     try {
       final connectionsState = ref.read(connectionsProvider);
       final connections = connectionsState.connections;
-      final storage = SecureStorageService();
 
       for (final connection in connections) {
         // Raw PTY connections have no tmux sessions — skip entirely so we
         // don't pollute activeSessionsProvider with tmux-style entries for
         // them, and don't waste an SSH roundtrip.
         if (connection.isRawMode) continue;
+        final sshClient = SshClient();
         try {
-          // 認証オプションを取得
-          String? password;
-          String? privateKey;
-          String? passphrase;
-          if (connection.authMethod == 'key' && connection.keyId != null) {
-            privateKey = await storage.getPrivateKey(connection.keyId!);
-            passphrase = await storage.getPassphrase(connection.keyId!);
-          } else {
-            password = await storage.getPassword(connection.id);
-          }
-          String? jumpPassword;
-          String? jumpPrivateKey;
-          String? jumpPassphrase;
-          if (connection.jumpHost != null) {
-            if (connection.jumpAuthMethod == 'key' && connection.jumpKeyId != null) {
-              jumpPrivateKey = await storage.getPrivateKey(connection.jumpKeyId!);
-              jumpPassphrase = await storage.getPassphrase(connection.jumpKeyId!);
-            } else {
-              jumpPassword = password ?? await storage.getPassword(connection.id);
-            }
-          }
-          final options = SshConnectOptions(
-            password: password,
-            privateKey: privateKey,
-            passphrase: passphrase,
-            tmuxPath: connection.tmuxPath,
-            jumpHost: connection.jumpHost,
-            jumpPort: connection.jumpPort,
-            jumpUsername: connection.jumpUsername,
-            jumpPassword: jumpPassword,
-            jumpPrivateKey: jumpPrivateKey,
-            jumpPassphrase: jumpPassphrase,
-            proxyHost: connection.proxyHost,
-            proxyPort: connection.proxyPort,
-            proxyUsername: connection.proxyUsername,
-            proxyPassword: connection.proxyPassword,
-          );
+          final options = await loadSshOptions(connection);
 
           // SSH接続してセッション一覧を取得
-          final sshClient = SshClient();
           await sshClient.connect(
             host: connection.host,
             port: connection.port,
@@ -422,7 +385,8 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
             options: options,
           );
 
-          final result = await sshClient.execWithExitCode(TmuxCommands.listSessions());
+          await sshClient.prepareTerminal();
+          final result = await sshClient.execTerminalWithExitCode(TmuxCommands.listSessions());
           final tmuxSessions = (result.exitCode == 0)
               ? TmuxParser.parseSessions(result.stdout)
               : <TmuxSession>[];
@@ -440,6 +404,8 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
         } catch (e) {
           // 個別の接続エラーは無視（他の接続は続行）
           debugPrint('Failed to reload sessions for ${connection.name}: $e');
+        } finally {
+          await sshClient.dispose();
         }
       }
     } finally {

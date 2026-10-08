@@ -10,6 +10,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/active_session_provider.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/key_provider.dart';
+import '../../providers/ssh_provider.dart';
 import '../../services/keychain/secure_storage.dart';
 import '../../services/ssh/ssh_client.dart';
 import '../../theme/design_colors.dart';
@@ -51,6 +52,10 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _tmuxPathController = TextEditingController();
+  final _workUsernameController = TextEditingController();
+  final _workPasswordController = TextEditingController();
+  String? _savedWorkUsername;
+  bool _hasSavedWorkPassword = false;
   final _deepLinkIdController = TextEditingController();
 
   // Jump host controllers
@@ -110,6 +115,9 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       _authMethod = connection.authMethod;
       _selectedKeyId = connection.keyId;
       _tmuxPathController.text = connection.tmuxPath ?? '';
+      _workUsernameController.text = connection.workUsername ?? '';
+      _savedWorkUsername = connection.workUsername;
+      _loadWorkPasswordStatus(connection.id);
       _terminalMode = connection.terminalMode ?? 'tmux';
       _deepLinkIdController.text = connection.deepLinkId ?? '';
       // Jump host
@@ -132,6 +140,14 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     }
   }
 
+  Future<void> _loadWorkPasswordStatus(String id) async {
+    final password = await SecureStorageService().getPassword('${id}_su');
+    if (mounted) setState(() => _hasSavedWorkPassword = password != null);
+  }
+
+  bool get _canKeepWorkPassword => _hasSavedWorkPassword &&
+      _workUsernameController.text.trim() == _savedWorkUsername;
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -140,6 +156,8 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     _tmuxPathController.dispose();
+    _workUsernameController.dispose();
+    _workPasswordController.dispose();
     _deepLinkIdController.dispose();
     _jumpHostController.dispose();
     _jumpPortController.dispose();
@@ -344,6 +362,8 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                 _buildFieldLabel(l10n.fieldTmuxPath),
                 const SizedBox(height: 8),
                 _buildTmuxPathInput(),
+                const SizedBox(height: 16),
+                _buildWorkUserInputs(),
               ],
               const SizedBox(height: 16),
               // Deep Link ID
@@ -1320,6 +1340,61 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     );
   }
 
+  Widget _buildWorkUserInputs() {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFieldLabel(l10n.workUsernameLabel),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _workUsernameController,
+          decoration: InputDecoration(hintText: l10n.workUsernameHint),
+          autocorrect: false,
+          onChanged: (_) => setState(() {}),
+          validator: (value) {
+            final username = value?.trim() ?? '';
+            if (username.isNotEmpty &&
+                !RegExp(r'^[a-zA-Z_][a-zA-Z0-9_.-]*\$?$').hasMatch(username)) {
+              return l10n.workUsernameInvalid;
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 4),
+        Text(l10n.workUsernameDescription),
+        if (_workUsernameController.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _buildFieldLabel(l10n.workPasswordLabel),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _workPasswordController,
+            obscureText: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              hintText: _canKeepWorkPassword
+                  ? l10n.workPasswordSavedHint : l10n.workPasswordHint,
+            ),
+            validator: (value) => (value?.isEmpty ?? true) && !_canKeepWorkPassword
+                ? l10n.passwordRequiredError : null,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<String?> _workPassword() async {
+    if (_terminalMode != 'tmux' || _workUsernameController.text.trim().isEmpty) {
+      return null;
+    }
+    if (_workPasswordController.text.isNotEmpty) return _workPasswordController.text;
+    if (_canKeepWorkPassword) {
+      return SecureStorageService().getPassword('${widget.connectionId}_su');
+    }
+    return null;
+  }
+
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -1340,7 +1415,10 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       final l10n = AppLocalizations.of(context)!;
       if (_authMethod == 'password') {
         password = _passwordController.text;
-        if (password.isEmpty) {
+        if (password.isEmpty && widget.isEditing) {
+          password = await SecureStorageService().getPassword(widget.connectionId!);
+        }
+        if (password == null || password.isEmpty) {
           throw SshAuthenticationError(l10n.passwordRequiredError);
         }
       } else if (_authMethod == 'key') {
@@ -1381,6 +1459,9 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           privateKey: privateKey,
           passphrase: passphrase,
           tmuxPath: customTmuxPath.isNotEmpty ? customTmuxPath : null,
+          workUsername: _terminalMode == 'tmux' && _workUsernameController.text.trim().isNotEmpty
+              ? _workUsernameController.text.trim() : null,
+          workPassword: await _workPassword(),
           jumpHost: _useJumpHost ? _jumpHostController.text.trim() : null,
           jumpPort: _useJumpHost ? int.tryParse(_jumpPortController.text) ?? 22 : null,
           jumpUsername: _useJumpHost && _jumpUsernameController.text.trim().isNotEmpty
@@ -1397,8 +1478,9 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         ),
       );
 
-      // tmuxがインストールされているか確認
-      // connect()内でPersistentShell（対話シェル）経由で絶対パスを検出済み
+      if (_terminalMode == 'tmux') await sshClient.prepareTerminal();
+
+      // Detect tmux in the working user's environment.
       tmuxInstalled = sshClient.tmuxPath != null;
     } on SshAuthenticationError catch (e) {
       errorMessage = AppLocalizations.of(context)!.authFailedError(e.message);
@@ -1459,6 +1541,14 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         developer.log('Password saved successfully', name: 'ConnectionForm');
       }
 
+      final workPassword = await _workPassword();
+      final storage = SecureStorageService();
+      if (workPassword != null) {
+        await storage.savePassword('${connectionId}_su', workPassword);
+      } else {
+        await storage.deletePassword('${connectionId}_su');
+      }
+
       final saveTmuxPath = _tmuxPathController.text.trim();
       final saveDeepLinkId = _deepLinkIdController.text.trim();
       final connection = Connection(
@@ -1470,6 +1560,8 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         authMethod: _authMethod,
         keyId: _authMethod == 'key' ? _selectedKeyId : null,
         tmuxPath: saveTmuxPath.isNotEmpty ? saveTmuxPath : null,
+        workUsername: _terminalMode == 'tmux' && _workUsernameController.text.trim().isNotEmpty
+            ? _workUsernameController.text.trim() : null,
         terminalMode: _terminalMode == 'tmux' ? null : _terminalMode,
         deepLinkId: saveDeepLinkId.isNotEmpty ? saveDeepLinkId : null,
         createdAt: widget.isEditing
@@ -1500,10 +1592,16 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         developer.log('Connection added successfully', name: 'ConnectionForm');
       }
 
-      // When a connection is switched to raw mode, any existing tmux session
-      // entries are now meaningless — purge them so the dashboard and the
-      // connection card don't show orphans.
-      if (connection.isRawMode) {
+      final workUserChanged = widget.isEditing &&
+          (_savedWorkUsername != connection.workUsername ||
+              _workPasswordController.text.isNotEmpty);
+      if (workUserChanged &&
+          ref.read(activeSshConnectionIdsProvider).contains(connectionId)) {
+        await ref.read(sshProvider(connectionId).notifier).disconnect();
+      }
+
+      // Cached panes belong to the previous account or terminal mode.
+      if (connection.isRawMode || workUserChanged) {
         ref
             .read(activeSessionsProvider.notifier)
             .removeSessionsForConnection(connectionId);

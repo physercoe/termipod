@@ -116,6 +116,9 @@ class DataPortService {
       final id = (c as Map<String, dynamic>)['id'] as String;
       final pw = await _secureStorage.getPassword(id);
       if (pw != null) passwords[id] = pw;
+      final suId = '${id}_su';
+      final suPassword = await _secureStorage.getPassword(suId);
+      if (suPassword != null) passwords[suId] = suPassword;
       // Also export jump host password if applicable
       final jumpId = '${id}_jump';
       final jumpPw = await _secureStorage.getPassword(jumpId);

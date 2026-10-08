@@ -154,6 +154,7 @@ VaultMergeResult mergeMobileVaultBundles(
         'meta': item,
         'password': passwords[id],
         'jumpPassword': passwords['${id}_jump'],
+        'workPassword': passwords['${id}_su'],
       };
     },
   );
@@ -189,7 +190,8 @@ VaultMergeResult mergeMobileVaultBundles(
     localPasswords,
     remotePasswords,
     connections.winners,
-    (key) => key.endsWith('_jump') ? key.substring(0, key.length - 5) : key,
+    (key) => key.endsWith('_jump') ? key.substring(0, key.length - 5)
+        : key.endsWith('_su') ? key.substring(0, key.length - 3) : key,
   );
   merged['sshKeys'] = <String, dynamic>{
     ...remoteSsh,

@@ -10,6 +10,7 @@ import '../../providers/connection_provider.dart';
 import '../home_screen.dart';
 import '../../services/keychain/secure_storage.dart';
 import '../../services/ssh/ssh_client.dart';
+import '../../services/ssh/connection_options.dart';
 import '../../services/tmux/tmux_commands.dart';
 import '../../services/tmux/tmux_parser.dart';
 import '../../theme/design_colors.dart';
@@ -495,6 +496,7 @@ class ConnectionsScreen extends ConsumerWidget {
     if (confirmed == true) {
       final storage = SecureStorageService();
       await storage.deletePassword(connection.id);
+      await storage.deletePassword('${connection.id}_su');
       // Remove persisted sessions for this connection before removing the connection
       ref.read(activeSessionsProvider.notifier).removeSessionsForConnection(connection.id);
       await ref.read(connectionsProvider.notifier).remove(connection.id);
@@ -567,15 +569,20 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   bool _isLoadingSessions = false;
   List<TmuxSession> _sessions = [];
   String? _sessionError;
+  int _sessionFetchGeneration = 0;
 
   @override
   void didUpdateWidget(covariant _ConnectionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Defensive: if Flutter ever rebinds this State to a different connection
-    // (should not happen now that ValueKey is set on the widget, but this
-    // guards against regressions), clear all fetched state that is tied to
-    // the previous connection id.
-    if (oldWidget.connection.id != widget.connection.id) {
+    // Session names belong to the host and account, even when the bookmark
+    // keeps its id. Invalidate in-flight discovery along with cached rows.
+    final old = oldWidget.connection;
+    final current = widget.connection;
+    if (old.id != current.id || old.host != current.host ||
+        old.port != current.port || old.username != current.username ||
+        old.workUsername != current.workUsername ||
+        old.terminalMode != current.terminalMode) {
+      ++_sessionFetchGeneration;
       setState(() {
         _isExpanded = false;
         _isLoadingSessions = false;
@@ -794,56 +801,18 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   }
 
   Future<void> _fetchSessions() async {
+    final generation = ++_sessionFetchGeneration;
     setState(() {
       _isLoadingSessions = true;
       _sessionError = null;
     });
 
+    final sshClient = SshClient();
     try {
       final connection = widget.connection;
-      final storage = SecureStorageService();
-
-      // Get the authentication options.
-      String? password;
-      String? privateKey;
-      String? passphrase;
-      if (connection.authMethod == 'key' && connection.keyId != null) {
-        privateKey = await storage.getPrivateKey(connection.keyId!);
-        passphrase = await storage.getPassphrase(connection.keyId!);
-      } else {
-        password = await storage.getPassword(connection.id);
-      }
-      // Jump host auth
-      String? jumpPassword;
-      String? jumpPrivateKey;
-      String? jumpPassphrase;
-      if (connection.jumpHost != null) {
-        if (connection.jumpAuthMethod == 'key' && connection.jumpKeyId != null) {
-          jumpPrivateKey = await storage.getPrivateKey(connection.jumpKeyId!);
-          jumpPassphrase = await storage.getPassphrase(connection.jumpKeyId!);
-        } else {
-          jumpPassword = password ?? await storage.getPassword(connection.id);
-        }
-      }
-      final options = SshConnectOptions(
-        password: password,
-        privateKey: privateKey,
-        passphrase: passphrase,
-        tmuxPath: connection.tmuxPath,
-        jumpHost: connection.jumpHost,
-        jumpPort: connection.jumpPort,
-        jumpUsername: connection.jumpUsername,
-        jumpPassword: jumpPassword,
-        jumpPrivateKey: jumpPrivateKey,
-        jumpPassphrase: jumpPassphrase,
-        proxyHost: connection.proxyHost,
-        proxyPort: connection.proxyPort,
-        proxyUsername: connection.proxyUsername,
-        proxyPassword: connection.proxyPassword,
-      );
+      final options = await loadSshOptions(connection);
 
       // Connect over SSH and fetch the session list.
-      final sshClient = SshClient();
       await sshClient.connect(
         host: connection.host,
         port: connection.port,
@@ -851,9 +820,10 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
         options: options,
       );
 
+      await sshClient.prepareTerminal();
       final cmd = TmuxCommands.listSessions();
       debugPrint('_fetchSessions: tmuxPath=${sshClient.tmuxPath}, cmd="$cmd"');
-      final result = await sshClient.execWithExitCode(cmd);
+      final result = await sshClient.execTerminalWithExitCode(cmd);
       debugPrint('_fetchSessions: stdout="${result.stdout.trim()}", stderr="${result.stderr.trim()}", exitCode=${result.exitCode}');
       if (result.exitCode != null && result.exitCode != 0) {
         throw SshConnectionError(
@@ -866,7 +836,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
       // Disconnect.
       await sshClient.disconnect();
 
-      if (!mounted) return;
+      if (!mounted || generation != _sessionFetchGeneration) return;
 
       setState(() {
         _sessions = sessions;
@@ -881,11 +851,13 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
             tmuxSessions: sessions,
           );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _sessionFetchGeneration) return;
       setState(() {
         _isLoadingSessions = false;
         _sessionError = e.toString();
       });
+    } finally {
+      await sshClient.dispose();
     }
   }
 

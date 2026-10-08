@@ -14,6 +14,7 @@ class Connection {
   final String authMethod; // 'password' | 'key'
   final String? keyId;
   final String? tmuxPath;
+  final String? workUsername;
   final String? terminalMode; // null/'tmux' | 'raw'
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -51,6 +52,7 @@ class Connection {
     this.authMethod = 'password',
     this.keyId,
     this.tmuxPath,
+    this.workUsername,
     this.terminalMode,
     required this.createdAt,
     this.updatedAt,
@@ -78,6 +80,8 @@ class Connection {
     String? authMethod,
     String? keyId,
     String? tmuxPath,
+    String? workUsername,
+    bool clearWorkUsername = false,
     String? terminalMode,
     bool clearTerminalMode = false,
     DateTime? createdAt,
@@ -108,6 +112,7 @@ class Connection {
       authMethod: authMethod ?? this.authMethod,
       keyId: keyId ?? this.keyId,
       tmuxPath: tmuxPath ?? this.tmuxPath,
+      workUsername: clearWorkUsername ? null : (workUsername ?? this.workUsername),
       terminalMode: clearTerminalMode ? null : (terminalMode ?? this.terminalMode),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -137,6 +142,7 @@ class Connection {
       'authMethod': authMethod,
       'keyId': keyId,
       'tmuxPath': tmuxPath,
+      if (workUsername != null) 'workUsername': workUsername,
       if (terminalMode != null) 'terminalMode': terminalMode,
       'createdAt': createdAt.toIso8601String(),
       if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
@@ -166,6 +172,7 @@ class Connection {
       authMethod: json['authMethod'] as String? ?? 'password',
       keyId: json['keyId'] as String?,
       tmuxPath: json['tmuxPath'] as String?,
+      workUsername: json['workUsername'] as String?,
       terminalMode: json['terminalMode'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: json['updatedAt'] != null

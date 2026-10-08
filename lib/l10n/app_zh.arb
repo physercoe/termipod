@@ -2758,5 +2758,12 @@
   "sessionDockKindTodos": "待办",
   "sessionDockTasksEmpty": "暂无 shell 任务",
   "sessionDockSubagentsEmpty": "暂无子代理",
-  "sessionDockTodosEmpty": "暂无待办"
+  "sessionDockTodosEmpty": "暂无待办",
+  "workUsernameLabel": "工作用户（可选）",
+  "workUsernameHint": "通过 su 切换到的用户",
+  "workUsernameDescription": "使用上方用户名登录 SSH，然后以此用户运行原生 tmux。留空则使用 SSH 登录用户。",
+  "workUsernameInvalid": "请输入有效的工作用户名",
+  "workPasswordLabel": "工作用户密码",
+  "workPasswordHint": "su 使用的密码",
+  "workPasswordSavedHint": "留空以保留已保存的密码"
 }

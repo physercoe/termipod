@@ -278,7 +278,7 @@ class TmuxBackend implements TerminalBackend {
     }
     _pagingTranscript = true;
     try {
-      await _sshClient.exec(
+      await _sshClient.execTerminal(
         TmuxCommands.pageCodexTranscript(target, key),
       );
       if (!_disposed) boostRefresh();
@@ -646,7 +646,7 @@ class TmuxBackend implements TerminalBackend {
     if (target == null) return;
 
     try {
-      await _sshClient.exec(TmuxCommands.sendKeys(target, text, literal: true));
+      await _sshClient.execTerminal(TmuxCommands.sendKeys(target, text, literal: true));
       boostRefresh();
     } catch (_) {}
   }
@@ -662,8 +662,8 @@ class TmuxBackend implements TerminalBackend {
     // before paste-buffer reads it.
     final bufferName = 'mux_${DateTime.now().millisecondsSinceEpoch}';
     try {
-      await _sshClient.exec(TmuxCommands.setBuffer(bufferName, text));
-      await _sshClient.exec(TmuxCommands.pasteBuffer(target, bufferName));
+      await _sshClient.execTerminal(TmuxCommands.setBuffer(bufferName, text));
+      await _sshClient.execTerminal(TmuxCommands.pasteBuffer(target, bufferName));
       boostRefresh();
     } catch (_) {}
   }
@@ -685,7 +685,7 @@ class TmuxBackend implements TerminalBackend {
       final cmd = tmuxKey.contains(RegExp(r'\s'))
           ? TmuxCommands.sendKeySequence(target, tmuxKey)
           : TmuxCommands.sendKeys(target, tmuxKey, literal: false);
-      await _sshClient.exec(cmd);
+      await _sshClient.execTerminal(cmd);
       boostRefresh();
     } catch (_) {}
   }
@@ -696,7 +696,7 @@ class TmuxBackend implements TerminalBackend {
     final target = _getCurrentTarget();
     if (target == null) return null;
     try {
-      final out = await _sshClient.exec(TmuxCommands.paneCurrentPath(target));
+      final out = await _sshClient.execTerminal(TmuxCommands.paneCurrentPath(target));
       final trimmed = out.trim();
       return trimmed.isEmpty ? null : trimmed;
     } catch (_) {
@@ -710,7 +710,7 @@ class TmuxBackend implements TerminalBackend {
     final target = _getCurrentTarget();
     if (target == null) return;
     try {
-      await _sshClient.exec(TmuxCommands.enterCopyMode(target));
+      await _sshClient.execTerminal(TmuxCommands.enterCopyMode(target));
       boostRefresh();
     } catch (_) {}
   }
@@ -721,7 +721,7 @@ class TmuxBackend implements TerminalBackend {
     final target = _getCurrentTarget();
     if (target == null) return;
     try {
-      await _sshClient.exec(TmuxCommands.cancelCopyMode(target));
+      await _sshClient.execTerminal(TmuxCommands.cancelCopyMode(target));
       boostRefresh();
     } catch (_) {}
   }
@@ -737,7 +737,7 @@ class TmuxBackend implements TerminalBackend {
     if (target == null) return;
 
     try {
-      await _sshClient.exec(
+      await _sshClient.execTerminal(
         TmuxCommands.resizePaneToSize(target, cols: cols, rows: rows),
       );
       _paneWidth = cols;

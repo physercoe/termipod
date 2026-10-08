@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 
 import 'persistent_shell.dart';
+import 'work_user_shell.dart';
 import 'command_executor.dart';
 import 'socks5_socket.dart';
 import 'identification_socket.dart';
@@ -67,6 +68,8 @@ class SshConnectOptions {
 
   /// ユーザー指定のtmuxパス（nullなら自動検出）
   final String? tmuxPath;
+  final String? workUsername;
+  final String? workPassword;
 
   /// Per-hop connection budget in seconds. Direct connections share this
   /// budget across dialing and authentication. A jump adds a fresh target
@@ -92,6 +95,8 @@ class SshConnectOptions {
     this.privateKey,
     this.passphrase,
     this.tmuxPath,
+    this.workUsername,
+    this.workPassword,
     this.timeout = 30,
     this.jumpHost,
     this.jumpPort,
@@ -233,6 +238,7 @@ class SshClient {
 
   /// 持続的シェルセッション（ポーリング用）
   PersistentShell? _persistentShell;
+  WorkUserShell? _workShell;
 
   /// 検出されたtmuxバイナリの絶対パス
   String? _tmuxPath;
@@ -283,10 +289,23 @@ class SshClient {
 
   Future<void> _prepareTerminal() async {
     if (!isConnected) throw SshConnectionError('Not connected');
+    final workUsername = _options?.workUsername;
+    if (workUsername != null) {
+      final shell = WorkUserShell(_client!);
+      _workShell = shell;
+      try {
+        await shell.start(
+          username: workUsername,
+          password: _options?.workPassword ?? '',
+        );
+      } on WorkUserAuthenticationError catch (e) {
+        throw SshAuthenticationError(e.message);
+      }
+    }
     final configured = _options?.tmuxPath;
     if (configured != null && configured.isNotEmpty) {
       try {
-        final result = await execWithExitCode(
+        final result = await execTerminalWithExitCode(
           'test -x ${_shellEscape(configured)}',
           timeout: const Duration(seconds: 3),
         );
@@ -296,7 +315,9 @@ class SshClient {
       }
     }
     if (_tmuxPath == null) await _detectTmuxPath();
-    await _startPersistentShell(timeout: const Duration(seconds: 3));
+    if (_workShell == null) {
+      await _startPersistentShell(timeout: const Duration(seconds: 3));
+    }
   }
 
   /// tmuxの絶対パス（未検出なら null）
@@ -623,6 +644,8 @@ class SshClient {
 
     // Detach ownership before the first await. Authentication may fail as a
     // consequence of closing the transport; its catch must not close twice.
+    final workShell = _workShell;
+    _workShell = null;
     final persistentShell = _persistentShell;
     _persistentShell = null;
     final stdoutSubscription = _stdoutSubscription;
@@ -652,6 +675,7 @@ class SshClient {
       if (!identical(initialSocket, socket))
         _finishCleanup(() => initialSocket?.destroy()),
       _finishCleanup(() => persistentShell?.dispose()),
+      _finishCleanup(() => workShell?.dispose()),
       _finishCleanup(() => stdoutSubscription?.cancel()),
       _finishCleanup(() => stderrSubscription?.cancel()),
     ]);
@@ -702,7 +726,7 @@ class SshClient {
       r"$SHELL -lc 'command -v tmux'",
     ]) {
       try {
-        final result = await execWithExitCode(
+        final result = await execTerminalWithExitCode(
           command,
           timeout: const Duration(seconds: 3),
         );
@@ -928,6 +952,9 @@ class SshClient {
     }
 
     final resolvedCommand = _resolveTmuxCommand(command);
+    if (_options?.workUsername != null) {
+      return execTerminal(resolvedCommand, timeout: timeout);
+    }
 
     // 持続的シェルが利用できない場合は従来のexec()にフォールバック
     if (_persistentShell == null || !_persistentShell!.isStarted) {
@@ -968,6 +995,43 @@ class SshClient {
       throw SshConnectionError('Command execution timed out', e);
     } catch (e) {
       throw SshConnectionError('Failed to execute command: $e', e);
+    }
+  }
+
+  /// Native tmux commands run in the prepared working-user channel. General
+  /// SSH commands (including raw-shell probes) retain the login identity.
+  Future<String> execTerminal(String command, {Duration? timeout}) async {
+    if (_options?.workUsername == null) return exec(command, timeout: timeout);
+    final result = await execTerminalWithExitCode(command, timeout: timeout);
+    return result.stdout + result.stderr;
+  }
+
+  Future<CommandResult> execTerminalWithExitCode(
+    String command, {
+    Duration? timeout,
+  }) async {
+    if (_options?.workUsername == null) {
+      return execWithExitCode(command, timeout: timeout);
+    }
+    final shell = _workShell;
+    if (!isConnected || shell == null) {
+      throw SshConnectionError('Working-user terminal has not been prepared');
+    }
+    try {
+      return await shell.run(
+        _resolveTmuxCommand(command),
+        timeout: timeout ?? const Duration(seconds: 15),
+      );
+    } on TimeoutException catch (e) {
+      throw SshConnectionError(
+        'Working-user command timed out; reconnect to continue',
+        e,
+      );
+    } catch (e) {
+      throw SshConnectionError(
+        'Working-user command failed; reconnect to continue',
+        e,
+      );
     }
   }
 

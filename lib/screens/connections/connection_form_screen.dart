@@ -1415,7 +1415,10 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       final l10n = AppLocalizations.of(context)!;
       if (_authMethod == 'password') {
         password = _passwordController.text;
-        if (password.isEmpty) {
+        if (password.isEmpty && widget.isEditing) {
+          password = await SecureStorageService().getPassword(widget.connectionId!);
+        }
+        if (password == null || password.isEmpty) {
           throw SshAuthenticationError(l10n.passwordRequiredError);
         }
       } else if (_authMethod == 'key') {

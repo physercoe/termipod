@@ -569,15 +569,20 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   bool _isLoadingSessions = false;
   List<TmuxSession> _sessions = [];
   String? _sessionError;
+  int _sessionFetchGeneration = 0;
 
   @override
   void didUpdateWidget(covariant _ConnectionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Defensive: if Flutter ever rebinds this State to a different connection
-    // (should not happen now that ValueKey is set on the widget, but this
-    // guards against regressions), clear all fetched state that is tied to
-    // the previous connection id.
-    if (oldWidget.connection.id != widget.connection.id) {
+    // Session names belong to the host and account, even when the bookmark
+    // keeps its id. Invalidate in-flight discovery along with cached rows.
+    final old = oldWidget.connection;
+    final current = widget.connection;
+    if (old.id != current.id || old.host != current.host ||
+        old.port != current.port || old.username != current.username ||
+        old.workUsername != current.workUsername ||
+        old.terminalMode != current.terminalMode) {
+      ++_sessionFetchGeneration;
       setState(() {
         _isExpanded = false;
         _isLoadingSessions = false;
@@ -796,6 +801,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   }
 
   Future<void> _fetchSessions() async {
+    final generation = ++_sessionFetchGeneration;
     setState(() {
       _isLoadingSessions = true;
       _sessionError = null;
@@ -830,7 +836,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
       // Disconnect.
       await sshClient.disconnect();
 
-      if (!mounted) return;
+      if (!mounted || generation != _sessionFetchGeneration) return;
 
       setState(() {
         _sessions = sessions;
@@ -845,7 +851,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
             tmuxSessions: sessions,
           );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _sessionFetchGeneration) return;
       setState(() {
         _isLoadingSessions = false;
         _sessionError = e.toString();

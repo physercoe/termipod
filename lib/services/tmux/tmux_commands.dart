@@ -237,15 +237,32 @@ class TmuxCommands {
     return 'tmux send-keys -t ${_escapeArg(paneId)} $escapedKeys';
   }
 
+  /// Apps with verified PgUp/PgDn and Ctrl+End fullscreen history bindings.
+  /// Keep exact names: node, wrappers, and version numbers are ambiguous.
+  static bool supportsTranscriptPaging(String? command) =>
+      command == 'codex' || command == 'claude';
+
+  /// Preserve the existing Codex helper for callers using its public contract.
+  static String pageCodexTranscript(String paneId, String key) =>
+      pageAppTranscript(paneId, key, application: 'codex');
+
   /// Recheck the application at delivery time: it may have exited since the
   /// mobile capture, especially over a slow SSH link. -F evaluates a tmux
   /// format, not a shell command. The nested command is quoted for both parsers.
-  static String pageCodexTranscript(String paneId, String key) {
+  static String pageAppTranscript(
+    String paneId,
+    String key, {
+    required String application,
+  }) {
+    if (!supportsTranscriptPaging(application)) {
+      throw ArgumentError.value(application, 'application',
+          'Unsupported fullscreen transcript application');
+    }
     if (!const {'PPage', 'NPage', 'C-End'}.contains(key)) {
       throw ArgumentError.value(key, 'key', 'Not a transcript navigation key');
     }
-    const condition = '#{&&:#{alternate_on},'
-        '#{&&:#{==:#{pane_current_command},codex},#{==:#{pane_in_mode},0}}}';
+    final condition = '#{&&:#{alternate_on},'
+        '#{&&:#{==:#{pane_current_command},$application},#{==:#{pane_in_mode},0}}}';
     final command = 'send-keys -t ${_escapeArg(paneId)} $key';
     return 'tmux if-shell -F -t ${_escapeArg(paneId)} '
         '${_escapeArg(condition)} ${_escapeArg(command)}';

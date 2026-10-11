@@ -251,15 +251,15 @@ class TmuxBackend implements TerminalBackend {
   @override
   bool get isFullscreen => _isAlternateScreen || _isFullscreenCommand;
 
-  /// Codex's fullscreen transcript owns its history inside the application,
-  /// not in tmux's history buffer. Only enable remote paging for this known
-  /// application in alternate-screen mode, never for a shell or tmux copy-mode.
+  /// Supported fullscreen transcripts own history inside the application,
+  /// not in tmux's history buffer. Only enable remote paging for known apps
+  /// in alternate-screen mode, never for a shell or tmux copy-mode.
   bool get supportsTranscriptPaging =>
       !_disposed &&
       _capturedTarget != null &&
       _capturedTarget == _getCurrentTarget() &&
       _isAlternateScreen &&
-      _paneCommand == 'codex' &&
+      TmuxCommands.supportsTranscriptPaging(_paneCommand) &&
       !_isInCopyMode;
 
   /// One page per gesture; do not queue old gestures behind a slow SSH link.
@@ -270,8 +270,10 @@ class TmuxBackend implements TerminalBackend {
 
   Future<void> _sendTranscriptKey(String key) async {
     final target = _capturedTarget;
+    final application = _paneCommand;
     if (!supportsTranscriptPaging ||
         target == null ||
+        application == null ||
         !_sshClient.isConnected ||
         _pagingTranscript) {
       return;
@@ -279,7 +281,7 @@ class TmuxBackend implements TerminalBackend {
     _pagingTranscript = true;
     try {
       await _sshClient.execTerminal(
-        TmuxCommands.pageCodexTranscript(target, key),
+        TmuxCommands.pageAppTranscript(target, key, application: application),
       );
       if (!_disposed) boostRefresh();
     } catch (_) {

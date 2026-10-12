@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
@@ -118,7 +118,7 @@ jobs:
              "build/app/outputs/flutter-apk/Mobile-${BUILD_NAME}-android-arm64.apk"
 
       - name: Stage Android artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: mobile-android
           path: build/app/outputs/flutter-apk/Mobile-*-android-arm64.apk
@@ -201,7 +201,7 @@ jobs:
           zip -r "Mobile-${BUILD_NAME}-ios-unsigned.ipa" Payload
 
       - name: Stage iOS artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: mobile-ios
           path: Mobile-*-ios-unsigned.ipa
@@ -219,7 +219,7 @@ jobs:
       contents: write
     steps:
       - name: Download platform artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: mobile-*
           path: assets

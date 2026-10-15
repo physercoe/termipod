@@ -5,7 +5,7 @@ go 1.23
 require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/golang-migrate/migrate/v4 v4.18.1
-	github.com/oklog/ulid/v2 v2.1.0
+	github.com/oklog/ulid/v2 v2.1.2
 	// Pinned: v0.26.0 is the first release whose go directive is 1.24.9, and
 	// this module — plus both CI workflows — is on 1.23. Raising this needs
 	// the toolchain bump first, not a `go get -u`.

@@ -3,7 +3,7 @@ module github.com/termipod/hub
 go 1.23
 
 require (
-	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/golang-migrate/migrate/v4 v4.18.1
 	github.com/oklog/ulid/v2 v2.1.0
 	// Pinned: v0.26.0 is the first release whose go directive is 1.24.9, and
@@ -15,8 +15,9 @@ require (
 	modernc.org/sqlite v1.34.4
 )
 
+require github.com/BurntSushi/toml v1.4.0
+
 require (
-	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect

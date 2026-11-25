@@ -28,6 +28,10 @@ class _Transport implements SSHClient {
   Completer<SSHForwardChannel>? forwarding;
   final forwarded = _ForwardSocket();
   int forwardCalls = 0;
+  String? lastForwardHost;
+  int? lastForwardPort;
+  String? lastForwardLocalHost;
+  final executedCommands = <String>[];
   @override
   bool isClosed = false;
   @override
@@ -43,6 +47,9 @@ class _Transport implements SSHClient {
     int localPort = 0,
   }) async {
     forwardCalls++;
+    lastForwardHost = host;
+    lastForwardPort = port;
+    lastForwardLocalHost = localHost;
     return await (forwarding?.future ?? Future.value(forwarded));
   }
 
@@ -61,6 +68,7 @@ class _Transport implements SSHClient {
     Map<String, String>? environment,
   }) async {
     commands++;
+    executedCommands.add(command);
     throw StateError('Shell startup unavailable');
   }
 
@@ -616,6 +624,160 @@ void main() {
       transport.close();
       await lost;
       expect(client.isConnected, isFalse);
+      await client.dispose();
+    },
+  );
+
+  test(
+    'jump connection defaults omitted jumpPort to 22 and passes numeric originator IP',
+    () async {
+      String? dialedHost;
+      int? dialedPort;
+      final jump = _Transport();
+      final target = _Transport();
+      final client = SshClient(
+        socketConnector: (host, port, _) async {
+          dialedHost = host;
+          dialedPort = port;
+          return _Socket();
+        },
+        jumpTransportFactory: (_, username, _) {
+          expect(username, 'target-user');
+          return jump;
+        },
+        transportFactory: (_, _, _) => target,
+      );
+
+      await client.connect(
+        host: 'internal.test',
+        port: 2222,
+        username: 'target-user',
+        options: const SshConnectOptions(
+          password: 'target-password',
+          jumpHost: ' bastion.test ',
+          jumpUsername: '   ',
+          jumpPassword: 'jump-password',
+        ),
+      );
+
+      expect(dialedHost, 'bastion.test');
+      expect(dialedPort, 22);
+      expect(jump.lastForwardHost, 'internal.test');
+      expect(jump.lastForwardPort, 2222);
+      expect(jump.lastForwardLocalHost, '127.0.0.1');
+      await client.dispose();
+    },
+  );
+
+  test('whitespace jumpHost dials target host directly', () async {
+    String? dialedHost;
+    int? dialedPort;
+    final client = SshClient(
+      socketConnector: (host, port, _) async {
+        dialedHost = host;
+        dialedPort = port;
+        return _Socket();
+      },
+      jumpTransportFactory: (_, _, _) =>
+          throw StateError('must not open jump transport'),
+      transportFactory: (_, _, _) => _Transport(),
+    );
+
+    await client.connect(
+      host: 'direct.test',
+      port: 2200,
+      username: 'user',
+      options: const SshConnectOptions(password: 'secret', jumpHost: '   '),
+    );
+
+    expect(dialedHost, 'direct.test');
+    expect(dialedPort, 2200);
+    await client.dispose();
+  });
+
+  test('invalid jumpPort is rejected before dialing', () async {
+    var dialed = false;
+    final client = SshClient(
+      socketConnector: (_, _, _) async {
+        dialed = true;
+        return _Socket();
+      },
+    );
+
+    await expectLater(
+      client.connect(
+        host: 'target.test',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(
+          password: 'secret',
+          jumpHost: 'bastion.test',
+          jumpPort: 70000,
+          jumpPassword: 'secret',
+        ),
+      ),
+      throwsA(
+        isA<SshConnectionError>().having(
+          (e) => e.message,
+          'message',
+          contains('Invalid jump port'),
+        ),
+      ),
+    );
+    expect(dialed, isFalse);
+    await client.dispose();
+  });
+
+  test(
+    'failed prepareTerminal is not cached and retries on subsequent calls',
+    () async {
+      final transport = _Transport();
+      final client = SshClient(
+        socketConnector: (_, _, _) async => _Socket(),
+        transportFactory: (_, _, _) => transport,
+      );
+      await client.connect(
+        host: 'host',
+        port: 22,
+        username: 'user',
+        options: const SshConnectOptions(
+          password: 'test',
+          workUsername: 'worker',
+          workPassword: 'bad',
+        ),
+      );
+      await expectLater(
+        client.prepareTerminal(),
+        throwsA(isA<SshAuthenticationError>()),
+      );
+      final attemptsAfterFirst = transport.commands;
+      await expectLater(
+        client.prepareTerminal(),
+        throwsA(isA<SshAuthenticationError>()),
+      );
+      expect(
+        transport.commands,
+        greaterThan(attemptsAfterFirst),
+        reason: 'second prepareTerminal must retry instead of replaying cached failure',
+      );
+      await client.dispose();
+    },
+  );
+
+  test(
+    'tmux path discovery prefers user-local overrides over /usr/bin/tmux',
+    () async {
+      final transport = _Transport();
+      final client = await connect(transport);
+      await client.prepareTerminal();
+      expect(transport.executedCommands, isNotEmpty);
+      final firstProbe = transport.executedCommands.first;
+      expect(firstProbe, contains(r'"$HOME/.local/bin/tmux"'));
+      expect(firstProbe, contains(r'"$HOME/bin/tmux"'));
+      expect(
+        firstProbe.indexOf(r'"$HOME/.local/bin/tmux"'),
+        lessThan(firstProbe.lastIndexOf('/usr/bin/tmux')),
+      );
       await client.dispose();
     },
   );

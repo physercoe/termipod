@@ -15,19 +15,20 @@ class Socks5Exception implements Exception {
 
 /// SSHSocket implementation that tunnels through a SOCKS5 proxy.
 ///
-/// Performs RFC 1928 handshake, then proxies stream/sink to dartssh2.
+/// Performs RFC 1928 handshake over a single socket subscription, preserving
+/// any post-handshake bytes (such as a coalesced SSH server greeting) before
+/// handing the stream to dartssh2.
 class Socks5Socket implements SSHSocket {
   final Socket _socket;
   final StreamController<Uint8List> _streamController =
-      StreamController<Uint8List>.broadcast();
+      StreamController<Uint8List>();
   StreamSubscription<Uint8List>? _subscription;
 
-  Socks5Socket._(this._socket) {
-    _subscription = _socket.listen(
-      (data) => _streamController.add(Uint8List.fromList(data)),
-      onError: (e) => _streamController.addError(e),
-      onDone: () => _streamController.close(),
-    );
+  Socks5Socket._(this._socket, _Socks5HandshakeStream handshakeStream) {
+    _subscription = handshakeStream.transferTo(_streamController);
+    _streamController.onPause = () => _subscription?.pause();
+    _streamController.onResume = () => _subscription?.resume();
+    _streamController.onCancel = () => _subscription?.cancel();
   }
 
   /// Connect to [targetHost]:[targetPort] through SOCKS5 proxy at
@@ -43,26 +44,45 @@ class Socks5Socket implements SSHSocket {
     String? password,
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    final socket = await Socket.connect(proxyHost, proxyPort, timeout: timeout);
+    final watch = Stopwatch()..start();
+    Duration remaining() {
+      final left = timeout - watch.elapsed;
+      if (left <= Duration.zero) {
+        throw TimeoutException('SOCKS5 connection timed out');
+      }
+      return left;
+    }
+
+    final socket = await Socket.connect(
+      proxyHost,
+      proxyPort,
+      timeout: remaining(),
+    );
+    final handshakeStream = _Socks5HandshakeStream(socket);
     try {
       await _handshake(
         socket,
+        handshakeStream,
         targetHost: targetHost,
         targetPort: targetPort,
         username: username,
         password: password,
+        remaining: remaining,
       );
-      return Socks5Socket._(socket);
+      return Socks5Socket._(socket, handshakeStream);
     } catch (e) {
+      unawaited(handshakeStream.cancel());
       socket.destroy();
       rethrow;
     }
   }
 
   static Future<void> _handshake(
-    Socket socket, {
+    Socket socket,
+    _Socks5HandshakeStream reader, {
     required String targetHost,
     required int targetPort,
+    required Duration Function() remaining,
     String? username,
     String? password,
   }) async {
@@ -75,10 +95,10 @@ class Socks5Socket implements SSHSocket {
     } else {
       socket.add([0x05, 0x01, 0x00]);
     }
-    await socket.flush();
+    await socket.flush().timeout(remaining());
 
     // Server auth method selection
-    final authReply = await _readExact(socket, 2);
+    final authReply = await reader.readExact(2, remaining());
     if (authReply[0] != 0x05) {
       throw Socks5Exception('Invalid SOCKS version: ${authReply[0]}');
     }
@@ -100,9 +120,9 @@ class Socks5Socket implements SSHSocket {
         userBytes.length, ...userBytes,
         passBytes.length, ...passBytes,
       ]);
-      await socket.flush();
+      await socket.flush().timeout(remaining());
 
-      final authResult = await _readExact(socket, 2);
+      final authResult = await reader.readExact(2, remaining());
       if (authResult[1] != 0x00) {
         throw Socks5Exception('Proxy authentication failed');
       }
@@ -121,10 +141,10 @@ class Socks5Socket implements SSHSocket {
       hostBytes.length, ...hostBytes,
       portHigh, portLow,
     ]);
-    await socket.flush();
+    await socket.flush().timeout(remaining());
 
     // Server reply: VER, REP, RSV, ATYP, BND.ADDR, BND.PORT
-    final reply = await _readExact(socket, 4);
+    final reply = await reader.readExact(4, remaining());
     if (reply[0] != 0x05) {
       throw Socks5Exception('Invalid SOCKS version in reply: ${reply[0]}');
     }
@@ -136,45 +156,16 @@ class Socks5Socket implements SSHSocket {
     final atyp = reply[3];
     switch (atyp) {
       case 0x01: // IPv4
-        await _readExact(socket, 4 + 2);
+        await reader.readExact(4 + 2, remaining());
       case 0x03: // Domain
-        final lenBuf = await _readExact(socket, 1);
-        await _readExact(socket, lenBuf[0] + 2);
+        final lenBuf = await reader.readExact(1, remaining());
+        await reader.readExact(lenBuf[0] + 2, remaining());
       case 0x04: // IPv6
-        await _readExact(socket, 16 + 2);
+        await reader.readExact(16 + 2, remaining());
       default:
         throw Socks5Exception('Unknown address type: $atyp');
     }
     // Handshake complete — socket now tunnels to target
-  }
-
-  /// Read exactly [count] bytes from [socket].
-  static Future<Uint8List> _readExact(Socket socket, int count) async {
-    final buffer = BytesBuilder(copy: false);
-    final completer = Completer<Uint8List>();
-    late StreamSubscription<List<int>> sub;
-    sub = socket.listen(
-      (data) {
-        buffer.add(data);
-        if (buffer.length >= count) {
-          sub.cancel();
-          completer.complete(Uint8List.fromList(buffer.takeBytes().sublist(0, count)));
-        }
-      },
-      onError: (e) {
-        sub.cancel();
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-      onDone: () {
-        sub.cancel();
-        if (!completer.isCompleted) {
-          completer.completeError(
-            Socks5Exception('Connection closed during SOCKS5 handshake'),
-          );
-        }
-      },
-    );
-    return completer.future;
   }
 
   static String _replyMessage(int code) {
@@ -204,13 +195,132 @@ class Socks5Socket implements SSHSocket {
 
   @override
   Future<void> close() async {
-    _subscription?.cancel();
+    await _subscription?.cancel();
     await _socket.close();
   }
 
   @override
   void destroy() {
-    _subscription?.cancel();
+    unawaited(_subscription?.cancel());
     _socket.destroy();
+  }
+}
+
+/// Buffers a single-subscription [Socket] during the SOCKS5 handshake, then
+/// transfers any remaining coalesced bytes and future events to the tunnel.
+class _Socks5HandshakeStream {
+  _Socks5HandshakeStream(Socket socket) {
+    _subscription = socket.listen(
+      _onData,
+      onError: _onError,
+      onDone: _onDone,
+    );
+  }
+
+  late final StreamSubscription<Uint8List> _subscription;
+  final List<int> _buffer = [];
+  StreamController<Uint8List>? _tunnel;
+  Completer<Uint8List>? _pending;
+  int _needed = 0;
+  Object? _error;
+  StackTrace? _stackTrace;
+  bool _done = false;
+
+  Future<Uint8List> readExact(int count, Duration timeout) {
+    if (_buffer.length >= count) {
+      final result = Uint8List.fromList(_buffer.sublist(0, count));
+      _buffer.removeRange(0, count);
+      return Future.value(result);
+    }
+    if (_error != null) {
+      return Future.error(_error!, _stackTrace);
+    }
+    if (_done) {
+      return Future.error(
+        Socks5Exception('Connection closed during SOCKS5 handshake'),
+      );
+    }
+    final completer = Completer<Uint8List>();
+    _pending = completer;
+    _needed = count;
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        if (identical(_pending, completer)) {
+          _pending = null;
+          _needed = 0;
+        }
+        throw TimeoutException('SOCKS5 handshake timed out');
+      },
+    );
+  }
+
+  StreamSubscription<Uint8List> transferTo(StreamController<Uint8List> target) {
+    _tunnel = target;
+    if (_buffer.isNotEmpty) {
+      target.add(Uint8List.fromList(_buffer));
+      _buffer.clear();
+    }
+    if (_error != null) {
+      target.addError(_error!, _stackTrace);
+      _error = null;
+      _stackTrace = null;
+    }
+    if (_done && !target.isClosed) {
+      unawaited(target.close());
+    }
+    return _subscription;
+  }
+
+  Future<void> cancel() => _subscription.cancel();
+
+  void _onData(Uint8List data) {
+    final tunnel = _tunnel;
+    if (tunnel != null) {
+      if (!tunnel.isClosed) tunnel.add(Uint8List.fromList(data));
+      return;
+    }
+    _buffer.addAll(data);
+    final pending = _pending;
+    if (pending != null && _buffer.length >= _needed) {
+      final result = Uint8List.fromList(_buffer.sublist(0, _needed));
+      _buffer.removeRange(0, _needed);
+      _pending = null;
+      _needed = 0;
+      if (!pending.isCompleted) pending.complete(result);
+    }
+  }
+
+  void _onError(Object error, StackTrace stackTrace) {
+    final tunnel = _tunnel;
+    if (tunnel != null) {
+      if (!tunnel.isClosed) tunnel.addError(error, stackTrace);
+      return;
+    }
+    _error = error;
+    _stackTrace = stackTrace;
+    final pending = _pending;
+    _pending = null;
+    _needed = 0;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(error, stackTrace);
+    }
+  }
+
+  void _onDone() {
+    _done = true;
+    final tunnel = _tunnel;
+    if (tunnel != null) {
+      if (!tunnel.isClosed) unawaited(tunnel.close());
+      return;
+    }
+    final pending = _pending;
+    _pending = null;
+    _needed = 0;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(
+        Socks5Exception('Connection closed during SOCKS5 handshake'),
+      );
+    }
   }
 }

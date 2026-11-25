@@ -497,6 +497,7 @@ class ConnectionsScreen extends ConsumerWidget {
       final storage = SecureStorageService();
       await storage.deletePassword(connection.id);
       await storage.deletePassword('${connection.id}_su');
+      await storage.deletePassword('${connection.id}_jump');
       // Remove persisted sessions for this connection before removing the connection
       ref.read(activeSessionsProvider.notifier).removeSessionsForConnection(connection.id);
       await ref.read(connectionsProvider.notifier).remove(connection.id);
@@ -580,8 +581,16 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
     final current = widget.connection;
     if (old.id != current.id || old.host != current.host ||
         old.port != current.port || old.username != current.username ||
+        old.authMethod != current.authMethod || old.keyId != current.keyId ||
+        old.tmuxPath != current.tmuxPath ||
         old.workUsername != current.workUsername ||
-        old.terminalMode != current.terminalMode) {
+        old.terminalMode != current.terminalMode ||
+        old.jumpHost != current.jumpHost || old.jumpPort != current.jumpPort ||
+        old.jumpUsername != current.jumpUsername ||
+        old.jumpAuthMethod != current.jumpAuthMethod ||
+        old.jumpKeyId != current.jumpKeyId ||
+        old.proxyHost != current.proxyHost ||
+        old.proxyPort != current.proxyPort) {
       ++_sessionFetchGeneration;
       setState(() {
         _isExpanded = false;

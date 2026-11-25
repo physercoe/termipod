@@ -196,25 +196,15 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
     //   • macOS         → DOM. Native DOM text is intentionally preferred here
     //     for crisper small-font rendering on Retina displays.
     //   • Linux         → WebGL (GPU texture-atlas glyphs); on context loss, drop
-    //     to canvas so a lost GPU context never freezes on a blank canvas.
-    //   • Windows        → WebGL under Electron (Chromium/ANGLE is fine), canvas
+    //     to DOM so a lost GPU context never freezes on a blank canvas.
+    //   • Windows        → WebGL under Electron (Chromium/ANGLE is fine), DOM
     //     only under Tauri. WebView2's ANGLE black-screened WebGL and could wedge
-    //     the GPU process (v0.3.11), so the Tauri shell stays canvas-only; Electron
+    //     the GPU process (v0.3.11), so the Tauri shell stays on DOM; Electron
     //     is a different Chromium and doesn't hit that bug (plan M4 §6/§7 #9). The
     //     OS gate is the Rust `platform_os` (compile-time exact), not a spoofable
     //     navigator.userAgent; the shell gate is the injected-globals `shellKind()`.
     //   • any failure    → the DOM renderer remains (xterm's default) — always works.
-    // Renderer choice is renderer-agnostic to selection/find/links/fit/scrollbar and
-    // to the integer-letterSpacing note below (0 is correct in every renderer).
-    const loadCanvas = async (): Promise<void> => {
-      if (disposed) return;
-      try {
-        const { CanvasAddon } = await import('@xterm/addon-canvas');
-        if (!disposed) term.loadAddon(new CanvasAddon());
-      } catch {
-        /* DOM renderer stays */
-      }
-    };
+    // The Canvas addon only supports xterm 5; xterm 6 uses DOM as its fallback.
     void (async () => {
       const os = await platformOs();
       const win = os === 'windows';
@@ -246,15 +236,13 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
           const webgl = new WebglAddon();
           webgl.onContextLoss(() => {
             webgl.dispose();
-            void loadCanvas();
           });
           term.loadAddon(webgl);
           return;
         } catch {
-          /* WebGL unavailable (driver/GPU) — fall through to canvas */
+          /* WebGL unavailable (driver/GPU) — DOM renderer stays */
         }
       }
-      await loadCanvas();
     })();
     // Apply the current font size (Ctrl/Cmd +/-/0), refit, and persist.
     const zoom = (next: number): void => {
@@ -289,7 +277,7 @@ export function Screen({ kind, sessionId, onReconnect, reconnecting, onActivity 
       return true;
     });
     // Renderer selection happens right after term.open above: DOM on macOS,
-    // WebGL on Linux, and WebGL (Electron) or canvas (Tauri) on Windows.
+    // WebGL on Linux, and WebGL (Electron) or DOM (Tauri) on Windows.
     termRef.current = term;
     searchRef.current = search;
 

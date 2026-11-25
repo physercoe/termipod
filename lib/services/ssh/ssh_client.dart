@@ -763,13 +763,15 @@ class SshClient {
   }
 
   Future<void> _detectTmuxPath() async {
-    // Check PATH first so a user-selected tmux binary (conda/linuxbrew/local)
-    // is not shadowed by an older /usr/bin/tmux whose protocol version mismatches
-    // a running tmux server ("server exited unexpectedly"). Fall back to common
-    // non-login paths and finally the login shell.
+    // Prefer a non-system tmux already ahead in PATH, then user-local /
+    // Homebrew overrides ($HOME/.local/bin, $HOME/bin, /opt/homebrew/bin,
+    // /usr/local/bin, linuxbrew) before falling back to /usr/bin/tmux.
+    // Non-interactive SSH omits ~/.local/bin from PATH on Linux, so picking
+    // /usr/bin/tmux first can hit a protocol mismatch ("server exited
+    // unexpectedly") against a newer local tmux server.
     final probes = <(String, Duration)>[
       (
-        r'''p=$(command -v tmux 2>/dev/null); case "$p" in /*) printf '%s\n' "$p"; exit;; esac; for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if test -x "$p"; then printf '%s\n' "$p"; exit; fi; done''',
+        r'''p=$(command -v tmux 2>/dev/null); case "$p" in /usr/bin/tmux|/bin/tmux|'') ;; /*) printf '%s\n' "$p"; exit;; esac; for p in "$HOME/.local/bin/tmux" "$HOME/bin/tmux" /opt/homebrew/bin/tmux /usr/local/bin/tmux /home/linuxbrew/.linuxbrew/bin/tmux /usr/bin/tmux; do if test -x "$p"; then printf '%s\n' "$p"; exit; fi; done''',
         const Duration(seconds: 3),
       ),
       (

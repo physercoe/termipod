@@ -765,16 +765,18 @@ void main() {
   );
 
   test(
-    'tmux path discovery checks PATH before hardcoded system locations',
+    'tmux path discovery prefers user-local overrides over /usr/bin/tmux',
     () async {
       final transport = _Transport();
       final client = await connect(transport);
       await client.prepareTerminal();
       expect(transport.executedCommands, isNotEmpty);
       final firstProbe = transport.executedCommands.first;
+      expect(firstProbe, contains(r'"$HOME/.local/bin/tmux"'));
+      expect(firstProbe, contains(r'"$HOME/bin/tmux"'));
       expect(
-        firstProbe.indexOf('command -v tmux'),
-        lessThan(firstProbe.indexOf('/usr/bin/tmux')),
+        firstProbe.indexOf(r'"$HOME/.local/bin/tmux"'),
+        lessThan(firstProbe.lastIndexOf('/usr/bin/tmux')),
       );
       await client.dispose();
     },

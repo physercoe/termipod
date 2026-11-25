@@ -200,17 +200,34 @@ class SshClient {
     SSHSocket socket,
     String username,
     SshConnectOptions options,
-  ) => SSHClient(
-    SshIdentificationSocket(socket),
-    username: username,
-    keepAliveInterval: null,
-    identities: options.privateKey == null
-        ? null
-        : _parsePrivateKey(options.privateKey!, options.passphrase),
-    onPasswordRequest: options.password == null
-        ? null
-        : () => options.password!,
-  );
+  ) {
+    var sentKeyboardInteractivePassword = false;
+    return SSHClient(
+      SshIdentificationSocket(socket),
+      username: username,
+      keepAliveInterval: null,
+      identities: options.privateKey == null
+          ? null
+          : _parsePrivateKey(options.privateKey!, options.passphrase),
+      onPasswordRequest: options.password == null
+          ? null
+          : () => options.password!,
+      // Support PAM / KbdInteractiveAuthentication servers (common on hardened
+      // bastions and jump hosts where PasswordAuthentication is disabled).
+      // Answer a single prompt at most once so wrong credentials never loop.
+      onUserInfoRequest: options.password == null
+          ? null
+          : (request) {
+              if (request.prompts.isEmpty) return const <String>[];
+              if (!sentKeyboardInteractivePassword &&
+                  request.prompts.length == 1) {
+                sentKeyboardInteractivePassword = true;
+                return <String>[options.password!];
+              }
+              return null;
+            },
+    );
+  }
 
   /// Open a byte stream using the authenticated transport (including jumps).
   /// This does not execute a command or acquire the terminal exec lock.
@@ -246,6 +263,7 @@ class SshClient {
   CommandExecutor? _commands;
   SshConnectOptions? _options;
   Future<void>? _terminalSetup;
+  Future<void>? _persistentShellRestart;
   Future<void>? _probeInFlight;
   bool _closing = false;
   bool _disposed = false;
@@ -284,7 +302,15 @@ class SshClient {
 
   /// Terminal-only work has its own budget and cannot fail SSH authentication.
   Future<void> prepareTerminal() {
-    return _terminalSetup ??= _prepareTerminal();
+    final existing = _terminalSetup;
+    if (existing != null) return existing;
+    late final Future<void> setup;
+    setup = _prepareTerminal().catchError((Object error, StackTrace stack) {
+      if (identical(_terminalSetup, setup)) _terminalSetup = null;
+      Error.throwWithStackTrace(error, stack);
+    });
+    _terminalSetup = setup;
+    return setup;
   }
 
   Future<void> _prepareTerminal() async {
@@ -299,6 +325,7 @@ class SshClient {
           password: _options?.workPassword ?? '',
         );
       } on WorkUserAuthenticationError catch (e) {
+        if (identical(_workShell, shell)) _workShell = null;
         throw SshAuthenticationError(e.message);
       }
     }
@@ -392,7 +419,10 @@ class SshClient {
     _state = SshConnectionState.connecting;
     _lastError = null;
     _tmuxPath = null;
-    final hasJumpHost = options.jumpHost?.isNotEmpty == true;
+    final trimmedJumpHost = options.jumpHost?.trim();
+    final hasJumpHost = trimmedJumpHost != null && trimmedJumpHost.isNotEmpty;
+    final effectiveJumpHost = hasJumpHost ? trimmedJumpHost : null;
+    final effectiveJumpPort = options.jumpPort ?? 22;
     var phase = hasJumpHost
         ? 'jump-host socket connection'
         : 'socket connection';
@@ -406,14 +436,14 @@ class SshClient {
     try {
       // Step 1: Create the initial socket (optionally through SOCKS5 proxy)
       SSHSocket initialSocket;
-      if (options.proxyHost != null && options.proxyHost!.isNotEmpty) {
+      if (options.proxyHost != null && options.proxyHost!.trim().isNotEmpty) {
         // Connect through SOCKS5 proxy
-        final proxyTarget = options.jumpHost ?? host;
-        final proxyTargetPort = options.jumpPort ?? port;
+        final proxyTarget = effectiveJumpHost ?? host;
+        final proxyTargetPort = hasJumpHost ? effectiveJumpPort : port;
         initialSocket = await attempt
             .wait(
               Socks5Socket.connect(
-                proxyHost: options.proxyHost!,
+                proxyHost: options.proxyHost!.trim(),
                 proxyPort: options.proxyPort ?? 1080,
                 targetHost: proxyTarget,
                 targetPort: proxyTargetPort,
@@ -425,8 +455,8 @@ class SshClient {
             )
             .timeout(budget.remaining);
       } else {
-        final directHost = options.jumpHost ?? host;
-        final directPort = options.jumpPort ?? port;
+        final directHost = effectiveJumpHost ?? host;
+        final directPort = hasJumpHost ? effectiveJumpPort : port;
         initialSocket = await attempt
             .wait(
               _socketConnector(directHost, directPort, budget.remaining),
@@ -447,7 +477,11 @@ class SshClient {
       if (hasJumpHost) {
         phase = 'jump-host authentication';
         budget.enter(phase);
-        final jumpUsername = options.jumpUsername ?? username;
+        final trimmedJumpUsername = options.jumpUsername?.trim();
+        final jumpUsername =
+            trimmedJumpUsername != null && trimmedJumpUsername.isNotEmpty
+                ? trimmedJumpUsername
+                : username;
         if (options.jumpPrivateKey == null && options.jumpPassword == null) {
           throw SshAuthenticationError(
             'No authentication method for jump host',
@@ -467,12 +501,14 @@ class SshClient {
           throw SshConnectionError('SSH connection cancelled');
         }
 
-        // Forward through jump host to the actual target
+        // Forward through jump host to the actual target.
+        // Pass numeric loopback as originator IP (RFC 4254 §7.2; desktop parity)
+        // because strict bastions may reject the literal hostname "localhost".
         phase = 'jump-host forwarding';
         budget.enter(phase, allowance: budget.forwardTimeout);
         final forwarded = await attempt
             .wait<SSHSocket>(
-              _jumpClient!.forwardLocal(host, port),
+              _jumpClient!.forwardLocal(host, port, localHost: '127.0.0.1'),
               onCancelledResult: (socket) => socket.destroy(),
             )
             .timeout(budget.remaining);
@@ -583,6 +619,12 @@ class SshClient {
     if (port < 1 || port > 65535) {
       throw SshConnectionError('Invalid port number: $port');
     }
+    if (options.jumpHost?.trim().isNotEmpty == true) {
+      final jumpPort = options.jumpPort ?? 22;
+      if (jumpPort < 1 || jumpPort > 65535) {
+        throw SshConnectionError('Invalid jump port number: $jumpPort');
+      }
+    }
     if (options.timeout <= 0) {
       throw SshConnectionError('SSH timeout must be positive');
     }
@@ -663,6 +705,7 @@ class SshClient {
     final jumpClient = _jumpClient;
     _jumpClient = null;
     _terminalSetup = null;
+    _persistentShellRestart = null;
 
     // Close both hops immediately, before awaiting terminal subscriptions.
     // A socket that has not yet acquired an SSH transport needs destruction
@@ -720,15 +763,25 @@ class SshClient {
   }
 
   Future<void> _detectTmuxPath() async {
-    // Common paths first: no interactive/login shell hooks on the fast path.
-    for (final command in [
-      r'''for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if test -x "$p"; then printf '%s\n' "$p"; exit; fi; done; command -v tmux''',
-      r"$SHELL -lc 'command -v tmux'",
-    ]) {
+    // Check PATH first so a user-selected tmux binary (conda/linuxbrew/local)
+    // is not shadowed by an older /usr/bin/tmux whose protocol version mismatches
+    // a running tmux server ("server exited unexpectedly"). Fall back to common
+    // non-login paths and finally the login shell.
+    final probes = <(String, Duration)>[
+      (
+        r'''p=$(command -v tmux 2>/dev/null); case "$p" in /*) printf '%s\n' "$p"; exit;; esac; for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if test -x "$p"; then printf '%s\n' "$p"; exit; fi; done''',
+        const Duration(seconds: 3),
+      ),
+      (
+        r"$SHELL -lc 'command -v tmux'",
+        const Duration(seconds: 5),
+      ),
+    ];
+    for (final (command, timeout) in probes) {
       try {
         final result = await execTerminalWithExitCode(
           command,
-          timeout: const Duration(seconds: 3),
+          timeout: timeout,
         );
         final path = result.stdout.trim();
         if (result.exitCode == 0 &&
@@ -956,20 +1009,62 @@ class SshClient {
       return execTerminal(resolvedCommand, timeout: timeout);
     }
 
-    // 持続的シェルが利用できない場合は従来のexec()にフォールバック
+    // Fall back to a one-shot exec() if the persistent shell is unavailable,
+    // and schedule a background restart so transient timeouts do not leave
+    // polling permanently degraded to per-tick SSH channels.
     if (_persistentShell == null || !_persistentShell!.isStarted) {
+      _schedulePersistentShellRestart();
       return exec(resolvedCommand, timeout: timeout);
     }
 
     try {
       return await _persistentShell!.exec(resolvedCommand, timeout: timeout);
     } on PersistentShellError catch (e) {
+      if (_persistentShell != null && !_persistentShell!.isStarted) {
+        _schedulePersistentShellRestart();
+      }
       // Retrying after a timeout/EOF could execute a mutation twice. Only a
       // command rejected before it was sent (for example a busy shell) may
       // use the ordinary channel fallback.
       if (e.mayHaveExecuted) rethrow;
       return exec(resolvedCommand, timeout: timeout);
     }
+  }
+
+  void _schedulePersistentShellRestart() {
+    if (_closing ||
+        _disposed ||
+        !isConnected ||
+        _client == null ||
+        _client!.isClosed ||
+        _options?.workUsername != null ||
+        _persistentShellRestart != null) {
+      return;
+    }
+    final transport = _client!;
+    late final Future<void> restart;
+    restart = () async {
+      final candidate = PersistentShell(transport);
+      try {
+        await candidate.start(timeout: const Duration(seconds: 3));
+        if (_closing || _disposed || !identical(_client, transport)) {
+          await candidate.dispose();
+          return;
+        }
+        final previous = _persistentShell;
+        _persistentShell = candidate;
+        await previous?.dispose();
+      } catch (_) {
+        await candidate.dispose();
+      }
+    }()
+        .whenComplete(() {
+          if (identical(_persistentShellRestart, restart)) {
+            _persistentShellRestart = null;
+          }
+        });
+    _persistentShellRestart = restart;
+    unawaited(restart);
   }
 
   /// コマンドを実行して終了コードを取得する

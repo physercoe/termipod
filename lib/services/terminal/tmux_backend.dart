@@ -483,7 +483,7 @@ class TmuxBackend implements TerminalBackend {
       final pollingClient = _sshClient;
       final combinedOutput = await pollingClient.execPersistent(
         combinedCommand,
-        timeout: const Duration(seconds: 2),
+        timeout: const Duration(seconds: 5),
       );
 
       if (_disposed ||

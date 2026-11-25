@@ -62,6 +62,10 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   final _jumpHostController = TextEditingController();
   final _jumpPortController = TextEditingController(text: '22');
   final _jumpUsernameController = TextEditingController();
+  final _jumpPasswordController = TextEditingController();
+  bool _obscureJumpPassword = true;
+  bool _hasSavedJumpPassword = false;
+  Connection? _originalConnection;
 
   // Proxy controllers
   final _proxyHostController = TextEditingController();
@@ -108,6 +112,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   void _loadExistingConnection() {
     final connection = ref.read(connectionsProvider.notifier).getById(widget.connectionId!);
     if (connection != null) {
+      _originalConnection = connection;
       _nameController.text = connection.name;
       _hostController.text = connection.host;
       _portController.text = connection.port.toString();
@@ -118,10 +123,11 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       _workUsernameController.text = connection.workUsername ?? '';
       _savedWorkUsername = connection.workUsername;
       _loadWorkPasswordStatus(connection.id);
+      _loadJumpPasswordStatus(connection.id);
       _terminalMode = connection.terminalMode ?? 'tmux';
       _deepLinkIdController.text = connection.deepLinkId ?? '';
       // Jump host
-      if (connection.jumpHost != null) {
+      if (connection.jumpHost != null && connection.jumpHost!.trim().isNotEmpty) {
         _useJumpHost = true;
         _jumpHostController.text = connection.jumpHost!;
         _jumpPortController.text = (connection.jumpPort ?? 22).toString();
@@ -130,7 +136,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         _jumpSelectedKeyId = connection.jumpKeyId;
       }
       // Proxy
-      if (connection.proxyHost != null) {
+      if (connection.proxyHost != null && connection.proxyHost!.trim().isNotEmpty) {
         _useProxy = true;
         _proxyHostController.text = connection.proxyHost!;
         _proxyPortController.text = (connection.proxyPort ?? 1080).toString();
@@ -143,6 +149,13 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   Future<void> _loadWorkPasswordStatus(String id) async {
     final password = await SecureStorageService().getPassword('${id}_su');
     if (mounted) setState(() => _hasSavedWorkPassword = password != null);
+  }
+
+  Future<void> _loadJumpPasswordStatus(String id) async {
+    final password = await SecureStorageService().getPassword('${id}_jump');
+    if (mounted) {
+      setState(() => _hasSavedJumpPassword = password != null && password.isNotEmpty);
+    }
   }
 
   bool get _canKeepWorkPassword => _hasSavedWorkPassword &&
@@ -162,6 +175,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     _jumpHostController.dispose();
     _jumpPortController.dispose();
     _jumpUsernameController.dispose();
+    _jumpPasswordController.dispose();
     _proxyHostController.dispose();
     _proxyPortController.dispose();
     _proxyUsernameController.dispose();
@@ -1067,7 +1081,9 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                 const SizedBox(height: 8),
                 if (_jumpAuthMethod == 'key')
                   DropdownButtonFormField<String>(
-                    value: _jumpSelectedKeyId,
+                    value: keysState.keys.any((k) => k.id == _jumpSelectedKeyId)
+                        ? _jumpSelectedKeyId
+                        : null,
                     decoration: InputDecoration(
                       prefixIcon: Icon(Icons.vpn_key_outlined, color: mutedColor, size: 20),
                       filled: true,
@@ -1084,14 +1100,64 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                       return DropdownMenuItem(value: key.id, child: Text(key.name));
                     }).toList(),
                     onChanged: (value) => setState(() => _jumpSelectedKeyId = value),
+                    validator: (value) {
+                      if (_useJumpHost && _jumpAuthMethod == 'key' && value == null) {
+                        return l10n.keyRequiredError;
+                      }
+                      return null;
+                    },
                     hint: Text(
                       keysState.keys.isEmpty ? l10n.keyDropdownNoKeys : l10n.keyDropdownSelect,
                       style: GoogleFonts.spaceGrotesk(color: mutedColor),
                     ),
+                  )
+                else
+                  TextFormField(
+                    controller: _jumpPasswordController,
+                    obscureText: _obscureJumpPassword,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                    decoration: InputDecoration(
+                      hintText: _hasSavedJumpPassword
+                          ? l10n.workPasswordSavedHint
+                          : (_authMethod == 'password'
+                              ? l10n.jumpUsernameHint
+                              : l10n.passwordHint),
+                      hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                      prefixIcon: Icon(Icons.key, color: mutedColor, size: 20),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureJumpPassword ? Icons.visibility_off : Icons.visibility,
+                          color: mutedColor,
+                          size: 20,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscureJumpPassword = !_obscureJumpPassword),
+                      ),
+                      filled: true,
+                      fillColor: inputColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: colorScheme.primary),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: Spacing.s12),
+                    ),
+                    validator: (value) {
+                      if (_useJumpHost &&
+                          _jumpAuthMethod == 'password' &&
+                          _authMethod != 'password' &&
+                          !_hasSavedJumpPassword &&
+                          (value == null || value.isEmpty)) {
+                        return l10n.passwordRequiredError;
+                      }
+                      return null;
+                    },
                   ),
-                // For password auth, the jump host password will be fetched from secure storage
-                // using the same pattern as the main connection password.
-                // The hint tells the user the jump password is stored with the connection.
               ],
             ],
           ),
@@ -1440,13 +1506,32 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       String? jumpPrivateKey;
       String? jumpPassphrase;
       if (_useJumpHost) {
-        if (_jumpAuthMethod == 'key' && _jumpSelectedKeyId != null) {
-          final storage = SecureStorageService();
+        final storage = SecureStorageService();
+        if (_jumpAuthMethod == 'key') {
+          if (_jumpSelectedKeyId == null) {
+            throw SshAuthenticationError(l10n.keyRequiredError);
+          }
           jumpPrivateKey = await storage.getPrivateKey(_jumpSelectedKeyId!);
           jumpPassphrase = await storage.getPassphrase(_jumpSelectedKeyId!);
+          if (jumpPrivateKey == null) {
+            throw SshAuthenticationError(l10n.privateKeyNotFoundError);
+          }
         } else {
-          // For jump host password auth, reuse main password for now
-          jumpPassword = password;
+          final enteredJumpPassword = _jumpPasswordController.text;
+          if (enteredJumpPassword.isNotEmpty) {
+            jumpPassword = enteredJumpPassword;
+          } else if (widget.isEditing) {
+            final savedJumpPassword =
+                await storage.getPassword('${widget.connectionId}_jump');
+            jumpPassword = savedJumpPassword != null && savedJumpPassword.isNotEmpty
+                ? savedJumpPassword
+                : password;
+          } else {
+            jumpPassword = password;
+          }
+          if (jumpPassword == null || jumpPassword.isEmpty) {
+            throw SshAuthenticationError(l10n.jumpAuthNoCredentials);
+          }
         }
       }
 
@@ -1534,15 +1619,22 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       final connectionId = widget.connectionId ?? const Uuid().v4();
       developer.log('Connection ID: $connectionId (isEditing: ${widget.isEditing})', name: 'ConnectionForm');
 
+      final storage = SecureStorageService();
       if (_authMethod == 'password' && _passwordController.text.isNotEmpty) {
         developer.log('Saving password to secure storage...', name: 'ConnectionForm');
-        final storage = SecureStorageService();
         await storage.savePassword(connectionId, _passwordController.text);
         developer.log('Password saved successfully', name: 'ConnectionForm');
       }
 
+      if (_useJumpHost && _jumpAuthMethod == 'password') {
+        if (_jumpPasswordController.text.isNotEmpty) {
+          await storage.savePassword('${connectionId}_jump', _jumpPasswordController.text);
+        }
+      } else {
+        await storage.deletePassword('${connectionId}_jump');
+      }
+
       final workPassword = await _workPassword();
-      final storage = SecureStorageService();
       if (workPassword != null) {
         await storage.savePassword('${connectionId}_su', workPassword);
       } else {
@@ -1595,8 +1687,31 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       final workUserChanged = widget.isEditing &&
           (_savedWorkUsername != connection.workUsername ||
               _workPasswordController.text.isNotEmpty);
-      if (workUserChanged &&
-          ref.read(activeSshConnectionIdsProvider).contains(connectionId)) {
+      final prev = _originalConnection;
+      final transportChanged = widget.isEditing &&
+          (workUserChanged ||
+              _passwordController.text.isNotEmpty ||
+              _jumpPasswordController.text.isNotEmpty ||
+              prev == null ||
+              prev.host != connection.host ||
+              prev.port != connection.port ||
+              prev.username != connection.username ||
+              prev.authMethod != connection.authMethod ||
+              prev.keyId != connection.keyId ||
+              prev.tmuxPath != connection.tmuxPath ||
+              prev.terminalMode != connection.terminalMode ||
+              prev.jumpHost != connection.jumpHost ||
+              prev.jumpPort != connection.jumpPort ||
+              prev.jumpUsername != connection.jumpUsername ||
+              prev.jumpAuthMethod != connection.jumpAuthMethod ||
+              prev.jumpKeyId != connection.jumpKeyId ||
+              prev.proxyHost != connection.proxyHost ||
+              prev.proxyPort != connection.proxyPort ||
+              prev.proxyUsername != connection.proxyUsername ||
+              prev.proxyPassword != connection.proxyPassword);
+      if (transportChanged &&
+          (ref.read(activeSshConnectionIdsProvider).contains(connectionId) ||
+              ref.exists(sshProvider(connectionId)))) {
         await ref.read(sshProvider(connectionId).notifier).disconnect();
       }
 

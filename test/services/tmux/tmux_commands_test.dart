@@ -3,6 +3,43 @@ import 'package:termipod/services/tmux/tmux_commands.dart';
 
 void main() {
   group('TmuxCommands', () {
+    group('pageAppTranscript', () {
+      test('Claude uses its own exact delivery-time guard', () {
+        expect(
+            TmuxCommands.pageAppTranscript('%42', 'PPage', application: 'claude'),
+            'tmux if-shell -F -t %42 '
+            '"#{&&:#{alternate_on},#{&&:#{==:#{pane_current_command},claude},'
+            '#{==:#{pane_in_mode},0}}}" "send-keys -t %42 PPage"');
+        for (final key in ['NPage', 'C-End']) {
+          expect(TmuxCommands.pageAppTranscript('%1', key, application: 'claude'),
+              endsWith('"send-keys -t %1 $key"'));
+        }
+      });
+
+      test('rejects ambiguous or untrusted app names and non-navigation keys', () {
+        for (final app in [
+          'node',
+          'bash',
+          'vim',
+          'claude-code',
+          '2.1.295',
+          'claude-helper',
+          'claude; send-keys Enter',
+          '',
+        ]) {
+          expect(TmuxCommands.supportsTranscriptPaging(app), isFalse);
+          expect(
+              () => TmuxCommands.pageAppTranscript('%1', 'PPage', application: app),
+              throwsArgumentError);
+        }
+        expect(TmuxCommands.supportsTranscriptPaging(null), isFalse);
+        expect(TmuxCommands.supportsTranscriptPaging('codex'), isTrue);
+        expect(TmuxCommands.supportsTranscriptPaging('claude'), isTrue);
+        expect(
+            () => TmuxCommands.pageAppTranscript('%1', 'Enter', application: 'claude'),
+            throwsArgumentError);
+      });
+    });
     group('pageCodexTranscript', () {
       test('rechecks fullscreen Codex and excludes copy-mode on the server', () {
         expect(TmuxCommands.pageCodexTranscript('%42', 'PPage'),

@@ -69,6 +69,73 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
   }
 
+  testBackend('Claude fullscreen supports paging and returning to latest', (
+    tester,
+  ) async {
+    client.command = 'claude';
+    await poll(tester);
+    expect(backend.supportsTranscriptPaging, isTrue);
+    expect(backend.scrollbackSize, 0);
+    await backend.pageTranscript(older: true);
+    await poll(tester);
+    expect(backend.currentContent, startsWith('page -1 row 0'));
+    await backend.pageTranscript(older: false);
+    await backend.jumpToLatestTranscript();
+    expect(client.inputs, hasLength(3));
+    expect(
+      client.inputs,
+      everyElement(contains('#{pane_current_command},claude}')),
+    );
+    expect(client.inputs[0], endsWith('PPage"'));
+    expect(client.inputs[1], endsWith('NPage"'));
+    expect(client.inputs[2], endsWith('C-End"'));
+  });
+
+  testBackend(
+    'classic Claude keeps normal tmux history and does not receive paging keys',
+    (tester) async {
+      client.command = 'claude';
+      client.alternate = false;
+      await poll(tester);
+      await poll(tester);
+      expect(backend.supportsTranscriptPaging, isFalse);
+      expect(client.captures.last, contains('-S -250'));
+      await backend.pageTranscript(older: true);
+      expect(client.inputs, isEmpty);
+    },
+  );
+
+  testBackend(
+    'Claude copy-mode and exited application cannot receive transcript input',
+    (tester) async {
+      client.command = 'claude';
+      client.mode = 'copy-mode';
+      await poll(tester);
+      expect(backend.supportsTranscriptPaging, isFalse);
+      await backend.pageTranscript(older: true);
+      client.mode = '';
+      await poll(tester);
+      expect(backend.supportsTranscriptPaging, isTrue);
+      client.command = 'bash';
+      await poll(tester);
+      await backend.jumpToLatestTranscript();
+      expect(client.inputs, isEmpty);
+    },
+  );
+
+  testBackend(
+    'switching from Codex to Claude selects the Claude server guard',
+    (tester) async {
+      await poll(tester);
+      await backend.pageTranscript(older: true);
+      client.command = 'claude';
+      await poll(tester);
+      await backend.pageTranscript(older: true);
+      expect(client.inputs.first, contains('#{pane_current_command},codex}'));
+      expect(client.inputs.last, contains('#{pane_current_command},claude}'));
+    },
+  );
+
   testBackend(
     'fullscreen history pages remotely instead of inflating capture',
     (tester) async {
